@@ -1,9 +1,8 @@
 //! File scanner — walks directories and scans for secrets.
 
 use crate::detectors;
-use crate::patterns::Severity;
 use crate::verify::SecretVerifier;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use crate::detectors::Finding;
 use crate::verify::VerificationResult;
@@ -131,7 +130,6 @@ impl SecurityScanner {
 mod tests {
     use super::*;
     use crate::detectors;
-    use crate::patterns::Severity;
     use std::io::Write;
 
     #[test]

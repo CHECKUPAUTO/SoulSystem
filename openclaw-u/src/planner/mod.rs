@@ -102,6 +102,7 @@ impl GoalPlanner {
         Some(self.goals.remove(idx))
     }
 
+    #[allow(dead_code)]
     pub fn peek(&self) -> Option<&Goal> {
         self.goals.iter()
             .max_by(|a, b| {
@@ -109,18 +110,22 @@ impl GoalPlanner {
             })
     }
 
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.goals.len()
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.goals.is_empty()
     }
 
+    #[allow(dead_code)]
     pub fn to_vec(&self) -> Vec<Goal> {
         self.goals.clone()
     }
 
+    #[allow(dead_code)]
     pub fn from_vec(goals: Vec<Goal>) -> Self {
         let mut planner = Self::new(goals.len().max(50));
         for goal in goals {

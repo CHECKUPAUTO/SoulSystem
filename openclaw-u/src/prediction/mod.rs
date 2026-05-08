@@ -1,6 +1,6 @@
 //! Prediction — Forecasting CPU/mémoire par régression linéaire
 
-use tracing::{info, warn};
+use tracing::info;
 
 /// Prédiction basée sur l'historique des métriques
 #[derive(Debug, Clone)]
@@ -14,6 +14,7 @@ struct MetricPoint {
     cpu: f32,
     mem: f32,
     disk: f32,
+    #[allow(dead_code)]
     timestamp: f64,
 }
 

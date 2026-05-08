@@ -1,9 +1,9 @@
 //! Persistence — Stockage durable NVMe/SQLite pour l'état
 
-use rusqlite::{Connection, Result as SqlResult};
+use rusqlite::Connection;
 use serde_json;
 use std::path::Path;
-use tracing::{info, warn};
+use tracing::info;
 
 const DB_PATH: &str = "/mnt/nvme/soullink_brain/openclaw_u_state.db";
 

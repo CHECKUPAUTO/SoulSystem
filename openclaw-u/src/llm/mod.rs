@@ -65,7 +65,7 @@ impl LlmResponse {
     }
 
     /// Convertit l'action en score de priorité (urgence × impact × énergie)
-    pub fn priority_score(&self, cpu: f32, mem: f32, disk: f32) -> f32 {
+    pub fn priority_score(&self, cpu: f32, mem: f32, _disk: f32) -> f32 {
         let base = self.confidence;
         let urgency = if cpu > 80.0 || mem > 90.0 { 2.0 } else if cpu > 50.0 || mem > 70.0 { 1.5 } else { 1.0 };
         let impact = match self.action.as_str() {

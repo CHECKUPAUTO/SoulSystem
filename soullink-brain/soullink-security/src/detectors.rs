@@ -1,7 +1,7 @@
 //! Detectors — combines pattern matching and entropy analysis.
 
-use crate::entropy::{is_base64_secret, is_hex_secret, is_high_entropy};
-use crate::patterns::{SecretPattern, Severity, SECRET_PATTERNS};
+use crate::entropy::{is_base64_secret, is_hex_secret};
+use crate::patterns::{Severity, SECRET_PATTERNS};
 use std::path::Path;
 
 /// A finding from a scan.

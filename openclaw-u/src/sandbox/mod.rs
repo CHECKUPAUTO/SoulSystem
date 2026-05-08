@@ -22,6 +22,7 @@ pub struct SandboxResult {
     pub tests_passed: bool,
     pub clippy_clean: bool,
     pub output: String,
+    #[allow(dead_code)]
     pub backup_path: PathBuf,
 }
 
@@ -286,6 +287,7 @@ impl Sandbox {
 }
 
 /// Évolue avec sandbox
+#[allow(dead_code)]
 pub async fn auto_evolve_sandboxed(
     state: Arc<Mutex<CoreState>>,
     file_path: &str,

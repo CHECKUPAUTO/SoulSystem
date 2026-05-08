@@ -14,16 +14,21 @@ use crate::sandbox::{Sandbox, SandboxResult};
 #[derive(Debug, Clone)]
 pub struct EvolutionResult {
     pub success: bool,
+    #[allow(dead_code)]
     pub patch_file: String,
+    #[allow(dead_code)]
     pub test_output: String,
+    #[allow(dead_code)]
     pub commit_hash: Option<String>,
     pub energy_delta: f64,
+    #[allow(dead_code)]
     pub llm_generated: bool,
 }
 
 /// Moteur d'auto-codage
 pub struct AutoCoder {
     pub project_dir: String,
+    #[allow(dead_code)]
     pub test_command: String,
 }
 
@@ -157,6 +162,7 @@ pub enum OpportunityKind {
     RemoveStub,
     ReplacePrintln,
     AddTests,
+    #[allow(dead_code)]
     OptimizeAlgorithm,
 }
 
@@ -305,6 +311,7 @@ pub async fn auto_evolve_llm(state: Arc<Mutex<CoreState>>, llm: LlmEngine) -> Ev
     }
 }
 
+#[allow(dead_code)]
 pub async fn auto_evolve_sandboxed(
     state: Arc<Mutex<CoreState>>,
     file_path: &str,

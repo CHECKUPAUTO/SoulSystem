@@ -1,7 +1,6 @@
 //! Metacognition — Auto-évaluation de la qualité des décisions
 
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
 
 /// Métrique de performance d'un cycle
 #[derive(Debug, Clone, Serialize, Deserialize)]

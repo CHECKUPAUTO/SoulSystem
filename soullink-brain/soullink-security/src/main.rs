@@ -3,7 +3,7 @@
 //! Usage: soullink-scan [PATH]
 //! Scans files/directories for secrets and vulnerabilities.
 
-use soullink_security::{SecurityScanner, ScanResult, Finding, Severity};
+use soullink_security::{SecurityScanner, Severity};
 use std::path::PathBuf;
 use tracing::info;
 
