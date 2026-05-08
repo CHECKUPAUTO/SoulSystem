@@ -25,7 +25,7 @@ impl SystemSnapshot {
     pub async fn capture() -> Self {
         let hnn = super::hnn_bridge::HnnState::fetch().await;
         let hnn_online = hnn.organs.len() as u8;
-        let hnn_healthy = hnn.is_healthy();
+        let hnn_healthy = hnn_online >= 10; // science, mind, engineer, crypto, creative, meta, foresight, homeostasis, creativity, social, validation...
 
         let mut pending = Vec::new();
 
@@ -135,6 +135,8 @@ impl SystemSnapshot {
             "sl13-brain-science", "sl13-brain-mind", "sl13-brain-engineer",
             "sl13-brain-crypto", "sl13-brain-creative", "sl13-brain-meta",
             "sl13-mod-decision_engine", "sl13-memory",
+            "soullink-foresight", "soullink-homeostasis", "soullink-creativity",
+            "soullink-social", "soullink-validation",
         ];
         let mut ok = 0;
         for svc in &services {

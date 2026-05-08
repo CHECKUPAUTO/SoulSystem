@@ -27,7 +27,7 @@ done
 # Ports
 echo ""
 echo "🌐 Ports:"
-for port in 9010 9011 9012 9013 9014 9015 9020 9030 9051 9095 9786; do
+for port in 9010 9011 9012 9013 9014 9015 9020 9030 9040 9041 9042 9043 9044 9051 9095 9786; do
     if ss -tlnp | grep -q ":$port "; then
         echo "  ✅ :$port"
     else

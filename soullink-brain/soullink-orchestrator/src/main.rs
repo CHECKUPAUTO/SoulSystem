@@ -89,6 +89,11 @@ impl AppState {
             ("crypto",   9013,    vec!["trading","blockchain","defi","markets","crypto","finance"]),
             ("creative", 9014,    vec!["patterns","geometry","art","vision","design","creative"]),
             ("meta",     9015,    vec!["learning","optimization","meta","reinforcement"]),
+            ("foresight",   9040, vec!["prediction", "foresight", "patterns", "future"]),
+            ("homeostasis", 9041, vec!["health", "stability", "vitals", "homeostasis"]),
+            ("creativity",  9042, vec!["novelty", "art", "metaphor", "creativity"]),
+            ("social",      9043, vec!["social", "profile", "formality", "intent"]),
+            ("validation",  9044, vec!["security", "audit", "safety", "validation"]),
         ];
 
         let brains: DashMap<String, BrainConfig> = DashMap::new();
@@ -269,7 +274,7 @@ async fn route_status(State(state): State<AppState>) -> Json<Value> {
         "total_N":      total_n,
         "online":       online,
         "total_brains": state.brains.len(),
-        "version":      "v13.5",
+        "version":      "v13.5.1",
         "ts":           now_ts(),
     }))
 }

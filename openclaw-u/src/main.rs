@@ -287,7 +287,7 @@ pub enum ExternalEvent {
 async fn heartbeat_loop(
     state: Arc<Mutex<CoreState>>,
     mut rx: mpsc::Receiver<ExternalEvent>,
-    downlink_rx: mpsc::Receiver<DownlinkMessage>,
+    mut downlink_rx: mpsc::Receiver<DownlinkMessage>,
 ) {
     // Charger la config runtime
     let (llm_fast, llm_deep, heartbeat_interval, _auto_evolve_interval) = {

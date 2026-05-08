@@ -52,6 +52,8 @@ impl HnnState {
         // Fetch V14 organs (ports 9095, 9786)
         for (port, name) in [
             (9095, "v14_fusion"), (9786, "chronos"),
+            (9040, "foresight"), (9041, "homeostasis"), (9042, "creativity"),
+            (9043, "social"), (9044, "validation"),
         ] {
             match reqwest::Client::new()
                 .get(format!("http://127.0.0.1:{}/api/stats", port))
