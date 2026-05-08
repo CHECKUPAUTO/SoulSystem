@@ -32,9 +32,6 @@ struct AppState {
     alpha: f64, // exponential smoothing
     tick_count: DashMap<String, u64>,
     spikes: DashMap<String, usize>,
-    hz: DashMap<String, f64>,
-    turbulence_value: DashMap<String, f64>,
-    turbulence_variance: DashMap<String, f64>,
     rewards: DashMap<String, usize>,
     start_time: Instant,
     last_stimulus: DashMap<String, Instant>,
@@ -47,9 +44,6 @@ fn default_state() -> Arc<AppState> {
         alpha: 0.3,
         tick_count: DashMap::new(),
         spikes: DashMap::new(),
-        hz: DashMap::new(),
-        turbulence_value: DashMap::new(),
-        turbulence_variance: DashMap::new(),
         rewards: DashMap::new(),
         start_time: Instant::now(),
         last_stimulus: DashMap::new(),
@@ -64,15 +58,6 @@ fn calc_turbulence(state: &AppState) -> (f64, String, bool) {
     (tv.min(1.0), attractor.to_string(), tv > 0.7)
 }
 
-#[derive(Serialize)]
-struct StatsResponse {
-    N: usize, avg_weight: f64, concepts_count: usize, hz: f64, n: usize,
-    name: String, rewards_count: usize, spikes: usize, tick_count: u64,
-    turbulence: TurbulenceInfo, version: String,
-}
-
-#[derive(Serialize)]
-struct TurbulenceInfo { attractor: String, is_critical: bool, mean_gradient: f64, value: f64, variance: f64 }
 
 async fn api_stats(State(s): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let tc: u64 = s.tick_count.iter().map(|r| *r.value()).sum();
@@ -144,7 +129,7 @@ async fn api_foresight_health(State(s): State<Arc<AppState>>) -> Json<serde_json
 
 // Standard mesh endpoints
 #[derive(Deserialize)]
-struct StimulusRequest { content: Option<String>, intensity: Option<f64> }
+struct StimulusRequest { _content: Option<String>, _intensity: Option<f64> }
 
 async fn api_stimulate(State(s): State<Arc<AppState>>, Json(_req): Json<StimulusRequest>) -> Json<serde_json::Value> {
     *s.spikes.entry("stimulate".to_string()).or_insert(0) += 1;
@@ -153,7 +138,7 @@ async fn api_stimulate(State(s): State<Arc<AppState>>, Json(_req): Json<Stimulus
 }
 
 #[derive(Deserialize)]
-struct ReinforceRequest { reward: Option<f64> }
+struct ReinforceRequest { _reward: Option<f64> }
 
 async fn api_reinforce(State(s): State<Arc<AppState>>, Json(_req): Json<ReinforceRequest>) -> Json<serde_json::Value> {
     *s.rewards.entry("reinforce".to_string()).or_insert(0) += 1;
@@ -162,7 +147,7 @@ async fn api_reinforce(State(s): State<Arc<AppState>>, Json(_req): Json<Reinforc
 }
 
 #[derive(Deserialize)]
-struct LearnRequest { concept: Option<String>, data: Option<serde_json::Value> }
+struct LearnRequest { concept: Option<String>, _data: Option<serde_json::Value> }
 
 async fn api_learn(State(s): State<Arc<AppState>>, Json(req): Json<LearnRequest>) -> Json<serde_json::Value> {
     *s.spikes.entry("learn".to_string()).or_insert(0) += 1;

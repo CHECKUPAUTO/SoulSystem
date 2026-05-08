@@ -21,29 +21,12 @@ struct AuditEntry {
     timestamp: i64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-struct VerificationResult {
-    coherent: bool,
-    score: f64,
-    issues: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct SafetyResult {
-    safe: bool,
-    violations: Vec<String>,
-    risk_level: String,
-}
-
 struct AppState {
     audit_log: DashMap<u64, AuditEntry>,
     next_audit_id: DashMap<String, u64>,
     safety_rules: DashMap<String, Vec<String>>,
     tick_count: DashMap<String, u64>,
     spikes: DashMap<String, usize>,
-    hz: DashMap<String, f64>,
-    turbulence_value: DashMap<String, f64>,
-    turbulence_variance: DashMap<String, f64>,
     rewards: DashMap<String, usize>,
     start_time: Instant,
     last_stimulus: DashMap<String, Instant>,
@@ -56,9 +39,6 @@ fn default_state() -> Arc<AppState> {
         safety_rules: DashMap::new(),
         tick_count: DashMap::new(),
         spikes: DashMap::new(),
-        hz: DashMap::new(),
-        turbulence_value: DashMap::new(),
-        turbulence_variance: DashMap::new(),
         rewards: DashMap::new(),
         start_time: Instant::now(),
         last_stimulus: DashMap::new(),
@@ -111,7 +91,7 @@ async fn api_stats(State(s): State<Arc<AppState>>) -> Json<serde_json::Value> {
 }
 
 #[derive(Deserialize)]
-struct VerifyRequest { content: String, context: Option<String> }
+struct VerifyRequest { content: String, _context: Option<String> }
 
 async fn api_verify(State(s): State<Arc<AppState>>, Json(req): Json<VerifyRequest>) -> Json<serde_json::Value> {
     *s.tick_count.entry("verify".to_string()).or_insert(0) += 1;
@@ -197,7 +177,7 @@ async fn api_audit(State(s): State<Arc<AppState>>) -> Json<serde_json::Value> {
 
 // Standard mesh endpoints
 #[derive(Deserialize)]
-struct StimulusRequest { content: Option<String>, intensity: Option<f64> }
+struct StimulusRequest { _content: Option<String>, _intensity: Option<f64> }
 
 async fn api_stimulate(State(s): State<Arc<AppState>>, Json(_req): Json<StimulusRequest>) -> Json<serde_json::Value> {
     *s.spikes.entry("stimulate".to_string()).or_insert(0) += 1;

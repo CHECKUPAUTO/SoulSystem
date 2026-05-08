@@ -68,27 +68,61 @@ impl SystemSnapshot {
     }
 
     async fn read_cpu() -> f32 {
-        match Command::new("sh").args(["-c", "cat /proc/loadavg | awk '{print $1}'"]).output() {
-            Ok(o) if o.status.success() => {
-                String::from_utf8_lossy(&o.stdout).trim().parse::<f32>().unwrap_or(0.0) * 100.0 / 16.0
+        let n_cores = std::fs::read_to_string("/proc/cpuinfo")
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.starts_with("processor"))
+            .count()
+            .max(1) as f32;
+
+        match std::fs::read_to_string("/proc/loadavg") {
+            Ok(content) => {
+                let load = content.split_whitespace().next()
+                    .and_then(|v| v.parse::<f32>().ok())
+                    .unwrap_or(0.0);
+                (load * 100.0 / n_cores).min(100.0)
             }
             _ => 0.0,
         }
     }
 
     async fn read_mem() -> f32 {
-        match Command::new("sh").args(["-c", "free | grep Mem | awk '{print $3/$2 * 100.0}'"]).output() {
-            Ok(o) if o.status.success() => {
-                String::from_utf8_lossy(&o.stdout).trim().parse::<f32>().unwrap_or(0.0)
+        match std::fs::read_to_string("/proc/meminfo") {
+            Ok(content) => {
+                let mut total = 0.0;
+                let mut available = 0.0;
+                for line in content.lines() {
+                    if line.starts_with("MemTotal:") {
+                        total = line.split_whitespace().nth(1)
+                            .and_then(|v| v.parse::<f32>().ok())
+                            .unwrap_or(0.0);
+                    }
+                    if line.starts_with("MemAvailable:") {
+                        available = line.split_whitespace().nth(1)
+                            .and_then(|v| v.parse::<f32>().ok())
+                            .unwrap_or(0.0);
+                    }
+                }
+                if total > 0.0 {
+                    ((total - available) / total * 100.0).clamp(0.0, 100.0)
+                } else {
+                    0.0
+                }
             }
             _ => 0.0,
         }
     }
 
     async fn read_disk() -> f32 {
-        match Command::new("sh").args(["-c", "df / | tail -1 | awk '{print $5}' | sed 's/%//'"]).output() {
+        // df uses statfs which is harder to do in pure Rust without a crate,
+        // but for now let's at least optimize the shell call or keep it if it's too complex.
+        // Actually, many agents have control over the server, so df is usually fine.
+        match Command::new("df").args(["--output=pcent", "/"]).output() {
             Ok(o) if o.status.success() => {
-                String::from_utf8_lossy(&o.stdout).trim().parse::<f32>().unwrap_or(0.0)
+                let s = String::from_utf8_lossy(&o.stdout);
+                s.lines().nth(1)
+                    .map(|l| l.trim_end_matches('%').trim().parse::<f32>().unwrap_or(0.0))
+                    .unwrap_or(0.0)
             }
             _ => 0.0,
         }

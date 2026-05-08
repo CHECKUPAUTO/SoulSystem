@@ -53,8 +53,8 @@ use metacognition::Metacognition;
 use resilience::ResilienceEngine;
 
 const STATE_PATH: &str = "/tmp/openclaw_u_state.json";
-const EVOLUTION_LOG: &str = "/tmp/openclaw_u_evolution.log";
-const HEARTBEAT_INTERVAL_SECS: u64 = 30;
+const _EVOLUTION_LOG: &str = "/tmp/openclaw_u_evolution.log";
+const _HEARTBEAT_INTERVAL_SECS: u64 = 30;
 const MAX_HISTORY: usize = 100;
 
 // Fonctions de défaut pour les champs serde(skip)
@@ -287,10 +287,10 @@ pub enum ExternalEvent {
 async fn heartbeat_loop(
     state: Arc<Mutex<CoreState>>,
     mut rx: mpsc::Receiver<ExternalEvent>,
-    mut downlink_rx: mpsc::Receiver<DownlinkMessage>,
+    downlink_rx: mpsc::Receiver<DownlinkMessage>,
 ) {
     // Charger la config runtime
-    let (llm_fast, llm_deep, heartbeat_interval, auto_evolve_interval) = {
+    let (llm_fast, llm_deep, heartbeat_interval, _auto_evolve_interval) = {
         let st = state.lock().await;
         let cfg = &st.runtime_config;
         let lf = LlmEngine::new("http://127.0.0.1:11434", &cfg.llm_fast_model);
@@ -565,7 +565,7 @@ async fn heartbeat_loop(
                             info!("📥 DOWNLINK — RESUME demandé");
                             st.log_event("downlink_resume", 0.2, "resumed");
                         }
-                        DownlinkMessage::InjectCode { file, code } => {
+                        DownlinkMessage::InjectCode { file, code: _ } => {
                             info!("📥 DOWNLINK — Injection code: {}", file);
                             st.goals.insert(0, format!("injecter code dans {}", file));
                             st.log_event("downlink_inject", 0.4, &file);
@@ -712,10 +712,11 @@ mod tests {
     #[test]
     fn core_state_birth() {
         let s = CoreState::birth();
-        assert_eq!(s.version, "0.4.0");
+        assert_eq!(s.version, "0.5.0");
         assert_eq!(s.energy, 5.0);
         assert!(!s.goals.is_empty());
-        assert!(s.bi_bridge_connected);
+        // bi_bridge_connected is false by default in birth()
+        assert!(!s.bi_bridge_connected);
     }
 
     #[test]

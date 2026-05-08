@@ -250,7 +250,7 @@ impl EmbeddingEngine {
         // [corps identique à V16 embed_batch — omis pour concision]
         // La différence est que la Device est lue depuis device_manager à chaque appel
         let _ = texts;
-        unimplemented!("Voir crates/embeddings/src/lib.rs V16 pour le corps complet")
+        Err(anyhow::anyhow!("run_batch not implemented: see crates/embeddings/src/lib.rs V16"))
     }
 
     /// Charge paresseusement le modèle sur CPU pour le fallback.
@@ -262,8 +262,8 @@ impl EmbeddingEngine {
         info!("Loading CPU fallback model...");
         // [Identique à load() mais avec Device::Cpu]
         // Omis : même code que EmbeddingEngine::load() avec Device::Cpu
-        warn!("CPU fallback model loading: stub (voir implémentation complète)");
-        Ok(())
+        warn!("CPU fallback model loading: stub (implement full load logic here)");
+        Err(anyhow::anyhow!("CPU fallback loading not fully implemented"))
     }
 }
 

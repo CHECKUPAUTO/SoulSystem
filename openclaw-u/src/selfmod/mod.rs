@@ -112,7 +112,7 @@ impl SelfModEngine {
 }
 
 #[derive(Debug, Clone)]
-enum ConfigPatch {
+pub(crate) enum ConfigPatch {
     HeartbeatInterval(u64),
     EnergyDecay(f64),
     SwitchModel { fast: String, deep: String },

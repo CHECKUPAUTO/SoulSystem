@@ -34,9 +34,6 @@ struct AppState {
     context: DashMap<String, SocialContext>,
     tick_count: DashMap<String, u64>,
     spikes: DashMap<String, usize>,
-    hz: DashMap<String, f64>,
-    turbulence_value: DashMap<String, f64>,
-    turbulence_variance: DashMap<String, f64>,
     rewards: DashMap<String, usize>,
     start_time: Instant,
     last_stimulus: DashMap<String, Instant>,
@@ -48,9 +45,6 @@ fn default_state() -> Arc<AppState> {
         context: DashMap::new(),
         tick_count: DashMap::new(),
         spikes: DashMap::new(),
-        hz: DashMap::new(),
-        turbulence_value: DashMap::new(),
-        turbulence_variance: DashMap::new(),
         rewards: DashMap::new(),
         start_time: Instant::now(),
         last_stimulus: DashMap::new(),
@@ -118,7 +112,7 @@ async fn api_model(State(s): State<Arc<AppState>>, Json(req): Json<ModelRequest>
 }
 
 #[derive(Deserialize)]
-struct AdaptRequest { speaker_id: String, message: String }
+struct AdaptRequest { speaker_id: String, _message: String }
 
 async fn api_adapt(State(s): State<Arc<AppState>>, Json(req): Json<AdaptRequest>) -> Json<serde_json::Value> {
     *s.tick_count.entry("adapt".to_string()).or_insert(0) += 1;
@@ -165,7 +159,7 @@ async fn api_profile(State(s): State<Arc<AppState>>, Json(req): Json<ProfileUpda
 
 // Standard mesh endpoints
 #[derive(Deserialize)]
-struct StimulusRequest { content: Option<String>, intensity: Option<f64> }
+struct StimulusRequest { _content: Option<String>, _intensity: Option<f64> }
 
 async fn api_stimulate(State(s): State<Arc<AppState>>, Json(_req): Json<StimulusRequest>) -> Json<serde_json::Value> {
     *s.spikes.entry("stimulate".to_string()).or_insert(0) += 1;

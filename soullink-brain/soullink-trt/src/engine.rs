@@ -108,7 +108,7 @@ impl TrtEngine {
             }
             // TODO: Create session, invoke C++ generate, collect tokens
             let _ = (prompt, gen_config);
-            unimplemented!("TRT generation via FFI")
+            Err(TrtError::Init("TRT generation FFI not implemented".into()))
         }
     }
 
@@ -133,7 +133,7 @@ impl TrtEngine {
             }
             // TODO: tokio::sync::mpsc channel, C++ callbacks push chunks
             let _ = (prompt, gen_config);
-            unimplemented!("TRT streaming via FFI")
+            Err(TrtError::Init("TRT streaming FFI not implemented".into()))
         }
     }
 
