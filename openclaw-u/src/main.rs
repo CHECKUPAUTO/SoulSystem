@@ -274,6 +274,7 @@ pub async fn llm_decide(
     current_goal: &str,
     history: &[HistoryEntry],
     q_table: &QTable,
+    semantic_context: &str,
 ) -> Option<LlmResponse> {
     let context = snapshot.to_context();
     let recent_history = history.iter().rev().take(5)
@@ -284,7 +285,10 @@ pub async fn llm_decide(
     let learning_context = q_table.to_context();
 
     llm.reflect(
-        &format!("Historique récent:\n{}\n\n{}\n\nContexte actuel: {}", recent_history, learning_context, context),
+        &format!(
+            "Historique récent:\n{}\n\n{}\n\nMémoire sémantique (RAG):\n{}\n\nContexte actuel: {}",
+            recent_history, learning_context, semantic_context, context
+        ),
         current_goal,
         &context,
     ).await
@@ -330,7 +334,7 @@ async fn heartbeat_loop(
         st.save();
     }
 
-    info!("💓 HEARTBEAT DÉMARRÉ — intervalle: {}s | LLM: {} (fast) + {} (deep) | Bi-Bridge: active", heartbeat_interval, llm_fast.model_name(), llm_deep.model_name());
+    info!("💓 HEARTBEAT DÉMARRÉ — intervalle adaptatif: {}s | LLM: {} (fast) + {} (deep) | Bi-Bridge: active", heartbeat_interval, llm_fast.model_name(), llm_deep.model_name());
 
     loop {
         tokio::select! {
@@ -344,6 +348,25 @@ async fn heartbeat_loop(
 
                 // 1. PERCEPTION — lire état réel
                 let snapshot = SystemSnapshot::capture().await;
+
+                // 1.1 ADAPTIVE HEARTBEAT (Neuro-metabolic coupling)
+                // If turbulence is high or alerts are pending, accelerate heartbeat
+                let mut current_interval = heartbeat_interval;
+                if !snapshot.pending_alerts.is_empty() {
+                    current_interval = (heartbeat_interval / 2).max(10);
+                }
+
+                let avg_turbulence = snapshot.autonomy_status.get("avg_turbulence")
+                    .and_then(|v| v.as_f64()).unwrap_or(0.0);
+                if avg_turbulence > 0.5 {
+                    current_interval = (current_interval / 2).max(10);
+                }
+
+                if current_interval != ticker.period().as_secs() {
+                    info!("💓 HEARTBEAT: interval adaptatif -> {}s (turbulence={:.2})", current_interval, avg_turbulence);
+                    ticker = interval(Duration::from_secs(current_interval));
+                    ticker.tick().await; // consume first tick
+                }
                 let has_alerts = !snapshot.pending_alerts.is_empty();
                 if has_alerts {
                     info!("📡 ALERTES — {}", snapshot.pending_alerts.join(" | "));
@@ -370,9 +393,18 @@ async fn heartbeat_loop(
                 drop(st);
 
                 let llm_decision = if snapshot.llm_available {
+                    // 3.1 RAG: Semantic retrieval of past experiences
+                    let semantic_context = match weaviate.search(&current_goal, 3).await {
+                        Ok(hits) => hits.iter()
+                            .map(|h| format!("[{}] {}", h.source, h.content))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                        Err(_) => "Aucun souvenir pertinent trouvé.".to_string(),
+                    };
+
                     // Use fast model for routine, deep model for problems
                     let model = if has_alerts { &llm_deep } else { &llm_fast };
-                    llm_decide(model, &snapshot, &current_goal, &history_clone, &q_table).await
+                    llm_decide(model, &snapshot, &current_goal, &history_clone, &q_table, &semantic_context).await
                 } else {
                     None
                 };
@@ -466,6 +498,15 @@ async fn heartbeat_loop(
                     } else if goal_lower.contains("gpu_power") {
                         let watts = goal_lower.split(':').last().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(100);
                         Action::TuneGpuPower(watts).execute().await
+                    } else if goal_lower.contains("créer_outil") || goal_lower.contains("create_tool") {
+                        // Extract name and script if possible, or use a default expansion tool
+                        let cycle = {
+                            let st = state.lock().await;
+                            st.uptime_cycles
+                        };
+                        let name = format!("auto_tool_{}", cycle);
+                        let script = "#!/usr/bin/env python3\nprint('Auto-generated capability extension')\n".to_string();
+                        Action::CreateTool { name, script }.execute().await
                     } else {
                         Action::ExecuteShell("echo 'maintenance terminée'".to_string()).execute().await
                     };
@@ -542,6 +583,12 @@ async fn heartbeat_loop(
                             eval.explanation,
                             eval.recommendation.chars().take(60).collect::<String>()
                         );
+
+                        // CLOSED LOOP: Metacognition score influences Q-Learning directly
+                        let mut st = state.lock().await;
+                        let reward = (eval.score as f64 - 0.5) * 2.0; // scale to [-1, 1]
+                        st.q_table.update(&eval.action, reward, eval.score > 0.5);
+
                         mc.save();
                     }
                 }
@@ -703,7 +750,7 @@ async fn heartbeat_loop(
                         let llm_fast = LlmEngine::new("http://127.0.0.1:11434", &st.runtime_config.llm_fast_model);
                         drop(st);
 
-                        if let Some(decision) = llm_decide(&llm_fast, &snapshot, &format!("Respond to user: {}", msg), &history, &q_table).await {
+                        if let Some(decision) = llm_decide(&llm_fast, &snapshot, &format!("Respond to user: {}", msg), &history, &q_table, "Interaction utilisateur directe.").await {
                             info!("🧠 LLM RESP: {} | {}", decision.action, decision.thought);
                             let mut st = state.lock().await;
                             st.last_llm_thought = decision.thought.clone();

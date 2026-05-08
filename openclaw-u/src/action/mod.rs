@@ -15,6 +15,7 @@ pub enum Action {
     SelfEvolve,
     BlockIp(String),
     TuneGpuPower(u32),
+    CreateTool { name: String, script: String },
 }
 
 impl Action {
@@ -127,6 +128,20 @@ impl Action {
                     Ok(o) if o.status.success() => Ok(format!("GPU Power Limit set to {}W", watts)),
                     Ok(o) => Err(format!("nvidia-smi failed: {}", String::from_utf8_lossy(&o.stderr))),
                     Err(e) => Err(format!("Error executing nvidia-smi: {}", e)),
+                }
+            }
+            Action::CreateTool { name, script } => {
+                info!("🛠️  Creating new tool: {}", name);
+                let tool_dir = std::path::Path::new("/app/tools");
+                let _ = std::fs::create_dir_all(tool_dir);
+                let tool_path = tool_dir.join(format!("{}.py", name));
+
+                match std::fs::write(&tool_path, script) {
+                    Ok(_) => {
+                        let _ = Command::new("chmod").args(["+x", tool_path.to_str().unwrap()]).output();
+                        Ok(format!("Tool '{}' created and authorized", name))
+                    }
+                    Err(e) => Err(format!("Failed to write tool: {}", e)),
                 }
             }
         }
