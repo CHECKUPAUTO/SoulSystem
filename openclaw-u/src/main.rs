@@ -19,15 +19,16 @@ mod metacognition;
 mod resilience;
 mod selfmod;
 mod config;
+#[allow(dead_code)]
 mod persistence;
 mod prediction;
+#[allow(dead_code)]
 mod parallel;
 mod creativity;
 
 use std::collections::VecDeque;
 use std::fs;
 use std::path::Path;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -308,7 +309,7 @@ pub enum ExternalEvent {
 async fn heartbeat_loop(
     state: Arc<Mutex<CoreState>>,
     mut rx: mpsc::Receiver<ExternalEvent>,
-    mut downlink_rx: mpsc::Receiver<DownlinkMessage>,
+    downlink_rx: mpsc::Receiver<DownlinkMessage>,
 ) {
     // Charger la config runtime
     let (llm_fast, llm_deep, heartbeat_interval, _auto_evolve_interval) = {
@@ -386,7 +387,7 @@ async fn heartbeat_loop(
                 }
 
                 // 3. LLM COGNITION — décision intelligente
-                let mut st = state.lock().await;
+                let st = state.lock().await;
                 let current_goal = st.goals.first().cloned().unwrap_or_else(|| "maintenance".to_string());
                 let history_clone: Vec<HistoryEntry> = st.history.iter().cloned().collect();
                 let q_table = st.q_table.clone();
@@ -556,7 +557,7 @@ async fn heartbeat_loop(
 
                 // 5. MÉTA-COGNITION — évaluer la qualité de la décision
                 {
-                    let mut st = state.lock().await;
+                    let st = state.lock().await;
                     let energy_before = st.energy;
                     let action_name = st.last_llm_action.clone();
                     let confidence = st.last_llm_action.is_empty().then(|| 0.0).unwrap_or(0.8);

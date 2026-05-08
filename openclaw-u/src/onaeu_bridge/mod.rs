@@ -37,6 +37,7 @@ impl OnaeuBridge {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn state(&self,
     ) -> Result<serde_json::Value, String> {
         let resp = self.client

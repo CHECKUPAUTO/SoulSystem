@@ -95,6 +95,7 @@ impl BiBridge {
         info!("📡 ALERT → SoulLink [{}]: {}", severity, message);
     }
 
+    #[allow(dead_code)]
     pub async fn send_goal_update(&self, current: &str, queue: &[String]) {
         let msg = UplinkMessage::GoalUpdate {
             current: current.to_string(),
@@ -197,6 +198,7 @@ impl BiBridge {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn notify_telegram(&self, message: &str) {
         let payload = serde_json::json!({
             "session_id": self.session_id,

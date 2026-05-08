@@ -25,6 +25,7 @@ pub struct BridgeState {
 #[derive(Debug, Deserialize)]
 pub struct CommandRequest {
     pub command: String,
+    #[allow(dead_code)]
     pub priority: Option<u8>,
 }
 

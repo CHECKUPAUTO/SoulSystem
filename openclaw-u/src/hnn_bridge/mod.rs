@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HnnState {
@@ -110,6 +109,7 @@ impl HnnState {
         format!("HNN: {}/9 organs | {}", organ_count, turbulence.join(", "))
     }
 
+    #[allow(dead_code)]
     pub fn is_healthy(&self) -> bool {
         self.organs.len() >= 10
     }

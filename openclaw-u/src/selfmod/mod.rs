@@ -1,12 +1,10 @@
 //! SelfMod — Auto-modification via config JSON (pas de recompilation)
 
-use std::fs;
-use std::path::Path;
-use tracing::{info, warn};
-use crate::config::RuntimeConfig;
+use tracing::info;
 
 /// Moteur d'auto-modification par config
 pub struct SelfModEngine {
+    #[allow(dead_code)]
     pub project_dir: String,
 }
 
@@ -21,7 +19,7 @@ impl SelfModEngine {
     pub fn analyze(&self,
         history: &[crate::HistoryEntry],
         resilience: &crate::resilience::ResilienceEngine,
-        q_table: &crate::learning::QTable,
+        _q_table: &crate::learning::QTable,
         energy: f64,
     ) -> Option<ConfigPatch> {
         let recent = history.iter().rev().take(20).collect::<Vec<_>>();

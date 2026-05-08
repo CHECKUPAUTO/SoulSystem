@@ -12,6 +12,7 @@ pub struct WeaviateMemory {
 pub struct MemoryHit {
     pub content: String,
     pub source: String,
+    #[allow(dead_code)]
     pub timestamp: String,
     pub score: f64,
 }

@@ -92,7 +92,7 @@ impl ResilienceEngine {
     }
 
     /// Ajuste le heartbeat selon la santé
-    pub fn suggest_heartbeat(&self, cycle: u64) -> u64 {
+    pub fn suggest_heartbeat(&self, _cycle: u64) -> u64 {
         let total_failures: u32 = self.failures.values().map(|f| f.count).sum();
         if total_failures > 10 {
             60 // Ralentir si beaucoup d'échecs

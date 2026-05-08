@@ -71,7 +71,7 @@ impl CreativityEngine {
     }
 
     /// Invente une nouvelle action
-    pub fn invent(&mut self, cycle: u64, system_state: &crate::perception::SystemSnapshot) -> Option<CreativeAction> {
+    pub fn invent(&mut self, cycle: u64, _system_state: &crate::perception::SystemSnapshot) -> Option<CreativeAction> {
         let methods = vec![
             InventionMethod::Combine(
                 self.base_actions[0].clone(),
@@ -156,7 +156,7 @@ impl CreativityEngine {
     pub async fn test_action(
         &mut self,
         name: &str,
-        llm: &crate::llm::LlmEngine,
+        _llm: &crate::llm::LlmEngine,
     ) -> Result<bool, String> {
         let action = self.invented.get(name)
             .ok_or_else(|| "Action inconnue".to_string())?;
@@ -164,7 +164,7 @@ impl CreativityEngine {
         info!("🎨 CRÉATIVITÉ: test de '{}'", name);
         
         // Simuler un test basique
-        let test_prompt = format!(
+        let _test_prompt = format!(
             "Test de l'action '{}' — {}. Description: {}. \
             Cette action est-elle cohérente avec le système ? Réponds par oui/non.",
             action.name,
