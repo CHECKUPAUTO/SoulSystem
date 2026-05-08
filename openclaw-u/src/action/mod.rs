@@ -16,6 +16,7 @@ pub enum Action {
     BlockIp(String),
     TuneGpuPower(u32),
     CreateTool { name: String, script: String },
+    VerbalizeState(String),
 }
 
 impl Action {
@@ -142,6 +143,23 @@ impl Action {
                         Ok(format!("Tool '{}' created and authorized", name))
                     }
                     Err(e) => Err(format!("Failed to write tool: {}", e)),
+                }
+            }
+            Action::VerbalizeState(organ) => {
+                info!("🔬 NLA: Requesting verbalization for {}", organ);
+                match reqwest::Client::new()
+                    .post("http://127.0.0.1:9047/api/mesh/explain")
+                    .json(&serde_json::json!({"organ": organ}))
+                    .timeout(std::time::Duration::from_secs(5))
+                    .send().await
+                {
+                    Ok(r) if r.status().is_success() => {
+                        if let Ok(json) = r.json::<serde_json::Value>().await {
+                            let exp = json.get("explanation").and_then(|v| v.as_str()).unwrap_or("?");
+                            Ok(format!("NLA [{}]: {}", organ, exp))
+                        } else { Ok("NLA parse error".into()) }
+                    }
+                    _ => Err("NLA Bridge unreachable".into()),
                 }
             }
         }

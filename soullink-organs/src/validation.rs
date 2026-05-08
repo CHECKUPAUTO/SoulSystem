@@ -91,7 +91,8 @@ async fn api_stats(State(s): State<Arc<AppState>>) -> Json<serde_json::Value> {
 }
 
 #[derive(Deserialize)]
-struct VerifyRequest { content: String, _context: Option<String> }
+#[allow(dead_code)]
+struct VerifyRequest { content: String, context: Option<String> }
 
 async fn api_verify(State(s): State<Arc<AppState>>, Json(req): Json<VerifyRequest>) -> Json<serde_json::Value> {
     *s.tick_count.entry("verify".to_string()).or_insert(0) += 1;
@@ -177,7 +178,8 @@ async fn api_audit(State(s): State<Arc<AppState>>) -> Json<serde_json::Value> {
 
 // Standard mesh endpoints
 #[derive(Deserialize)]
-struct StimulusRequest { _content: Option<String>, _intensity: Option<f64> }
+#[allow(dead_code)]
+struct StimulusRequest { content: Option<String>, intensity: Option<f64> }
 
 async fn api_stimulate(State(s): State<Arc<AppState>>, Json(_req): Json<StimulusRequest>) -> Json<serde_json::Value> {
     *s.spikes.entry("stimulate".to_string()).or_insert(0) += 1;

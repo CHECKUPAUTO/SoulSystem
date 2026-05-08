@@ -112,7 +112,8 @@ async fn api_model(State(s): State<Arc<AppState>>, Json(req): Json<ModelRequest>
 }
 
 #[derive(Deserialize)]
-struct AdaptRequest { speaker_id: String, _message: String }
+#[allow(dead_code)]
+struct AdaptRequest { speaker_id: String, message: String }
 
 async fn api_adapt(State(s): State<Arc<AppState>>, Json(req): Json<AdaptRequest>) -> Json<serde_json::Value> {
     *s.tick_count.entry("adapt".to_string()).or_insert(0) += 1;
@@ -159,7 +160,8 @@ async fn api_profile(State(s): State<Arc<AppState>>, Json(req): Json<ProfileUpda
 
 // Standard mesh endpoints
 #[derive(Deserialize)]
-struct StimulusRequest { _content: Option<String>, _intensity: Option<f64> }
+#[allow(dead_code)]
+struct StimulusRequest { content: Option<String>, intensity: Option<f64> }
 
 async fn api_stimulate(State(s): State<Arc<AppState>>, Json(_req): Json<StimulusRequest>) -> Json<serde_json::Value> {
     *s.spikes.entry("stimulate".to_string()).or_insert(0) += 1;

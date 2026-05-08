@@ -94,6 +94,7 @@ impl AppState {
             ("creativity",  9042, vec!["novelty", "art", "metaphor", "creativity"]),
             ("social",      9043, vec!["social", "profile", "formality", "intent"]),
             ("validation",  9044, vec!["security", "audit", "safety", "validation"]),
+            ("nla",         9047, vec!["interpretability", "neural_explanation", "activation_analysis"]),
         ];
 
         let brains: DashMap<String, BrainConfig> = DashMap::new();
@@ -274,7 +275,7 @@ async fn route_status(State(state): State<AppState>) -> Json<Value> {
         "total_N":      total_n,
         "online":       online,
         "total_brains": state.brains.len(),
-        "version":      "v13.5.1",
+        "version":      "v13.5.2",
         "ts":           now_ts(),
     }))
 }

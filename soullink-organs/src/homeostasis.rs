@@ -142,7 +142,8 @@ async fn api_recover(State(s): State<Arc<AppState>>) -> Json<serde_json::Value> 
 
 // Standard mesh endpoints
 #[derive(Deserialize)]
-struct StimulusRequest { _content: Option<String>, _intensity: Option<f64> }
+#[allow(dead_code)]
+struct StimulusRequest { content: Option<String>, intensity: Option<f64> }
 
 async fn api_stimulate(State(s): State<Arc<AppState>>, Json(_req): Json<StimulusRequest>) -> Json<serde_json::Value> {
     *s.spikes.entry("stimulate".to_string()).or_insert(0) += 1;

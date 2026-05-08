@@ -53,7 +53,7 @@ impl HnnState {
         for (port, name) in [
             (9095, "v14_fusion"), (9786, "chronos"),
             (9040, "foresight"), (9041, "homeostasis"), (9042, "creativity"),
-            (9043, "social"), (9044, "validation"),
+            (9043, "social"), (9044, "validation"), (9047, "nla_explain"),
         ] {
             match reqwest::Client::new()
                 .get(format!("http://127.0.0.1:{}/api/stats", port))
@@ -111,6 +111,6 @@ impl HnnState {
     }
 
     pub fn is_healthy(&self) -> bool {
-        self.organs.len() >= 6
+        self.organs.len() >= 10
     }
 }

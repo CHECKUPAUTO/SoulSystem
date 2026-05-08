@@ -92,7 +92,8 @@ async fn api_stats(State(s): State<Arc<AppState>>) -> Json<serde_json::Value> {
 }
 
 #[derive(Deserialize)]
-struct CombineRequest { concept_a: String, concept_b: String, _method: Option<String> }
+#[allow(dead_code)]
+struct CombineRequest { concept_a: String, concept_b: String, method: Option<String> }
 
 async fn api_combine(State(s): State<Arc<AppState>>, Json(req): Json<CombineRequest>) -> Json<serde_json::Value> {
     *s.tick_count.entry("combine".to_string()).or_insert(0) += 1;
@@ -169,7 +170,8 @@ async fn api_evaluate(State(s): State<Arc<AppState>>, Json(req): Json<EvaluateRe
 
 // Standard mesh endpoints
 #[derive(Deserialize)]
-struct StimulusRequest { _content: Option<String>, _intensity: Option<f64> }
+#[allow(dead_code)]
+struct StimulusRequest { content: Option<String>, intensity: Option<f64> }
 
 async fn api_stimulate(State(s): State<Arc<AppState>>, Json(_req): Json<StimulusRequest>) -> Json<serde_json::Value> {
     *s.spikes.entry("stimulate".to_string()).or_insert(0) += 1;

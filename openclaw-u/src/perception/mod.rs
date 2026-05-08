@@ -143,6 +143,7 @@ impl SystemSnapshot {
             "sl13-mod-decision_engine", "sl13-memory",
             "soullink-foresight", "soullink-homeostasis", "soullink-creativity",
             "soullink-social", "soullink-validation", "soullink-autonomy",
+            "soullink-nla",
         ];
         let mut ok = 0;
         for svc in &services {

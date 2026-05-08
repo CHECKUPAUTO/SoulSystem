@@ -498,6 +498,9 @@ async fn heartbeat_loop(
                     } else if goal_lower.contains("gpu_power") {
                         let watts = goal_lower.split(':').last().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(100);
                         Action::TuneGpuPower(watts).execute().await
+                    } else if goal_lower.contains("verbalize") || goal_lower.contains("expliquer") {
+                        let organ = goal_lower.split(':').last().unwrap_or("core").trim().to_string();
+                        Action::VerbalizeState(organ).execute().await
                     } else if goal_lower.contains("créer_outil") || goal_lower.contains("create_tool") {
                         // Extract name and script if possible, or use a default expansion tool
                         let cycle = {
