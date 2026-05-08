@@ -84,6 +84,7 @@ pub struct CoreState {
     pub last_llm_thought: String,
     pub last_llm_action: String,
     pub bi_bridge_connected: bool,
+    pub task_history: Vec<String>,
     #[serde(default)]
     pub q_table: learning::QTable,
     #[serde(default)]
@@ -122,6 +123,7 @@ impl CoreState {
             last_llm_thought: String::new(),
             last_llm_action: String::new(),
             bi_bridge_connected: false,
+            task_history: Vec::new(),
             q_table: QTable::new(),
             metacognition: Metacognition::new(),
             resilience: ResilienceEngine::new(),
@@ -616,16 +618,36 @@ async fn heartbeat_loop(
                         let mut st = state.lock().await;
                         st.log_event("user_message", 0.2, &msg);
 
-                        // Respond via LLM if available
-                        if msg.contains("état") || msg.contains("status") {
-                            info!("📊 RÉPONSE: {}", st.report());
+                        let st_report = st.report();
+                        let snapshot = SystemSnapshot::capture().await;
+                        let q_table = st.q_table.clone();
+                        let history: Vec<HistoryEntry> = st.history.iter().cloned().collect();
+
+                        // Decision logic based on message content via LLM if available
+                        let llm_fast = LlmEngine::new("http://127.0.0.1:11434", &st.runtime_config.llm_fast_model);
+                        drop(st);
+
+                        if let Some(decision) = llm_decide(&llm_fast, &snapshot, &format!("Respond to user: {}", msg), &history, &q_table).await {
+                            info!("🧠 LLM RESP: {} | {}", decision.action, decision.thought);
+                            let mut st = state.lock().await;
+                            st.last_llm_thought = decision.thought.clone();
+                            st.last_llm_action = decision.action.clone();
+                            st.goals.insert(0, format!("user_task: {}", msg));
+                            st.task_history.push(msg.clone());
+                            st.save();
+                        } else {
+                            // Minimal fallback if LLM fails
+                            let mut st = state.lock().await;
+                            if msg.contains("état") || msg.contains("status") {
+                                info!("📊 RÉPONSE: {}", st_report);
+                            }
+                            if msg.contains("pousse") || msg.contains("évolue") {
+                                st.goals.insert(0, "auto-évolution forcée".to_string());
+                                st.energy = (st.energy + 1.0).clamp(0.0, 10.0);
+                                info!("⚡ ÉNERGIE BOOST — évolution forcée");
+                            }
+                            st.save();
                         }
-                        if msg.contains("pousse") || msg.contains("évolue") {
-                            st.goals.insert(0, "auto-évolution forcée".to_string());
-                            st.energy = (st.energy + 1.0).clamp(0.0, 10.0);
-                            info!("⚡ ÉNERGIE BOOST — évolution forcée");
-                        }
-                        st.save();
                     }
                     ExternalEvent::SystemAlert(alert) => {
                         warn!("🚨 ALERTE: {}", alert);

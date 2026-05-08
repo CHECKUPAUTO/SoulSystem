@@ -57,6 +57,15 @@ impl AutoCoder {
                                 priority: count as u8,
                             });
                         }
+                        if content.contains("panic!") {
+                            let count = content.matches("panic!").count();
+                            opportunities.push(ImprovementOpportunity {
+                                file: rel_str.to_string(),
+                                kind: OpportunityKind::ReplacePanic,
+                                description: format!("{} panic! trouvés", count),
+                                priority: (count * 2) as u8,
+                            });
+                        }
                         if content.contains("todo!") || content.contains("unimplemented!") {
                             let count = content.matches("todo!").count() + content.matches("unimplemented!").count();
                             opportunities.push(ImprovementOpportunity {
@@ -133,6 +142,7 @@ pub struct ImprovementOpportunity {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OpportunityKind {
     ReplaceUnwrap,
+    ReplacePanic,
     RemoveStub,
     ReplacePrintln,
     AddTests,
@@ -214,6 +224,7 @@ pub async fn auto_evolve_llm(state: Arc<Mutex<CoreState>>, llm: LlmEngine) -> Ev
 
     let issue = match best.kind {
         OpportunityKind::ReplaceUnwrap => "Remplace unwrap() par expect() avec messages descriptifs",
+        OpportunityKind::ReplacePanic => "Remplace panic!() par un retour de Result::Err() propre",
         OpportunityKind::RemoveStub => "Implémente les fonctions marquées todo!() ou unimplemented!()",
         OpportunityKind::ReplacePrintln => "Remplace println! par tracing::info! pour logging structuré",
         OpportunityKind::AddTests => "Ajoute des tests unitaires pour les fonctions publiques",

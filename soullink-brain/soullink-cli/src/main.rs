@@ -45,6 +45,12 @@ enum Commands {
     },
     /// Show RAG store status
     Status,
+    /// Monitor the Neural Mesh (Orchestrator + Organs)
+    Mesh {
+        /// Orchestrator URL
+        #[arg(short, long, default_value = "http://127.0.0.1:9020")]
+        url: String,
+    },
 }
 
 #[tokio::main]
@@ -59,6 +65,7 @@ async fn main() -> Result<()> {
             search_cmd(query, top_k, alpha).await
         }
         Commands::Status => status_cmd(),
+        Commands::Mesh { url } => mesh_cmd(&url).await,
     }
 }
 
@@ -100,6 +107,45 @@ async fn ingest_cmd(path: PathBuf, title: Option<String>, chunk_size: usize, ove
     println!("✅ Ingested {} chunks in {:?}", count, elapsed);
     println!("   Document: {}", title);
     
+    Ok(())
+}
+
+async fn mesh_cmd(url: &str) -> Result<()> {
+    let client = reqwest::Client::new();
+    println!("🕸️  Connecting to Mesh Orchestrator: {}", url);
+
+    let resp = client.get(format!("{}/api/mesh/status", url))
+        .send().await.context("Connecting to orchestrator")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("Orchestrator error: {}", resp.status());
+    }
+
+    let data: serde_json::Value = resp.json().await?;
+    let mesh = data.get("mesh").and_then(|m| m.as_object());
+
+    println!("---------------------------------------------------------------");
+    println!("{:<15} | {:<10} | {:<8} | {:<15}", "ORGAN", "STATE", "N", "ATTRACTOR");
+    println!("---------------------------------------------------------------");
+
+    if let Some(mesh) = mesh {
+        for (name, state) in mesh {
+            let status = state.get("state").and_then(|v| v.as_str()).unwrap_or("?");
+            let n = state.get("N").and_then(|v| v.as_u64()).unwrap_or(0);
+            let attractor = state.get("attractor").and_then(|v| v.as_str()).unwrap_or("?");
+
+            let color_status = if status == "online" { "✅ online" } else { "❌ offline" };
+
+            println!("{:<15} | {:<10} | {:<8} | {:<15}", name, color_status, n, attractor);
+        }
+    }
+
+    let total_n = data.get("total_N").and_then(|v| v.as_u64()).unwrap_or(0);
+    let online = data.get("online").and_then(|v| v.as_u64()).unwrap_or(0);
+
+    println!("---------------------------------------------------------------");
+    println!("Summary: {}/{} organs online | Total N: {}", online, data.get("total_brains").unwrap_or(&serde_json::json!(0)), total_n);
+
     Ok(())
 }
 
