@@ -198,7 +198,7 @@ async fn heartbeat_loop(
 
                 // 2. HNN BRIDGE — lire blackboard V13
                 if cycle % 2 == 0 {
-                    let hnn = HnnState::fetch().await;
+                    let hnn = HnnState::fetch(&reqwest::Client::new()).await;
                     info!("🧠 HNN — {}", hnn.summary());
                     let hnn_json = serde_json::to_string(&hnn.organs).unwrap_or_default();
                     let _ = weaviate.index(&hnn_json, "hnn_bridge").await;
@@ -707,13 +707,13 @@ mod tests {
         let loaded = CoreState::load_or_birth();
         assert_eq!(loaded.version, s.version);
         assert!(!loaded.history.is_empty());
-        let _ = fs::remove_file(STATE_PATH);
+        let _ = fs::remove_file("/tmp/openclaw_u_state.json");
     }
 
     #[test]
     fn goal_engine_generates() {
         let snapshot = SystemSnapshot {
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
             cpu_percent: 10.0, mem_percent: 20.0, disk_percent: 30.0,
             services_active: 5, services_total: 7,
             hnn_organs_online: 9, hnn_healthy: true,

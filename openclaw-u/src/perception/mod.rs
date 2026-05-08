@@ -26,16 +26,40 @@ pub struct SystemSnapshot {
 
 impl SystemSnapshot {
     pub async fn capture() -> Self {
-        let hnn = super::hnn_bridge::HnnState::fetch().await;
+        let client = reqwest::Client::new();
+
+        let (
+            hnn,
+            cpu,
+            mem,
+            disk,
+            (services_active, services_total),
+            (onaeu_cycle, onaeu_entropy),
+            weaviate_objects,
+            llm_available,
+            soullink_core_online,
+            autonomy_status,
+            failed_logins,
+            open_ports,
+        ) = tokio::join!(
+            super::hnn_bridge::HnnState::fetch(&client),
+            Self::read_cpu(),
+            Self::read_mem(),
+            Self::read_disk(),
+            Self::count_services(),
+            Self::read_onaeu_data(&client),
+            Self::count_weaviate(&client),
+            Self::check_ollama(&client),
+            Self::check_soullink_orchestrator(&client),
+            Self::read_autonomy(&client),
+            Self::read_failed_logins(),
+            Self::read_open_ports(),
+        );
+
         let hnn_online = hnn.organs.len() as u8;
-        let hnn_healthy = hnn_online >= 10; // science, mind, engineer, crypto, creative, meta, foresight, homeostasis, creativity, social, validation...
+        let hnn_healthy = hnn_online >= 10;
 
         let mut pending = Vec::new();
-
-        let cpu = Self::read_cpu().await;
-        let mem = Self::read_mem().await;
-        let disk = Self::read_disk().await;
-
         if cpu > 80.0 { pending.push(format!("CPU: {:.0}%", cpu)); }
         if mem > 90.0 { pending.push(format!("MEM: {:.0}%", mem)); }
         if disk > 85.0 { pending.push(format!("DISK: {:.0}%", disk)); }
@@ -46,19 +70,19 @@ impl SystemSnapshot {
             cpu_percent: cpu,
             mem_percent: mem,
             disk_percent: disk,
-            services_active: Self::count_services().await.0,
-            services_total: Self::count_services().await.1,
+            services_active,
+            services_total,
             hnn_organs_online: hnn_online,
             hnn_healthy,
-            onaeu_cycle: Self::read_onaeu_cycle().await,
-            onaeu_entropy: Self::read_onaeu_entropy().await,
-            weaviate_objects: Self::count_weaviate().await,
+            onaeu_cycle,
+            onaeu_entropy,
+            weaviate_objects,
             pending_alerts: pending,
-            llm_available: Self::check_ollama().await,
-            soullink_core_online: Self::check_soullink_orchestrator().await,
-            autonomy_status: Self::read_autonomy().await,
-            failed_logins: Self::read_failed_logins().await,
-            open_ports: Self::read_open_ports().await,
+            llm_available,
+            soullink_core_online,
+            autonomy_status,
+            failed_logins,
+            open_ports,
         }
     }
 
@@ -155,36 +179,27 @@ impl SystemSnapshot {
         (ok, services.len() as u32)
     }
 
-    async fn read_onaeu_cycle() -> u64 {
-        match reqwest::Client::new()
+    async fn read_onaeu_data(client: &reqwest::Client) -> (u64, f64) {
+        match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
         {
-            Ok(r) => r.json::<serde_json::Value>().await
-                .ok()
-                .and_then(|j| j.get("cycle_count")?.as_u64())
-                .unwrap_or(0),
-            _ => 0,
+            Ok(r) => {
+                if let Ok(json) = r.json::<serde_json::Value>().await {
+                    let cycle = json.get("cycle_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let entropy = json.get("last_entropy").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    (cycle, entropy)
+                } else {
+                    (0, 0.0)
+                }
+            }
+            _ => (0, 0.0),
         }
     }
 
-    async fn read_onaeu_entropy() -> f64 {
-        match reqwest::Client::new()
-            .get("http://127.0.0.1:7878/state")
-            .timeout(std::time::Duration::from_secs(3))
-            .send().await
-        {
-            Ok(r) => r.json::<serde_json::Value>().await
-                .ok()
-                .and_then(|j| j.get("last_entropy")?.as_f64())
-                .unwrap_or(0.0),
-            _ => 0.0,
-        }
-    }
-
-    async fn count_weaviate() -> u64 {
-        match reqwest::Client::new()
+    async fn count_weaviate(client: &reqwest::Client) -> u64 {
+        match client
             .post("http://127.0.0.1:8086/v1/graphql")
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({"query": "{ Aggregate { Memory { meta { count } } } }" }))
@@ -208,8 +223,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn check_ollama() -> bool {
-        match reqwest::Client::new()
+    async fn check_ollama(client: &reqwest::Client) -> bool {
+        match client
             .get("http://127.0.0.1:11434/api/tags")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
@@ -219,8 +234,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn check_soullink_orchestrator() -> bool {
-        match reqwest::Client::new()
+    async fn check_soullink_orchestrator(client: &reqwest::Client) -> bool {
+        match client
             .get("http://127.0.0.1:9020/api/mesh/status")
             .timeout(std::time::Duration::from_secs(2))
             .send().await
@@ -230,8 +245,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn read_autonomy() -> serde_json::Value {
-        match reqwest::Client::new()
+    async fn read_autonomy(client: &reqwest::Client) -> serde_json::Value {
+        match client
             .get("http://127.0.0.1:9046/api/autonomy/status")
             .timeout(std::time::Duration::from_secs(2))
             .send().await
