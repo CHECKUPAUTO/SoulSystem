@@ -42,5 +42,12 @@ echo "  CPU: $(grep 'cpu ' /proc/stat | awk '{usage=($2+$4)*100/($2+$4+$5)} END 
 echo "  MEM: $(free | grep Mem | awk '{printf "%.0f%%", $3/$2 * 100.0}')"
 echo "  DISK: $(df / | tail -1 | awk '{printf "%s", $5}')"
 
+# Security
+echo ""
+echo "🛡️ Security Summary:"
+echo "  Failed SSH logins (recent): $(journalctl _COMM=sshd --since "1h" | grep -c 'Failed password')"
+echo "  Open ports count: $(ss -tlnp | grep -c LISTEN)"
+echo "  Iptables rules: $(iptables -L -n | grep -c DROP) blocked IPs"
+
 echo ""
 echo "═══════════════════════════════════════════════════════════"

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-const VALID_ACTIONS: [&str; 7] = ["optimize_system", "restart_service", "investigate", "evolve", "wait", "explore", "alert"];
+const VALID_ACTIONS: [&str; 9] = ["optimize_system", "restart_service", "investigate", "evolve", "wait", "explore", "alert", "block_ip", "tune_gpu"];
 
 pub struct LlmEngine {
     url: String,
@@ -73,6 +73,8 @@ impl LlmResponse {
             "restart_service" => 1.5,
             "investigate" => 1.0,
             "evolve" => 1.4,
+            "block_ip" => 1.8,
+            "tune_gpu" => 1.1,
             "wait" => 0.5,
             "explore" => 0.9,
             "alert" => 1.3,
@@ -119,8 +121,8 @@ But actuel:
 
 Réponds UNIQUEMENT en JSON avec ce format exact:
 {{
-  "thought": "ton analyse métacognitive de la situation",
-  "action": "optimize_system | restart_service | investigate | evolve | explore | alert | wait",
+  "thought": "ton analyse métacognitive de la situation (inclure sécurité et performance)",
+  "action": "optimize_system | restart_service | investigate | evolve | explore | alert | wait | block_ip | tune_gpu",
   "confidence": 0.0-1.0,
   "reasoning": "justification logique"
 }}"#,

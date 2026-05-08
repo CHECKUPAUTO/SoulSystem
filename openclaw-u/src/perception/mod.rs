@@ -20,6 +20,8 @@ pub struct SystemSnapshot {
     pub llm_available: bool,
     pub soullink_core_online: bool,
     pub autonomy_status: serde_json::Value,
+    pub failed_logins: u32,
+    pub open_ports: Vec<u16>,
 }
 
 impl SystemSnapshot {
@@ -55,6 +57,8 @@ impl SystemSnapshot {
             llm_available: Self::check_ollama().await,
             soullink_core_online: Self::check_soullink_orchestrator().await,
             autonomy_status: Self::read_autonomy().await,
+            failed_logins: Self::read_failed_logins().await,
+            open_ports: Self::read_open_ports().await,
         }
     }
 
@@ -235,6 +239,33 @@ impl SystemSnapshot {
                 r.json::<serde_json::Value>().await.unwrap_or(serde_json::json!({}))
             }
             _ => serde_json::json!({}),
+        }
+    }
+
+    async fn read_failed_logins() -> u32 {
+        match Command::new("sh")
+            .args(["-c", "journalctl _COMM=sshd | grep -c 'Failed password'"])
+            .output()
+        {
+            Ok(o) if o.status.success() => {
+                String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().unwrap_or(0)
+            }
+            _ => 0,
+        }
+    }
+
+    async fn read_open_ports() -> Vec<u16> {
+        match Command::new("sh")
+            .args(["-c", "ss -tlnp | grep LISTEN | awk '{print $4}' | awk -F: '{print $NF}' | sort -un"])
+            .output()
+        {
+            Ok(o) if o.status.success() => {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .filter_map(|l| l.parse::<u16>().ok())
+                    .collect()
+            }
+            _ => Vec::new(),
         }
     }
 }

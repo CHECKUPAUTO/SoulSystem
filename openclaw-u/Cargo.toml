@@ -20,6 +20,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 regex = "1"
 axum = "0.7"
 rusqlite = { version = "0.32", features = ["bundled", "chrono", "serde_json"] }
+soullink-security = { path = "../soullink-brain/soullink-security" }
 
 [[bin]]
 name = "openclaw-u"

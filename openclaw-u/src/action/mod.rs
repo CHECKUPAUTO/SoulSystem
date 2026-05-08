@@ -13,6 +13,8 @@ pub enum Action {
     ExploreWeb(String),
     ExecuteShell(String),
     SelfEvolve,
+    BlockIp(String),
+    TuneGpuPower(u32),
 }
 
 impl Action {
@@ -107,6 +109,25 @@ impl Action {
                 info!("🧬 Self-Evolution triggered");
                 // This is a special action handled by the loop to avoid move issues
                 Ok("Self-evolution sequence initiated".into())
+            }
+            Action::BlockIp(ip) => {
+                info!("🛡️  Blocking IP: {}", ip);
+                // Implementation using iptables (requires root)
+                match Command::new("iptables").args(["-A", "INPUT", "-s", ip, "-j", "DROP"]).output() {
+                    Ok(o) if o.status.success() => Ok(format!("IP {} blocked via iptables", ip)),
+                    Ok(o) => Err(format!("iptables failed: {}", String::from_utf8_lossy(&o.stderr))),
+                    Err(e) => Err(format!("Error executing iptables: {}", e)),
+                }
+            }
+            Action::TuneGpuPower(watts) => {
+                info!("⚡ Tuning GPU Power Limit to {}W", watts);
+                // In a real industrial scenario, we would use the NvmlBridge here.
+                // For this research environment, we use nvidia-smi if available.
+                match Command::new("nvidia-smi").args(["-pl", &watts.to_string()]).output() {
+                    Ok(o) if o.status.success() => Ok(format!("GPU Power Limit set to {}W", watts)),
+                    Ok(o) => Err(format!("nvidia-smi failed: {}", String::from_utf8_lossy(&o.stderr))),
+                    Err(e) => Err(format!("Error executing nvidia-smi: {}", e)),
+                }
             }
         }
     }

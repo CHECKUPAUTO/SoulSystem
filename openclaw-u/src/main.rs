@@ -408,9 +408,11 @@ async fn heartbeat_loop(
                         "optimize_system" => "optimiser mémoire et performance".to_string(),
                         "restart_service" => format!("redémarrer service défaillant ({:?})", snapshot.pending_alerts),
                         "investigate" => format!("investiguer: {}", snapshot.pending_alerts.join(", ")),
-                        "report" => "générer rapport système".to_string(),
+                        "evolve" => "auto-évolution logicielle".to_string(),
                         "explore" => "explorer nouveaux patterns".to_string(),
                         "alert" => format!("alerter: {}", snapshot.pending_alerts.join(", ")),
+                        "block_ip" => format!("bloquer_ip: {}", snapshot.failed_logins),
+                        "tune_gpu" => "optimiser gpu_power".to_string(),
                         "wait" => "repos — surveillance passive".to_string(),
                         _ => GoalEngine::generate_goal(energy, &snapshot),
                     };
@@ -457,6 +459,13 @@ async fn heartbeat_loop(
                         Action::AlertHuman(snapshot.pending_alerts.join(", ")).execute().await
                     } else if goal_lower.contains("évoluer") || goal_lower.contains("evolve") {
                         Action::SelfEvolve.execute().await
+                    } else if goal_lower.contains("bloquer_ip") || goal_lower.contains("block_ip") {
+                        // Extract IP from goal or use a placeholder
+                        let ip = goal_lower.split(':').last().unwrap_or("127.0.0.1").trim().to_string();
+                        Action::BlockIp(ip).execute().await
+                    } else if goal_lower.contains("gpu_power") {
+                        let watts = goal_lower.split(':').last().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(100);
+                        Action::TuneGpuPower(watts).execute().await
                     } else {
                         Action::ExecuteShell("echo 'maintenance terminée'".to_string()).execute().await
                     };
@@ -584,9 +593,12 @@ async fn heartbeat_loop(
                             info!("📥 DOWNLINK — RESUME demandé");
                             st.log_event("downlink_resume", 0.2, "resumed");
                         }
-                        DownlinkMessage::InjectCode { file, code: _ } => {
+                        DownlinkMessage::InjectCode { file, code } => {
                             info!("📥 DOWNLINK — Injection code: {}", file);
-                            st.goals.insert(0, format!("injecter code dans {}", file));
+                            // Store the code in a temporary patch file for the Autocode engine to promote
+                            let patch_path = format!("{}.patch", file);
+                            let _ = fs::write(&patch_path, &code);
+                            st.goals.insert(0, format!("appliquer patch injection: {}", file));
                             st.log_event("downlink_inject", 0.4, &file);
                         }
                         DownlinkMessage::RequestStatus => {
@@ -642,7 +654,24 @@ async fn heartbeat_loop(
                     }
                 }
 
-                // 12. MEMORY CONSOLIDATION (every 20 cycles)
+                // 12. SECURITY SCAN (every 10 cycles)
+                if cycle % 10 == 0 {
+                    tokio::spawn(async move {
+                        info!("🛡️ SECURITY: Démarrage d'un scan de vulnérabilités...");
+                        let scanner = soullink_security::SecurityScanner::new();
+                        let result = scanner.scan_directory(std::path::Path::new("/app")).await;
+                        if !result.findings.is_empty() {
+                            warn!("🛡️ SECURITY: {} vulnérabilités détectées !", result.findings.len());
+                            for f in result.findings.iter().take(3) {
+                                warn!("  - {}:{} [{}]", f.file, f.line, f.rule_name);
+                            }
+                        } else {
+                            info!("🛡️ SECURITY: Aucun secret détecté.");
+                        }
+                    });
+                }
+
+                // 13. MEMORY CONSOLIDATION (every 20 cycles)
                 if cycle % 20 == 0 {
                     let st = state.lock().await;
                     let entries: Vec<String> = st.history.iter()
@@ -809,6 +838,9 @@ mod tests {
             onaeu_cycle: 100, onaeu_entropy: 0.5,
             weaviate_objects: 268, pending_alerts: vec![],
             llm_available: true, soullink_core_online: true,
+            autonomy_status: serde_json::json!({}),
+            failed_logins: 0,
+            open_ports: vec![],
         };
         let g = GoalEngine::generate_goal(5.0, &snapshot);
         assert!(!g.is_empty());
