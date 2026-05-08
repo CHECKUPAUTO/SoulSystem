@@ -1,0 +1,33 @@
+[package]
+name = "soullink-vector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — Vector storage with dimension registry, HNSW index, async channels"
+
+[dependencies]
+soullink-core = { path = "../soullink-core" }
+soullink-simd = { path = "../soullink-simd" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "sync"] }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+arc-swap = { workspace = true }
+dashmap = { workspace = true }
+rayon = "1.10"
+num_cpus = "1.16"
+async-channel = "2.3"
+futures = { workspace = true }
+reqwest = { workspace = true, features = ["stream"] }
+bytes = "1"
+
+# HNSW + vector deps (V17: hnsw_rs 0.3 with AVX2 via simdeez_f)
+hnsw_rs = { version = "0.3", features = ["simdeez_f"] }
+half = { version = "2.4", features = ["num-traits", "serde"] }
+parking_lot = "0.12"
+
+[dev-dependencies]
+tempfile = { workspace = true }

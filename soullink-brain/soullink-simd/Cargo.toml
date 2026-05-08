@@ -1,0 +1,16 @@
+[package]
+name = "soullink-simd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — SIMD vector search (AVX2 + wide fallback + CPUID dispatch)"
+
+[dependencies]
+rayon = "1.10"
+wide = "0.7"
+
+[dev-dependencies]
+criterion = "0.5"
+

@@ -1,0 +1,23 @@
+[package]
+name = "soullink-proxy"
+version = "0.1.0"
+edition = "2021"
+description = "Reverse proxy and TLS gateway for SoulLink V13.5 APIs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["http2"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rcgen = "0.13"
+rustls = "0.23"
+rustls-pki-types = "1"
+rustls-pemfile = "2"
+anyhow = "1"
+toml = "0.8"
+reqwest = { version = "0.12", features = ["json"] }

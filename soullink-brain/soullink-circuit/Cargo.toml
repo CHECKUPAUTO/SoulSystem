@@ -1,0 +1,17 @@
+[package]
+name = "soullink-circuit"
+version.workspace = true
+edition.workspace = true
+description = "Circuit breaker for SoulLink organ services — prevents cascade failures"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "time"] }

@@ -1,0 +1,22 @@
+[package]
+name = "soullink-nvml"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — NVML FFI bridge (zero subprocess)"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+# Mock NVML for CI / dev machines without NVIDIA driver
+mock = []
+
+[dependencies]
+nvml-wrapper = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }

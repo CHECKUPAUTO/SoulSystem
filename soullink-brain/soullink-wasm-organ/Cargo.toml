@@ -1,0 +1,16 @@
+[package]
+name = "soullink-wasm-organ"
+version = "13.5.0"
+edition = "2021"
+description = "WASM-based organ sandbox interface for SoulLink neural mesh"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+soullink-circuit = { path = "../soullink-circuit" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "time"] }

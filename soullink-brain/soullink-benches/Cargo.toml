@@ -1,0 +1,36 @@
+[package]
+name = "soullink-benches"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Criterion microbenchmarks for SoulLink hot paths"
+publish = false
+
+[dependencies]
+soullink-core = { path = "../soullink-core" }
+soullink-nvml = { path = "../soullink-nvml", features = ["mock"] }
+
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "xid_parse"
+harness = false
+
+[[bench]]
+name = "snapshot_serde"
+harness = false
+
+[[bench]]
+name = "nvml_read"
+harness = false
+
+[[bench]]
+name = "ipc_uds"
+harness = false

@@ -1,0 +1,145 @@
+[workspace]
+resolver = "2"
+members = [
+    "soullink-core",
+    "soullink-nvml",
+    "soullink-guardian",
+    "soullink-orchestrator",
+    "soullink-decision-v13",
+    "soullink-gateway",
+    "soullink-benches",
+    "soullink-simd",
+    "soullink-vector",
+    "soullink-memory",
+    "soullink-workflow",
+    "soullink-crypto-bridge",
+    "soullink-portfolio",
+    "soullink-security",
+    "soullink-eval",
+    "soullink-bus",
+    "soullink-actions",
+    "soullink-senate",
+    "soullink-reasoning",
+    "soullink-vision",
+    "soullink-autonomy",
+    "soullink-inference",
+    "soullink-proxy",
+    "soullink-trt",
+    "soullink-rag",
+    "soullink-dali",
+    "soullink-cutlass",
+    "soullink-cli",
+    "soullink-svs",
+    "soullink-onednn",
+    "soullink-secrets",
+    "soullink-hooks",
+    "soullink-allowlist",
+    "soullink-gate",
+    "soullink-circuit",
+    "soullink-routing",
+    "soullink-wasm-organ",
+]
+
+[workspace.package]
+version = "13.5.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["SoulLink Mesh Team"]
+license = "MIT"
+repository = "internal"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Centralised dependencies — pinned minor versions, workspace inherits
+# ─────────────────────────────────────────────────────────────────────────────
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "signal", "time", "net", "process", "fs", "sync", "io-util"] }
+
+# HTTP server / client
+axum = { version = "0.7", default-features = false, features = ["http1", "http2", "json", "tokio", "tower-log"] }
+tower = { version = "0.4", default-features = false, features = ["util"] }
+tower-http = { version = "0.5", default-features = false, features = ["trace", "cors", "limit"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2", "gzip", "stream"] }
+hyper = { version = "1", features = ["server", "http1", "http2"] }
+
+# NVIDIA management library
+nvml-wrapper = { version = "0.9", features = ["serde"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Concurrency primitives
+arc-swap = "1.7"
+dashmap = "5.5"
+parking_lot = "0.12"
+ahash = "0.8"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "json", "ansi"] }
+metrics = "0.22"
+metrics-exporter-prometheus = { version = "0.13", default-features = false, features = ["http-listener"] }
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+"async-trait" = "0.1"
+
+# Security / validation
+regex = "1.10"
+subtle = "2.5"            # constant-time comparison for secret tokens
+
+# Time
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+
+# IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Config
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+
+# MessagePack — Phase 3 IPC
+rmp-serde = "1.1"
+
+# Streaming helpers — Phase 6b SSE
+tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
+
+# Futures helpers
+futures = { version = "0.3", default-features = false, features = ["std"] }
+
+# Dev / test helpers
+tempfile = "3.10"
+wiremock = "0.6"
+criterion = { version = "0.5", default-features = false, features = ["async_tokio", "html_reports"] }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Release profile — tuned for Broadwell-EP (Xeon E5-2683 v4, 64 threads)
+# Actual CPU flags injected via .cargo/config.toml (target-cpu=broadwell)
+# ─────────────────────────────────────────────────────────────────────────────
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+overflow-checks = false
+debug = false
+incremental = false
+
+[profile.release-with-debug]
+inherits = "release"
+strip = "none"
+debug = 1
+
+[profile.dev]
+opt-level = 0
+debug = true
+split-debuginfo = "unpacked"
+
+# Bench profile same as release but with debuginfo for flamegraphs
+[profile.bench]
+inherits = "release"
+debug = 1
+strip = "none"
+num_cpus = "1"

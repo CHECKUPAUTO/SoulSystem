@@ -1,0 +1,38 @@
+# SoulSystem — Git Ignore
+
+# Rust build artifacts
+**/target/
+**/Cargo.lock
+
+# Compiled binaries
+binaries/
+*.rs.bak
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# State files (runtime generated)
+*.json.bak
+*.json.tmp
+
+# Large data files
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Temporary
+/tmp/
+temp/

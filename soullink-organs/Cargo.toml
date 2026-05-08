@@ -1,0 +1,36 @@
+[package]
+name = "soullink-organs-v2"
+version = "6.1.0"
+edition = "2021"
+
+[[bin]]
+name = "soullink-foresight"
+path = "src/foresight.rs"
+
+[[bin]]
+name = "soullink-homeostasis"
+path = "src/homeostasis.rs"
+
+[[bin]]
+name = "soullink-creativity"
+path = "src/creativity.rs"
+
+[[bin]]
+name = "soullink-social"
+path = "src/social.rs"
+
+[[bin]]
+name = "soullink-validation"
+path = "src/validation.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+dashmap = "6"
+minreq = { version = "2", features = ["https"] }
+sha2 = "0.10"
+chrono = "0.4"

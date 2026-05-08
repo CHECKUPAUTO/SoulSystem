@@ -1,0 +1,32 @@
+[package]
+name = "soullink-portfolio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — Autonomous crypto portfolio with HNN-driven signals"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "soullink-trader"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "sync", "io-util"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+futures = { workspace = true }
+rust_decimal = { version = "1.36", features = ["serde", "maths"] }
+rust_decimal_macros = "1.36"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "time"] }

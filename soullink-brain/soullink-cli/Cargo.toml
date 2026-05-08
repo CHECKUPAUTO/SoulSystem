@@ -1,0 +1,19 @@
+[package]
+name = "soullink-cli"
+version.workspace = true
+edition.workspace = true
+description = "SoulLink V13.5 — Knowledge Pipeline CLI"
+
+[[bin]]
+name = "soullink"
+path = "src/main.rs"
+
+[dependencies]
+soullink-rag = { path = "../soullink-rag" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+anyhow = { workspace = true }
+clap = { version = "4.5", features = ["derive"] }
+serde_json = { workspace = true }
+reqwest = { workspace = true, features = ["json", "blocking"] }
+uuid = { version = "1", features = ["v4"] }
+fs_extra = "1"

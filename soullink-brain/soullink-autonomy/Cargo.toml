@@ -1,0 +1,35 @@
+[package]
+name = "soullink-autonomy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — Autonomy engine: 1Hz Hamiltonian pulse, afferent nerves, dream cycle"
+
+[dependencies]
+soullink-core = { path = "../soullink-core" }
+soullink-memory = { path = "../soullink-memory" }
+soullink-simd = { path = "../soullink-simd" }
+soullink-eval = { path = "../soullink-eval" }
+soullink-bus = { path = "../soullink-bus" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time", "net"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+parking_lot = "0.12"
+rand = "0.8"
+sled = "0.34"
+axum = "0.7"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[bin]]
+name = "soullink-autonomy"
+path = "src/main.rs"

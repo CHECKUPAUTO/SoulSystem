@@ -1,0 +1,17 @@
+[package]
+name = "soullink-routing"
+version = "13.5.0"
+edition = "2021"
+description = "Smart LLM routing with 13-dimension complexity scoring"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+regex = { workspace = true }
+async-trait = { workspace = true }
+soullink-circuit = { path = "../soullink-circuit" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "time"] }

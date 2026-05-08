@@ -1,0 +1,45 @@
+[package]
+name = "soullink-orchestrator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — Mesh Orchestrator (axum 0.7 + async reqwest pool)"
+
+[[bin]]
+name = "orchestrator"
+path = "src/main.rs"
+
+[dependencies]
+soullink-core = { path = "../soullink-core" }
+soullink-memory = { path = "../soullink-memory" }
+soullink-rag = { path = "../soullink-rag" }
+
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+reqwest = { workspace = true, features = ["stream"] }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+dashmap = { workspace = true }
+ahash = { workspace = true }
+futures = { workspace = true }
+tokio-stream = { workspace = true }
+arc-swap = { workspace = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+thiserror = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+sled = "0.34"
+
+[dev-dependencies]
+wiremock = { workspace = true }
+tempfile = { workspace = true }
