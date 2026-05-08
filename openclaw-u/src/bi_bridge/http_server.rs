@@ -72,7 +72,7 @@ pub async fn start_bridge_server(
         .route("/energy", post(post_energy))
         .with_state(state);
 
-    let addr = format!("0.0.0.0:{}", port);
+    let addr = format!("127.0.0.1:{}", port);
     info!("🌐 Bi-Bridge HTTP serveur démarré sur http://{}", addr);
 
     let listener = match tokio::net::TcpListener::bind(&addr).await {

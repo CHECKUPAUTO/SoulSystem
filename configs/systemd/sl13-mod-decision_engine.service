@@ -5,8 +5,8 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/mnt/nvme/soullink_brain
-ExecStart=/usr/bin/python3 -u /mnt/nvme/soullink_brain/decision_engine.py
+WorkingDirectory=/root/SoulSystem/soullink-brain
+ExecStart=/usr/local/bin/soul-decision-v13
 Restart=always
 RestartSec=10
 
