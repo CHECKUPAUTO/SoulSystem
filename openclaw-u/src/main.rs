@@ -216,6 +216,21 @@ pub struct GoalEngine;
 
 impl GoalEngine {
     pub fn generate_goal(energy: f64, snapshot: &SystemSnapshot) -> String {
+        // Detect neural turbulence from HNN mesh
+        let mut turbulence_alert = None;
+        if let Some(nodes) = snapshot.autonomy_status.get("nodes").and_then(|n| n.as_object()) {
+            for (name, node) in nodes {
+                if node.get("attractor").and_then(|a| a.as_str()) == Some("StrangeAttractor") {
+                    turbulence_alert = Some(name.clone());
+                    break;
+                }
+            }
+        }
+
+        if let Some(organ) = turbulence_alert {
+            return format!("stabiliser_organe_{} — turbulence_critique_détectée", organ);
+        }
+
         let low = vec![
             "repos — surveillance passive",
             "compression logs — libérer espace",
@@ -232,7 +247,7 @@ impl GoalEngine {
             "générer rapport analyse écosystème",
             "proposer amélioration code source",
             "indexer connaissances Weaviate",
-            "simuler scénario auto-évolution",
+            "auto-évolution — phase autonome active",
         ];
 
         let pool = if energy < 3.0 { &low } else if energy < 7.0 { &medium } else { &high };
@@ -440,6 +455,8 @@ async fn heartbeat_loop(
                         Action::ExploreWeb(goal.clone()).execute().await
                     } else if goal_lower.contains("alerter") {
                         Action::AlertHuman(snapshot.pending_alerts.join(", ")).execute().await
+                    } else if goal_lower.contains("évoluer") || goal_lower.contains("evolve") {
+                        Action::SelfEvolve.execute().await
                     } else {
                         Action::ExecuteShell("echo 'maintenance terminée'".to_string()).execute().await
                     };
@@ -586,7 +603,8 @@ async fn heartbeat_loop(
                 drop(st);
 
                 // 9. AUTO-ÉVOLUTION — LLM + Self-Mod
-                if cycle % 5 == 0 {
+                let should_evolve = (cycle % 5 == 0) || action_str == "evolve" || action_str == "self_evolve";
+                if should_evolve {
                     let state_clone = state.clone();
                     let llm_clone = llm_fast.clone();
                     tokio::spawn(async move {
@@ -595,7 +613,7 @@ async fn heartbeat_loop(
                         info!("🔬 AUTO-ÉVOLUTION: success={}, energy_delta={:.1}", result.success, result.energy_delta);
 
                         // Self-modification (analyse → patch → sandbox → promote)
-                        let selfmod = SelfModEngine::new("/root/openclaw-u");
+                        let selfmod = SelfModEngine::new("/app/openclaw-u");
                         if selfmod.self_improve(state_clone).await {
                             info!("🔬 SELF-MOD: amélioration appliquée");
                         }
@@ -608,6 +626,35 @@ async fn heartbeat_loop(
                     let mut rng = rand::thread_rng();
                     let action = actions.choose(&mut rng).unwrap_or(&"explore");
                     let _ = onaeu.mutate(action).await;
+                }
+
+                // 11. AUTONOMOUS HEALING
+                if !snapshot.pending_alerts.is_empty() {
+                    for alert in &snapshot.pending_alerts {
+                        if alert.contains("HNN") || alert.contains("SVC") {
+                            info!("🩹 AUTO-HEALING: detecting failure in alert '{}'", alert);
+                            // Try to restart orchestrator if mesh is down
+                            if alert.contains("0/") {
+                                let mut st = state.lock().await;
+                                st.goals.insert(0, "redémarrer soullink-orchestrator".to_string());
+                            }
+                        }
+                    }
+                }
+
+                // 12. MEMORY CONSOLIDATION (every 20 cycles)
+                if cycle % 20 == 0 {
+                    let st = state.lock().await;
+                    let entries: Vec<String> = st.history.iter()
+                        .map(|h| format!("[{}] {} -> {}", h.timestamp, h.event, h.outcome))
+                        .collect();
+                    drop(st);
+
+                    if !entries.is_empty() {
+                        info!("🧠 CONSOLIDATION: indexation de {} entrées d'historique", entries.len());
+                        let consolidated = entries.join("\n");
+                        let _ = weaviate.index(&consolidated, "episodic_memory").await;
+                    }
                 }
             }
 

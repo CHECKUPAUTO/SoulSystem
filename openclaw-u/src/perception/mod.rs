@@ -19,6 +19,7 @@ pub struct SystemSnapshot {
     pub pending_alerts: Vec<String>,
     pub llm_available: bool,
     pub soullink_core_online: bool,
+    pub autonomy_status: serde_json::Value,
 }
 
 impl SystemSnapshot {
@@ -53,6 +54,7 @@ impl SystemSnapshot {
             pending_alerts: pending,
             llm_available: Self::check_ollama().await,
             soullink_core_online: Self::check_soullink_orchestrator().await,
+            autonomy_status: Self::read_autonomy().await,
         }
     }
 
@@ -136,7 +138,7 @@ impl SystemSnapshot {
             "sl13-brain-crypto", "sl13-brain-creative", "sl13-brain-meta",
             "sl13-mod-decision_engine", "sl13-memory",
             "soullink-foresight", "soullink-homeostasis", "soullink-creativity",
-            "soullink-social", "soullink-validation",
+            "soullink-social", "soullink-validation", "soullink-autonomy",
         ];
         let mut ok = 0;
         for svc in &services {
@@ -214,12 +216,25 @@ impl SystemSnapshot {
 
     async fn check_soullink_orchestrator() -> bool {
         match reqwest::Client::new()
-            .get("http://127.0.0.1:9020/api/stats")
+            .get("http://127.0.0.1:9020/api/mesh/status")
             .timeout(std::time::Duration::from_secs(2))
             .send().await
         {
             Ok(r) => r.status().is_success(),
             _ => false,
+        }
+    }
+
+    async fn read_autonomy() -> serde_json::Value {
+        match reqwest::Client::new()
+            .get("http://127.0.0.1:9046/api/autonomy/status")
+            .timeout(std::time::Duration::from_secs(2))
+            .send().await
+        {
+            Ok(r) if r.status().is_success() => {
+                r.json::<serde_json::Value>().await.unwrap_or(serde_json::json!({}))
+            }
+            _ => serde_json::json!({}),
         }
     }
 }

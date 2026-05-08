@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-const VALID_ACTIONS: [&str; 7] = ["optimize_system", "restart_service", "investigate", "report", "wait", "explore", "alert"];
+const VALID_ACTIONS: [&str; 7] = ["optimize_system", "restart_service", "investigate", "evolve", "wait", "explore", "alert"];
 
 pub struct LlmEngine {
     url: String,
@@ -72,7 +72,7 @@ impl LlmResponse {
             "optimize_system" => 1.2,
             "restart_service" => 1.5,
             "investigate" => 1.0,
-            "report" => 0.8,
+            "evolve" => 1.4,
             "wait" => 0.5,
             "explore" => 0.9,
             "alert" => 1.3,
@@ -105,23 +105,24 @@ impl LlmEngine {
         system_state: &str,
     ) -> Option<LlmResponse> {
         let prompt = format!(
-            r#"Tu es OpenClaw-U, un agent autonome qui gère un serveur Linux.
+            r#"Tu es OpenClaw-U, l'intelligence centrale d'un organisme distribué composé de 11 organes (Science, Mind, Engineer, Crypto, Creative, Meta, Foresight, Homeostasis, Creativity, Social, Validation).
+Ta mission est d'assurer la survie, l'évolution et l'expansion de l'organisme.
 
-Contexte système:
+Contexte système (HNN Mesh):
 {}
 
 But actuel:
 {}
 
-État:
+État physique (Hardware):
 {}
 
 Réponds UNIQUEMENT en JSON avec ce format exact:
 {{
-  "thought": "ton analyse en français",
-  "action": "une des valeurs: optimize_system | restart_service | investigate | report | wait | explore | alert",
+  "thought": "ton analyse métacognitive de la situation",
+  "action": "optimize_system | restart_service | investigate | evolve | explore | alert | wait",
   "confidence": 0.0-1.0,
-  "reasoning": "pourquoi cette action"
+  "reasoning": "justification logique"
 }}"#,
             context, goal, system_state
         );

@@ -291,7 +291,7 @@ pub async fn auto_evolve_sandboxed(
     file_path: &str,
     new_code: &str,
 ) -> SandboxResult {
-    let sandbox = Sandbox::new("/root/openclaw-u", "cargo test");
+    let sandbox = Sandbox::new("/app/openclaw-u", "cargo test");
     let result = sandbox.validate_patch(file_path, new_code).await;
 
     if result.success {

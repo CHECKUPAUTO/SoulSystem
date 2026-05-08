@@ -2,14 +2,13 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Stdio;
 use tracing::{info, warn};
 use tokio::sync::Mutex;
 use std::sync::Arc;
 
 use crate::CoreState;
 use crate::llm::LlmEngine;
-use crate::sandbox::Sandbox;
+use crate::sandbox::{Sandbox, SandboxResult};
 
 /// Résultat d'une tentative d'évolution
 #[derive(Debug, Clone)]
@@ -38,15 +37,30 @@ impl AutoCoder {
 
     pub fn scan_for_improvements(&self) -> Vec<ImprovementOpportunity> {
         let mut opportunities = Vec::new();
-        let src_dir = Path::new(&self.project_dir).join("src");
+        let scan_dirs = vec![
+            Path::new(&self.project_dir).join("src"),
+            Path::new("/app/soullink-brain/soullink-core/src").to_path_buf(),
+            Path::new("/app/soullink-organs/src").to_path_buf(),
+        ];
 
-        if let Ok(entries) = fs::read_dir(&src_dir) {
+        for src_dir in scan_dirs {
+            if !src_dir.exists() { continue; }
+            self.scan_dir(&src_dir, &mut opportunities);
+        }
+
+        opportunities.sort_by(|a, b| b.priority.cmp(&a.priority));
+        opportunities
+    }
+
+    fn scan_dir(&self, dir: &Path, opportunities: &mut Vec<ImprovementOpportunity>) {
+        if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                if path.is_dir() {
+                    self.scan_dir(&path, opportunities);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
                     if let Ok(content) = fs::read_to_string(&path) {
-                        let rel = path.strip_prefix(&self.project_dir).unwrap_or(&path);
-                        let rel_str = rel.to_string_lossy();
+                        let rel_str = path.to_string_lossy();
 
                         if content.contains("unwrap()") {
                             let count = content.matches("unwrap()").count();
@@ -96,9 +110,6 @@ impl AutoCoder {
                 }
             }
         }
-
-        opportunities.sort_by(|a, b| b.priority.cmp(&a.priority));
-        opportunities
     }
 
     pub fn commit_patch(&self, file_path: &str) -> Result<String, String> {
@@ -151,7 +162,7 @@ pub enum OpportunityKind {
 
 /// Évolue automatiquement le projet (fallback sans LLM)
 pub async fn auto_evolve(state: Arc<Mutex<CoreState>>) -> EvolutionResult {
-    let coder = AutoCoder::new("/root/openclaw-u", "cargo test");
+    let coder = AutoCoder::new("/app/openclaw-u", "cargo test");
     let opportunities = coder.scan_for_improvements();
 
     if opportunities.is_empty() {
@@ -178,7 +189,7 @@ pub async fn auto_evolve(state: Arc<Mutex<CoreState>>) -> EvolutionResult {
 "#,
         best.file, best.description
     );
-    let patch_path = "/root/openclaw-u/src/upgrade_patch.rs".to_string();
+    let patch_path = "/app/openclaw-u/src/upgrade_patch.rs".to_string();
     let _ = fs::write(&patch_path, patch);
 
     let mut st = state.lock().await;
@@ -196,7 +207,7 @@ pub async fn auto_evolve(state: Arc<Mutex<CoreState>>) -> EvolutionResult {
 
 /// Évolue automatiquement le projet (LLM + SANDBOX)
 pub async fn auto_evolve_llm(state: Arc<Mutex<CoreState>>, llm: LlmEngine) -> EvolutionResult {
-    let coder = AutoCoder::new("/root/openclaw-u", "cargo test");
+    let coder = AutoCoder::new("/app/openclaw-u", "cargo test");
     let opportunities = coder.scan_for_improvements();
 
     if opportunities.is_empty() {
@@ -238,7 +249,7 @@ pub async fn auto_evolve_llm(state: Arc<Mutex<CoreState>>, llm: LlmEngine) -> Ev
             info!("✨ LLM a généré {} octets de code", new_code.len());
 
             // === SANDBOX VALIDATION ===
-            let sandbox = Sandbox::new("/root/openclaw-u", "cargo test");
+            let sandbox = Sandbox::new("/app/openclaw-u", "cargo test");
             let validation = sandbox.validate_patch(&best.file, &new_code).await;
 
             if validation.success {
@@ -292,4 +303,27 @@ pub async fn auto_evolve_llm(state: Arc<Mutex<CoreState>>, llm: LlmEngine) -> Ev
             auto_evolve(state).await
         }
     }
+}
+
+pub async fn auto_evolve_sandboxed(
+    state: Arc<Mutex<CoreState>>,
+    file_path: &str,
+    new_code: &str,
+) -> SandboxResult {
+    let sandbox = Sandbox::new("/app/openclaw-u", "cargo test");
+    let result = sandbox.validate_patch(file_path, new_code).await;
+
+    if result.success {
+        // Promote to production
+        let _ = sandbox.promote_to_production(file_path);
+
+        let mut st = state.lock().await;
+        st.evolution_count += 1;
+        st.log_event("auto_evolve_sandboxed", 0.8, &format!("promoted_{}", file_path));
+    } else {
+        let mut st = state.lock().await;
+        st.log_event("auto_evolve_sandboxed", -0.2, &format!("failed_{}", result.output));
+    }
+
+    result
 }

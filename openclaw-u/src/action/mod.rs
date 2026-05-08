@@ -12,6 +12,7 @@ pub enum Action {
     AlertHuman(String),
     ExploreWeb(String),
     ExecuteShell(String),
+    SelfEvolve,
 }
 
 impl Action {
@@ -101,6 +102,11 @@ impl Action {
                     Ok(o) => Err(format!("Exit {}: {}", o.status, String::from_utf8_lossy(&o.stderr))),
                     Err(e) => Err(format!("Error: {}", e)),
                 }
+            }
+            Action::SelfEvolve => {
+                info!("🧬 Self-Evolution triggered");
+                // This is a special action handled by the loop to avoid move issues
+                Ok("Self-evolution sequence initiated".into())
             }
         }
     }
