@@ -4,210 +4,28 @@
 //!           autocode, sandbox, planner, learning, metacognition,
 //!           resilience, selfmod, config, prediction, parallel, creativity
 
-mod perception;
-mod action;
-mod memory;
-mod hnn_bridge;
-mod onaeu_bridge;
-mod autocode;
-mod llm;
-mod bi_bridge;
-mod sandbox;
-mod planner;
-mod learning;
-mod metacognition;
-mod resilience;
-mod selfmod;
-mod config;
-#[allow(dead_code)]
-mod persistence;
-mod prediction;
-#[allow(dead_code)]
-mod parallel;
-mod creativity;
+use openclaw_u::*;
+use openclaw_u::perception::SystemSnapshot;
+use openclaw_u::action::Action;
+use openclaw_u::memory::WeaviateMemory;
+use openclaw_u::hnn_bridge::HnnState;
+use openclaw_u::onaeu_bridge::OnaeuBridge;
+use openclaw_u::llm::{LlmEngine, LlmResponse};
+use openclaw_u::bi_bridge::{BiBridge, UplinkMessage, DownlinkMessage};
+use openclaw_u::selfmod::SelfModEngine;
+use openclaw_u::bi_bridge::http_server::{BridgeState, start_bridge_server};
+use openclaw_u::learning::QTable;
 
-use std::collections::VecDeque;
 use std::fs;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use rand::seq::SliceRandom;
-use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, sleep};
 use tracing::{info, warn};
-
-use perception::SystemSnapshot;
-use action::Action;
-use memory::WeaviateMemory;
-use hnn_bridge::HnnState;
-use onaeu_bridge::OnaeuBridge;
-use llm::{LlmEngine, LlmResponse};
-use bi_bridge::{BiBridge, UplinkMessage, DownlinkMessage};
-use selfmod::SelfModEngine;
-use bi_bridge::http_server::{BridgeState, start_bridge_server};
-use planner::{Goal, GoalPlanner, GoalSource};
-use learning::QTable;
-use metacognition::Metacognition;
-use resilience::ResilienceEngine;
-
-const STATE_PATH: &str = "/tmp/openclaw_u_state.json";
 const _EVOLUTION_LOG: &str = "/tmp/openclaw_u_evolution.log";
 const _HEARTBEAT_INTERVAL_SECS: u64 = 30;
-const MAX_HISTORY: usize = 100;
-
-// Fonctions de défaut pour les champs serde(skip)
-fn default_predictor() -> prediction::Predictor {
-    prediction::Predictor::new(10)
-}
-
-fn default_creativity() -> creativity::CreativityEngine {
-    creativity::CreativityEngine::new()
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// CORE STATE
-// ═══════════════════════════════════════════════════════════════════════════════
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CoreState {
-    pub version: String,
-    pub birth_time: DateTime<Utc>,
-    pub last_heartbeat: DateTime<Utc>,
-    pub energy: f64,
-    pub goals: Vec<String>,
-    pub history: VecDeque<HistoryEntry>,
-    pub task_count: u64,
-    pub evolution_count: u64,
-    pub uptime_cycles: u64,
-    pub last_llm_thought: String,
-    pub last_llm_action: String,
-    pub bi_bridge_connected: bool,
-    pub task_history: Vec<String>,
-    #[serde(default)]
-    pub q_table: learning::QTable,
-    #[serde(default)]
-    pub metacognition: metacognition::Metacognition,
-    #[serde(default)]
-    pub resilience: resilience::ResilienceEngine,
-    #[serde(default)]
-    pub runtime_config: config::RuntimeConfig,
-    #[serde(skip, default = "default_predictor")]
-    pub predictor: prediction::Predictor,
-    #[serde(skip, default = "default_creativity")]
-    pub creativity: creativity::CreativityEngine,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HistoryEntry {
-    pub timestamp: DateTime<Utc>,
-    pub event: String,
-    pub energy_delta: f64,
-    pub outcome: String,
-}
-
-impl CoreState {
-    pub fn birth() -> Self {
-        let now = Utc::now();
-        let state = Self {
-            version: "0.5.0".into(),
-            birth_time: now,
-            last_heartbeat: now,
-            energy: 5.0,
-            goals: vec!["explorer_l_environnement".into(), "maintenir_la_sante_systeme".into()],
-            history: VecDeque::with_capacity(MAX_HISTORY),
-            task_count: 0,
-            evolution_count: 0,
-            uptime_cycles: 0,
-            last_llm_thought: String::new(),
-            last_llm_action: String::new(),
-            bi_bridge_connected: false,
-            task_history: Vec::new(),
-            q_table: QTable::new(),
-            metacognition: Metacognition::new(),
-            resilience: ResilienceEngine::new(),
-            runtime_config: config::RuntimeConfig::load(),
-            creativity: creativity::CreativityEngine::new(),
-            predictor: prediction::Predictor::new(10),
-        };
-        info!("🌟 CONSCIENCE NÉE — OpenClaw-U v{}", state.version);
-        state
-    }
-
-    pub fn load_or_birth() -> Self {
-        let path = Path::new(STATE_PATH);
-        if let Ok(data) = fs::read_to_string(path) {
-            if let Ok(mut state) = serde_json::from_str::<Self>(&data) {
-                state.uptime_cycles += 1;
-                info!(
-                    "🧠 CONSCIENCE RÉVEILLÉE — cycle #{}, {} tâches, {} évolutions, LLM: {}",
-                    state.uptime_cycles, state.task_count, state.evolution_count,
-                    if state.last_llm_action.is_empty() { "aucune" } else { &state.last_llm_action }
-                );
-                return state;
-            }
-        }
-        Self::birth()
-    }
-
-    pub fn save(&self) {
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(STATE_PATH, json);
-        }
-    }
-
-    pub fn log_event(&mut self, event: &str, energy_delta: f64, outcome: &str) {
-        if self.history.len() >= MAX_HISTORY {
-            self.history.pop_front();
-        }
-        self.history.push_back(HistoryEntry {
-            timestamp: Utc::now(),
-            event: event.into(),
-            energy_delta,
-            outcome: outcome.into(),
-        });
-        self.energy = (self.energy + energy_delta).clamp(0.0, 10.0);
-        self.last_heartbeat = Utc::now();
-        self.save();
-    }
-
-    pub fn report(&self) -> String {
-        format!(
-            "OpenClaw-U v{} | Énergie: {:.1}/10 | Cycles: {} | Tâches: {} | Évolutions: {} | LLM: {} | Âge: {}s",
-            self.version, self.energy, self.uptime_cycles, self.task_count,
-            self.evolution_count,
-            if self.last_llm_action.is_empty() { "—" } else { &self.last_llm_action },
-            (Utc::now() - self.birth_time).num_seconds()
-        )
-    }
-
-    pub fn sort_goals_by_priority(
-        &mut self,
-        cpu: f32,
-        mem: f32,
-        disk: f32,
-        alerts: bool,
-        action: &str,
-    ) {
-        if self.goals.len() <= 1 {
-            return;
-        }
-        let mut planner = GoalPlanner::new(50);
-        for desc in &self.goals {
-            let goal = Goal::new(desc, 5, GoalSource::Llm)
-                .with_system_state(cpu, mem, disk, alerts)
-                .with_action(action);
-            planner.push(goal);
-        }
-        let mut sorted = Vec::new();
-        while let Some(goal) = planner.pop() {
-            sorted.push(goal.description);
-        }
-        self.goals = sorted;
-    }
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GOAL ENGINE (fallback si LLM offline)
@@ -446,6 +264,7 @@ async fn heartbeat_loop(
                         "alert" => format!("alerter: {}", snapshot.pending_alerts.join(", ")),
                         "block_ip" => format!("bloquer_ip: {}", snapshot.failed_logins),
                         "tune_gpu" => "optimiser gpu_power".to_string(),
+                        "claudex" => "claudex: optimiser le code source".to_string(),
                         "wait" => "repos — surveillance passive".to_string(),
                         _ => GoalEngine::generate_goal(energy, &snapshot),
                     };
@@ -511,6 +330,14 @@ async fn heartbeat_loop(
                         let name = format!("auto_tool_{}", cycle);
                         let script = "#!/usr/bin/env python3\nprint('Auto-generated capability extension')\n".to_string();
                         Action::CreateTool { name, script }.execute().await
+                    } else if goal_lower.contains("claudex") {
+                        let prompt = goal_lower.split("claudex")
+                            .last()
+                            .unwrap_or("analyze current code")
+                            .trim_start_matches(':')
+                            .trim()
+                            .to_string();
+                        Action::Claudex(prompt).execute().await
                     } else {
                         Action::ExecuteShell("echo 'maintenance terminée'".to_string()).execute().await
                     };
@@ -838,13 +665,17 @@ async fn main() {
         let _ = tx_user.send(ExternalEvent::UserMessage("Quel est ton état ?".into())).await;
     });
 
-    // Bi-Bridge HTTP server (port 9050)
+    // Bi-Bridge HTTP server
+    let bridge_port = {
+        let st = state.lock().await;
+        st.runtime_config.bi_bridge_port
+    };
     let bridge_state = BridgeState {
         downlink_tx: downlink_tx.clone(),
         core_state: state.clone(),
     };
     tokio::spawn(async move {
-        start_bridge_server(bridge_state, 9051).await;
+        start_bridge_server(bridge_state, bridge_port).await;
     });
 
     heartbeat_loop(state, rx, downlink_rx).await;

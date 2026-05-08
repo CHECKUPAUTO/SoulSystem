@@ -25,30 +25,56 @@ Architecture unifiée de l'écosystème agentique autonome.
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Composants Principaux
+
+### OpenClaw-U (Kernel Autonome)
+Le cerveau opérationnel du système. Il gère la boucle de conscience (heartbeat), prend des décisions via LLM (Ollama) et exécute des actions concrètes.
+- **Auto-évolution** : Capacité à modifier sa propre configuration runtime.
+- **Resilience** : Détection de boucles d'échec et stratégies de fallback.
+- **Apprentissage** : Q-Table pour optimiser les actions basées sur les récompenses passées.
+- **Claudex Integration** : Agent de codage autonome (`/usr/local/bin/claudex`) intégré pour les tâches de développement complexes.
+
+### SoulLink Neural Mesh (V13)
+Le moteur de simulation neuronale basé sur la dynamique Hamiltonienne.
+- **Organes** : Science, Mind, Engineer, Crypto, Creative, Meta.
+- **HNN Mesh** : Simulation physique des interactions neuronales à haute fréquence.
+
+## Sécurité et Réseau
+
+Pour garantir l'intégrité du système, les composants critiques sont durcis :
+- **Bi-Bridge** : Interface de contrôle liée exclusivement à `127.0.0.1:9051`.
+- **HNN Mesh** : Ports `9010-9015` pour la communication interne.
+- **Firewall** : Protection via `nftables` (voir `scripts/setup-firewall.sh`).
+- **Isolation** : Les services sont gérés par `systemd` avec des restrictions de privilèges.
+
+## Utilisation de Claudex
+
+OpenClaw-U peut désormais déléguer des tâches de codage à Claudex.
+Exemple de but : `claudex: optimiser le parsing des logs dans perception.rs`
+
 ## Modules
 
 | Module | Langage | Port | Fonction |
 |--------|---------|------|----------|
-| `openclaw-u/` | Rust | — | Kernel agent autonome |
-| `soullink-v13/` | Rust | 9010-9015 | Neural mesh HNN |
-| `soullink-orchestrator/` | Rust | 9020 | Orchestrateur mesh |
-| `soullink-memory/` | Rust | 9030 | Store état |
-| `soullink-chronos/` | Rust | 9786 | Scheduler |
-| `soullink-voice/` | — | 9050 | Module voix |
-| `soullink-v14/` | — | 9095 | V14 expérimental |
-| `config/` | — | — | Systemd + env |
-| `scripts/` | Shell | — | Build & deploy |
+| `openclaw-u/` | Rust | 9051 | Kernel agent autonome |
+| `soullink-brain/` | Rust | 9010-9020 | Cœur de SoulLink (Mesh + Orchestrateur) |
+| `soullink-organs/` | Rust | — | Logique spécifique des organes |
+| `configs/` | — | — | Systemd + configurations environnementales |
+| `scripts/` | Shell | — | Automatisation build, deploy et firewall |
 
 ## Démarrage rapide
 
 ```bash
-# Build tout
+# Build de tous les composants
 ./scripts/build-all.sh
 
-# Déployer
+# Configuration du firewall
+sudo ./scripts/setup-firewall.sh
+
+# Déploiement et démarrage des services
 ./scripts/deploy.sh
 
-# Status
+# Vérification du status
 ./scripts/status.sh
 ```
 

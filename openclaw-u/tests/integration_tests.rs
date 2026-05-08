@@ -59,6 +59,63 @@ async fn test_bi_bridge_status() {
 }
 
 #[tokio::test]
+async fn test_self_mod_analysis() {
+    use openclaw_u::selfmod::SelfModEngine;
+    use openclaw_u::resilience::ResilienceEngine;
+    use openclaw_u::learning::QTable;
+    use openclaw_u::HistoryEntry;
+    use chrono::Utc;
+
+    let engine = SelfModEngine::new("/tmp");
+    let mut resilience = ResilienceEngine::new();
+    let q_table = QTable::new();
+    let energy = 5.0;
+
+    // Test 1: Normal state, no patch
+    let history = vec![];
+    let patch = engine.analyze(&history, &resilience, &q_table, energy);
+    assert!(patch.is_none());
+
+    // Test 2: Low energy + some history -> Decay patch
+    let history = vec![HistoryEntry {
+        timestamp: Utc::now(),
+        event: "init".into(),
+        energy_delta: 0.0,
+        outcome: "OK".into(),
+    }];
+    let patch = engine.analyze(&history, &resilience, &q_table, 2.0);
+    match patch {
+        Some(openclaw_u::selfmod::ConfigPatch::EnergyDecay(d)) => assert_eq!(d, 0.02),
+        _ => panic!("Expected EnergyDecay patch, got {:?}", patch),
+    }
+
+    // Test 3: Looping action -> Heartbeat patch
+    resilience.consecutive_same_action = 10;
+    let patch = engine.analyze(&history, &resilience, &q_table, energy);
+    match patch {
+        Some(openclaw_u::selfmod::ConfigPatch::HeartbeatInterval(s)) => assert_eq!(s, 60),
+        _ => panic!("Expected HeartbeatInterval patch"),
+    }
+
+    // Test 4: Low success rate -> Heartbeat patch
+    resilience.consecutive_same_action = 0;
+    let mut history = vec![];
+    for _ in 0..10 {
+        history.push(HistoryEntry {
+            timestamp: Utc::now(),
+            event: "action".into(),
+            energy_delta: 0.0,
+            outcome: "FAILED".into(),
+        });
+    }
+    let patch = engine.analyze(&history, &resilience, &q_table, energy);
+    match patch {
+        Some(openclaw_u::selfmod::ConfigPatch::HeartbeatInterval(s)) => assert_eq!(s, 45),
+        _ => panic!("Expected HeartbeatInterval patch for low success rate"),
+    }
+}
+
+#[tokio::test]
 async fn test_bi_bridge_goal() {
     let client = reqwest::Client::new();
     let resp = client

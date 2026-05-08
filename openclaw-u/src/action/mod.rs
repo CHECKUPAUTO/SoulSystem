@@ -17,6 +17,7 @@ pub enum Action {
     TuneGpuPower(u32),
     CreateTool { name: String, script: String },
     VerbalizeState(String),
+    Claudex(String),
 }
 
 impl Action {
@@ -160,6 +161,17 @@ impl Action {
                         } else { Ok("NLA parse error".into()) }
                     }
                     _ => Err("NLA Bridge unreachable".into()),
+                }
+            }
+            Action::Claudex(prompt) => {
+                info!("🤖 Claudex: Executing coding agent with prompt: {}", prompt);
+                match Command::new("/usr/local/bin/claudex").arg(&prompt).output() {
+                    Ok(o) if o.status.success() => {
+                        let out = String::from_utf8_lossy(&o.stdout);
+                        Ok(format!("Claudex SUCCESS: {}", out.trim()))
+                    }
+                    Ok(o) => Err(format!("Claudex FAILED: {}", String::from_utf8_lossy(&o.stderr))),
+                    Err(e) => Err(format!("Claudex Error: {}", e)),
                 }
             }
         }

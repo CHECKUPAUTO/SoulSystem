@@ -22,6 +22,10 @@ axum = "0.7"
 rusqlite = { version = "0.32", features = ["bundled", "chrono", "serde_json"] }
 soullink-security = { path = "../soullink-brain/soullink-security" }
 
+[lib]
+name = "openclaw_u"
+path = "src/lib.rs"
+
 [[bin]]
 name = "openclaw-u"
 path = "src/main.rs"
