@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink V13 Module decision_engine
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/mnt/nvme/soullink_brain
+ExecStart=/usr/bin/python3 -u /mnt/nvme/soullink_brain/decision_engine.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

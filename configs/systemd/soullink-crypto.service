@@ -1,0 +1,16 @@
+[Unit]
+Description=SoulLink Crypto Organ — HNN v7.0+math
+After=network.target soullink-orchestrator.service soullink-memory.service
+Wants=soullink-orchestrator.service soullink-memory.service
+
+[Service]
+Type=simple
+ExecStart=/opt/soullink-node/soullink-node crypto 9013
+WorkingDirectory=/mnt/nvme/soullink_brain
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=soullink.target

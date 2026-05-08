@@ -1,0 +1,13 @@
+[Unit]
+Description=SoulLink V6
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/mnt/nvme_secondary/ai_projects/soullink_v6_liberated
+ExecStart=/usr/bin/python3 SOULLINK_V6.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

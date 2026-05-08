@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink Memory Guardian (Rust) — RAM surveillance
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/soullink/bin/soullink-memguard
+Restart=on-failure
+RestartSec=10
+User=root
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target

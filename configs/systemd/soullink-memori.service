@@ -1,0 +1,17 @@
+[Unit]
+Description=SoulLink Memori v2.0 — Hybrid Memory Engine (official crate)
+After=network.target soullink-blackboard.service soullink-pacemaker.service
+Wants=soullink-blackboard.service soullink-pacemaker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soullink-memori
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=soullink_memori=info
+Environment=MEMORI_DATABASE_URL=sqlite:///opt/soullink-memori/data/memori.db
+Environment=MEMORI_EMBEDDING_API_URL=http://localhost:11434/api/embeddings
+Environment=MEMORI_EMBEDDINGS_MODEL=nomic-embed-text
+
+[Install]
+WantedBy=soullink.target

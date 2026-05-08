@@ -1,0 +1,13 @@
+[Unit]
+Description=SoulLink Self-Heal System
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/bin/sh -c 'if [ -f "/mnt/nvme_secondary/ai_projects/soullink_v6_liberated/self_monitor.sh" ]; then exec ; else echo "[2026-05-04T10:58:50+02:00] /mnt/nvme_secondary/ai_projects/soullink_v6_liberated/self_monitor.sh not found — service skipped" >&2; exit 0; fi'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=soullink.target

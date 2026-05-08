@@ -1,0 +1,13 @@
+[Unit]
+Description=SoulLink Custodian — Angel Guardian: system health monitoring + anomaly detection
+Documentation=man:soullink(7)
+After=network.target soullink-memory.service soullink-orchestrator.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/soullink-custodian
+StandardOutput=journal
+StandardError=journal
+[Install]
+WantedBy=soullink.target

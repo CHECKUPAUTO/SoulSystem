@@ -1,0 +1,52 @@
+[Unit]
+Description=SoulLink Chronos — screen capture, OCR timeline & MCP context bridge
+After=network.target soullink-guardian.service soullink-orchestrator.service
+Wants=soullink-guardian.service soullink-orchestrator.service
+Documentation=https://github.com/Einsia/OpenChronicle
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/chronos-rs \
+ --data-dir /var/lib/soullink/chronos \
+ --capture-interval-ms 2000 \
+ --mcp-listen 127.0.0.1:9786 \
+ --retention-hours 168 \
+ --diff-threshold 0.85
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+
+Environment=RUST_LOG=chronos_rs=info
+Environment=CHRONOS_CAPTURE_INTERVAL_MS=2000
+Environment=CHRONOS_DATA_DIR=/var/lib/soullink/chronos
+Environment=CHRONOS_MCP_LISTEN=127.0.0.1:9786
+Environment=CHRONOS_RETENTION_HOURS=168
+Environment=CHRONOS_DIFF_THRESHOLD=0.85
+
+# Hardening
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=false
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+
+# Needs display access for scrap
+PrivateDevices=false
+
+# Read-write data directory
+ReadWritePaths=/var/lib/soullink/chronos
+
+# MCP communication with other soullink services
+BindReadOnlyPaths=/run/soullink
+
+[Install]
+WantedBy=soullink.target

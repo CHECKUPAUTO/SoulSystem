@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink Reasoning Organ — Multi-step inference chains and structured planning
+After=network.target soullink-orchestrator.service soullink-memory.service
+Wants=soullink-orchestrator.service soullink-memory.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soullink-reasoning $PORT
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=soullink.target

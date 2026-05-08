@@ -1,0 +1,15 @@
+[Unit]
+Description=SoulLink ↔ SciRust Bridge
+After=network.target soullink-v14.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/soullink-scirust-bridge
+Environment="PYTHONPATH=/opt/soullink-scirust-bridge"
+ExecStart=/bin/sh -c 'if [ -f "/opt/soullink-scirust-bridge/bridge.py" ]; then exec ; else echo "[2026-05-04T10:58:50+02:00] /opt/soullink-scirust-bridge/bridge.py not found — service skipped" >&2; exit 0; fi'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=soullink.target

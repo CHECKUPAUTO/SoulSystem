@@ -1,0 +1,16 @@
+[Unit]
+Description=SoulLink Perception Organ — Multimodal input routing and signal classification
+After=network.target soullink-orchestrator.service soullink-chronos.service
+Wants=soullink-orchestrator.service
+Requires=soullink-chronos.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soullink-perception $PORT
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+Environment=CHRONOS_MCP_URL=http://127.0.0.1:9786
+
+[Install]
+WantedBy=soullink.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink Monolith v2.0 — Hamiltonian Neural Engine + 5 Organs
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/soullink-node/soullink-monolith
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=soullink_monolith=info
+WorkingDirectory=/mnt/nvme/soullink_brain
+
+[Install]
+WantedBy=multi-user.target

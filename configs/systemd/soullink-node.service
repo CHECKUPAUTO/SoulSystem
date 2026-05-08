@@ -1,0 +1,18 @@
+[Unit]
+Description=SoulLink Node v6.0+ with TurboQuant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/root/target/release/soullink-node
+Restart=on-failure
+RestartSec=5
+Environment="RUST_LOG=info"
+Environment="OLLAMA_HOST=http://127.0.0.1:11435"
+WorkingDirectory=/root/soullink-node
+StandardOutput=append:/var/log/soullink-node.log
+StandardError=append:/var/log/soullink-node.log
+
+[Install]
+WantedBy=soullink.target

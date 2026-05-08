@@ -1,0 +1,17 @@
+[Unit]
+Description=SoulLink MoE Middleware — 144 Sub-Personalities (8 experts × 18 organs)
+After=network.target soullink-orchestrator.service
+Wants=soullink-orchestrator.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soullink-moe
+Restart=always
+RestartSec=5
+Environment=TOKIO_WORKER_THREADS=4
+Environment=RUST_MIN_STACK=1048576
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=soullink.target
