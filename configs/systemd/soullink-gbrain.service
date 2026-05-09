@@ -1,0 +1,16 @@
+[Unit]
+Description=SoulLink GBrain — Knowledge Graph + Hybrid Search
+After=network.target soullink-memory.service
+Partof=soullink.target
+
+[Service]
+Type=simple
+User=soullink
+WorkingDirectory=/app
+Environment=RUST_LOG=info
+ExecStart=/app/soullink-brain/target/release/soullink-gbrain
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

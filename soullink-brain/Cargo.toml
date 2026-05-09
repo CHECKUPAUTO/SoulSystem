@@ -38,6 +38,7 @@ members = [
     "soullink-circuit",
     "soullink-routing",
     "soullink-wasm-organ",
+    "soullink-gbrain",
 ]
 
 [workspace.package]
