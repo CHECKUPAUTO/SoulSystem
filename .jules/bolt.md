@@ -1,0 +1,3 @@
+## 2025-05-15 - [Optimization of heartbeat loop with parallel requests and client reuse]
+**Learning:** Sequential HTTP requests in a heartbeat/reflexion loop are a major bottleneck, especially when some services might be offline and trigger timeouts. Using `tokio::task::JoinSet` to parallelize these requests and reusing a single `reqwest::Client` to enable connection pooling significantly improves performance and system responsiveness.
+**Action:** Always check for sequential I/O in main loops and look for opportunities to parallelize independent operations. Ensure HTTP clients are instantiated once and passed by reference or cloned (if they use Arc internally like reqwest) to maintain connection pools.

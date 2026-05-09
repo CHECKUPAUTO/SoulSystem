@@ -25,8 +25,10 @@ pub struct SystemSnapshot {
 }
 
 impl SystemSnapshot {
-    pub async fn capture() -> Self {
-        let hnn = super::hnn_bridge::HnnState::fetch().await;
+    /// Capture l'état du système.
+    /// Bolt ⚡: Utilise un client partagé pour optimiser le pooling des connexions HTTP.
+    pub async fn capture(client: &reqwest::Client) -> Self {
+        let hnn = super::hnn_bridge::HnnState::fetch(client).await;
         let hnn_online = hnn.organs.len() as u8;
         let hnn_healthy = hnn_online >= 10; // science, mind, engineer, crypto, creative, meta, foresight, homeostasis, creativity, social, validation...
 
@@ -50,13 +52,13 @@ impl SystemSnapshot {
             services_total: Self::count_services().await.1,
             hnn_organs_online: hnn_online,
             hnn_healthy,
-            onaeu_cycle: Self::read_onaeu_cycle().await,
-            onaeu_entropy: Self::read_onaeu_entropy().await,
-            weaviate_objects: Self::count_weaviate().await,
+            onaeu_cycle: Self::read_onaeu_cycle(client).await,
+            onaeu_entropy: Self::read_onaeu_entropy(client).await,
+            weaviate_objects: Self::count_weaviate(client).await,
             pending_alerts: pending,
-            llm_available: Self::check_ollama().await,
-            soullink_core_online: Self::check_soullink_orchestrator().await,
-            autonomy_status: Self::read_autonomy().await,
+            llm_available: Self::check_ollama(client).await,
+            soullink_core_online: Self::check_soullink_orchestrator(client).await,
+            autonomy_status: Self::read_autonomy(client).await,
             failed_logins: Self::read_failed_logins().await,
             open_ports: Self::read_open_ports().await,
         }
@@ -120,9 +122,6 @@ impl SystemSnapshot {
     }
 
     async fn read_disk() -> f32 {
-        // df uses statfs which is harder to do in pure Rust without a crate,
-        // but for now let's at least optimize the shell call or keep it if it's too complex.
-        // Actually, many agents have control over the server, so df is usually fine.
         match Command::new("df").args(["--output=pcent", "/"]).output() {
             Ok(o) if o.status.success() => {
                 let s = String::from_utf8_lossy(&o.stdout);
@@ -155,8 +154,8 @@ impl SystemSnapshot {
         (ok, services.len() as u32)
     }
 
-    async fn read_onaeu_cycle() -> u64 {
-        match reqwest::Client::new()
+    async fn read_onaeu_cycle(client: &reqwest::Client) -> u64 {
+        match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
@@ -169,8 +168,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn read_onaeu_entropy() -> f64 {
-        match reqwest::Client::new()
+    async fn read_onaeu_entropy(client: &reqwest::Client) -> f64 {
+        match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
@@ -183,8 +182,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn count_weaviate() -> u64 {
-        match reqwest::Client::new()
+    async fn count_weaviate(client: &reqwest::Client) -> u64 {
+        match client
             .post("http://127.0.0.1:8086/v1/graphql")
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({"query": "{ Aggregate { Memory { meta { count } } } }" }))
@@ -208,8 +207,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn check_ollama() -> bool {
-        match reqwest::Client::new()
+    async fn check_ollama(client: &reqwest::Client) -> bool {
+        match client
             .get("http://127.0.0.1:11434/api/tags")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
@@ -219,8 +218,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn check_soullink_orchestrator() -> bool {
-        match reqwest::Client::new()
+    async fn check_soullink_orchestrator(client: &reqwest::Client) -> bool {
+        match client
             .get("http://127.0.0.1:9020/api/mesh/status")
             .timeout(std::time::Duration::from_secs(2))
             .send().await
@@ -230,8 +229,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn read_autonomy() -> serde_json::Value {
-        match reqwest::Client::new()
+    async fn read_autonomy(client: &reqwest::Client) -> serde_json::Value {
+        match client
             .get("http://127.0.0.1:9046/api/autonomy/status")
             .timeout(std::time::Duration::from_secs(2))
             .send().await

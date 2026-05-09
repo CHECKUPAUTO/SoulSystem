@@ -141,6 +141,7 @@ async fn heartbeat_loop(
     let mut ticker = interval(Duration::from_secs(heartbeat_interval));
     let weaviate = WeaviateMemory::new("http://127.0.0.1:8086");
     let onaeu = OnaeuBridge::new("http://127.0.0.1:7878");
+    let http_client = reqwest::Client::new();
 
     // Bi-bridge channels (downlink_rx reçu en paramètre)
     let (uplink_tx, mut uplink_rx) = mpsc::channel::<UplinkMessage>(64);
@@ -166,7 +167,7 @@ async fn heartbeat_loop(
                 drop(st);
 
                 // 1. PERCEPTION — lire état réel
-                let snapshot = SystemSnapshot::capture().await;
+                let snapshot = SystemSnapshot::capture(&http_client).await;
 
                 // 1.1 ADAPTIVE HEARTBEAT (Neuro-metabolic coupling)
                 // If turbulence is high or alerts are pending, accelerate heartbeat
@@ -198,7 +199,7 @@ async fn heartbeat_loop(
 
                 // 2. HNN BRIDGE — lire blackboard V13
                 if cycle % 2 == 0 {
-                    let hnn = HnnState::fetch().await;
+                    let hnn = HnnState::fetch(&http_client).await;
                     info!("🧠 HNN — {}", hnn.summary());
                     let hnn_json = serde_json::to_string(&hnn.organs).unwrap_or_default();
                     let _ = weaviate.index(&hnn_json, "hnn_bridge").await;
@@ -573,7 +574,7 @@ async fn heartbeat_loop(
                         st.log_event("user_message", 0.2, &msg);
 
                         let st_report = st.report();
-                        let snapshot = SystemSnapshot::capture().await;
+                        let snapshot = SystemSnapshot::capture(&http_client).await;
                         let q_table = st.q_table.clone();
                         let history: Vec<HistoryEntry> = st.history.iter().cloned().collect();
 
@@ -688,6 +689,7 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
 
     #[test]
     fn core_state_birth() {
@@ -707,7 +709,7 @@ mod tests {
         let loaded = CoreState::load_or_birth();
         assert_eq!(loaded.version, s.version);
         assert!(!loaded.history.is_empty());
-        let _ = fs::remove_file(STATE_PATH);
+        let _ = fs::remove_file("/tmp/openclaw_u_state.json");
     }
 
     #[test]
