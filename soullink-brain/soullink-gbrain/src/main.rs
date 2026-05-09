@@ -18,6 +18,7 @@ use serde::Deserialize;
 use anyhow::Result;
 use soullink_gbrain::storage::{Database, Entity, Edge};
 use soullink_gbrain::search::{HybridSearcher, SearchHit};
+use soullink_gbrain::migration::Migrator;
 use std::path::PathBuf;
 use tokio::sync::RwLock;
 
@@ -36,9 +37,22 @@ struct SearchQuery {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
+    let args: Vec<String> = std::env::args().collect();
     let db_path = PathBuf::from("gbrain.db");
     let db = Database::open(&db_path)?;
-    let mut searcher = HybridSearcher::new(db.clone(), "http://127.0.0.1:9030".to_string());
+    let memory_url = "http://127.0.0.1:9030".to_string();
+
+    if args.len() > 1 && args[1] == "--migrate" {
+        tracing::info!("Starting migration from {}...", memory_url);
+        let migrator = Migrator::new(memory_url, db.clone());
+        match migrator.migrate_all().await {
+            Ok(count) => tracing::info!("Migration complete: {} entities extracted and wired.", count),
+            Err(e) => tracing::error!("Migration failed: {}", e),
+        }
+        return Ok(());
+    }
+
+    let mut searcher = HybridSearcher::new(db.clone(), memory_url);
     searcher.rebuild_bm25()?;
 
     let state = Arc::new(AppState {
