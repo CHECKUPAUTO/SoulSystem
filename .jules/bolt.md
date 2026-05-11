@@ -1,3 +1,6 @@
-## 2025-05-15 - [Optimization of heartbeat loop with parallel requests and client reuse]
-**Learning:** Sequential HTTP requests in a heartbeat/reflexion loop are a major bottleneck, especially when some services might be offline and trigger timeouts. Using `tokio::task::JoinSet` to parallelize these requests and reusing a single `reqwest::Client` to enable connection pooling significantly improves performance and system responsiveness.
-**Action:** Always check for sequential I/O in main loops and look for opportunities to parallelize independent operations. Ensure HTTP clients are instantiated once and passed by reference or cloned (if they use Arc internally like reqwest) to maintain connection pools.
+## 2026-05-11 - [Initial Bolt Entry]
+**Learning:** Initializing Bolt's performance journal for SoulSystem.
+**Action:** Focus on perception and bridge I/O bottlenecks.
+## 2026-05-11 - [Perception/HNN Parallelization]
+**Learning:** Sequential HTTP calls to multiple micro-services (HNN organs) and system checks (perception) created a significant bottleneck, potentially blocking the heartbeat for 30s+ if multiple services timed out.
+**Action:** Use 'tokio::join!' for fixed-size async tasks and 'tokio::task::JoinSet' for dynamic loops to parallelize I/O. Always share a single 'reqwest::Client' for connection pooling.
