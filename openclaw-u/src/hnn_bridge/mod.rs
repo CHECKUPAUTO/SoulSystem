@@ -12,74 +12,92 @@ pub struct HnnState {
 
 impl HnnState {
     pub async fn fetch() -> Self {
-        let mut organs = HashMap::new();
-        let mut blackboard = serde_json::Value::Null;
-
-        // Fetch orchestrator blackboard (port 9020)
-        match reqwest::Client::new()
-            .get("http://127.0.0.1:9020/api/stats")
+        // Bolt ⚡: Use shared client and JoinSet for concurrent fetching.
+        // Replaces ~15 sequential HTTP calls with parallel ones.
+        let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(3))
-            .send().await
-        {
-            Ok(r) if r.status().is_success() => {
-                if let Ok(json) = r.json::<serde_json::Value>().await {
-                    blackboard = json;
+            .build()
+            .unwrap_or_default();
+
+        let mut set = tokio::task::JoinSet::new();
+
+        // 1. Fetch orchestrator blackboard (port 9020)
+        let c = client.clone();
+        set.spawn(async move {
+            let res = c.get("http://127.0.0.1:9020/api/stats").send().await;
+            if let Ok(r) = res {
+                if r.status().is_success() {
+                    if let Ok(json) = r.json::<serde_json::Value>().await {
+                        return ("blackboard", json);
+                    }
                 }
             }
-            _ => {}
-        }
+            ("blackboard", serde_json::Value::Null)
+        });
 
-        // Fetch HNN V13 organs (ports 9010-9015)
+        // 2. Fetch HNN V13 organs (ports 9010-9015)
         for (port, name) in [
             (9010, "science"), (9011, "mind"), (9012, "engineer"),
             (9013, "crypto"), (9014, "creative"), (9015, "meta"),
         ] {
-            match reqwest::Client::new()
-                .get(format!("http://127.0.0.1:{}/api/stats", port))
-                .timeout(std::time::Duration::from_secs(2))
-                .send().await
-            {
-                Ok(r) if r.status().is_success() => {
-                    if let Ok(json) = r.json::<serde_json::Value>().await {
-                        organs.insert(name.to_string(), json);
+            let c = client.clone();
+            set.spawn(async move {
+                let res = c.get(format!("http://127.0.0.1:{}/api/stats", port)).send().await;
+                if let Ok(r) = res {
+                    if r.status().is_success() {
+                        if let Ok(json) = r.json::<serde_json::Value>().await {
+                            return (name, json);
+                        }
                     }
                 }
-                _ => {}
-            }
+                (name, serde_json::Value::Null)
+            });
         }
 
-        // Fetch V14 organs (ports 9095, 9786)
+        // 3. Fetch V14 organs (ports 9095, 9786, etc.)
         for (port, name) in [
             (9095, "v14_fusion"), (9786, "chronos"),
             (9040, "foresight"), (9041, "homeostasis"), (9042, "creativity"),
             (9043, "social"), (9044, "validation"), (9047, "nla_explain"),
         ] {
-            match reqwest::Client::new()
-                .get(format!("http://127.0.0.1:{}/api/stats", port))
-                .timeout(std::time::Duration::from_secs(2))
-                .send().await
-            {
-                Ok(r) if r.status().is_success() => {
-                    if let Ok(json) = r.json::<serde_json::Value>().await {
-                        organs.insert(name.to_string(), json);
+            let c = client.clone();
+            set.spawn(async move {
+                let res = c.get(format!("http://127.0.0.1:{}/api/stats", port)).send().await;
+                if let Ok(r) = res {
+                    if r.status().is_success() {
+                        if let Ok(json) = r.json::<serde_json::Value>().await {
+                            return (name, json);
+                        }
                     }
                 }
-                _ => {}
-            }
+                (name, serde_json::Value::Null)
+            });
         }
 
-        // Fetch memory (port 9030)
-        match reqwest::Client::new()
-            .get("http://127.0.0.1:9030/api/stats")
-            .timeout(std::time::Duration::from_secs(2))
-            .send().await
-        {
-            Ok(r) if r.status().is_success() => {
-                if let Ok(json) = r.json::<serde_json::Value>().await {
-                    organs.insert("neural_memory".to_string(), json);
+        // 4. Fetch memory (port 9030)
+        let c = client.clone();
+        set.spawn(async move {
+            let res = c.get("http://127.0.0.1:9030/api/stats").send().await;
+            if let Ok(r) = res {
+                if r.status().is_success() {
+                    if let Ok(json) = r.json::<serde_json::Value>().await {
+                        return ("neural_memory", json);
+                    }
                 }
             }
-            _ => {}
+            ("neural_memory", serde_json::Value::Null)
+        });
+
+        let mut organs = HashMap::new();
+        let mut blackboard = serde_json::Value::Null;
+
+        while let Some(Ok((name, json))) = set.join_next().await {
+            if json.is_null() { continue; }
+            if name == "blackboard" {
+                blackboard = json;
+            } else {
+                organs.insert(name.to_string(), json);
+            }
         }
 
         Self {

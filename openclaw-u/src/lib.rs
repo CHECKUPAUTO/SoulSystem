@@ -56,7 +56,7 @@ pub struct CoreState {
 
 const MAX_HISTORY: usize = 100;
 
-const STATE_PATH: &str = "/tmp/openclaw_u_state.json";
+pub const STATE_PATH: &str = "/tmp/openclaw_u_state.json";
 
 impl CoreState {
     pub fn birth() -> Self {

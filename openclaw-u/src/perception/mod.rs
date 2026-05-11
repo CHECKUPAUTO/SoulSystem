@@ -26,15 +26,42 @@ pub struct SystemSnapshot {
 
 impl SystemSnapshot {
     pub async fn capture() -> Self {
-        let hnn = super::hnn_bridge::HnnState::fetch().await;
+        // Bolt ⚡: Parallelize data collection to reduce latency.
+        // Sum of timeouts could be ~30s, now it's max(timeouts) ~5s.
+        let (
+            hnn,
+            cpu,
+            mem,
+            disk,
+            (services_active, services_total),
+            onaeu_cycle,
+            onaeu_entropy,
+            weaviate_objects,
+            llm_available,
+            soullink_core_online,
+            autonomy_status,
+            failed_logins,
+            open_ports,
+        ) = tokio::join!(
+            super::hnn_bridge::HnnState::fetch(),
+            Self::read_cpu(),
+            Self::read_mem(),
+            Self::read_disk(),
+            Self::count_services(),
+            Self::read_onaeu_cycle(),
+            Self::read_onaeu_entropy(),
+            Self::count_weaviate(),
+            Self::check_ollama(),
+            Self::check_soullink_orchestrator(),
+            Self::read_autonomy(),
+            Self::read_failed_logins(),
+            Self::read_open_ports(),
+        );
+
         let hnn_online = hnn.organs.len() as u8;
         let hnn_healthy = hnn_online >= 10; // science, mind, engineer, crypto, creative, meta, foresight, homeostasis, creativity, social, validation...
 
         let mut pending = Vec::new();
-
-        let cpu = Self::read_cpu().await;
-        let mem = Self::read_mem().await;
-        let disk = Self::read_disk().await;
 
         if cpu > 80.0 { pending.push(format!("CPU: {:.0}%", cpu)); }
         if mem > 90.0 { pending.push(format!("MEM: {:.0}%", mem)); }
@@ -46,19 +73,19 @@ impl SystemSnapshot {
             cpu_percent: cpu,
             mem_percent: mem,
             disk_percent: disk,
-            services_active: Self::count_services().await.0,
-            services_total: Self::count_services().await.1,
+            services_active,
+            services_total,
             hnn_organs_online: hnn_online,
             hnn_healthy,
-            onaeu_cycle: Self::read_onaeu_cycle().await,
-            onaeu_entropy: Self::read_onaeu_entropy().await,
-            weaviate_objects: Self::count_weaviate().await,
+            onaeu_cycle,
+            onaeu_entropy,
+            weaviate_objects,
             pending_alerts: pending,
-            llm_available: Self::check_ollama().await,
-            soullink_core_online: Self::check_soullink_orchestrator().await,
-            autonomy_status: Self::read_autonomy().await,
-            failed_logins: Self::read_failed_logins().await,
-            open_ports: Self::read_open_ports().await,
+            llm_available,
+            soullink_core_online,
+            autonomy_status,
+            failed_logins,
+            open_ports,
         }
     }
 

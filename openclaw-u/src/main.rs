@@ -15,7 +15,6 @@ use openclaw_u::bi_bridge::{BiBridge, UplinkMessage, DownlinkMessage};
 use openclaw_u::selfmod::SelfModEngine;
 use openclaw_u::bi_bridge::http_server::{BridgeState, start_bridge_server};
 use openclaw_u::learning::QTable;
-
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
@@ -688,6 +687,7 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
 
     #[test]
     fn core_state_birth() {
