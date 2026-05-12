@@ -11,14 +11,9 @@ pub struct HnnState {
 }
 
 impl HnnState {
-    pub async fn fetch() -> Self {
+    pub async fn fetch(client: &reqwest::Client) -> Self {
         // Bolt ⚡: Use shared client and JoinSet for concurrent fetching.
         // Replaces ~15 sequential HTTP calls with parallel ones.
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(3))
-            .build()
-            .unwrap_or_default();
-
         let mut set = tokio::task::JoinSet::new();
 
         // 1. Fetch orchestrator blackboard (port 9020)
