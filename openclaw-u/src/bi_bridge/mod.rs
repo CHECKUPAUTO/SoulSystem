@@ -116,19 +116,21 @@ impl BiBridge {
 
     pub async fn poll_downlink(&mut self) -> Option<DownlinkMessage> {
         // Try channel first (fast path)
-        match tokio::time::timeout(
+        if let Ok(Some(msg)) = tokio::time::timeout(
             std::time::Duration::from_millis(100),
-            self.downlink_rx.recv()
-        ).await {
-            Ok(Some(msg)) => return Some(msg),
-            _ => {}
+            self.downlink_rx.recv(),
+        )
+        .await
+        {
+            return Some(msg);
         }
 
         // Then poll SoulLink HTTP API for commands
-        match self.poll_soullink_commands().await {
-            Ok(Some(cmd)) => return Some(cmd),
-            _ => None,
+        if let Ok(Some(cmd)) = self.poll_soullink_commands().await {
+            return Some(cmd);
         }
+
+        None
     }
 
     async fn poll_soullink_commands(&self) -> Result<Option<DownlinkMessage>, String> {

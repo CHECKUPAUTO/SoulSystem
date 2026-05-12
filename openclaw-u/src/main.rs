@@ -245,7 +245,7 @@ async fn heartbeat_loop(
 
                     if st.resilience.is_looping(&final_action) {
                         warn!("🔄 RESILIENCE: boucle détectée '{}' ({}x) → changement forcé", final_action, st.resilience.consecutive_same_action);
-                        let alternatives = vec!["explore", "report", "wait"];
+                        let alternatives = ["explore", "report", "wait"];
                         final_action = alternatives[(st.uptime_cycles as usize) % alternatives.len()].to_string();
                     }
 
@@ -313,13 +313,13 @@ async fn heartbeat_loop(
                         Action::SelfEvolve.execute().await
                     } else if goal_lower.contains("bloquer_ip") || goal_lower.contains("block_ip") {
                         // Extract IP from goal or use a placeholder
-                        let ip = goal_lower.split(':').last().unwrap_or("127.0.0.1").trim().to_string();
+                        let ip = goal_lower.split(':').next_back().unwrap_or("127.0.0.1").trim().to_string();
                         Action::BlockIp(ip).execute().await
                     } else if goal_lower.contains("gpu_power") {
-                        let watts = goal_lower.split(':').last().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(100);
+                        let watts = goal_lower.split(':').next_back().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(100);
                         Action::TuneGpuPower(watts).execute().await
                     } else if goal_lower.contains("verbalize") || goal_lower.contains("expliquer") {
-                        let organ = goal_lower.split(':').last().unwrap_or("core").trim().to_string();
+                        let organ = goal_lower.split(':').next_back().unwrap_or("core").trim().to_string();
                         Action::VerbalizeState(organ).execute().await
                     } else if goal_lower.contains("créer_outil") || goal_lower.contains("create_tool") {
                         // Extract name and script if possible, or use a default expansion tool
@@ -387,7 +387,7 @@ async fn heartbeat_loop(
                     let st = state.lock().await;
                     let energy_before = st.energy;
                     let action_name = st.last_llm_action.clone();
-                    let confidence = st.last_llm_action.is_empty().then(|| 0.0).unwrap_or(0.8);
+                    let confidence = if st.last_llm_action.is_empty() { 0.0 } else { 0.8 };
                     drop(st);
 
                     // Attendre le prochain cycle pour mesurer l'impact
@@ -512,7 +512,7 @@ async fn heartbeat_loop(
 
                 // 10. ONAÉ-U MUTATION (5% chance)
                 if rand::random::<f64>() < 0.05 {
-                    let actions = vec!["explore_new_patterns", "optimize_performance", "checkpoint_state"];
+                    let actions = ["explore_new_patterns", "optimize_performance", "checkpoint_state"];
                     let mut rng = rand::thread_rng();
                     let action = actions.choose(&mut rng).unwrap_or(&"explore");
                     let _ = onaeu.mutate(action).await;

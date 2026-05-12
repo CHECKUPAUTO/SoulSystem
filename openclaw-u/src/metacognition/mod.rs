@@ -49,6 +49,7 @@ pub struct Metacognition {
     pub last_cycle: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl Metacognition {
     pub fn new() -> Self {
         Self {
@@ -170,7 +171,7 @@ impl Metacognition {
         }
 
         // Score clamp [0, 1]
-        score = score.max(0.0).min(1.0);
+        score = score.clamp(0.0, 1.0);
 
         let category = if score >= 0.8 {
             QualityCategory::Excellent
@@ -229,7 +230,7 @@ impl Metacognition {
                 + if m.energy_after > m.energy_before { 0.2f32 } else { 0.0f32 }
                 + if m.cpu_after < m.cpu_before { 0.2f32 } else { 0.0f32 }
                 + if m.alerts_after < m.alerts_before { 0.1f32 } else { 0.0f32 };
-            total_score += s.max(0.0f32).min(1.0f32);
+            total_score += s.clamp(0.0f32, 1.0f32);
         }
 
         let avg_score = if count > 0 { total_score / count as f32 } else { 0.0 };
