@@ -1,0 +1,9 @@
+[package]
+name = "soulsystem-multiagent"
+version = "0.1.0"
+edition = "2021"
+description = "Orchestrateur multi-agent spécialisé (coder, researcher, reviewer)"
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+tracing = "0.1"
