@@ -2,8 +2,6 @@
 //! Optimise les compétences de l'agent par auto-évolution via OpenEvolve.
 
 use chrono::{DateTime, Utc};
-use openevolve::evolution::EvolutionEngine;
-use openevolve::database::ProgramDatabase;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -39,25 +37,33 @@ pub struct ImprovedSkill {
 
 // ─── GEPA Optimizer ───────────────────────────────────────────
 
+pub struct EvolutionEngine {
+    pub generation: u32,
+}
+
+pub struct ProgramDatabase {
+    pub path: PathBuf,
+}
+
 pub struct GEPAOptimizer {
-    engine: Option<EvolutionEngine>,
-    database: Option<ProgramDatabase>,
+    pub engine: EvolutionEngine,
+    pub database: ProgramDatabase,
     skills_dir: PathBuf,
     eval_history: Vec<EvalEntry>,
     skill_stats: HashMap<String, SkillStats>,
 }
 
-struct EvalEntry {
-    skill: String,
-    fitness: f64,
-    timestamp: DateTime<Utc>,
+pub struct EvalEntry {
+    pub skill: String,
+    pub fitness: f64,
+    pub timestamp: DateTime<Utc>,
 }
 
 impl GEPAOptimizer {
     pub fn new(skills_dir: &Path) -> Self {
         Self {
-            engine: None,
-            database: None,
+            engine: EvolutionEngine { generation: 0 },
+            database: ProgramDatabase { path: skills_dir.to_path_buf() },
             skills_dir: skills_dir.to_path_buf(),
             eval_history: Vec::new(),
             skill_stats: HashMap::new(),
@@ -73,12 +79,19 @@ impl GEPAOptimizer {
             .unwrap_or("unknown")
             .to_string();
 
-        // Fitness heuristique : lignes de code pertinentes / complexité estimée
+        // Fitness heuristique : ratio de code effectif vs total, pondéré par la densité de commentaires
         let comments: usize = code.lines().filter(|l| l.trim().starts_with("//") || l.trim().starts_with('#')).count();
         let blanks: usize = code.lines().filter(|l| l.trim().is_empty()).count();
         let effective = lines.saturating_sub(comments + blanks);
-        let complexity = effective.max(1) as f64;
-        let fitness = (effective as f64 / complexity).min(1.0);
+
+        if lines == 0 { return Ok(0.0); }
+
+        let ratio_effective = effective as f64 / lines as f64;
+        let comment_density = comments as f64 / lines.max(1) as f64;
+
+        // On veut du code effectif mais aussi documenté (idéalement 20% de commentaires)
+        let doc_score = (1.0 - (comment_density - 0.2).abs()).max(0.0);
+        let fitness = (ratio_effective * 0.7 + doc_score * 0.3).clamp(0.0, 1.0);
 
         let entry = EvalEntry {
             skill: name.clone(),
@@ -138,8 +151,12 @@ impl GEPAOptimizer {
     }
 
     fn simulate_improvement(code: &str) -> String {
-        // Simplifie les patterns redondants
-        let lines: Vec<&str> = code.lines().collect();
+        use regex::Regex;
+
+        let mut improved = code.to_string();
+
+        // 1. Supprimer les commentaires en double consécutifs
+        let lines: Vec<&str> = improved.lines().collect();
         let mut deduped = Vec::new();
         let mut prev = "";
         for line in &lines {
@@ -150,7 +167,27 @@ impl GEPAOptimizer {
             deduped.push(*line);
             prev = trimmed;
         }
-        deduped.join("\n")
+        improved = deduped.join("\n");
+
+        // 2. Simplifier .clone() sur les types triviaux (ex: i32, bool) si détectable simplement
+        if let Ok(re) = Regex::new(r"(?P<var>\w+)\.clone\(\)") {
+            // Simulation simple : on remplace certains patterns connus
+            improved = re.replace_all(&improved, |caps: &regex::Captures| {
+                let var = &caps["var"];
+                if ["id", "count", "flag", "index"].contains(&var) {
+                    var.to_string()
+                } else {
+                    caps[0].to_string()
+                }
+            }).to_string();
+        }
+
+        // 3. Simplifier if true { ... } else { ... }
+        if let Ok(re) = Regex::new(r"if true \{(?P<body>[^}]+)\} else \{[^}]+\}") {
+            improved = re.replace_all(&improved, "$body").to_string();
+        }
+
+        improved
     }
 
     pub fn apply_improvement(&self, improved: &ImprovedSkill) -> anyhow::Result<()> {

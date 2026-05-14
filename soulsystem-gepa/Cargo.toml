@@ -5,7 +5,6 @@ edition = "2021"
 description = "GEPA — Génération et Packaging d'Évolution. Optimise les compétences par auto-évolution."
 
 [dependencies]
-openevolve = { path = "/root/openevolve" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
