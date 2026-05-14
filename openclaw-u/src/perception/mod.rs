@@ -25,7 +25,7 @@ pub struct SystemSnapshot {
 }
 
 impl SystemSnapshot {
-    pub async fn capture() -> Self {
+    pub async fn capture(client: &reqwest::Client) -> Self {
         // Bolt ⚡: Parallelize data collection to reduce latency.
         // Sum of timeouts could be ~30s, now it's max(timeouts) ~5s.
         let (
@@ -43,17 +43,17 @@ impl SystemSnapshot {
             failed_logins,
             open_ports,
         ) = tokio::join!(
-            super::hnn_bridge::HnnState::fetch(),
+            super::hnn_bridge::HnnState::fetch(client),
             Self::read_cpu(),
             Self::read_mem(),
             Self::read_disk(),
             Self::count_services(),
-            Self::read_onaeu_cycle(),
-            Self::read_onaeu_entropy(),
-            Self::count_weaviate(),
-            Self::check_ollama(),
-            Self::check_soullink_orchestrator(),
-            Self::read_autonomy(),
+            Self::read_onaeu_cycle(client),
+            Self::read_onaeu_entropy(client),
+            Self::count_weaviate(client),
+            Self::check_ollama(client),
+            Self::check_soullink_orchestrator(client),
+            Self::read_autonomy(client),
             Self::read_failed_logins(),
             Self::read_open_ports(),
         );
@@ -101,14 +101,15 @@ impl SystemSnapshot {
     }
 
     async fn read_cpu() -> f32 {
-        let n_cores = std::fs::read_to_string("/proc/cpuinfo")
+        let n_cores = tokio::fs::read_to_string("/proc/cpuinfo")
+            .await
             .unwrap_or_default()
             .lines()
             .filter(|l| l.starts_with("processor"))
             .count()
             .max(1) as f32;
 
-        match std::fs::read_to_string("/proc/loadavg") {
+        match tokio::fs::read_to_string("/proc/loadavg").await {
             Ok(content) => {
                 let load = content.split_whitespace().next()
                     .and_then(|v| v.parse::<f32>().ok())
@@ -120,7 +121,7 @@ impl SystemSnapshot {
     }
 
     async fn read_mem() -> f32 {
-        match std::fs::read_to_string("/proc/meminfo") {
+        match tokio::fs::read_to_string("/proc/meminfo").await {
             Ok(content) => {
                 let mut total = 0.0;
                 let mut available = 0.0;
@@ -172,18 +173,30 @@ impl SystemSnapshot {
             "soullink-social", "soullink-validation", "soullink-autonomy",
             "soullink-nla",
         ];
+
+        let mut set = tokio::task::JoinSet::new();
+        for svc in services.clone() {
+            set.spawn(async move {
+                let status = tokio::process::Command::new("systemctl")
+                    .args(["is-active", "--quiet", svc])
+                    .status()
+                    .await;
+                status.map(|s| s.success()).unwrap_or(false)
+            });
+        }
+
         let mut ok = 0;
-        for svc in &services {
-            match Command::new("systemctl").args(["is-active", "--quiet", svc]).output() {
-                Ok(o) if o.status.success() => ok += 1,
-                _ => {}
+        while let Some(res) = set.join_next().await {
+            if let Ok(true) = res {
+                ok += 1;
             }
         }
+
         (ok, services.len() as u32)
     }
 
-    async fn read_onaeu_cycle() -> u64 {
-        match reqwest::Client::new()
+    async fn read_onaeu_cycle(client: &reqwest::Client) -> u64 {
+        match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
@@ -196,8 +209,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn read_onaeu_entropy() -> f64 {
-        match reqwest::Client::new()
+    async fn read_onaeu_entropy(client: &reqwest::Client) -> f64 {
+        match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
@@ -210,8 +223,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn count_weaviate() -> u64 {
-        match reqwest::Client::new()
+    async fn count_weaviate(client: &reqwest::Client) -> u64 {
+        match client
             .post("http://127.0.0.1:8086/v1/graphql")
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({"query": "{ Aggregate { Memory { meta { count } } } }" }))
@@ -224,7 +237,7 @@ impl SystemSnapshot {
                         .and_then(|d| d.get("Aggregate"))
                         .and_then(|a| a.get("Memory"))
                         .and_then(|m| m.as_array())
-                        .and_then(|arr| arr.get(0))
+                        .and_then(|arr| arr.first())
                         .and_then(|obj| obj.get("meta"))
                         .and_then(|meta| meta.get("count"))
                         .and_then(|c| c.as_u64())
@@ -235,8 +248,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn check_ollama() -> bool {
-        match reqwest::Client::new()
+    async fn check_ollama(client: &reqwest::Client) -> bool {
+        match client
             .get("http://127.0.0.1:11434/api/tags")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
@@ -246,8 +259,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn check_soullink_orchestrator() -> bool {
-        match reqwest::Client::new()
+    async fn check_soullink_orchestrator(client: &reqwest::Client) -> bool {
+        match client
             .get("http://127.0.0.1:9020/api/mesh/status")
             .timeout(std::time::Duration::from_secs(2))
             .send().await
@@ -257,8 +270,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn read_autonomy() -> serde_json::Value {
-        match reqwest::Client::new()
+    async fn read_autonomy(client: &reqwest::Client) -> serde_json::Value {
+        match client
             .get("http://127.0.0.1:9046/api/autonomy/status")
             .timeout(std::time::Duration::from_secs(2))
             .send().await

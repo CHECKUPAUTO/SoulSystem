@@ -128,19 +128,24 @@ async fn heartbeat_loop(
     mut rx: mpsc::Receiver<ExternalEvent>,
     downlink_rx: mpsc::Receiver<DownlinkMessage>,
 ) {
+    // Shared HTTP client for connection pooling
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap_or_default();
+
     // Charger la config runtime
     let (llm_fast, llm_deep, heartbeat_interval, _auto_evolve_interval) = {
         let st = state.lock().await;
         let cfg = &st.runtime_config;
-        let lf = LlmEngine::new("http://127.0.0.1:11434", &cfg.llm_fast_model);
-        let ld = LlmEngine::new("http://127.0.0.1:11434", &cfg.llm_deep_model);
+        let lf = LlmEngine::new("http://127.0.0.1:11434", &cfg.llm_fast_model, http_client.clone());
+        let ld = LlmEngine::new("http://127.0.0.1:11434", &cfg.llm_deep_model, http_client.clone());
         (lf, ld, cfg.heartbeat_interval_secs, cfg.auto_evolve_interval)
     };
 
     let mut ticker = interval(Duration::from_secs(heartbeat_interval));
-    let weaviate = WeaviateMemory::new("http://127.0.0.1:8086");
-    let onaeu = OnaeuBridge::new("http://127.0.0.1:7878");
-    let http_client = reqwest::Client::new();
+    let weaviate = WeaviateMemory::new("http://127.0.0.1:8086", http_client.clone());
+    let onaeu = OnaeuBridge::new("http://127.0.0.1:7878", http_client.clone());
 
     // Bi-bridge channels (downlink_rx reçu en paramètre)
     let (uplink_tx, mut uplink_rx) = mpsc::channel::<UplinkMessage>(64);
@@ -245,7 +250,7 @@ async fn heartbeat_loop(
 
                     if st.resilience.is_looping(&final_action) {
                         warn!("🔄 RESILIENCE: boucle détectée '{}' ({}x) → changement forcé", final_action, st.resilience.consecutive_same_action);
-                        let alternatives = vec!["explore", "report", "wait"];
+                        let alternatives = ["explore", "report", "wait"];
                         final_action = alternatives[(st.uptime_cycles as usize) % alternatives.len()].to_string();
                     }
 
@@ -313,13 +318,13 @@ async fn heartbeat_loop(
                         Action::SelfEvolve.execute().await
                     } else if goal_lower.contains("bloquer_ip") || goal_lower.contains("block_ip") {
                         // Extract IP from goal or use a placeholder
-                        let ip = goal_lower.split(':').last().unwrap_or("127.0.0.1").trim().to_string();
+                        let ip = goal_lower.split(':').next_back().unwrap_or("127.0.0.1").trim().to_string();
                         Action::BlockIp(ip).execute().await
                     } else if goal_lower.contains("gpu_power") {
-                        let watts = goal_lower.split(':').last().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(100);
+                        let watts = goal_lower.split(':').next_back().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(100);
                         Action::TuneGpuPower(watts).execute().await
                     } else if goal_lower.contains("verbalize") || goal_lower.contains("expliquer") {
-                        let organ = goal_lower.split(':').last().unwrap_or("core").trim().to_string();
+                        let organ = goal_lower.split(':').next_back().unwrap_or("core").trim().to_string();
                         Action::VerbalizeState(organ).execute().await
                     } else if goal_lower.contains("créer_outil") || goal_lower.contains("create_tool") {
                         // Extract name and script if possible, or use a default expansion tool
@@ -387,7 +392,7 @@ async fn heartbeat_loop(
                     let st = state.lock().await;
                     let energy_before = st.energy;
                     let action_name = st.last_llm_action.clone();
-                    let confidence = st.last_llm_action.is_empty().then(|| 0.0).unwrap_or(0.8);
+                    let confidence = if st.last_llm_action.is_empty() { 0.0 } else { 0.8 };
                     drop(st);
 
                     // Attendre le prochain cycle pour mesurer l'impact
@@ -512,7 +517,7 @@ async fn heartbeat_loop(
 
                 // 10. ONAÉ-U MUTATION (5% chance)
                 if rand::random::<f64>() < 0.05 {
-                    let actions = vec!["explore_new_patterns", "optimize_performance", "checkpoint_state"];
+                    let actions = ["explore_new_patterns", "optimize_performance", "checkpoint_state"];
                     let mut rng = rand::thread_rng();
                     let action = actions.choose(&mut rng).unwrap_or(&"explore");
                     let _ = onaeu.mutate(action).await;
@@ -578,7 +583,7 @@ async fn heartbeat_loop(
                         let history: Vec<HistoryEntry> = st.history.iter().cloned().collect();
 
                         // Decision logic based on message content via LLM if available
-                        let llm_fast = LlmEngine::new("http://127.0.0.1:11434", &st.runtime_config.llm_fast_model);
+                        let llm_fast = LlmEngine::new("http://127.0.0.1:11434", &st.runtime_config.llm_fast_model, http_client.clone());
                         drop(st);
 
                         if let Some(decision) = llm_decide(&llm_fast, &snapshot, &format!("Respond to user: {}", msg), &history, &q_table, "Interaction utilisateur directe.").await {

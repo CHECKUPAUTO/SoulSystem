@@ -16,10 +16,7 @@ impl Clone for LlmEngine {
         Self {
             url: self.url.clone(),
             model: self.model.clone(),
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_default(),
+            client: self.client.clone(),
         }
     }
 }
@@ -86,14 +83,11 @@ impl LlmResponse {
 }
 
 impl LlmEngine {
-    pub fn new(url: &str, model: &str) -> Self {
+    pub fn new(url: &str, model: &str, client: reqwest::Client) -> Self {
         Self {
             url: url.trim_end_matches('/').to_string(),
             model: model.to_string(),
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .unwrap_or_default(),
+            client,
         }
     }
 
