@@ -18,13 +18,10 @@ pub struct MemoryHit {
 }
 
 impl WeaviateMemory {
-    pub fn new(url: &str) -> Self {
+    pub fn new(url: &str, client: reqwest::Client) -> Self {
         Self {
             url: url.trim_end_matches('/').to_string(),
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
-                .unwrap_or_default(),
+            client,
         }
     }
 

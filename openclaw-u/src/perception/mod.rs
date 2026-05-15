@@ -1,6 +1,6 @@
 //! Perception — lecture de l'état réel du système (mise à jour V13)
 
-use std::process::Command;
+use tokio::process::Command;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,7 +25,7 @@ pub struct SystemSnapshot {
 }
 
 impl SystemSnapshot {
-    pub async fn capture() -> Self {
+    pub async fn capture(client: &reqwest::Client) -> Self {
         // Bolt ⚡: Parallelize data collection to reduce latency.
         // Sum of timeouts could be ~30s, now it's max(timeouts) ~5s.
         let (
@@ -43,17 +43,17 @@ impl SystemSnapshot {
             failed_logins,
             open_ports,
         ) = tokio::join!(
-            super::hnn_bridge::HnnState::fetch(),
+            super::hnn_bridge::HnnState::fetch(client),
             Self::read_cpu(),
             Self::read_mem(),
             Self::read_disk(),
             Self::count_services(),
-            Self::read_onaeu_cycle(),
-            Self::read_onaeu_entropy(),
-            Self::count_weaviate(),
-            Self::check_ollama(),
-            Self::check_soullink_orchestrator(),
-            Self::read_autonomy(),
+            Self::read_onaeu_cycle(client),
+            Self::read_onaeu_entropy(client),
+            Self::count_weaviate(client),
+            Self::check_ollama(client),
+            Self::check_soullink_orchestrator(client),
+            Self::read_autonomy(client),
             Self::read_failed_logins(),
             Self::read_open_ports(),
         );
@@ -150,7 +150,7 @@ impl SystemSnapshot {
         // df uses statfs which is harder to do in pure Rust without a crate,
         // but for now let's at least optimize the shell call or keep it if it's too complex.
         // Actually, many agents have control over the server, so df is usually fine.
-        match Command::new("df").args(["--output=pcent", "/"]).output() {
+        match Command::new("df").args(["--output=pcent", "/"]).output().await {
             Ok(o) if o.status.success() => {
                 let s = String::from_utf8_lossy(&o.stdout);
                 s.lines().nth(1)
@@ -172,18 +172,29 @@ impl SystemSnapshot {
             "soullink-social", "soullink-validation", "soullink-autonomy",
             "soullink-nla",
         ];
-        let mut ok = 0;
-        for svc in &services {
-            match Command::new("systemctl").args(["is-active", "--quiet", svc]).output() {
-                Ok(o) if o.status.success() => ok += 1,
-                _ => {}
-            }
+
+        let mut set = tokio::task::JoinSet::new();
+        let total = services.len() as u32;
+
+        for svc in services {
+            set.spawn(async move {
+                match Command::new("systemctl").args(["is-active", "--quiet", svc]).output().await {
+                    Ok(o) if o.status.success() => 1,
+                    _ => 0,
+                }
+            });
         }
-        (ok, services.len() as u32)
+
+        let mut ok = 0;
+        while let Some(Ok(val)) = set.join_next().await {
+            ok += val;
+        }
+
+        (ok, total)
     }
 
-    async fn read_onaeu_cycle() -> u64 {
-        match reqwest::Client::new()
+    async fn read_onaeu_cycle(client: &reqwest::Client) -> u64 {
+        match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
@@ -196,8 +207,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn read_onaeu_entropy() -> f64 {
-        match reqwest::Client::new()
+    async fn read_onaeu_entropy(client: &reqwest::Client) -> f64 {
+        match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
@@ -210,8 +221,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn count_weaviate() -> u64 {
-        match reqwest::Client::new()
+    async fn count_weaviate(client: &reqwest::Client) -> u64 {
+        match client
             .post("http://127.0.0.1:8086/v1/graphql")
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({"query": "{ Aggregate { Memory { meta { count } } } }" }))
@@ -235,8 +246,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn check_ollama() -> bool {
-        match reqwest::Client::new()
+    async fn check_ollama(client: &reqwest::Client) -> bool {
+        match client
             .get("http://127.0.0.1:11434/api/tags")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
@@ -246,8 +257,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn check_soullink_orchestrator() -> bool {
-        match reqwest::Client::new()
+    async fn check_soullink_orchestrator(client: &reqwest::Client) -> bool {
+        match client
             .get("http://127.0.0.1:9020/api/mesh/status")
             .timeout(std::time::Duration::from_secs(2))
             .send().await
@@ -257,8 +268,8 @@ impl SystemSnapshot {
         }
     }
 
-    async fn read_autonomy() -> serde_json::Value {
-        match reqwest::Client::new()
+    async fn read_autonomy(client: &reqwest::Client) -> serde_json::Value {
+        match client
             .get("http://127.0.0.1:9046/api/autonomy/status")
             .timeout(std::time::Duration::from_secs(2))
             .send().await
@@ -274,6 +285,7 @@ impl SystemSnapshot {
         match Command::new("sh")
             .args(["-c", "journalctl _COMM=sshd | grep -c 'Failed password'"])
             .output()
+            .await
         {
             Ok(o) if o.status.success() => {
                 String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().unwrap_or(0)
@@ -286,6 +298,7 @@ impl SystemSnapshot {
         match Command::new("sh")
             .args(["-c", "ss -tlnp | grep LISTEN | awk '{print $4}' | awk -F: '{print $NF}' | sort -un"])
             .output()
+            .await
         {
             Ok(o) if o.status.success() => {
                 String::from_utf8_lossy(&o.stdout)

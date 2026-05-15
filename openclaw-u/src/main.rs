@@ -138,9 +138,12 @@ async fn heartbeat_loop(
     };
 
     let mut ticker = interval(Duration::from_secs(heartbeat_interval));
-    let weaviate = WeaviateMemory::new("http://127.0.0.1:8086");
-    let onaeu = OnaeuBridge::new("http://127.0.0.1:7878");
-    let http_client = reqwest::Client::new();
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+    let weaviate = WeaviateMemory::new("http://127.0.0.1:8086", http_client.clone());
+    let onaeu = OnaeuBridge::new("http://127.0.0.1:7878", http_client.clone());
 
     // Bi-bridge channels (downlink_rx reçu en paramètre)
     let (uplink_tx, mut uplink_rx) = mpsc::channel::<UplinkMessage>(64);
