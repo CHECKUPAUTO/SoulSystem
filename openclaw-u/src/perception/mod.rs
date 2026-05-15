@@ -1,5 +1,9 @@
 //! Perception — lecture de l'état réel du système (mise à jour V13)
 
+<<<<<<< HEAD
+=======
+use std::process::Stdio;
+>>>>>>> origin/bolt-perception-io-parallelization-8461980448331089953
 use tokio::process::Command;
 use serde::{Deserialize, Serialize};
 
@@ -178,6 +182,7 @@ impl SystemSnapshot {
 
         for svc in services {
             set.spawn(async move {
+<<<<<<< HEAD
                 match Command::new("systemctl").args(["is-active", "--quiet", svc]).output().await {
                     Ok(o) if o.status.success() => 1,
                     _ => 0,
@@ -190,6 +195,25 @@ impl SystemSnapshot {
             ok += val;
         }
 
+=======
+                let status = Command::new("systemctl")
+                    .args(["is-active", "--quiet", svc])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .await;
+                status.map(|s| s.success()).unwrap_or(false)
+            });
+        }
+
+        let mut ok = 0;
+        while let Some(res) = set.join_next().await {
+            if let Ok(true) = res {
+                ok += 1;
+            }
+        }
+
+>>>>>>> origin/bolt-perception-io-parallelization-8461980448331089953
         (ok, total)
     }
 
@@ -235,7 +259,7 @@ impl SystemSnapshot {
                         .and_then(|d| d.get("Aggregate"))
                         .and_then(|a| a.get("Memory"))
                         .and_then(|m| m.as_array())
-                        .and_then(|arr| arr.get(0))
+                        .and_then(|arr| arr.first())
                         .and_then(|obj| obj.get("meta"))
                         .and_then(|meta| meta.get("count"))
                         .and_then(|c| c.as_u64())

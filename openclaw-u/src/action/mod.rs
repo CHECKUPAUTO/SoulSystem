@@ -165,7 +165,7 @@ impl Action {
             }
             Action::Claudex(prompt) => {
                 info!("🤖 Claudex: Executing coding agent with prompt: {}", prompt);
-                match Command::new("/usr/local/bin/claudex").arg(&prompt).output() {
+                match Command::new("/usr/local/bin/claudex").arg(prompt).output() {
                     Ok(o) if o.status.success() => {
                         let out = String::from_utf8_lossy(&o.stdout);
                         Ok(format!("Claudex SUCCESS: {}", out.trim()))
