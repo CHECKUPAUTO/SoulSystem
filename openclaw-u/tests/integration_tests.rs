@@ -60,11 +60,11 @@ async fn test_bi_bridge_status() {
 
 #[tokio::test]
 async fn test_self_mod_analysis() {
-    use openclaw_u::selfmod::SelfModEngine;
-    use openclaw_u::resilience::ResilienceEngine;
-    use openclaw_u::learning::QTable;
-    use openclaw_u::HistoryEntry;
     use chrono::Utc;
+    use openclaw_u::learning::QTable;
+    use openclaw_u::resilience::ResilienceEngine;
+    use openclaw_u::selfmod::SelfModEngine;
+    use openclaw_u::HistoryEntry;
 
     let engine = SelfModEngine::new("/tmp");
     let mut resilience = ResilienceEngine::new();

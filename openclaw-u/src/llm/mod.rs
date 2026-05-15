@@ -3,7 +3,18 @@
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-const VALID_ACTIONS: [&str; 10] = ["optimize_system", "restart_service", "investigate", "evolve", "wait", "explore", "alert", "block_ip", "tune_gpu", "verbalize"];
+const VALID_ACTIONS: [&str; 10] = [
+    "optimize_system",
+    "restart_service",
+    "investigate",
+    "evolve",
+    "wait",
+    "explore",
+    "alert",
+    "block_ip",
+    "tune_gpu",
+    "verbalize",
+];
 
 pub struct LlmEngine {
     url: String,
@@ -37,12 +48,18 @@ impl LlmResponse {
     pub fn validate(&self) -> Result<(), String> {
         // action ∈ ensemble valide
         if !VALID_ACTIONS.contains(&self.action.as_str()) {
-            return Err(format!("Action invalide: '{}'. Attendu: {:?}", self.action, VALID_ACTIONS));
+            return Err(format!(
+                "Action invalide: '{}'. Attendu: {:?}",
+                self.action, VALID_ACTIONS
+            ));
         }
 
         // confidence ∈ [0.0, 1.0]
         if self.confidence < 0.0 || self.confidence > 1.0 {
-            return Err(format!("Confidence hors limites: {}. Attendu: [0.0, 1.0]", self.confidence));
+            return Err(format!(
+                "Confidence hors limites: {}. Attendu: [0.0, 1.0]",
+                self.confidence
+            ));
         }
 
         // thought non vide (max 1000 chars)
@@ -50,7 +67,10 @@ impl LlmResponse {
             return Err("thought est vide".to_string());
         }
         if self.thought.len() > 1000 {
-            return Err(format!("thought trop long: {} chars (max 1000)", self.thought.len()));
+            return Err(format!(
+                "thought trop long: {} chars (max 1000)",
+                self.thought.len()
+            ));
         }
 
         // reasoning non vide (max 500 chars)
@@ -58,7 +78,10 @@ impl LlmResponse {
             return Err("reasoning est vide".to_string());
         }
         if self.reasoning.len() > 500 {
-            return Err(format!("reasoning trop long: {} chars (max 500)", self.reasoning.len()));
+            return Err(format!(
+                "reasoning trop long: {} chars (max 500)",
+                self.reasoning.len()
+            ));
         }
 
         Ok(())
@@ -67,7 +90,13 @@ impl LlmResponse {
     /// Convertit l'action en score de priorité (urgence × impact × énergie)
     pub fn priority_score(&self, cpu: f32, mem: f32, _disk: f32) -> f32 {
         let base = self.confidence;
-        let urgency = if cpu > 80.0 || mem > 90.0 { 2.0 } else if cpu > 50.0 || mem > 70.0 { 1.5 } else { 1.0 };
+        let urgency = if cpu > 80.0 || mem > 90.0 {
+            2.0
+        } else if cpu > 50.0 || mem > 70.0 {
+            1.5
+        } else {
+            1.0
+        };
         let impact = match self.action.as_str() {
             "optimize_system" => 1.2,
             "restart_service" => 1.5,
@@ -137,10 +166,12 @@ Réponds UNIQUEMENT en JSON avec ce format exact:
             "format": "json"
         });
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(format!("{}/api/chat", self.url))
             .json(&body)
-            .send().await;
+            .send()
+            .await;
 
         match resp {
             Ok(r) if r.status().is_success() => {
@@ -157,7 +188,12 @@ Réponds UNIQUEMENT en JSON avec ce format exact:
                                 // Validation schema strict
                                 match parsed.validate() {
                                     Ok(_) => {
-                                        info!("🧠 LLM: {} | conf={:.2} | {}", parsed.action, parsed.confidence, parsed.thought.chars().take(60).collect::<String>());
+                                        info!(
+                                            "🧠 LLM: {} | conf={:.2} | {}",
+                                            parsed.action,
+                                            parsed.confidence,
+                                            parsed.thought.chars().take(60).collect::<String>()
+                                        );
                                         Some(parsed)
                                     }
                                     Err(e) => {
@@ -226,10 +262,12 @@ Réponds en JSON: {{"code": "le code complet ici"}}"#,
             "format": "json"
         });
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(format!("{}/api/chat", self.url))
             .json(&body)
-            .send().await;
+            .send()
+            .await;
 
         match resp {
             Ok(r) if r.status().is_success() => {

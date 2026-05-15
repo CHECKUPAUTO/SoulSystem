@@ -1,7 +1,7 @@
 //! Planner — Planificateur de buts avec prioritisation (urgence × impact × énergie)
 
-use std::cmp::Ordering;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Goal {
@@ -41,10 +41,15 @@ impl Goal {
     }
 
     pub fn with_system_state(mut self, cpu: f32, mem: f32, _disk: f32, alerts: bool) -> Self {
-        self.urgency = if alerts { 2.0 }
-            else if cpu > 80.0 || mem > 90.0 { 1.8 }
-            else if cpu > 50.0 || mem > 70.0 { 1.4 }
-            else { 1.0 };
+        self.urgency = if alerts {
+            2.0
+        } else if cpu > 80.0 || mem > 90.0 {
+            1.8
+        } else if cpu > 50.0 || mem > 70.0 {
+            1.4
+        } else {
+            1.0
+        };
         self
     }
 
@@ -80,9 +85,8 @@ impl GoalPlanner {
     pub fn push(&mut self, goal: Goal) {
         if self.goals.len() >= self.max_size {
             // Retirer le but le moins prioritaire
-            self.goals.sort_by(|a, b| {
-                b.score().partial_cmp(&a.score()).unwrap_or(Ordering::Equal)
-            });
+            self.goals
+                .sort_by(|a, b| b.score().partial_cmp(&a.score()).unwrap_or(Ordering::Equal));
             self.goals.pop();
         }
         self.goals.push(goal);
@@ -93,21 +97,20 @@ impl GoalPlanner {
             return None;
         }
         // Trouver le but le plus prioritaire
-        let idx = self.goals.iter()
+        let idx = self
+            .goals
+            .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| {
-                a.score().partial_cmp(&b.score()).unwrap_or(Ordering::Equal)
-            })
+            .max_by(|(_, a), (_, b)| a.score().partial_cmp(&b.score()).unwrap_or(Ordering::Equal))
             .map(|(i, _)| i)?;
         Some(self.goals.remove(idx))
     }
 
     #[allow(dead_code)]
     pub fn peek(&self) -> Option<&Goal> {
-        self.goals.iter()
-            .max_by(|a, b| {
-                a.score().partial_cmp(&b.score()).unwrap_or(Ordering::Equal)
-            })
+        self.goals
+            .iter()
+            .max_by(|a, b| a.score().partial_cmp(&b.score()).unwrap_or(Ordering::Equal))
     }
 
     #[allow(dead_code)]

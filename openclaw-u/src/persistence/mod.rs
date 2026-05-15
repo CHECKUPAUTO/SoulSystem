@@ -15,10 +15,9 @@ impl Persistence {
     pub fn new() -> Result<Self, String> {
         let db_dir = Path::new(DB_PATH).parent().unwrap();
         std::fs::create_dir_all(db_dir).map_err(|e| format!("mkdir: {}", e))?;
-        
-        let conn = Connection::open(DB_PATH)
-            .map_err(|e| format!("sqlite open: {}", e))?;
-        
+
+        let conn = Connection::open(DB_PATH).map_err(|e| format!("sqlite open: {}", e))?;
+
         let p = Self { conn };
         p.init_tables()?;
         info!("💾 Persistence SQLite initialisée: {}", DB_PATH);
@@ -26,7 +25,9 @@ impl Persistence {
     }
 
     fn init_tables(&self) -> Result<(), String> {
-        self.conn.execute_batch(r#"
+        self.conn
+            .execute_batch(
+                r#"
             CREATE TABLE IF NOT EXISTS state (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 version TEXT NOT NULL,
@@ -58,14 +59,15 @@ impl Persistence {
                 last_error TEXT,
                 last_seen TEXT
             );
-        "#).map_err(|e| format!("init tables: {}", e))?;
+        "#,
+            )
+            .map_err(|e| format!("init tables: {}", e))?;
         Ok(())
     }
 
     pub fn save_state(&self, state: &crate::CoreState) -> Result<(), String> {
-        let json = serde_json::to_string(state)
-            .map_err(|e| format!("serialize: {}", e))?;
-        
+        let json = serde_json::to_string(state).map_err(|e| format!("serialize: {}", e))?;
+
         self.conn.execute(
             r#"INSERT INTO state (id, version, energy, cycles, tasks, evolutions, created_at, updated_at, json)
                VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -88,28 +90,29 @@ impl Persistence {
                 json
             ],
         ).map_err(|e| format!("save state: {}", e))?;
-        
+
         Ok(())
     }
 
     pub fn load_state(&self) -> Result<Option<crate::CoreState>, String> {
-        let mut stmt = self.conn.prepare(
-            "SELECT json FROM state WHERE id = 1"
-        ).map_err(|e| format!("prepare: {}", e))?;
-        
-        let mut rows = stmt.query([])
-            .map_err(|e| format!("query: {}", e))?;
-        
-        if let Some(row) = rows.next()
-            .map_err(|e| format!("next: {}", e))? {
-            let json: String = row.get(0)
-                .map_err(|e| format!("get: {}", e))?;
-            let state: crate::CoreState = serde_json::from_str(&json)
-                .map_err(|e| format!("deserialize: {}", e))?;
-            info!("💾 État chargé depuis SQLite — cycles:{}", state.uptime_cycles);
+        let mut stmt = self
+            .conn
+            .prepare("SELECT json FROM state WHERE id = 1")
+            .map_err(|e| format!("prepare: {}", e))?;
+
+        let mut rows = stmt.query([]).map_err(|e| format!("query: {}", e))?;
+
+        if let Some(row) = rows.next().map_err(|e| format!("next: {}", e))? {
+            let json: String = row.get(0).map_err(|e| format!("get: {}", e))?;
+            let state: crate::CoreState =
+                serde_json::from_str(&json).map_err(|e| format!("deserialize: {}", e))?;
+            info!(
+                "💾 État chargé depuis SQLite — cycles:{}",
+                state.uptime_cycles
+            );
             return Ok(Some(state));
         }
-        
+
         Ok(None)
     }
 
@@ -127,9 +130,11 @@ impl Persistence {
     }
 
     pub fn save_q_table(&self, q_table: &crate::learning::QTable) -> Result<(), String> {
-        let tx = self.conn.unchecked_transaction()
+        let tx = self
+            .conn
+            .unchecked_transaction()
             .map_err(|e| format!("transaction: {}", e))?;
-        
+
         for (action, score) in &q_table.scores {
             tx.execute(
                 r#"INSERT INTO q_table (action, total_reward, count, success_rate, avg_reward)
@@ -146,26 +151,27 @@ impl Persistence {
                     score.success_rate,
                     score.avg_reward
                 ],
-            ).map_err(|e| format!("save q: {}", e))?;
+            )
+            .map_err(|e| format!("save q: {}", e))?;
         }
-        
+
         tx.commit().map_err(|e| format!("commit: {}", e))?;
         Ok(())
     }
 
     pub fn export_to_json(&self, path: &str) -> Result<(), String> {
         if let Ok(Some(state)) = self.load_state() {
-            let json = serde_json::to_string_pretty(&state)
-                .map_err(|e| format!("serialize: {}", e))?;
-            std::fs::write(path, json)
-                .map_err(|e| format!("write: {}", e))?;
+            let json =
+                serde_json::to_string_pretty(&state).map_err(|e| format!("serialize: {}", e))?;
+            std::fs::write(path, json).map_err(|e| format!("write: {}", e))?;
             info!("💾 Export JSON: {}", path);
         }
         Ok(())
     }
 
     pub fn vacuum(&self) -> Result<(), String> {
-        self.conn.execute("VACUUM", [])
+        self.conn
+            .execute("VACUUM", [])
             .map_err(|e| format!("vacuum: {}", e))?;
         info!("💾 SQLite VACUUM terminé");
         Ok(())

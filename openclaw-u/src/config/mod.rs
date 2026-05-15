@@ -45,8 +45,10 @@ impl RuntimeConfig {
         if let Ok(data) = std::fs::read_to_string(path) {
             match serde_json::from_str::<Self>(&data) {
                 Ok(cfg) => {
-                    info!("📋 Config chargée: heartbeat={}s | fast={} | deep={}",
-                        cfg.heartbeat_interval_secs, cfg.llm_fast_model, cfg.llm_deep_model);
+                    info!(
+                        "📋 Config chargée: heartbeat={}s | fast={} | deep={}",
+                        cfg.heartbeat_interval_secs, cfg.llm_fast_model, cfg.llm_deep_model
+                    );
                     return cfg;
                 }
                 Err(e) => {

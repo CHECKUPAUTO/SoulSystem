@@ -1,7 +1,7 @@
 //! Memory — connexion à Weaviate pour recherche sémantique
 
 // use serde::{Deserialize, Serialize};
-use tracing::{info};
+use tracing::info;
 
 pub struct WeaviateMemory {
     url: String,
@@ -28,26 +28,29 @@ impl WeaviateMemory {
         }
     }
 
-    pub async fn search(&self,
-        query: &str,
-        limit: usize,
-    ) -> Result<Vec<MemoryHit>, String> {
+    pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<MemoryHit>, String> {
         let gql = format!(
             r#"{{ Get {{ Memory(nearText:{{concepts:["{}"]}} limit:{}) {{ content source timestamp _additional {{ distance }} }} }} }}"#,
-            query.replace('"', "\\\""), limit
+            query.replace('"', "\\\""),
+            limit
         );
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(format!("{}/v1/graphql", self.url))
             .json(&serde_json::json!({ "query": gql }))
-            .send().await
+            .send()
+            .await
             .map_err(|e| format!("HTTP error: {}", e))?;
 
         if !resp.status().is_success() {
             return Err(format!("Weaviate error: {}", resp.status()));
         }
 
-        let json: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {}", e))?;
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("Parse error: {}", e))?;
         let data = json
             .get("data")
             .and_then(|d| d.get("Get"))
@@ -64,9 +67,21 @@ impl WeaviateMemory {
                 .and_then(|d| d.as_f64())
                 .unwrap_or(1.0);
             hits.push(MemoryHit {
-                content: item.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string(),
-                source: item.get("source").and_then(|s| s.as_str()).unwrap_or("").to_string(),
-                timestamp: item.get("timestamp").and_then(|t| t.as_str()).unwrap_or("").to_string(),
+                content: item
+                    .get("content")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                source: item
+                    .get("source")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                timestamp: item
+                    .get("timestamp")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 score: 1.0 - distance,
             });
         }
@@ -75,11 +90,9 @@ impl WeaviateMemory {
         Ok(hits)
     }
 
-    pub async fn index(&self,
-        content: &str,
-        source: &str,
-    ) -> Result<String, String> {
-        let resp = self.client
+    pub async fn index(&self, content: &str, source: &str) -> Result<String, String> {
+        let resp = self
+            .client
             .post(format!("{}/v1/objects", self.url))
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
@@ -92,7 +105,8 @@ impl WeaviateMemory {
                     "tags": ["openclaw-u"],
                 }
             }))
-            .send().await
+            .send()
+            .await
             .map_err(|e| format!("HTTP error: {}", e))?;
 
         if resp.status().is_success() {

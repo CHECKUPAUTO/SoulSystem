@@ -1,7 +1,7 @@
 //! Learning — Apprentissage par renforcement basé sur les résultats passés
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Score historique d'une action
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,20 +38,18 @@ impl QTable {
     }
 
     /// Met à jour le score d'une action
-    pub fn update(
-        &mut self,
-        action: &str,
-        reward: f64,
-        success: bool,
-    ) {
-        let entry = self.scores.entry(action.to_string()).or_insert(ActionScore {
-            action: action.to_string(),
-            total_reward: 0.0,
-            count: 0,
-            avg_reward: 0.0,
-            last_seen: chrono::Utc::now().to_rfc3339(),
-            success_rate: 0.0,
-        });
+    pub fn update(&mut self, action: &str, reward: f64, success: bool) {
+        let entry = self
+            .scores
+            .entry(action.to_string())
+            .or_insert(ActionScore {
+                action: action.to_string(),
+                total_reward: 0.0,
+                count: 0,
+                avg_reward: 0.0,
+                last_seen: chrono::Utc::now().to_rfc3339(),
+                success_rate: 0.0,
+            });
 
         entry.count += 1;
         entry.total_reward += reward;
@@ -78,9 +76,12 @@ impl QTable {
 
     /// Meilleure action connue
     pub fn best_action(&self) -> Option<&str> {
-        self.scores.iter()
+        self.scores
+            .iter()
             .max_by(|(_, a), (_, b)| {
-                a.avg_reward.partial_cmp(&b.avg_reward).unwrap_or(std::cmp::Ordering::Equal)
+                a.avg_reward
+                    .partial_cmp(&b.avg_reward)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
             .map(|(k, _)| k.as_str())
     }
@@ -89,12 +90,19 @@ impl QTable {
     pub fn to_context(&self) -> String {
         let mut lines = vec!["Historique des actions:".to_string()];
         let mut sorted: Vec<&ActionScore> = self.scores.values().collect();
-        sorted.sort_by(|a, b| b.avg_reward.partial_cmp(&a.avg_reward).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(|a, b| {
+            b.avg_reward
+                .partial_cmp(&a.avg_reward)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         for s in sorted.iter().take(5) {
             lines.push(format!(
                 "  {}: avg={:.2} | success={:.0}% | n={}",
-                s.action, s.avg_reward, s.success_rate * 100.0, s.count
+                s.action,
+                s.avg_reward,
+                s.success_rate * 100.0,
+                s.count
             ));
         }
         lines.join("\n")

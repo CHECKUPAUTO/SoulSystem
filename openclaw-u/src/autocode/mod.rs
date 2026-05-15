@@ -2,13 +2,13 @@
 
 use std::fs;
 use std::path::Path;
-use tracing::{info, warn};
-use tokio::sync::Mutex;
 use std::sync::Arc;
+use tokio::sync::Mutex;
+use tracing::{info, warn};
 
-use crate::CoreState;
 use crate::llm::LlmEngine;
 use crate::sandbox::{Sandbox, SandboxResult};
+use crate::CoreState;
 
 /// Résultat d'une tentative d'évolution
 #[derive(Debug, Clone)]
@@ -49,7 +49,9 @@ impl AutoCoder {
         ];
 
         for src_dir in scan_dirs {
-            if !src_dir.exists() { continue; }
+            if !src_dir.exists() {
+                continue;
+            }
             self.scan_dir(&src_dir, &mut opportunities);
         }
 
@@ -86,7 +88,8 @@ impl AutoCoder {
                             });
                         }
                         if content.contains("todo!") || content.contains("unimplemented!") {
-                            let count = content.matches("todo!").count() + content.matches("unimplemented!").count();
+                            let count = content.matches("todo!").count()
+                                + content.matches("unimplemented!").count();
                             opportunities.push(ImprovementOpportunity {
                                 file: rel_str.to_string(),
                                 kind: OpportunityKind::RemoveStub,
@@ -130,8 +133,10 @@ impl AutoCoder {
         let git_commit = std::process::Command::new("git")
             .args([
                 "commit",
-                "-m", &format!("Auto-evolution: {}", file_path),
-                "--author", "Tarek <tarek@avid.dev>",
+                "-m",
+                &format!("Auto-evolution: {}", file_path),
+                "--author",
+                "Tarek <tarek@avid.dev>",
             ])
             .current_dir(&self.project_dir)
             .output();
@@ -141,7 +146,10 @@ impl AutoCoder {
                 let hash = String::from_utf8_lossy(&o.stdout).trim().to_string();
                 Ok(hash)
             }
-            Ok(o) => Err(format!("git commit failed: {}", String::from_utf8_lossy(&o.stderr))),
+            Ok(o) => Err(format!(
+                "git commit failed: {}",
+                String::from_utf8_lossy(&o.stderr)
+            )),
             Err(e) => Err(format!("git error: {}", e)),
         }
     }
@@ -185,7 +193,10 @@ pub async fn auto_evolve(state: Arc<Mutex<CoreState>>) -> EvolutionResult {
     }
 
     let best = &opportunities[0];
-    info!("🔍 OPPORTUNITÉ (fallback): {} — {}", best.file, best.description);
+    info!(
+        "🔍 OPPORTUNITÉ (fallback): {} — {}",
+        best.file, best.description
+    );
 
     let patch = format!(
         r#"// PATCH: Amélioration identifiée
@@ -199,7 +210,11 @@ pub async fn auto_evolve(state: Arc<Mutex<CoreState>>) -> EvolutionResult {
     let _ = fs::write(&patch_path, patch);
 
     let mut st = state.lock().await;
-    st.log_event("auto_evolve", 0.1, &format!("placeholder_{}", best.description));
+    st.log_event(
+        "auto_evolve",
+        0.1,
+        &format!("placeholder_{}", best.description),
+    );
 
     EvolutionResult {
         success: true,
@@ -220,9 +235,12 @@ pub async fn auto_evolve_llm(state: Arc<Mutex<CoreState>>, llm: LlmEngine) -> Ev
         let mut st = state.lock().await;
         st.log_event("auto_evolve", 0.1, "no_opportunities_found");
         return EvolutionResult {
-            success: true, patch_file: String::new(),
+            success: true,
+            patch_file: String::new(),
             test_output: "No improvements needed".to_string(),
-            commit_hash: None, energy_delta: 0.1, llm_generated: false,
+            commit_hash: None,
+            energy_delta: 0.1,
+            llm_generated: false,
         };
     }
 
@@ -240,10 +258,16 @@ pub async fn auto_evolve_llm(state: Arc<Mutex<CoreState>>, llm: LlmEngine) -> Ev
     };
 
     let issue = match best.kind {
-        OpportunityKind::ReplaceUnwrap => "Remplace unwrap() par expect() avec messages descriptifs",
+        OpportunityKind::ReplaceUnwrap => {
+            "Remplace unwrap() par expect() avec messages descriptifs"
+        }
         OpportunityKind::ReplacePanic => "Remplace panic!() par un retour de Result::Err() propre",
-        OpportunityKind::RemoveStub => "Implémente les fonctions marquées todo!() ou unimplemented!()",
-        OpportunityKind::ReplacePrintln => "Remplace println! par tracing::info! pour logging structuré",
+        OpportunityKind::RemoveStub => {
+            "Implémente les fonctions marquées todo!() ou unimplemented!()"
+        }
+        OpportunityKind::ReplacePrintln => {
+            "Remplace println! par tracing::info! pour logging structuré"
+        }
         OpportunityKind::AddTests => "Ajoute des tests unitaires pour les fonctions publiques",
         OpportunityKind::OptimizeAlgorithm => "Optimise l'algorithme pour meilleure performance",
     };
@@ -267,9 +291,12 @@ pub async fn auto_evolve_llm(state: Arc<Mutex<CoreState>>, llm: LlmEngine) -> Ev
                     let mut st = state.lock().await;
                     st.log_event("auto_evolve_llm", -0.4, &format!("promote_FAIL_{}", e));
                     return EvolutionResult {
-                        success: false, patch_file: String::new(),
+                        success: false,
+                        patch_file: String::new(),
                         test_output: format!("Promote failed: {}", e),
-                        commit_hash: None, energy_delta: -0.4, llm_generated: true,
+                        commit_hash: None,
+                        energy_delta: -0.4,
+                        llm_generated: true,
                     };
                 }
 
@@ -279,7 +306,11 @@ pub async fn auto_evolve_llm(state: Arc<Mutex<CoreState>>, llm: LlmEngine) -> Ev
                 let commit = coder.commit_patch(&best.file);
                 let mut st = state.lock().await;
                 st.evolution_count += 1;
-                st.log_event("auto_evolve_llm", 0.8, &format!("sandbox_OK_{}", best.description));
+                st.log_event(
+                    "auto_evolve_llm",
+                    0.8,
+                    &format!("sandbox_OK_{}", best.description),
+                );
 
                 EvolutionResult {
                     success: true,
@@ -290,17 +321,33 @@ pub async fn auto_evolve_llm(state: Arc<Mutex<CoreState>>, llm: LlmEngine) -> Ev
                     llm_generated: true,
                 }
             } else {
-                warn!("❌ SANDBOX FAIL — compile:{} tests:{}",
-                    if validation.compilation_ok { "OK" } else { "FAIL" },
-                    if validation.tests_passed { "OK" } else { "FAIL" }
+                warn!(
+                    "❌ SANDBOX FAIL — compile:{} tests:{}",
+                    if validation.compilation_ok {
+                        "OK"
+                    } else {
+                        "FAIL"
+                    },
+                    if validation.tests_passed {
+                        "OK"
+                    } else {
+                        "FAIL"
+                    }
                 );
                 let mut st = state.lock().await;
-                st.log_event("auto_evolve_llm", -0.3, &format!("sandbox_FAIL_{}", validation.output));
+                st.log_event(
+                    "auto_evolve_llm",
+                    -0.3,
+                    &format!("sandbox_FAIL_{}", validation.output),
+                );
 
                 EvolutionResult {
-                    success: false, patch_file: String::new(),
+                    success: false,
+                    patch_file: String::new(),
                     test_output: validation.output,
-                    commit_hash: None, energy_delta: -0.3, llm_generated: true,
+                    commit_hash: None,
+                    energy_delta: -0.3,
+                    llm_generated: true,
                 }
             }
         }
@@ -326,10 +373,18 @@ pub async fn auto_evolve_sandboxed(
 
         let mut st = state.lock().await;
         st.evolution_count += 1;
-        st.log_event("auto_evolve_sandboxed", 0.8, &format!("promoted_{}", file_path));
+        st.log_event(
+            "auto_evolve_sandboxed",
+            0.8,
+            &format!("promoted_{}", file_path),
+        );
     } else {
         let mut st = state.lock().await;
-        st.log_event("auto_evolve_sandboxed", -0.2, &format!("failed_{}", result.output));
+        st.log_event(
+            "auto_evolve_sandboxed",
+            -0.2,
+            &format!("failed_{}", result.output),
+        );
     }
 
     result

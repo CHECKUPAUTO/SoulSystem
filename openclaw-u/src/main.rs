@@ -4,17 +4,17 @@
 //!           autocode, sandbox, planner, learning, metacognition,
 //!           resilience, selfmod, config, prediction, parallel, creativity
 
-use openclaw_u::*;
-use openclaw_u::perception::SystemSnapshot;
 use openclaw_u::action::Action;
-use openclaw_u::memory::WeaviateMemory;
+use openclaw_u::bi_bridge::http_server::{start_bridge_server, BridgeState};
+use openclaw_u::bi_bridge::{BiBridge, DownlinkMessage, UplinkMessage};
 use openclaw_u::hnn_bridge::HnnState;
-use openclaw_u::onaeu_bridge::OnaeuBridge;
-use openclaw_u::llm::{LlmEngine, LlmResponse};
-use openclaw_u::bi_bridge::{BiBridge, UplinkMessage, DownlinkMessage};
-use openclaw_u::selfmod::SelfModEngine;
-use openclaw_u::bi_bridge::http_server::{BridgeState, start_bridge_server};
 use openclaw_u::learning::QTable;
+use openclaw_u::llm::{LlmEngine, LlmResponse};
+use openclaw_u::memory::WeaviateMemory;
+use openclaw_u::onaeu_bridge::OnaeuBridge;
+use openclaw_u::perception::SystemSnapshot;
+use openclaw_u::selfmod::SelfModEngine;
+use openclaw_u::*;
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,7 +36,11 @@ impl GoalEngine {
     pub fn generate_goal(energy: f64, snapshot: &SystemSnapshot) -> String {
         // Detect neural turbulence from HNN mesh
         let mut turbulence_alert = None;
-        if let Some(nodes) = snapshot.autonomy_status.get("nodes").and_then(|n| n.as_object()) {
+        if let Some(nodes) = snapshot
+            .autonomy_status
+            .get("nodes")
+            .and_then(|n| n.as_object())
+        {
             for (name, node) in nodes {
                 if node.get("attractor").and_then(|a| a.as_str()) == Some("StrangeAttractor") {
                     turbulence_alert = Some(name.clone());
@@ -68,15 +72,27 @@ impl GoalEngine {
             "auto-évolution — phase autonome active",
         ];
 
-        let pool = if energy < 3.0 { &low } else if energy < 7.0 { &medium } else { &high };
+        let pool = if energy < 3.0 {
+            &low
+        } else if energy < 7.0 {
+            &medium
+        } else {
+            &high
+        };
         let mut rng = rand::thread_rng();
         let base = pool.choose(&mut rng).unwrap_or(&"maintenance");
 
         let ctx = format!(
             "{} (CPU:{:.0}% MEM:{:.0}% DISK:{:.0}% HNN:{}/9 SVC:{}/{} LLM:{} W:{} objs)",
-            base, snapshot.cpu_percent, snapshot.mem_percent, snapshot.disk_percent,
-            snapshot.hnn_organs_online, snapshot.services_active, snapshot.services_total,
-            snapshot.llm_available, snapshot.weaviate_objects
+            base,
+            snapshot.cpu_percent,
+            snapshot.mem_percent,
+            snapshot.disk_percent,
+            snapshot.hnn_organs_online,
+            snapshot.services_active,
+            snapshot.services_total,
+            snapshot.llm_available,
+            snapshot.weaviate_objects
         );
         ctx
     }
@@ -95,8 +111,18 @@ pub async fn llm_decide(
     semantic_context: &str,
 ) -> Option<LlmResponse> {
     let context = snapshot.to_context();
-    let recent_history = history.iter().rev().take(5)
-        .map(|h| format!("[{}] {} → {}", h.timestamp.format("%H:%M"), h.event, h.outcome))
+    let recent_history = history
+        .iter()
+        .rev()
+        .take(5)
+        .map(|h| {
+            format!(
+                "[{}] {} → {}",
+                h.timestamp.format("%H:%M"),
+                h.event,
+                h.outcome
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -109,7 +135,8 @@ pub async fn llm_decide(
         ),
         current_goal,
         &context,
-    ).await
+    )
+    .await
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -134,7 +161,12 @@ async fn heartbeat_loop(
         let cfg = &st.runtime_config;
         let lf = LlmEngine::new("http://127.0.0.1:11434", &cfg.llm_fast_model);
         let ld = LlmEngine::new("http://127.0.0.1:11434", &cfg.llm_deep_model);
-        (lf, ld, cfg.heartbeat_interval_secs, cfg.auto_evolve_interval)
+        (
+            lf,
+            ld,
+            cfg.heartbeat_interval_secs,
+            cfg.auto_evolve_interval,
+        )
     };
 
     let mut ticker = interval(Duration::from_secs(heartbeat_interval));
@@ -144,7 +176,12 @@ async fn heartbeat_loop(
 
     // Bi-bridge channels (downlink_rx reçu en paramètre)
     let (uplink_tx, mut uplink_rx) = mpsc::channel::<UplinkMessage>(64);
-    let mut bi_bridge = BiBridge::new(uplink_tx, downlink_rx, "http://127.0.0.1:9020", "openclaw-u");
+    let mut bi_bridge = BiBridge::new(
+        uplink_tx,
+        downlink_rx,
+        "http://127.0.0.1:9020",
+        "openclaw-u",
+    );
 
     // Mark bridge as connected
     {
@@ -662,7 +699,9 @@ async fn main() {
     let tx_user = tx.clone();
     tokio::spawn(async move {
         sleep(Duration::from_secs(5)).await;
-        let _ = tx_user.send(ExternalEvent::UserMessage("Quel est ton état ?".into())).await;
+        let _ = tx_user
+            .send(ExternalEvent::UserMessage("Quel est ton état ?".into()))
+            .await;
     });
 
     // Bi-Bridge HTTP server
@@ -715,12 +754,19 @@ mod tests {
     fn goal_engine_generates() {
         let snapshot = SystemSnapshot {
             timestamp: Utc::now().to_rfc3339(),
-            cpu_percent: 10.0, mem_percent: 20.0, disk_percent: 30.0,
-            services_active: 5, services_total: 7,
-            hnn_organs_online: 9, hnn_healthy: true,
-            onaeu_cycle: 100, onaeu_entropy: 0.5,
-            weaviate_objects: 268, pending_alerts: vec![],
-            llm_available: true, soullink_core_online: true,
+            cpu_percent: 10.0,
+            mem_percent: 20.0,
+            disk_percent: 30.0,
+            services_active: 5,
+            services_total: 7,
+            hnn_organs_online: 9,
+            hnn_healthy: true,
+            onaeu_cycle: 100,
+            onaeu_entropy: 0.5,
+            weaviate_objects: 268,
+            pending_alerts: vec![],
+            llm_available: true,
+            soullink_core_online: true,
             autonomy_status: serde_json::json!({}),
             failed_logins: 0,
             open_ports: vec![],

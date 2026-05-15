@@ -31,20 +31,18 @@ impl ParallelExecutor {
     }
 
     /// Exécute plusieurs actions en parallèle
-    pub async fn execute_batch(
-        &self,
-        tasks: Vec<ParallelTask>,
-    ) -> Vec<ParallelResult> {
+    pub async fn execute_batch(&self, tasks: Vec<ParallelTask>) -> Vec<ParallelResult> {
         let mut results = Vec::new();
         let mut set = JoinSet::new();
-        
-        let to_run: Vec<_> = tasks.into_iter()
-            .take(self.max_concurrent)
-            .collect();
-        
-        info!("⚡ PARALLEL: {} tâches concurrentes (max={})",
-            to_run.len(), self.max_concurrent);
-        
+
+        let to_run: Vec<_> = tasks.into_iter().take(self.max_concurrent).collect();
+
+        info!(
+            "⚡ PARALLEL: {} tâches concurrentes (max={})",
+            to_run.len(),
+            self.max_concurrent
+        );
+
         for task in to_run {
             let name = task.name.clone();
             let action = task.action.clone();
@@ -67,16 +65,19 @@ impl ParallelExecutor {
                 result
             });
         }
-        
+
         while let Some(Ok(result)) = set.join_next().await {
             if result.success {
-                info!("✅ PARALLEL: {} terminé en {}ms", result.name, result.duration_ms);
+                info!(
+                    "✅ PARALLEL: {} terminé en {}ms",
+                    result.name, result.duration_ms
+                );
             } else {
                 warn!("❌ PARALLEL: {} échoué — {}", result.name, result.output);
             }
             results.push(result);
         }
-        
+
         results
     }
 
@@ -84,14 +85,16 @@ impl ParallelExecutor {
         match action {
             "optimize_system" => {
                 let _ = tokio::process::Command::new("sync")
-                    .output().await
+                    .output()
+                    .await
                     .map_err(|e| e.to_string())?;
                 Ok("✅ drop caches".to_string())
             }
             "check_services" => {
                 let out = tokio::process::Command::new("systemctl")
                     .args(["list-units", "--state=failed", "--no-pager", "--no-legend"])
-                    .output().await
+                    .output()
+                    .await
                     .map_err(|e| e.to_string())?;
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                 let count = stdout.lines().count();

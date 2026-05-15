@@ -1,7 +1,7 @@
 //! Resilience — Auto-réparation par détection d'échecs et changement de stratégie
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::{info, warn};
 
 /// Historique des échecs par action
@@ -38,26 +38,34 @@ impl ResilienceEngine {
     /// Enregistre un échec
     pub fn record_failure(&mut self, action: &str, error: &str) {
         let now = chrono::Utc::now().to_rfc3339();
-        let entry = self.failures.entry(action.to_string()).or_insert(FailureLog {
-            action: action.to_string(),
-            count: 0,
-            last_error: String::new(),
-            first_seen: now.clone(),
-            last_seen: now.clone(),
-        });
+        let entry = self
+            .failures
+            .entry(action.to_string())
+            .or_insert(FailureLog {
+                action: action.to_string(),
+                count: 0,
+                last_error: String::new(),
+                first_seen: now.clone(),
+                last_seen: now.clone(),
+            });
         entry.count += 1;
         entry.last_error = error.to_string();
         entry.last_seen = now;
 
-        warn!("⚠️  RESILIENCE: {} échecs pour '{}' | dernière: {}",
-            entry.count, action, error);
+        warn!(
+            "⚠️  RESILIENCE: {} échecs pour '{}' | dernière: {}",
+            entry.count, action, error
+        );
     }
 
     /// Enregistre un succès (réinitialise le compteur)
     pub fn record_success(&mut self, action: &str) {
         if let Some(entry) = self.failures.get_mut(action) {
             if entry.count > 0 {
-                info!("✅ RESILIENCE: '{}' réussi après {} échecs", action, entry.count);
+                info!(
+                    "✅ RESILIENCE: '{}' réussi après {} échecs",
+                    action, entry.count
+                );
                 entry.count = 0;
             }
         }
@@ -65,7 +73,8 @@ impl ResilienceEngine {
 
     /// Détecte une boucle d'échec
     pub fn is_failing(&self, action: &str) -> bool {
-        self.failures.get(action)
+        self.failures
+            .get(action)
             .map(|f| f.count >= self.max_retries)
             .unwrap_or(false)
     }
@@ -128,7 +137,9 @@ impl ResilienceEngine {
     /// Rapport de santé
     pub fn health_report(&self) -> String {
         let total: u32 = self.failures.values().map(|f| f.count).sum();
-        let failing: Vec<&str> = self.failures.iter()
+        let failing: Vec<&str> = self
+            .failures
+            .iter()
             .filter(|(_, f)| f.count >= self.max_retries)
             .map(|(k, _)| k.as_str())
             .collect();
