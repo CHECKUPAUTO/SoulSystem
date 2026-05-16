@@ -1,9 +1,5 @@
 //! Perception — lecture de l'état réel du système (mise à jour V13)
 
-<<<<<<< HEAD
-=======
-use std::process::Stdio;
->>>>>>> origin/bolt-perception-io-parallelization-8461980448331089953
 use tokio::process::Command;
 use serde::{Deserialize, Serialize};
 
@@ -38,8 +34,7 @@ impl SystemSnapshot {
             mem,
             disk,
             (services_active, services_total),
-            onaeu_cycle,
-            onaeu_entropy,
+            (onaeu_cycle, onaeu_entropy),
             weaviate_objects,
             llm_available,
             soullink_core_online,
@@ -52,8 +47,7 @@ impl SystemSnapshot {
             Self::read_mem(),
             Self::read_disk(),
             Self::count_services(),
-            Self::read_onaeu_cycle(client),
-            Self::read_onaeu_entropy(client),
+            Self::read_onaeu_state(client),
             Self::count_weaviate(client),
             Self::check_ollama(client),
             Self::check_soullink_orchestrator(client),
@@ -166,7 +160,7 @@ impl SystemSnapshot {
     }
 
     async fn count_services() -> (u32, u32) {
-        let services = vec![
+        let services = [
             "onaeu", "clawd-daemon", "soullink-sleep", "soullink-memory",
             "soullink-orchestrator", "research-agent", "openclaw-u",
             "sl13-brain-science", "sl13-brain-mind", "sl13-brain-engineer",
@@ -177,71 +171,44 @@ impl SystemSnapshot {
             "soullink-nla",
         ];
 
-        let mut set = tokio::task::JoinSet::new();
         let total = services.len() as u32;
 
-        for svc in services {
-            set.spawn(async move {
-<<<<<<< HEAD
-                match Command::new("systemctl").args(["is-active", "--quiet", svc]).output().await {
-                    Ok(o) if o.status.success() => 1,
-                    _ => 0,
-                }
-            });
-        }
-
-        let mut ok = 0;
-        while let Some(Ok(val)) = set.join_next().await {
-            ok += val;
-        }
-
-=======
-                let status = Command::new("systemctl")
-                    .args(["is-active", "--quiet", svc])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await;
-                status.map(|s| s.success()).unwrap_or(false)
-            });
-        }
-
-        let mut ok = 0;
-        while let Some(res) = set.join_next().await {
-            if let Ok(true) = res {
-                ok += 1;
+        // Bolt ⚡: Batch systemctl calls into a single process execution to reduce overhead.
+        // Replaces 22 parallel process spawns with 1.
+        match Command::new("systemctl")
+            .args(["is-active"])
+            .args(services)
+            .output()
+            .await
+        {
+            Ok(o) => {
+                let output = String::from_utf8_lossy(&o.stdout);
+                let active = output.lines()
+                    .filter(|l| l.trim() == "active")
+                    .count() as u32;
+                (active, total)
             }
+            _ => (0, total),
         }
-
->>>>>>> origin/bolt-perception-io-parallelization-8461980448331089953
-        (ok, total)
     }
 
-    async fn read_onaeu_cycle(client: &reqwest::Client) -> u64 {
+    async fn read_onaeu_state(client: &reqwest::Client) -> (u64, f64) {
+        // Bolt ⚡: Merge cycle and entropy fetches into a single HTTP call.
         match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
         {
-            Ok(r) => r.json::<serde_json::Value>().await
-                .ok()
-                .and_then(|j| j.get("cycle_count")?.as_u64())
-                .unwrap_or(0),
-            _ => 0,
-        }
-    }
-
-    async fn read_onaeu_entropy(client: &reqwest::Client) -> f64 {
-        match client
-            .get("http://127.0.0.1:7878/state")
-            .timeout(std::time::Duration::from_secs(3))
-            .send().await
-        {
-            Ok(r) => r.json::<serde_json::Value>().await
-                .ok()
-                .and_then(|j| j.get("last_entropy")?.as_f64())
-                .unwrap_or(0.0),
-            _ => 0.0,
+            Ok(r) => {
+                if let Ok(json) = r.json::<serde_json::Value>().await {
+                    let cycle = json.get("cycle_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let entropy = json.get("last_entropy").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    (cycle, entropy)
+                } else {
+                    (0, 0.0)
+                }
+            }
+            _ => (0, 0.0),
         }
     }
 

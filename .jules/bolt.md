@@ -17,4 +17,7 @@
 ## 2026-05-12 - [Perception I/O Non-Blocking & Parallelization]
 **Learning:** Sequential calls to 'systemctl' and redundant 'reqwest::Client' instantiation in 'SystemSnapshot' were blocking the heartbeat loop and causing unnecessary resource overhead. Using 'tokio::process::Command' and a shared client with 'JoinSet' parallelization is essential for maintaining a low-latency heartbeat.
 **Action:** Always pass a shared '&reqwest::Client' to perception/bridge functions and use 'tokio::process' for any shell-based metric collection.
->>>>>>> origin/bolt-perception-io-parallelization-8461980448331089953
+
+## 2026-05-12 - [Batching Shell Commands & Consolidating HTTP Calls]
+**Learning:** Even with parallelization, spawning dozens of processes (like 'systemctl is-active') in a tight loop creates unnecessary kernel overhead and PID exhaustion. Consolidating multiple status checks into a single command call and merging redundant HTTP requests to the same local endpoint significantly reduces perception latency.
+**Action:** Batch multiple service checks into 'systemctl is-active svc1 svc2 ...' and merge redundant fetches from the same API endpoint.
