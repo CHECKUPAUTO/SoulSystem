@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+  soulsystem:
+    build: .
+    ports:
+      - "9090:9090"
+    volumes:
+      - soulsystem_data:/var/lib/soulsystem
+    environment:
+      - SOULSYSTEM_CONFIG_DIR=/config
+      - TELEGRAM_BOT_TOKEN=changeme
+
+volumes:
+  soulsystem_data:

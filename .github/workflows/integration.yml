@@ -1,0 +1,36 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build workspace
+        run: cargo build
+
+      - name: Start avid-server (mock)
+        run: |
+          ./target/debug/avid-server --mock &
+          echo "PID=$!" >> $GITHUB_ENV
+          sleep 2
+
+      - name: Run integration tests
+        # Décommenter quand le test sera créé (étape 4.2)
+        # run: cargo test --test integration_hello
+        run: echo "Integration test skipped (not yet implemented)"
+
+      - name: Stop avid-server
+        if: always()
+        run: |
+          if [ -n "$PID" ]; then
+            kill $PID 2>/dev/null || true
+          fi
