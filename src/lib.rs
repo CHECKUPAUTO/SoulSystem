@@ -5,6 +5,7 @@
 #[cfg(feature = "dev")]
 pub mod anomaly;
 pub mod ansi_converter;
+pub mod api;
 pub mod audit_log;
 pub mod backup;
 pub mod bound_system;

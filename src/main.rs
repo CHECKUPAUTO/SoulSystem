@@ -13,6 +13,7 @@ use anyhow::Result;
 use clap::Parser;
 use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
+use soulsystem::bound_system::BoundSystem;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::info;
@@ -75,6 +76,18 @@ async fn main() -> Result<()> {
         run_ws_bridge(config, bus_ws).await;
     });
     info!("WS Bridge demarre sur 127.0.0.1:9022");
+
+    // ── API HTTP REST (pour agents OpenClaw) ─────────────────────────────
+    let bound_system_api = Arc::new(BoundSystem::new(BoundSystem::default_whitelist()));
+    let api_state = Arc::new(soulsystem::api::ApiState {
+        bound_system: bound_system_api,
+    });
+    let api_router = soulsystem::api::router(api_state);
+    tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:9023").await.unwrap();
+        info!("API HTTP demarre sur 127.0.0.1:9023");
+        axum::serve(listener, api_router).await.unwrap();
+    });
 
     // ── Bot Clawd Telegram ─────────────────────────────────────────────────
     let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
