@@ -42,6 +42,13 @@ pub struct CommandResult {
     pub timed_out: bool,
 }
 
+/// Résultat d'une exécution streamée, contenant le récepteur et le PID.
+#[derive(Debug)]
+pub struct StreamingExecution {
+    pub rx: mpsc::UnboundedReceiver<StreamMessage>,
+    pub pid: Option<u32>,
+}
+
 /// Gestionnaire d'execution securisee.
 pub struct BoundSystem {
     whitelist: HashSet<String>,
@@ -94,9 +101,28 @@ impl BoundSystem {
     pub fn is_allowed(&self, command: &str) -> bool {
         let cmd_trimmed = command.trim();
         self.whitelist.iter().any(|allowed| {
-            // La commande doit commencer par la commande authorisee
             cmd_trimmed == allowed || cmd_trimmed.starts_with(&format!("{} ", allowed))
         })
+    }
+
+    /// Tue un processus par PID avec un signal donné.
+    ///
+    /// Utilise `libc::kill` pour envoyer le signal. SIGTERM(15) ou SIGKILL(9)
+    /// sont les valeurs typiques.
+    pub fn kill_process(pid: u32, signal: i32) -> anyhow::Result<()> {
+        #[cfg(unix)]
+        {
+            let result = unsafe { libc::kill(pid as libc::pid_t, signal) };
+            if result != 0 {
+                let err = std::io::Error::last_os_error();
+                anyhow::bail!("kill({}, {}) failed: {}", pid, signal, err);
+            }
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            anyhow::bail!("kill_process is only supported on Unix");
+        }
     }
 
     /// Execute une commande. Retourne une erreur si la commande n'est pas autorisee.
@@ -131,11 +157,8 @@ impl BoundSystem {
     }
 
     /// Execute une commande en mode streaming.
-    /// Retourne un receiver qui recoit les lignes en temps reel.
-    pub async fn execute_streaming(
-        &self,
-        command: &str,
-    ) -> anyhow::Result<mpsc::UnboundedReceiver<StreamMessage>> {
+    /// Retourne un `StreamingExecution` contenant le récepteur et le PID.
+    pub async fn execute_streaming(&self, command: &str) -> anyhow::Result<StreamingExecution> {
         if !self.is_allowed(command) {
             anyhow::bail!(
                 "Commande non autorisee: '{}'. Utilisez la liste blanche.",
@@ -144,6 +167,7 @@ impl BoundSystem {
         }
 
         let (tx, rx) = mpsc::unbounded_channel();
+        let (pid_tx, pid_rx) = tokio::sync::oneshot::channel();
         let cmd_str = command.to_string();
         let use_sandbox = self.use_sandbox && Self::bwrap_available();
         let timeout = self.timeout;
@@ -151,9 +175,9 @@ impl BoundSystem {
 
         tokio::spawn(async move {
             let result = if use_sandbox {
-                Self::run_streaming_sandboxed(&cmd_str, &tx, timeout).await
+                Self::run_streaming_sandboxed(&cmd_str, &tx, timeout, pid_tx).await
             } else {
-                Self::run_streaming_direct(&cmd_str, &tx, timeout).await
+                Self::run_streaming_direct(&cmd_str, &tx, timeout, pid_tx).await
             };
 
             let (exit_code, timed_out) = match result {
@@ -164,29 +188,38 @@ impl BoundSystem {
                 }
             };
 
-            let end = StreamEnd {
+            let _ = tx.send(StreamMessage::End(StreamEnd {
                 exit_code,
                 timed_out,
-            };
-            let _ = tx.send(StreamMessage::End(end));
+            }));
 
-            if let Some(audit) = audit {
+            // Tracer dans l'audit log
+            if let Some(audit) = &audit {
                 let mut a = audit.lock().await;
                 let _ = a.log(
                     "bound_system",
                     "command_streamed",
-                    &format!("cmd='{}' exit_code={}", cmd_str, exit_code),
+                    &format!(
+                        "cmd='{}' exit_code={} timed_out={}",
+                        cmd_str, exit_code, timed_out
+                    ),
                 );
             }
         });
 
-        Ok(rx)
+        // Récupérer le PID (peut échouer si le spawn est très rapide)
+        let pid = pid_rx.await.ok().flatten();
+
+        Ok(StreamingExecution { rx, pid })
     }
+
+    // ── Implémentations internes du streaming ──────────────────────────
 
     async fn run_streaming_sandboxed(
         command: &str,
         tx: &mpsc::UnboundedSender<StreamMessage>,
         timeout: Duration,
+        pid_tx: tokio::sync::oneshot::Sender<Option<u32>>,
     ) -> anyhow::Result<(i32, bool)> {
         let mut child = Command::new("bwrap")
             .args([
@@ -219,6 +252,10 @@ impl BoundSystem {
             .stderr(std::process::Stdio::piped())
             .spawn()?;
 
+        // Rapporter le PID
+        let pid = child.id();
+        let _ = pid_tx.send(pid);
+
         Self::stream_child_output(&mut child, tx, timeout).await
     }
 
@@ -226,12 +263,17 @@ impl BoundSystem {
         command: &str,
         tx: &mpsc::UnboundedSender<StreamMessage>,
         timeout: Duration,
+        pid_tx: tokio::sync::oneshot::Sender<Option<u32>>,
     ) -> anyhow::Result<(i32, bool)> {
         let mut child = Command::new("sh")
             .args(["-c", command])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()?;
+
+        // Rapporter le PID
+        let pid = child.id();
+        let _ = pid_tx.send(pid);
 
         Self::stream_child_output(&mut child, tx, timeout).await
     }
@@ -440,7 +482,9 @@ mod tests {
     #[tokio::test]
     async fn test_execute_streaming_output() {
         let bs = BoundSystem::new(vec!["echo".into()]).without_sandbox();
-        let mut rx = bs.execute_streaming("echo hello").await.unwrap();
+        let exec = bs.execute_streaming("echo hello").await.unwrap();
+        assert!(exec.pid.is_some(), "Should capture PID");
+        let mut rx = exec.rx;
 
         let mut lines: Vec<String> = Vec::new();
         let mut exit_code = None;
@@ -465,5 +509,62 @@ mod tests {
         let bs = BoundSystem::new(vec![]).without_sandbox();
         let result = bs.execute_streaming("date").await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_kill_process_nonexistent() {
+        #[cfg(unix)]
+        {
+            let result = BoundSystem::kill_process(99999, 15);
+            assert!(result.is_err(), "Killing nonexistent PID should fail");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_kill_process_with_sigterm() {
+        let bs = BoundSystem::new(vec!["sleep".into()]).without_sandbox();
+        // Use a longer timeout so the process isn't killed by timeout
+        let bs_long = BoundSystem {
+            whitelist: bs.whitelist.clone(),
+            timeout: Duration::from_secs(30),
+            use_sandbox: false,
+            audit: None,
+        };
+
+        let exec = bs_long.execute_streaming("sleep 15").await.unwrap();
+        let pid = exec.pid.unwrap();
+        let mut rx = exec.rx;
+
+        // Donner le temps au processus de démarrer
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Envoyer SIGTERM
+        let kill_result = BoundSystem::kill_process(pid, 15);
+        assert!(
+            kill_result.is_ok(),
+            "kill should succeed: {:?}",
+            kill_result.err()
+        );
+
+        // Le processus devrait se terminer avec un code non-zéro (tué)
+        let mut got_end = false;
+        while let Some(msg) = rx.recv().await {
+            match msg {
+                StreamMessage::End(end) => {
+                    // Tué par signal = exit code != 0
+                    assert!(end.exit_code != 0 || end.timed_out,
+                        "Process killed by SIGTERM should have non-zero exit or be timed out, got exit_code={}", end.exit_code);
+                    got_end = true;
+                    break;
+                }
+                StreamMessage::Error(_) => {
+                    // SIGTERM peut causer une erreur sur le pipe
+                    got_end = true;
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert!(got_end, "Should receive end or error after kill");
     }
 }

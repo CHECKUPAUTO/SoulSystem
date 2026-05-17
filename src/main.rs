@@ -12,6 +12,7 @@
 use anyhow::Result;
 use clap::Parser;
 use soulsystem::bus::Bus;
+use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::info;
@@ -61,7 +62,40 @@ async fn main() -> Result<()> {
     }
 
     // ── Bus central (file d'attente 256 messages) ──────────────────────────
-    let _bus = Arc::new(Bus::new(256));
+    #[allow(unused_variables)]
+    let bus = Arc::new(Bus::new(256));
+
+    // ── WebSocket Bridge (plateforme unifiee Telegram) ───────────────────
+    let bus_ws = bus.clone();
+    tokio::spawn(async move {
+        let config = WsBridgeConfig {
+            listen: "127.0.0.1:9022".to_string(),
+            shared_secret: None, // pas d'auth en local
+        };
+        run_ws_bridge(config, bus_ws).await;
+    });
+    info!("WS Bridge demarre sur 127.0.0.1:9022");
+
+    // ── Bot Clawd Telegram ─────────────────────────────────────────────────
+    let bus_clawd = bus.clone();
+    tokio::spawn(async move {
+        let settings = soulsystem::clawd::Settings {
+            bot_token: std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_else(|_| "".to_string()),
+            avid_endpoint: "http://localhost:7878".to_string(),
+        };
+        match soulsystem::clawd::ClawdContext::new(settings, bus_clawd) {
+            Ok(ctx) => {
+                let ctx = Arc::new(ctx);
+                if let Err(e) = soulsystem::clawd::run_bot(ctx).await {
+                    tracing::error!("Clawd bot error: {}", e);
+                }
+            }
+            Err(e) => {
+                tracing::error!("Clawd init error: {}", e);
+            }
+        }
+    });
+    info!("Clawd Telegram bot demarre");
 
     // ── Modules actifs ─────────────────────────────────────────────────────
     //

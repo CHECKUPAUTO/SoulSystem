@@ -20,9 +20,13 @@ SoulSystem is a modular autonomous agent ecosystem in Rust.
 | `telemetry` | Distributed metrics (OTLP) |
 | `clawd` | Telegram bot with commands and LLM routing |
 | `model_router` | Dynamic Ollama model selection |
-| `bound_system` | Secure shell command execution |
+| `bound_system` | Secure shell command execution with signal support |
 | `local_skills` | Plugin system with signature verification |
 | `backup` | Signed backup/restore |
+| `ansi_converter` | ANSI escape sequence → Telegram emoji/HTML conversion |
+| `spinner` | Animated braille spinner for streaming progress |
+| `terminal_stream` | Streaming command output to Telegram with stop button |
+| `pty_terminal` | Persistent PTY terminal with tmux support |
 
 ## Installation
 
@@ -72,7 +76,9 @@ soulsystem --mock
 Commands available:
 - `/veille <topics>` — Subscribe to AVID research topics
 - `/skill <name> <args>` — Execute a local skill
-- `/run <command>` — Execute an authorized system command
+- `/run <command>` — Execute an authorized system command (with spinner + stop button)
+- `/terminal` — Open a persistent PTY terminal
+- `/exit` — Close the PTY terminal
 - `/help` — Show help
 
 ### Feedback utilisateur
@@ -112,6 +118,7 @@ Execution is sandboxed via bubblewrap (`bwrap`):
 - Network disabled (`--unshare-net`)
 - Timeout: 10 seconds
 - All executions audited
+- **Signal support**: `kill_process(pid, signal)` via `libc::kill` for SIGTERM/SIGKILL
 
 ### Streaming automatique des commandes
 
@@ -122,7 +129,18 @@ executee et sa sortie est diffusee en direct dans Telegram:
 - Lignes prefixees `$` ou `>` → execution streamée
 - `/run <cmd>` → streaming manuel
 
-La sortie est mise a jour ligne par ligne dans un message Telegram.
+**Nouveau (v0.5.0)** :
+- **Spinner animé** : Un spinner braille (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) tourne dans le message
+  pendant l'exécution, remplacé par ✅ ou ❌ à la fin.
+- **Bouton Stop** : Un bouton inline `⏹️ Stop` permet d'arrêter l'exécution.
+  Envoie SIGTERM puis SIGKILL après 3 secondes.
+- **Couleurs ANSI** : Les séquences d'échappement ANSI sont converties :
+  - `\x1b[31m` (rouge) → 🔴
+  - `\x1b[32m` (vert) → 🟢
+  - `\x1b[33m` (jaune) → 🟡
+  - `\x1b[1m` (gras) → `<b>...</b>` (HTML Telegram)
+
+La sortie est mise a jour en temps réel dans un message Telegram.
 Limites: 30 dernieres lignes visibles, timeout 10s.
 
 ### Terminal integre Telegram
@@ -130,17 +148,28 @@ Limites: 30 dernieres lignes visibles, timeout 10s.
 Un shell bash persistant accessible via la commande `/terminal`:
 
 ```
-/terminal   # Ouvre un terminal bash (sandbox bwrap)
+/terminal   # Ouvre un terminal bash (sandbox bwrap ou tmux)
 /exit       # Ferme le terminal
 ```
 
 Caracteristiques:
 - PTY natif via `portable-pty` (entierement interactif)
 - Isolation bwrap: `/usr`, `/lib`, `/bin`, `/etc` en read-only, reseau desactive
+- **Persistance tmux** (nouveau v0.5.0) : Si `tmux` est installé, le terminal utilise
+  une session tmux nommée `soulsystem_<chat_id>`. La session survit aux redémarrages
+  de Clawd — il suffit de refaire `/terminal` pour se reconnecter.
+- **Fallback automatique** : Si tmux n'est pas installé, le PTY standard est utilisé.
+  Un avertissement informe l'utilisateur que le terminal ne survivra pas à un redémarrage.
+- **Bouton Stop** : En mode terminal, un bouton `⏹️ Stop` envoie Ctrl+C (0x03) au PTY
+  pour interrompre le processus en cours.
+- **Couleurs ANSI** : La sortie du terminal est convertie automatiquement (émojis + HTML).
 - Etat persistant: variables, historique, processus en cours conserves
 - Timeout: 30 min d'inactivite → fermeture automatique
 - Sortie diffusee en temps reel (rafraichissement 500ms)
 - Audit: commandes enregistrees dans l'AuditLog
+- **Sauvegarde environnement** : Les variables d'environnement importantes
+  (`PATH`, `HOME`, `USER`, `SHELL`, `SOUL*`) sont sauvegardées dans
+  `~/.soulsystem/pty_env_<chat_id>.json` et restaurées à la réouverture.
 
 En mode terminal, tout message texte (hors commandes slash) est transmis au shell.
 Les commandes sont executees dans un sandbox identique au Bound System.
@@ -194,3 +223,5 @@ cargo test --test load_test
 | Ollama errors | Ollama service down | Check `systemctl status ollama` |
 | Commands rejected | Not in whitelist | Use `/run` help for allowed commands |
 | Backup verify fails | Wrong private key | Re-create backup with current key |
+| Terminal non persistant | tmux non installé | `apt install tmux` |
+| Bouton Stop sans effet | Processus déjà terminé | Normal si la commande est rapide |

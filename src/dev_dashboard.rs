@@ -87,6 +87,9 @@ async fn sse_handler(
                     Message::EvolveOptimization { crate_name, score } => {
                         serde_json::json!({"type": "evolve", "crate": crate_name, "score": score})
                     }
+                    Message::Custom { topic, payload } => {
+                        serde_json::json!({"type": "custom", "topic": topic, "payload": payload})
+                    }
                 };
                 Event::default().data(serde_json::to_string(&data).unwrap_or_default())
             }

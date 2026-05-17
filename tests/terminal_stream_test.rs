@@ -5,7 +5,9 @@ use soulsystem::bound_system::{BoundSystem, StreamMessage};
 #[tokio::test]
 async fn test_streaming_basic() {
     let bs = BoundSystem::new(vec!["echo".into()]).without_sandbox();
-    let mut rx = bs.execute_streaming("echo hello").await.unwrap();
+    let exec = bs.execute_streaming("echo hello").await.unwrap();
+    assert!(exec.pid.is_some(), "Should capture PID");
+    let mut rx = exec.rx;
 
     let mut lines = Vec::new();
     let mut exit_code = None;
@@ -28,10 +30,11 @@ async fn test_streaming_basic() {
 #[tokio::test]
 async fn test_streaming_multi_line() {
     let bs = BoundSystem::new(vec!["printf".into()]).without_sandbox();
-    let mut rx = bs
+    let exec = bs
         .execute_streaming("printf 'line1\\nline2\\nline3\\n'")
         .await
         .unwrap();
+    let mut rx = exec.rx;
 
     let mut lines = Vec::new();
     let mut end_received = false;
@@ -57,10 +60,11 @@ async fn test_streaming_multi_line() {
 #[tokio::test]
 async fn test_streaming_stderr() {
     let bs = BoundSystem::new(vec!["sh".into()]).without_sandbox();
-    let mut rx = bs
+    let exec = bs
         .execute_streaming("sh -c 'echo ok && echo err >&2'")
         .await
         .unwrap();
+    let mut rx = exec.rx;
 
     let mut stdout_lines = Vec::new();
     let mut stderr_lines = Vec::new();

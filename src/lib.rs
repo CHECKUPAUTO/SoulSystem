@@ -2,7 +2,9 @@
 //! both the main binary and integration tests.
 
 #[cfg(feature = "dev")]
+#[cfg(feature = "dev")]
 pub mod anomaly;
+pub mod ansi_converter;
 pub mod audit_log;
 pub mod backup;
 pub mod bound_system;
@@ -16,8 +18,10 @@ pub mod local_skills;
 pub mod model_router;
 pub mod pty_terminal;
 pub mod soul_memory;
+pub mod spinner;
 pub mod telemetry;
 pub mod terminal_stream;
+pub mod ws_bridge;
 
 #[cfg(feature = "dev")]
 pub mod dev_dashboard;

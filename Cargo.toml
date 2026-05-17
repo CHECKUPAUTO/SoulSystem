@@ -36,6 +36,7 @@ tar = "0.4"
 flate2 = "1"
 reqwest = { version = "0.12", features = ["json"] }
 teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
+axum = "0.7"
 
 # backlog — kept for reference but not active
 # serde_yaml, uuid, hex, ring, libloading
@@ -43,14 +44,12 @@ teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
 portable-pty = "0.8"
 libc = "0.2"
 tempfile = "3"
+tokio-tungstenite = "0.29.0"
+futures-util = "0.3.32"
 
 [features]
-dev = ["axum"]
+dev = []
 gpu = []
-
-[dependencies.axum]
-version = "0.7"
-optional = true
 
 [dependencies.tokio-stream]
 version = "0.1"
