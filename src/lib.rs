@@ -16,8 +16,8 @@ pub mod local_skills;
 pub mod model_router;
 pub mod pty_terminal;
 pub mod soul_memory;
-pub mod terminal_stream;
 pub mod telemetry;
+pub mod terminal_stream;
 
 #[cfg(feature = "dev")]
 pub mod dev_dashboard;

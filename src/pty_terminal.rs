@@ -6,7 +6,7 @@
 //! - Lecture non-bloquante de la sortie
 
 use anyhow::Result;
-use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
+use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex as StdMutex};
 
@@ -38,15 +38,32 @@ impl PtyTerminal {
         let cmd = if Self::bwrap_available() {
             let mut b = CommandBuilder::new("bwrap");
             b.args([
-                "--ro-bind", "/usr", "/usr",
-                "--ro-bind", "/lib", "/lib",
-                "--ro-bind", "/lib64", "/lib64",
-                "--ro-bind", "/bin", "/bin",
-                "--ro-bind", "/sbin", "/sbin",
-                "--ro-bind", "/etc", "/etc",
-                "--ro-bind", "/dev", "/dev",
-                "--ro-bind", "/proc", "/proc",
-                "--tmpfs", "/tmp",
+                "--ro-bind",
+                "/usr",
+                "/usr",
+                "--ro-bind",
+                "/lib",
+                "/lib",
+                "--ro-bind",
+                "/lib64",
+                "/lib64",
+                "--ro-bind",
+                "/bin",
+                "/bin",
+                "--ro-bind",
+                "/sbin",
+                "/sbin",
+                "--ro-bind",
+                "/etc",
+                "/etc",
+                "--ro-bind",
+                "/dev",
+                "/dev",
+                "--ro-bind",
+                "/proc",
+                "/proc",
+                "--tmpfs",
+                "/tmp",
                 "--unshare-net",
                 "--die-with-parent",
                 "--",
@@ -59,6 +76,15 @@ impl PtyTerminal {
             b.arg("--norc");
             b
         };
+
+        // Set O_NONBLOCK on master fd so cloned reader is non-blocking.
+        #[cfg(unix)]
+        if let Some(fd) = pty_pair.master.as_raw_fd() {
+            unsafe {
+                let flags = libc::fcntl(fd, libc::F_GETFL, 0);
+                let _ = libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+            }
+        }
 
         let child = pty_pair.slave.spawn_command(cmd)?;
         let child_id = child.process_id();
@@ -144,14 +170,19 @@ mod tests {
     fn test_pty_write_and_read() {
         let pty = PtyTerminal::new().unwrap();
 
+        // Drain initial output (bash prompt)
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let _ = pty.read();
+
         pty.write("echo HELLO_PTY\n").unwrap();
 
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        // Wait for bash to process and echo back
+        std::thread::sleep(std::time::Duration::from_millis(500));
 
         let output = pty.read().unwrap();
         assert!(
             output.contains("HELLO_PTY"),
-            "Output should contain 'HELLO_PTY', got: {}",
+            "Output should contain 'HELLO_PTY', got: '{}'",
             output
         );
     }

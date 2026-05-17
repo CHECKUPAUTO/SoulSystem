@@ -21,11 +21,7 @@ pub struct TerminalStream {
 }
 
 impl TerminalStream {
-    pub fn new(
-        bot: Bot,
-        chat_id: i64,
-        bound_system: std::sync::Arc<BoundSystem>,
-    ) -> Self {
+    pub fn new(bot: Bot, chat_id: i64, bound_system: std::sync::Arc<BoundSystem>) -> Self {
         Self {
             bot,
             chat_id,
@@ -37,15 +33,14 @@ impl TerminalStream {
     ///
     /// Envoie un message initial "en cours...", puis le met a jour
     /// ligne par ligne avec la sortie de la commande.
-    pub async fn execute_and_stream(
-        &self,
-        command: &str,
-        description: &str,
-    ) -> Result<String> {
+    pub async fn execute_and_stream(&self, command: &str, description: &str) -> Result<String> {
         let recipient = Recipient::Id(teloxide::types::ChatId(self.chat_id));
 
         // Message initial
-        let initial_text = format!("\u{1f5a5}\u{fe0f} {}...\n\u{23f3} Execution en cours...", description);
+        let initial_text = format!(
+            "\u{1f5a5}\u{fe0f} {}...\n\u{23f3} Execution en cours...",
+            description
+        );
         let sent = self
             .bot
             .send_message(recipient.clone(), &initial_text)
@@ -115,8 +110,7 @@ impl TerminalStream {
             // Throttle les mises a jour Telegram
             let now = std::time::Instant::now();
             if now.duration_since(last_update) >= update_interval {
-                let current_text =
-                    build_display_text(description, &all_lines, None, false);
+                let current_text = build_display_text(description, &all_lines, None, false);
                 if current_text != last_text {
                     let _ = self
                         .bot

@@ -190,16 +190,30 @@ impl BoundSystem {
     ) -> anyhow::Result<(i32, bool)> {
         let mut child = Command::new("bwrap")
             .args([
-                "--ro-bind", "/usr", "/usr",
-                "--ro-bind", "/lib", "/lib",
-                "--ro-bind", "/lib64", "/lib64",
-                "--ro-bind", "/bin", "/bin",
-                "--ro-bind", "/sbin", "/sbin",
-                "--ro-bind", "/etc", "/etc",
+                "--ro-bind",
+                "/usr",
+                "/usr",
+                "--ro-bind",
+                "/lib",
+                "/lib",
+                "--ro-bind",
+                "/lib64",
+                "/lib64",
+                "--ro-bind",
+                "/bin",
+                "/bin",
+                "--ro-bind",
+                "/sbin",
+                "/sbin",
+                "--ro-bind",
+                "/etc",
+                "/etc",
                 "--unshare-net",
                 "--unshare-ipc",
                 "--die-with-parent",
-                "sh", "-c", command,
+                "sh",
+                "-c",
+                command,
             ])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -426,10 +440,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_streaming_output() {
         let bs = BoundSystem::new(vec!["echo".into()]).without_sandbox();
-        let mut rx = bs
-            .execute_streaming("echo hello")
-            .await
-            .unwrap();
+        let mut rx = bs.execute_streaming("echo hello").await.unwrap();
 
         let mut lines: Vec<String> = Vec::new();
         let mut exit_code = None;

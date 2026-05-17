@@ -113,6 +113,44 @@ Execution is sandboxed via bubblewrap (`bwrap`):
 - Timeout: 10 seconds
 - All executions audited
 
+### Streaming automatique des commandes
+
+Toute commande shell detectee dans les reponses du LLM est automatiquement
+executee et sa sortie est diffusee en direct dans Telegram:
+
+- Blocs ```shell dans la reponse → execution streamée
+- Lignes prefixees `$` ou `>` → execution streamée
+- `/run <cmd>` → streaming manuel
+
+La sortie est mise a jour ligne par ligne dans un message Telegram.
+Limites: 30 dernieres lignes visibles, timeout 10s.
+
+### Terminal integre Telegram
+
+Un shell bash persistant accessible via la commande `/terminal`:
+
+```
+/terminal   # Ouvre un terminal bash (sandbox bwrap)
+/exit       # Ferme le terminal
+```
+
+Caracteristiques:
+- PTY natif via `portable-pty` (entierement interactif)
+- Isolation bwrap: `/usr`, `/lib`, `/bin`, `/etc` en read-only, reseau desactive
+- Etat persistant: variables, historique, processus en cours conserves
+- Timeout: 30 min d'inactivite → fermeture automatique
+- Sortie diffusee en temps reel (rafraichissement 500ms)
+- Audit: commandes enregistrees dans l'AuditLog
+
+En mode terminal, tout message texte (hors commandes slash) est transmis au shell.
+Les commandes sont executees dans un sandbox identique au Bound System.
+
+### Securite du terminal
+
+- Sandbox obligatoire si `bwrap` est disponible (fallback bash direct sinon, en test uniquement)
+- Commandes auditees mais la sortie n'est pas stockee (volume trop important)
+- PTY redimensionnable (defaut 24×80) — resize automatique ignore dans l'implementation actuelle
+
 ## Sauvegarde
 
 ```bash

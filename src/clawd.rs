@@ -167,13 +167,11 @@ impl AvidWatcher {
                     .unwrap_or_default();
                 Ok(results)
             }
-            _ => {
-                Ok(vec![
-                    format!("[MOCK] Resultat arXiv pour '{}': Paper 1", topic),
-                    format!("[MOCK] Resultat arXiv pour '{}': Paper 2", topic),
-                    format!("[MOCK] Resultat arXiv pour '{}': Paper 3", topic),
-                ])
-            }
+            _ => Ok(vec![
+                format!("[MOCK] Resultat arXiv pour '{}': Paper 1", topic),
+                format!("[MOCK] Resultat arXiv pour '{}': Paper 2", topic),
+                format!("[MOCK] Resultat arXiv pour '{}': Paper 3", topic),
+            ]),
         }
     }
 }
@@ -192,7 +190,7 @@ pub struct ClawdConfig {
 
 /// Mode terminal actif par chat.
 #[derive(Debug)]
-struct PtySession {
+pub(crate) struct PtySession {
     /// Write side of the channel to send input to the PTY.
     input_tx: tokio::sync::mpsc::UnboundedSender<String>,
     /// Handle to the PTY reader task (abort on /exit).
@@ -218,7 +216,7 @@ pub struct ClawdContext {
     /// Cache des dernieres interactions (query -> response) pour le feedback.
     pub last_interactions: Arc<Mutex<HashMap<String, (String, String)>>>,
     /// Sessions PTY actives par chat_id.
-    pub pty_sessions: Arc<Mutex<HashMap<i64, PtySession>>>,
+    pub(crate) pty_sessions: Arc<Mutex<HashMap<i64, PtySession>>>,
 }
 
 impl ClawdContext {
@@ -390,9 +388,7 @@ impl ClawdContext {
         let mut commands = Vec::new();
 
         // Bloc code shell: ```shell\n...\n```
-        let shell_block_re = regex::Regex::new(
-            r"(?s)```shell\s*\n(.*?)```"
-        ).unwrap();
+        let shell_block_re = regex::Regex::new(r"(?s)```shell\s*\n(.*?)```").unwrap();
         for cap in shell_block_re.captures_iter(text) {
             for line in cap[1].lines() {
                 let trimmed = line.trim();
@@ -403,9 +399,7 @@ impl ClawdContext {
         }
 
         // Lignes prefixees $ ou > : "$ ls -la" "> cargo build"
-        let cmd_line_re = regex::Regex::new(
-            r"^\s*[$>]\s+(.+)$"
-        ).unwrap();
+        let cmd_line_re = regex::Regex::new(r"^\s*[$>]\s+(.+)$").unwrap();
         for line in text.lines() {
             if let Some(cap) = cmd_line_re.captures(line) {
                 let cmd = cap[1].trim().to_string();
@@ -513,9 +507,7 @@ impl ClawdContext {
 // ── Bot Runner ──────────────────────────────────────────────────────────
 
 /// Demarre le bot Telegram avec tous les handlers.
-pub async fn run_bot(
-    context: Arc<ClawdContext>,
-) -> Result<()> {
+pub async fn run_bot(context: Arc<ClawdContext>) -> Result<()> {
     let bot = Bot::new(&context.config.bot_token);
 
     tracing::info!("Clawd Telegram bot starting...");
@@ -543,7 +535,8 @@ pub async fn run_bot(
             for chat_id in stale {
                 if let Some(session) = sessions.remove(&chat_id) {
                     session.reader_handle.abort();
-                    let _ = pty_tx_watchdog.send((chat_id, "\u{23f0} Terminal ferme (inactif 30 min)".into()));
+                    let _ = pty_tx_watchdog
+                        .send((chat_id, "\u{23f0} Terminal ferme (inactif 30 min)".into()));
                     tracing::info!("PTY session timeout for chat {}", chat_id);
                 }
             }
@@ -562,7 +555,10 @@ pub async fn run_bot(
             async move {
                 let chat_id = msg.chat.id.0;
                 let text = msg.text().unwrap_or("");
-                let user_id = msg.from.as_ref().map(|u| u.id.0.to_string())
+                let user_id = msg
+                    .from
+                    .as_ref()
+                    .map(|u| u.id.0.to_string())
                     .unwrap_or_else(|| "unknown".into());
 
                 // ── PTY Mode: forward input to terminal ────────────────────
@@ -599,16 +595,11 @@ pub async fn run_bot(
                             )
                             .await;
 
-                        match start_pty_session(
-                            ctx.clone(),
-                            bot.clone(),
-                            chat_id,
-                            pty_tx.clone(),
-                        ).await {
+                        match start_pty_session(ctx.clone(), bot.clone(), chat_id, pty_tx.clone())
+                            .await
+                        {
                             Ok(msg) => {
-                                let _ = bot
-                                    .send_message(recipient, msg)
-                                    .await;
+                                let _ = bot.send_message(recipient, msg).await;
                             }
                             Err(e) => {
                                 let _ = bot
@@ -624,24 +615,17 @@ pub async fn run_bot(
 
                     "/run" => {
                         if args.is_empty() {
-                            let _ = bot
-                                .send_message(recipient, "Usage: /run <commande>")
-                                .await;
+                            let _ = bot.send_message(recipient, "Usage: /run <commande>").await;
                             return Ok(());
                         }
 
                         // Stream via TerminalStream
-                        let ts = TerminalStream::new(
-                            bot.clone(),
-                            chat_id,
-                            ctx.bound_system.clone(),
-                        );
+                        let ts =
+                            TerminalStream::new(bot.clone(), chat_id, ctx.bound_system.clone());
                         let desc = format!("Execution: {}", args);
                         let result = ts.execute_and_stream(args, &desc).await;
                         if let Err(e) = result {
-                            let _ = bot
-                                .send_message(recipient, format!("Erreur: {}", e))
-                                .await;
+                            let _ = bot.send_message(recipient, format!("Erreur: {}", e)).await;
                         }
                         return Ok(());
                     }
@@ -669,17 +653,15 @@ pub async fn run_bot(
                 let mut exec_summary = Vec::new();
 
                 if !shell_cmds.is_empty() {
-                    let ts = TerminalStream::new(
-                        bot.clone(),
-                        chat_id,
-                        ctx.bound_system.clone(),
-                    );
+                    let ts = TerminalStream::new(bot.clone(), chat_id, ctx.bound_system.clone());
 
                     for shell_cmd in &shell_cmds {
                         let desc = format!("Auto-exec: {}", shell_cmd);
                         match ts.execute_and_stream(shell_cmd, &desc).await {
                             Ok(s) => exec_summary.push(format!("  {} -> {}", shell_cmd, s)),
-                            Err(e) => exec_summary.push(format!("  {} -> ERREUR: {}", shell_cmd, e)),
+                            Err(e) => {
+                                exec_summary.push(format!("  {} -> ERREUR: {}", shell_cmd, e))
+                            }
                         }
                     }
                 }
@@ -708,9 +690,7 @@ pub async fn run_bot(
                     let mut current = String::new();
                     for line in llm_part.lines() {
                         if current.len() + line.len() + 1 > 3800 {
-                            let _ = bot
-                                .send_message(recipient.clone(), &current)
-                                .await;
+                            let _ = bot.send_message(recipient.clone(), &current).await;
                             current = String::new();
                         }
                         if !current.is_empty() {
@@ -719,9 +699,7 @@ pub async fn run_bot(
                         current.push_str(line);
                     }
                     if !current.is_empty() {
-                        let _ = bot
-                            .send_message(recipient.clone(), &current)
-                            .await;
+                        let _ = bot.send_message(recipient.clone(), &current).await;
                     }
                     if !exec_summary.is_empty() {
                         let mut exec_text = "*Commandes executees:*\n".to_string();
@@ -805,7 +783,9 @@ pub async fn run_bot(
                             }
                             Err(_) => {
                                 // Fallback: send without parse mode
-                                if let Ok(sent) = bot.send_message(recipient.clone(), &truncated).await {
+                                if let Ok(sent) =
+                                    bot.send_message(recipient.clone(), &truncated).await
+                                {
                                     let mut sessions = ctx_pty.pty_sessions.lock().await;
                                     if let Some(session) = sessions.get_mut(&chat_id) {
                                         session.last_msg_id = Some(sent.id);
@@ -876,10 +856,9 @@ async fn start_pty_session(
 
     ctx.pty_sessions.lock().await.insert(chat_id, session);
 
-    Ok(format!(
-        "\u{1f5a5}\u{fe0f} Terminal ouvert (bash via bwrap).\n\
+    Ok("\u{1f5a5}\u{fe0f} Terminal ouvert (bash via bwrap).\n\
          Tapez vos commandes directement.\n\
          /exit pour fermer.\n\
          Timeout: 30 min d'inactivite."
-    ))
+        .to_string())
 }

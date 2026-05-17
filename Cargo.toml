@@ -41,6 +41,7 @@ teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
 # serde_yaml, uuid, hex, ring, libloading
 
 portable-pty = "0.8"
+libc = "0.2"
 tempfile = "3"
 
 [features]

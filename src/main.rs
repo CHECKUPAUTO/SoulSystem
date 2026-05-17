@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
     }
 
     // ── Bus central (file d'attente 256 messages) ──────────────────────────
-    let bus = Arc::new(Bus::new(256));
+    let _bus = Arc::new(Bus::new(256));
 
     // ── Modules actifs ─────────────────────────────────────────────────────
     //
