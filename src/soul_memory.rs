@@ -269,7 +269,7 @@ impl SoulMemory {
             })
         } else {
             warn!("SoulMemory: QDRANT_URL not set, using local sled fallback");
-            let db = sled::open("/var/lib/soulsystem/data/soul_memory")?;
+            let db = sled::Config::new().temporary(true).open()?;
             let max_id = Self::load_max_id(&db).unwrap_or(1);
             Ok(Self {
                 backend: Backend::LocalFallback { db, _dim: dim },
