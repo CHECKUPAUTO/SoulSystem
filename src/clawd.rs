@@ -243,22 +243,23 @@ impl ClawdContext {
         })
     }
 
-    /// Appel Ollama (ou simulation si pas de serveur).
+    /// Appel Ollama via le proxy cloud (kimi-k2.6:cloud par defaut).
     pub async fn call_ollama(model: &str, prompt: &str) -> String {
         let client = reqwest::Client::new();
         match client
-            .post("http://localhost:11434/api/generate")
+            .post("http://localhost:11435/v1/chat/completions")
+            .header("Authorization", "Bearer b03afbd14bfd4be993abc1819c9d0a2f.K8thtwx78DMAqvZyDXNMQksd")
             .json(&serde_json::json!({
                 "model": model,
-                "prompt": prompt,
+                "messages": [{"role": "user", "content": prompt}],
                 "stream": false
             }))
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(60))
             .send()
             .await
         {
             Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(json) => json["response"]
+                Ok(json) => json["choices"][0]["message"]["content"]
                     .as_str()
                     .unwrap_or("[Ollama] Reponse vide")
                     .to_string(),
@@ -637,10 +638,10 @@ async fn handle_message(
         }),
     });
 
-    // Attendre une reponse sur le bus (timeout 5s)
+    // Attendre une reponse sur le bus (timeout 8s)
     let bus_reply = {
         let mut rx = ctx.bus.subscribe();
-        let timeout = tokio::time::Duration::from_secs(5);
+        let timeout = tokio::time::Duration::from_secs(8);
         let chat_id_f = chat_id;
         tokio::time::timeout(timeout, async {
             loop {

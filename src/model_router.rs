@@ -37,29 +37,19 @@ impl ModelRouter {
     pub fn default_models() -> Self {
         Self::new(vec![
             ModelSpec {
-                name: "tinyllama".into(),
-                capacity: 0.2,
+                name: "kimi-k2.6:cloud".into(),
+                capacity: 1.0,
                 cost: 0.1,
             },
             ModelSpec {
-                name: "llama3.2:1b".into(),
-                capacity: 0.35,
-                cost: 0.25,
-            },
-            ModelSpec {
-                name: "mistral".into(),
-                capacity: 0.6,
-                cost: 0.5,
-            },
-            ModelSpec {
-                name: "codellama".into(),
-                capacity: 0.75,
-                cost: 0.7,
+                name: "qwen3:4b".into(),
+                capacity: 0.4,
+                cost: 0.2,
             },
             ModelSpec {
                 name: "deepseek-coder-v2:16b".into(),
                 capacity: 0.95,
-                cost: 1.0,
+                cost: 0.5,
             },
         ])
     }

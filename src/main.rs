@@ -77,25 +77,30 @@ async fn main() -> Result<()> {
     info!("WS Bridge demarre sur 127.0.0.1:9022");
 
     // ── Bot Clawd Telegram ─────────────────────────────────────────────────
-    let bus_clawd = bus.clone();
-    tokio::spawn(async move {
-        let settings = soulsystem::clawd::Settings {
-            bot_token: std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_else(|_| "".to_string()),
-            avid_endpoint: "http://localhost:7878".to_string(),
-        };
-        match soulsystem::clawd::ClawdContext::new(settings, bus_clawd) {
-            Ok(ctx) => {
-                let ctx = Arc::new(ctx);
-                if let Err(e) = soulsystem::clawd::run_bot(ctx).await {
-                    tracing::error!("Clawd bot error: {}", e);
+    let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").unwrap_or_default();
+    if !bot_token.is_empty() {
+        let bus_clawd = bus.clone();
+        tokio::spawn(async move {
+            let settings = soulsystem::clawd::Settings {
+                bot_token,
+                avid_endpoint: "http://localhost:7878".to_string(),
+            };
+            match soulsystem::clawd::ClawdContext::new(settings, bus_clawd) {
+                Ok(ctx) => {
+                    let ctx = Arc::new(ctx);
+                    if let Err(e) = soulsystem::clawd::run_bot(ctx).await {
+                        tracing::error!("Clawd bot error: {}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Clawd init error: {}", e);
                 }
             }
-            Err(e) => {
-                tracing::error!("Clawd init error: {}", e);
-            }
-        }
-    });
-    info!("Clawd Telegram bot demarre");
+        });
+        info!("Clawd Telegram bot demarre");
+    } else {
+        info!("Clawd Telegram bot: SKIP (pas de TELEGRAM_BOT_TOKEN) — utilise OpenClaw Gateway");
+    }
 
     // ── Modules actifs ─────────────────────────────────────────────────────
     //
