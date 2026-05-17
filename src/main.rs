@@ -14,6 +14,7 @@ use clap::Parser;
 use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
 use soulsystem::bound_system::BoundSystem;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::info;
@@ -81,6 +82,7 @@ async fn main() -> Result<()> {
     let bound_system_api = Arc::new(BoundSystem::new(BoundSystem::default_whitelist()));
     let api_state = Arc::new(soulsystem::api::ApiState {
         bound_system: bound_system_api,
+        pty_sessions: Arc::new(Mutex::new(HashMap::new())),
     });
     let api_router = soulsystem::api::router(api_state);
     tokio::spawn(async move {
