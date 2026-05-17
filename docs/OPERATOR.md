@@ -1,28 +1,28 @@
-# SoulSystem Operator Edition — Guide Opérateur
+# SoulSystem Operator Edition — Guide Operateur v0.5.0
 
 ## Architecture
 
-SoulSystem est un écosystème modulaire d'agent autonome en Rust.
+SoulSystem is a modular autonomous agent ecosystem in Rust.
 
-### Modules actifs (après restructuration Operator Edition)
+### Active Modules
 
-| Module | Rôle |
+| Module | Role |
 |--------|------|
-| `audit_log` | Journal d'audit signé avec vérification d'intégrité |
-| `bus` | Système de messagerie interne (broadcast channel) |
-| `code_signing` | Certification des logs d'audit (clé HMAC-SHA256) |
-| `compute_backend` | Abstraction CPU/GPU — détection CUDA/ROCm/Vulkan |
-| `config` | Configuration centralisée (TOML + env vars) |
-| `discovery` | Découverte de services mDNS |
-| `dev_dashboard` | Dashboard SSE sur :9090 (feature `dev`) |
-| `anomaly` | Détecteur de chute de ticks HNN (feature `dev`) |
-| `soul_memory` | Mémoire vectorielle locale (sled + n-grammes) |
-| `telemetry` | Métriques distribuées (OTLP) |
-
-### Modules déplacés vers `backlog/`
-
-soul_wallet, swarm, hardware_autoscaler, skill_marketplace, skill_api,
-federated_learning, meta_learning, jit_hnn, sandbox/nix
+| `audit_log` | Signed audit journal with integrity verification |
+| `bus` | Internal messaging system (broadcast channel) |
+| `code_signing` | Code certification (SHA-256 HMAC) |
+| `compute_backend` | CPU/GPU abstraction — CUDA/ROCm/Vulkan detection |
+| `config` | Centralized configuration (TOML + env vars) |
+| `discovery` | mDNS service discovery |
+| `dev_dashboard` | SSE dashboard on :9090 (feature `dev`) |
+| `anomaly` | HNN tick drop detector (feature `dev`) |
+| `soul_memory` | Local vector memory (sled + SciRustEmbedder 64-dim) |
+| `telemetry` | Distributed metrics (OTLP) |
+| `clawd` | Telegram bot with commands and LLM routing |
+| `model_router` | Dynamic Ollama model selection |
+| `bound_system` | Secure shell command execution |
+| `local_skills` | Plugin system with signature verification |
+| `backup` | Signed backup/restore |
 
 ## Installation
 
@@ -31,7 +31,7 @@ cargo build --release
 sudo cp target/release/soulsystem /usr/local/bin/
 ```
 
-Pour le mode développement (dashboard + anomaly) :
+For dev mode (dashboard + anomaly):
 
 ```bash
 cargo build --release --features dev
@@ -39,7 +39,7 @@ cargo build --release --features dev
 
 ## Configuration
 
-Fichier `soulsystem.toml` :
+File `soulsystem.toml`:
 
 ```toml
 [paths]
@@ -48,44 +48,111 @@ data_dir   = "/var/lib/soulsystem/data"
 log_dir    = "/var/log/soulsystem"
 ```
 
-Surcharge possible via variables d'environnement :
-- `SOULSYSTEM_CONFIG_FILE` — chemin alternatif vers le fichier de config
-- `QDRANT_URL` — endpoint Qdrant (optionnel, fallback sled local)
-- `OTEL_EXPORTER_OTLP_ENDPOINT` — endpoint télémétrie (défaut :4317)
+Environment overrides:
+- `SOULSYSTEM_CONFIG_FILE` — alternative config path
+- `QDRANT_URL` — Qdrant endpoint (optional, sled fallback)
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — telemetry endpoint (default :4317)
+- `SOULSYSTEM_BOT_TOKEN` — Telegram bot token for Clawd
 
-## Utilisation
+## Usage
 
 ```bash
-# Démarrage normal
+# Normal start
 soulsystem
 
-# Mode développement (dashboard web :9090 + anomaly detection)
+# Dev mode (dashboard :9090 + anomaly detection)
 soulsystem --dev
 
-# Mode mock (simulation)
+# Mock mode (simulation)
 soulsystem --mock
+```
 
-# Version
-soulsystem --version
+## Clawd — Telegram Bot
+
+Commands available:
+- `/veille <topics>` — Subscribe to AVID research topics
+- `/skill <name> <args>` — Execute a local skill
+- `/run <command>` — Execute an authorized system command
+- `/help` — Show help
+
+### Feedback utilisateur
+
+Each Clawd response includes 👍/👎 inline buttons. Feedback is stored in
+`FeedbackStore` (sled) with timestamp, query, response, and score (+1/-1).
+
+```rust
+// Retrieve recent feedback
+let entries = clawd.feedback.get_recent(100)?;
+```
+
+### Model Router
+
+Clawd uses `ModelRouter` to select the best Ollama model based on query complexity:
+
+| Complexity | Model | Capacity | Cost |
+|-----------|-------|----------|------|
+| < 0.2 | tinyllama | 0.2 | 0.1 |
+| < 0.35 | llama3.2:1b | 0.35 | 0.25 |
+| < 0.6 | mistral | 0.6 | 0.5 |
+| < 0.75 | codellama | 0.75 | 0.7 |
+| >= 0.75 | deepseek-coder-v2:16b | 0.95 | 1.0 |
+
+Complexity is evaluated by: length, keywords (explain, code, implement, debug), code indicators.
+
+### Veille personnalisee
+
+`/veille sujet1, sujet2` registers topics for daily AVID research.
+Results are stored in SoulMemory with tag "veille".
+
+### Taches systeme (Bound System)
+
+Authorized commands: `date`, `df -h`, `uptime`, `free -h`, `whoami`, `hostname`, `ps aux`.
+
+Execution is sandboxed via bubblewrap (`bwrap`):
+- Network disabled (`--unshare-net`)
+- Timeout: 10 seconds
+- All executions audited
+
+## Sauvegarde
+
+```bash
+# Create signed backup
+soulsystem backup create --output /backup/soulsystem-$(date +%Y%m%d).tar.gz
+
+# Verify backup
+soulsystem backup verify /backup/soulsystem-20260517.tar.gz
+```
+
+Backups include `data_dir` and `config_dir`, compressed as tar.gz, SHA-256 hashed,
+and HMAC-signed with the instance private key.
+
+## Tests de charge
+
+```bash
+# Run load tests once
+cargo test --test load_test
+
+# Endurance test (5 minutes default)
+./scripts/stress_test.sh
+
+# Endurance test (30 minutes)
+./scripts/stress_test.sh 30
 ```
 
 ## Supervision
 
-- **Dashboard** : `http://localhost:9090` (nécessite `--dev`)
-- **Bus** : les modules peuvent s'abonner au bus pour recevoir les alertes
-- **Anomaly** : détection de chutes > 40% du tick rate HNN, cooldown 60s
+- **Dashboard** : `http://localhost:9090` (requires `--dev`)
+- **Bus** : modules subscribe to the bus for alerts
+- **Anomaly** : detects >40% HNN tick rate drops, 60s cooldown
 
-## Backup
+## Troubleshooting
 
-```bash
-# Backup des données
-tar -czf soulsystem-backup-$(date +%Y%m%d).tar.gz /var/lib/soulsystem/ /opt/soulsystem/config/
-```
-
-## Dépannage
-
-| Problème | Cause possible | Solution |
-|----------|---------------|----------|
-| `soulmemory: QDRANT_URL not set` | Pas de Qdrant | Normal, utilise sled local |
-| `mDNS non disponible` | `mdns-sd` pas installé | Mode registre local uniquement |
-| Dashboard inaccessible | `--dev` pas activé | Recompiler avec `--features dev` |
+| Problem | Likely Cause | Solution |
+|----------|-------------|----------|
+| `soulmemory: QDRANT_URL not set` | No Qdrant | Normal, uses local sled |
+| `mDNS unavailable` | `mdns-sd` not installed | Local registry only |
+| Dashboard unreachable | `--dev` not enabled | Rebuild with `--features dev` |
+| Clawd not responding | No `SOULSYSTEM_BOT_TOKEN` | Set env var and restart |
+| Ollama errors | Ollama service down | Check `systemctl status ollama` |
+| Commands rejected | Not in whitelist | Use `/run` help for allowed commands |
+| Backup verify fails | Wrong private key | Re-create backup with current key |

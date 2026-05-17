@@ -148,7 +148,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_discovery_service_creation() {
-        let mut service = DiscoveryService::new(9876);
+        let service = DiscoveryService::new(9876);
         assert_eq!(service.port, 9876);
         assert!(service.peers().is_empty());
     }

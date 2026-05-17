@@ -65,7 +65,7 @@ impl AuditLog {
         hasher.update(action.as_bytes());
         hasher.update(details.as_bytes());
         hasher.update(self.last_hash.as_bytes());
-        hasher.update(&self.counter.to_le_bytes());
+        hasher.update(self.counter.to_le_bytes());
         let hash = format!("{:x}", hasher.finalize());
 
         let entry = AuditEntry {
@@ -117,6 +117,14 @@ impl AuditLog {
             }
         }
         entries.sort_by_key(|e: &AuditEntry| e.timestamp);
+        Ok(entries)
+    }
+
+    /// Retourne les `limit` entrees les plus recentes.
+    pub fn get_recent(&self, limit: usize) -> anyhow::Result<Vec<AuditEntry>> {
+        let mut entries = self.get_all()?;
+        entries.reverse();
+        entries.truncate(limit);
         Ok(entries)
     }
 }

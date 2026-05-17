@@ -31,7 +31,7 @@ fn default_log_dir() -> PathBuf {
 }
 
 /// Configuration racine de SoulSystem.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
     pub paths: Paths,
@@ -98,18 +98,9 @@ impl Default for Paths {
     }
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            paths: Paths::default(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::TempDir;
 
     #[test]

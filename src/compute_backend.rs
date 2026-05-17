@@ -44,17 +44,17 @@ impl ComputeBackend for CpuFallback {
         let dlen = data.len();
         let out_len = dlen + klen - 1;
         let mut result = vec![0.0f32; out_len];
-        for i in 0..out_len {
+        for (i, res) in result.iter_mut().enumerate() {
             let mut sum = 0.0;
-            let start = if i + 1 > klen { i + 1 - klen } else { 0 };
+            let start = (i + 1).saturating_sub(klen);
             let end = i.min(dlen - 1);
-            for j in start..=end {
+            for (j, &d) in data.iter().enumerate().take(end + 1).skip(start) {
                 let k_idx = i - j;
                 if k_idx < klen {
-                    sum += data[j] * kernel[k_idx];
+                    sum += d * kernel[k_idx];
                 }
             }
-            result[i] = sum;
+            *res = sum;
         }
         result
     }

@@ -22,6 +22,12 @@ pub struct AuthorizedKeys {
     pub keys: HashSet<Vec<u8>>,
 }
 
+impl Default for AuthorizedKeys {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AuthorizedKeys {
     pub fn len(&self) -> usize {
         self.keys.len()

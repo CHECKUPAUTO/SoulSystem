@@ -13,14 +13,15 @@ use anyhow::Result;
 use clap::Parser;
 use soulsystem::bus::Bus;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(
     name = "soulsystem",
-    version = "0.3.0",
-    about = "SoulSystem — Écosystème d'agent numérique autonome"
+    version = "0.5.0",
+    about = "SoulSystem — Ecosysteme d'agent numerique autonome (Enriched Operator Edition)"
 )]
 struct Cli {
     /// Mode développement (dashboard web :9090 + détection anomalies)
@@ -78,12 +79,15 @@ async fn main() -> Result<()> {
     //   dev_dashboard → dashboard web sur :9090 (SSE)
     //   anomaly       → détecteur de chute de ticks HNN
 
-    // Audit log
-    let mut audit = soulsystem::audit_log::AuditLog::open(
+    // Audit log (wrapped for shared access)
+    let audit = Arc::new(Mutex::new(soulsystem::audit_log::AuditLog::open(
         &settings.paths.log_dir.join("audit.log").to_string_lossy(),
-    )?;
-    audit.log("system", "startup", "SoulSystem Operator Edition démarré")?;
-    info!("AuditLogger initialisé");
+    )?));
+    {
+        let mut a = audit.lock().await;
+        a.log("system", "startup", "SoulSystem Operator Edition demarre")?;
+    }
+    info!("AuditLogger initialise");
 
     // SoulMemory (vectorielle locale, fallback sled)
     let _memory = soulsystem::soul_memory::SoulMemory::new()?;
@@ -106,8 +110,9 @@ async fn main() -> Result<()> {
         {
             // Dashboard SSE sur :9090
             let bus_dash = bus.clone();
+            let audit_dash = audit.clone();
             tokio::spawn(async move {
-                if let Err(e) = soulsystem::dev_dashboard::run(bus_dash).await {
+                if let Err(e) = soulsystem::dev_dashboard::run(bus_dash, audit_dash).await {
                     tracing::error!("Dashboard error: {}", e);
                 }
             });
