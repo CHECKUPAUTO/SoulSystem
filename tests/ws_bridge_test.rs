@@ -135,7 +135,7 @@ async fn test_ws_auth_invalid() {
 
     let bus = Arc::new(soulsystem::bus::Bus::new(256));
     let config = soulsystem::ws_bridge::WsBridgeConfig {
-        listen: "127.0.0.1:19022".to_string(),
+        listen: "127.0.0.1:19024".to_string(),
         shared_secret: Some("secret123".to_string()),
     };
     tokio::spawn(async move {
@@ -143,7 +143,7 @@ async fn test_ws_auth_invalid() {
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let url = "ws://127.0.0.1:19022";
+    let url = "ws://127.0.0.1:19024";
     let (mut ws, _) = connect_async(url).await.expect("connexion");
 
     // Envoyer un mauvais token
