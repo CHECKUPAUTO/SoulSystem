@@ -1,6 +1,6 @@
+pub mod backup;
 pub mod evolution;
 pub mod fitness;
-pub mod backup;
 
 use anyhow::Result;
 use std::path::PathBuf;
@@ -16,7 +16,12 @@ pub struct GepaConfig {
 
 impl Default for GepaConfig {
     fn default() -> Self {
-        Self { threshold: 0.75, backup_enabled: true, parallel: true, max_generations: 10 }
+        Self {
+            threshold: 0.75,
+            backup_enabled: true,
+            parallel: true,
+            max_generations: 10,
+        }
     }
 }
 

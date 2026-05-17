@@ -43,10 +43,8 @@ pub static RE_BOLD_CATEGORY: Lazy<Regex> = Lazy::new(|| {
 
 /// Pattern 4: `- **Category:** content` — list item, bold category
 pub static RE_LIST_BOLD: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"^\s*-\s+\*\*(?P<category>[A-Za-z][A-Za-z0-9_\-]*):\*\*\s+(?P<content>.+)$",
-    )
-    .expect("RE_LIST_BOLD")
+    Regex::new(r"^\s*-\s+\*\*(?P<category>[A-Za-z][A-Za-z0-9_\-]*):\*\*\s+(?P<content>.+)$")
+        .expect("RE_LIST_BOLD")
 });
 
 /// Pattern 5: `- Category: content` — list item, plain category
@@ -178,8 +176,8 @@ impl FactExtractor {
 
     /// Extract facts from a single file.
     pub fn extract_file(&self, path: &Path) -> Result<Vec<ExtractedFact>> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read {:?}", path))?;
+        let raw =
+            std::fs::read_to_string(path).with_context(|| format!("Failed to read {:?}", path))?;
 
         let source = path.to_string_lossy().into_owned();
         let date = date_from_path(path);
@@ -196,10 +194,7 @@ impl FactExtractor {
             // Try each pattern, stop at first match per line
             for pat_def in ALL_PATTERNS.iter() {
                 if let Some(caps) = pat_def.re.captures(line) {
-                    let raw_cat = caps
-                        .name("category")
-                        .map(|m| m.as_str())
-                        .unwrap_or("other");
+                    let raw_cat = caps.name("category").map(|m| m.as_str()).unwrap_or("other");
                     let raw_content = caps.name("content").map(|m| m.as_str()).unwrap_or("");
 
                     let category = refine_category(raw_cat);

@@ -11,13 +11,13 @@ publish = false
 [dependencies]
 soullink-core = { path = "../soullink-core" }
 soullink-nvml = { path = "../soullink-nvml", features = ["mock"] }
-
 serde_json = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
+rand = "0.8"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
 name = "xid_parse"
@@ -33,4 +33,8 @@ harness = false
 
 [[bench]]
 name = "ipc_uds"
+harness = false
+
+[[bench]]
+name = "hnn_benchmark"
 harness = false

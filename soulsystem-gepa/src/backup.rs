@@ -14,9 +14,7 @@ pub fn backup_file(path: &Path) -> Result<String> {
 
     let backup_name = format!(
         "{}.backup.{}.rs",
-        path.file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("skill"),
+        path.file_stem().and_then(|s| s.to_str()).unwrap_or("skill"),
         stamp
     );
 

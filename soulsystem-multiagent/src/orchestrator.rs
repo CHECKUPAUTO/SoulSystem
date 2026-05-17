@@ -20,8 +20,7 @@ impl Orchestrator {
     pub async fn new(config: MultiAgentConfig) -> Result<Arc<Self>> {
         let agents: Arc<DashMap<String, SpecializedAgent>> = Arc::new(DashMap::new());
         let cache = Arc::new(TaskCache::new(config.clone()));
-        let (task_sender, mut task_receiver) =
-            mpsc::channel::<AgentTask>(config.queue_capacity);
+        let (task_sender, mut task_receiver) = mpsc::channel::<AgentTask>(config.queue_capacity);
 
         let agents_clone = agents.clone();
         let cache_clone = cache.clone();
@@ -100,12 +99,7 @@ async fn execute_task_inner(
     // Find the best agent for this task type
     let best = agents
         .iter()
-        .filter(|entry| {
-            entry
-                .capabilities
-                .iter()
-                .any(|c| c.name == task.task_type)
-        })
+        .filter(|entry| entry.capabilities.iter().any(|c| c.name == task.task_type))
         .max_by_key(|entry| {
             entry
                 .capabilities
@@ -149,7 +143,10 @@ async fn execute_task_inner(
                 .as_str()
                 .unwrap_or("(no response)")
                 .to_string();
-            let confidence = json.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.85);
+            let confidence = json
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.85);
 
             Ok(TaskResult {
                 task_id: task.id.clone(),

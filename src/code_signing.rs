@@ -23,10 +23,16 @@ pub struct AuthorizedKeys {
 }
 
 impl AuthorizedKeys {
-    pub fn len(&self) -> usize { self.keys.len() }
-    pub fn is_empty(&self) -> bool { self.keys.is_empty() }
+    pub fn len(&self) -> usize {
+        self.keys.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
     pub fn new() -> Self {
-        Self { keys: HashSet::new() }
+        Self {
+            keys: HashSet::new(),
+        }
     }
     /// Charge les clés autorisées depuis le fichier de config.
     pub fn load() -> Result<Self> {

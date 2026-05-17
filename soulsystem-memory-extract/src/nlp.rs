@@ -1,5 +1,4 @@
 /// Lightweight NLP helpers for fact category refinement.
-
 use tracing::warn;
 
 /// Refines a raw category string into a canonical, lowercase key.
@@ -14,14 +13,18 @@ pub fn refine_category(raw: &str) -> String {
         "fact" | "facts" | "trivia" | "knowledge" | "info" => "fact",
         "decision" | "decisions" | "choice" | "decis" => "decision",
         "pattern" | "patterns" | "habit" | "habits" => "pattern",
-        "todo" | "todos" | "task" | "tasks" | "action" | "actions" | "action-item" | "action_item" => "todo",
+        "todo" | "todos" | "task" | "tasks" | "action" | "actions" | "action-item"
+        | "action_item" => "todo",
         "goal" | "goals" | "objective" | "objectives" | "aim" | "aims" => "goal",
         "idea" | "ideas" | "thought" | "thoughts" | "inspiration" | "inspirations" => "idea",
         "lesson" | "lessons" | "learned" | "learning" | "insight" | "insights" => "lesson",
         "question" | "questions" | "query" | "queries" | "ask" => "question",
-        "rule" | "rules" | "policy" | "policies" | "guideline" | "guidelines" | "boundary" | "boundaries" => "rule",
+        "rule" | "rules" | "policy" | "policies" | "guideline" | "guidelines" | "boundary"
+        | "boundaries" => "rule",
         "log" | "logs" | "event" | "events" | "entry" | "entries" | "record" | "records" => "log",
-        "contact" | "contacts" | "person" | "people" | "user" | "users" | "human" | "humans" => "contact",
+        "contact" | "contacts" | "person" | "people" | "user" | "users" | "human" | "humans" => {
+            "contact"
+        }
         "resource" | "resources" | "reference" | "references" | "link" | "links" => "resource",
         "project" | "projects" | "repo" | "repos" | "repository" | "repositories" => "project",
         "timeline" | "timelines" | "history" | "chronology" | "chronological" => "timeline",

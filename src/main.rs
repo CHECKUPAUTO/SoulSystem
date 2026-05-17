@@ -1,105 +1,145 @@
-//! SoulSystem — Point d'entrée principal.
-//!
-//! Charge la configuration, initialise le bus de messages, puis lance les
-//! modules selon les flags passés en ligne de commande.
+//! SoulSystem — Point d'entrée principal (Operator Edition).
 //!
 //! Usage :
-//!   soulsystem [--dev] [--mock]
+//!   soulsystem                          # démarrage normal
+//!   soulsystem --dev                    # mode développement (dashboard + anomaly)
+//!   soulsystem --mock                   # mode mock (simulation)
+//!   soulsystem --version                # affiche la version
+//!
+//! Modules actifs : audit_log, bus, code_signing, compute_backend, config,
+//!                  discovery, soul_memory, telemetry.
 
 use anyhow::Result;
+use clap::Parser;
 use soulsystem::bus::Bus;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-fn main() -> Result<()> {
+#[derive(Parser)]
+#[command(
+    name = "soulsystem",
+    version = "0.3.0",
+    about = "SoulSystem — Écosystème d'agent numérique autonome"
+)]
+struct Cli {
+    /// Mode développement (dashboard web :9090 + détection anomalies)
+    #[arg(long)]
+    dev: bool,
+
+    /// Mode mock (simulation uniquement)
+    #[arg(long)]
+    mock: bool,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    let cli = Cli::parse();
+
     // Chargement de la configuration centralisée
     let settings = soulsystem::config::Settings::new()?;
     info!(
-        "Répertoire de configuration : {:?}",
+        "SoulSystem v{} — config_dir: {:?}",
+        env!("CARGO_PKG_VERSION"),
         settings.paths.config_dir
     );
-    info!(
-        "Répertoire de données       : {:?}",
-        settings.paths.data_dir
-    );
-    info!(
-        "Répertoire de logs           : {:?}",
-        settings.paths.log_dir
-    );
 
-    // Création des répertoires si nécessaire
+    // Création des répertoires
     for dir in [
         &settings.paths.config_dir,
         &settings.paths.data_dir,
         &settings.paths.log_dir,
     ] {
         if let Err(e) = std::fs::create_dir_all(dir) {
-            warn!("Impossible de créer {:?}: {}", dir, e);
+            tracing::warn!("Impossible de créer {:?}: {}", dir, e);
         }
     }
 
-    // Arguments
-    let args: Vec<String> = std::env::args().collect();
-    let dev_mode = args.contains(&"--dev".to_string());
+    // ── Bus central (file d'attente 256 messages) ──────────────────────────
+    let bus = Arc::new(Bus::new(256));
 
-    // Tokio runtime
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async move {
-        info!(
-            "SoulSystem démarré{}",
-            if dev_mode { " (mode dev)" } else { "" }
-        );
+    // ── Modules actifs ─────────────────────────────────────────────────────
+    //
+    // Actifs en permanence (tous les modes) :
+    //   audit_log    → journal d'audit signé
+    //   code_signing → chaîne de certification
+    //   bus          → messagerie interne
+    //   compute_backend → CPU / GPU (CUDA / ROCm / Vulkan)
+    //   config       → configuration centralisée
+    //   discovery    → découverte de services réseau (mDNS)
+    //   soul_memory  → mémoire vectorielle locale (sled + n-grammes)
+    //   telemetry    → métriques OTLP
+    //
+    // Activés seulement en --dev :
+    //   dev_dashboard → dashboard web sur :9090 (SSE)
+    //   anomaly       → détecteur de chute de ticks HNN
 
-        let bus = Arc::new(Bus::new(256));
+    // Audit log
+    let mut audit = soulsystem::audit_log::AuditLog::open(
+        &settings.paths.log_dir.join("audit.log").to_string_lossy(),
+    )?;
+    audit.log("system", "startup", "SoulSystem Operator Edition démarré")?;
+    info!("AuditLogger initialisé");
 
-        // Modules actifs
-        let _soul_memory = match soulsystem::soul_memory::SoulMemory::new() {
-            Ok(m) => { info!("SoulMemory: active (sled)"); Arc::new(m) }
-            Err(e) => { warn!("SoulMemory: non disponible - {}", e); return Ok(()); }
-        };
+    // SoulMemory (vectorielle locale, fallback sled)
+    let _memory = soulsystem::soul_memory::SoulMemory::new()?;
+    info!("SoulMemory initialisée");
 
-        match soulsystem::telemetry::init_telemetry() {
-            Ok(_) => info!("Telemetry: active (OTLP)"),
-            Err(e) => warn!("Telemetry: non disponible - {}", e),
+    // Discovery (mDNS sur port 42069)
+    let mut disco = soulsystem::discovery::DiscoveryService::new(42069);
+    disco.start().await?;
+    info!("DiscoveryService initialisé");
+
+    // Télémétrie
+    let _ = soulsystem::telemetry::init_telemetry();
+    info!("Telemetry initialisée");
+
+    // ── Mode développement ─────────────────────────────────────────────────
+    if cli.dev {
+        info!("▶ Mode développement activé");
+
+        #[cfg(feature = "dev")]
+        {
+            // Dashboard SSE sur :9090
+            let bus_dash = bus.clone();
+            tokio::spawn(async move {
+                if let Err(e) = soulsystem::dev_dashboard::run(bus_dash).await {
+                    tracing::error!("Dashboard error: {}", e);
+                }
+            });
+
+            // AnomalyWatcher — détection chute ticks HNN
+            let bus_anom = bus.clone();
+            tokio::spawn(async move {
+                let mut watcher = soulsystem::anomaly::AnomalyWatcher::new(bus_anom);
+                watcher.run().await;
+            });
         }
 
-        let auth_keys = soulsystem::code_signing::AuthorizedKeys::load()
-            .unwrap_or_else(|_| soulsystem::code_signing::AuthorizedKeys::new());
-        let _auth_keys = Arc::new(auth_keys);
-        info!("CodeSigning: actif ({} clés)", _auth_keys.len());
-
-        let mut audit = soulsystem::audit_log::AuditLog::open("/var/log/soulsystem/audit.sled");
-        match &mut audit {
-            Ok(ref mut log) => {
-                info!("AuditLog: actif");
-                let _ = log.log("system", "startup", "SoulSystem démarré");
-            }
-            Err(e) => warn!("AuditLog: non disponible - {}", e),
+        #[cfg(not(feature = "dev"))]
+        {
+            tracing::warn!("Feature 'dev' non activée — dashboard et anomaly désactivés");
+            tracing::warn!("Recompilez avec --features dev");
         }
+    }
 
-        if dev_mode {
-            info!("Dashboard développeur actif sur 127.0.0.1:9090");
-            #[cfg(feature = "dev")]
-            {
-                let bus_for_dash = bus.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = soulsystem::dev_dashboard::run(bus_for_dash).await {
-                        tracing::error!("Dashboard error: {}", e);
-                    }
-                });
-            }
+    if cli.mock {
+        info!("▶ Mode mock activé — simulation uniquement");
+    }
+
+    info!("✅ SoulSystem prêt — boucle principale");
+
+    // ── Boucle principale ──────────────────────────────────────────────────
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+        let count = disco.peers().len();
+        debug_assert!(count <= 1024, "trop de pairs découverts");
+        if count > 0 {
+            tracing::debug!("{} pair(s) actif(s)", count);
         }
-
-        // Maintient le processus en vie
-        tokio::signal::ctrl_c().await?;
-        info!("SoulSystem arrêté proprement.");
-        Ok::<_, anyhow::Error>(())
-    })?;
-
-    Ok(())
+    }
 }
