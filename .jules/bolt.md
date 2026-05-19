@@ -17,4 +17,7 @@
 ## 2026-05-12 - [Perception I/O Non-Blocking & Parallelization]
 **Learning:** Sequential calls to 'systemctl' and redundant 'reqwest::Client' instantiation in 'SystemSnapshot' were blocking the heartbeat loop and causing unnecessary resource overhead. Using 'tokio::process::Command' and a shared client with 'JoinSet' parallelization is essential for maintaining a low-latency heartbeat.
 **Action:** Always pass a shared '&reqwest::Client' to perception/bridge functions and use 'tokio::process' for any shell-based metric collection.
->>>>>>> origin/bolt-perception-io-parallelization-8461980448331089953
+
+## 2026-05-13 - [Search Database O(N*M) Anti-pattern]
+**Learning:** Iterating through search results and performing a full `get_all_entities()` call inside the loop creates an $O(N \times M)$ bottleneck that scales poorly as the database grows.
+**Action:** Always implement and use primary-key indexed lookups (e.g., `get_by_id`) for entity resolution in loops. Use database-side `COUNT(*)` instead of fetching full collection to get length.
