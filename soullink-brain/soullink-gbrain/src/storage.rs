@@ -8,7 +8,7 @@
 //! SQLite storage for entities and edges.
 
 use anyhow::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -74,6 +74,12 @@ impl Database {
             [],
         )?;
 
+        // Bolt ⚡: Index for faster graph-boost lookups where entity is the target.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_edges_target_id ON edges(target_id)",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -134,6 +140,26 @@ impl Database {
         Ok(entities)
     }
 
+    // Bolt ⚡: O(1) lookup by ID instead of O(N) scan.
+    pub fn get_entity_by_id(&self, id: &str) -> Result<Option<Entity>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id, type, name, source_page, confidence, created_at FROM entities WHERE id = ?1")?;
+        let entity = stmt.query_row(params![id], |row| {
+            let created_at_str: String = row.get(5)?;
+            Ok(Entity {
+                id: row.get(0)?,
+                entity_type: row.get(1)?,
+                name: row.get(2)?,
+                source_page: row.get(3)?,
+                confidence: row.get(4)?,
+                created_at: DateTime::parse_from_rfc3339(&created_at_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+            })
+        }).optional()?;
+        Ok(entity)
+    }
+
     pub fn get_edges_for_entity(&self, entity_id: &str) -> Result<Vec<Edge>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -158,5 +184,13 @@ impl Database {
             edges.push(row?);
         }
         Ok(edges)
+    }
+
+    // Bolt ⚡: Faster edge counting without loading all data.
+    pub fn get_edge_count_for_entity(&self, id: &str) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT COUNT(*) FROM edges WHERE source_id = ?1 OR target_id = ?1")?;
+        let count: usize = stmt.query_row(params![id], |row| row.get(0))?;
+        Ok(count)
     }
 }

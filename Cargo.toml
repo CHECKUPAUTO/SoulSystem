@@ -4,7 +4,27 @@ members = [
     "soulsystem-gepa",
     "soulsystem-multiagent",
     "soulsystem-memory-extract",
+    "openclaw-u",
 ]
+
+[workspace.package]
+version = "13.5.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["SoulLink Mesh Team"]
+license = "MIT"
+repository = "internal"
+
+[workspace.dependencies]
+tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "signal", "time", "net", "process", "fs", "sync", "io-util"] }
+axum = { version = "0.7", default-features = false, features = ["http1", "http2", "json", "tokio", "tower-log"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2", "gzip", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "json", "ansi"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+tempfile = "3"
 
 [package]
 name = "soulsystem"
