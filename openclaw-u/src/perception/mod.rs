@@ -1,9 +1,5 @@
 //! Perception — lecture de l'état réel du système (mise à jour V13)
 
-<<<<<<< HEAD
-=======
-use std::process::Stdio;
->>>>>>> origin/bolt-perception-io-parallelization-8461980448331089953
 use tokio::process::Command;
 use serde::{Deserialize, Serialize};
 
@@ -151,9 +147,6 @@ impl SystemSnapshot {
     }
 
     async fn read_disk() -> f32 {
-        // df uses statfs which is harder to do in pure Rust without a crate,
-        // but for now let's at least optimize the shell call or keep it if it's too complex.
-        // Actually, many agents have control over the server, so df is usually fine.
         match Command::new("df").args(["--output=pcent", "/"]).output().await {
             Ok(o) if o.status.success() => {
                 let s = String::from_utf8_lossy(&o.stdout);
@@ -177,44 +170,25 @@ impl SystemSnapshot {
             "soullink-nla",
         ];
 
-        let mut set = tokio::task::JoinSet::new();
         let total = services.len() as u32;
 
-        for svc in services {
-            set.spawn(async move {
-<<<<<<< HEAD
-                match Command::new("systemctl").args(["is-active", "--quiet", svc]).output().await {
-                    Ok(o) if o.status.success() => 1,
-                    _ => 0,
-                }
-            });
-        }
-
-        let mut ok = 0;
-        while let Some(Ok(val)) = set.join_next().await {
-            ok += val;
-        }
-
-=======
-                let status = Command::new("systemctl")
-                    .args(["is-active", "--quiet", svc])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await;
-                status.map(|s| s.success()).unwrap_or(false)
-            });
-        }
-
-        let mut ok = 0;
-        while let Some(res) = set.join_next().await {
-            if let Ok(true) = res {
-                ok += 1;
+        // Bolt ⚡: Batch systemctl call to check all services at once.
+        // Spawning 20+ processes is expensive; one process is much faster.
+        match Command::new("systemctl")
+            .args(["is-active"])
+            .args(&services)
+            .output()
+            .await
+        {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                let active_count = stdout.lines()
+                    .filter(|l| l.trim() == "active")
+                    .count() as u32;
+                (active_count, total)
             }
+            _ => (0, total),
         }
-
->>>>>>> origin/bolt-perception-io-parallelization-8461980448331089953
-        (ok, total)
     }
 
     async fn read_onaeu_cycle(client: &reqwest::Client) -> u64 {

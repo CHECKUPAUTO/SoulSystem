@@ -163,16 +163,15 @@ impl HybridSearcher {
         }
 
         // 4. Graph Boost: 0.3
-        // We boost based on the number of edges for the entity
+        // Bolt ⚡: Use optimized counting and direct lookups to avoid O(N*M) bottlenecks.
         let mut final_hits = Vec::new();
         for (id, score) in combined {
-            // Optimized edge count lookup (O(log M) with index vs O(M) fetch)
             let edge_count = self.db.get_edge_count_for_entity(&id).unwrap_or(0);
             let boost = (edge_count as f64 * 0.1).min(1.0);
             let final_score = score + 0.3 * boost;
 
-            // Optimized entity lookup by ID (O(log M) via PK vs O(M) scan)
-            if let Ok(Some(entity)) = self.db.get_entity_by_id(&id) {
+            // Fetch entity info
+            if let Some(entity) = self.db.get_entity_by_id(&id)? {
                 final_hits.push(SearchHit {
                     entity_id: id,
                     score: final_score,
