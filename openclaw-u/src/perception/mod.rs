@@ -34,8 +34,7 @@ impl SystemSnapshot {
             mem,
             disk,
             (services_active, services_total),
-            onaeu_cycle,
-            onaeu_entropy,
+            (onaeu_cycle, onaeu_entropy),
             weaviate_objects,
             llm_available,
             soullink_core_online,
@@ -48,8 +47,7 @@ impl SystemSnapshot {
             Self::read_mem(),
             Self::read_disk(),
             Self::count_services(),
-            Self::read_onaeu_cycle(client),
-            Self::read_onaeu_entropy(client),
+            Self::read_onaeu_state(client),
             Self::count_weaviate(client),
             Self::check_ollama(client),
             Self::check_soullink_orchestrator(client),
@@ -172,47 +170,42 @@ impl SystemSnapshot {
 
         let total = services.len() as u32;
 
-        // Bolt ⚡: Batch systemctl calls to reduce process overhead (~3-5x faster).
+        // Bolt ⚡: Batch systemctl calls into a single process execution to reduce overhead.
+        // Replaces 22 parallel process spawns with 1.
         match Command::new("systemctl")
-            .arg("is-active")
+            .args(["is-active"])
             .args(services)
             .output()
             .await
         {
             Ok(o) => {
                 let output = String::from_utf8_lossy(&o.stdout);
-                let ok = output.lines().filter(|l| l.trim() == "active").count() as u32;
-                (ok, total)
+                let active = output.lines()
+                    .filter(|l| l.trim() == "active")
+                    .count() as u32;
+                (active, total)
             }
             _ => (0, total),
         }
     }
 
-    async fn read_onaeu_cycle(client: &reqwest::Client) -> u64 {
+    async fn read_onaeu_state(client: &reqwest::Client) -> (u64, f64) {
+        // Bolt ⚡: Merge cycle and entropy fetches into a single HTTP call.
         match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
             .send().await
         {
-            Ok(r) => r.json::<serde_json::Value>().await
-                .ok()
-                .and_then(|j| j.get("cycle_count")?.as_u64())
-                .unwrap_or(0),
-            _ => 0,
-        }
-    }
-
-    async fn read_onaeu_entropy(client: &reqwest::Client) -> f64 {
-        match client
-            .get("http://127.0.0.1:7878/state")
-            .timeout(std::time::Duration::from_secs(3))
-            .send().await
-        {
-            Ok(r) => r.json::<serde_json::Value>().await
-                .ok()
-                .and_then(|j| j.get("last_entropy")?.as_f64())
-                .unwrap_or(0.0),
-            _ => 0.0,
+            Ok(r) => {
+                if let Ok(json) = r.json::<serde_json::Value>().await {
+                    let cycle = json.get("cycle_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let entropy = json.get("last_entropy").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    (cycle, entropy)
+                } else {
+                    (0, 0.0)
+                }
+            }
+            _ => (0, 0.0),
         }
     }
 

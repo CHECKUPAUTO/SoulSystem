@@ -18,6 +18,6 @@
 **Learning:** Sequential calls to 'systemctl' and redundant 'reqwest::Client' instantiation in 'SystemSnapshot' were blocking the heartbeat loop and causing unnecessary resource overhead. Using 'tokio::process::Command' and a shared client with 'JoinSet' parallelization is essential for maintaining a low-latency heartbeat.
 **Action:** Always pass a shared '&reqwest::Client' to perception/bridge functions and use 'tokio::process' for any shell-based metric collection.
 
-## 2026-05-13 - [Batching Shell Commands for Performance]
-**Learning:** Even with async execution, spawning dozens of separate processes (e.g., `systemctl is-active`) in every heartbeat cycle is expensive and can lead to PID exhaustion or high kernel overhead. Most CLI tools support multiple arguments.
-**Action:** Batch multiple service checks into a single `systemctl is-active svc1 svc2...` call and parse the multi-line output. This provides a ~3-5x performance boost in the perception loop.
+## 2026-05-12 - [Batching Shell Commands & Consolidating HTTP Calls]
+**Learning:** Even with parallelization, spawning dozens of processes (like 'systemctl is-active') in a tight loop creates unnecessary kernel overhead and PID exhaustion. Consolidating multiple status checks into a single command call and merging redundant HTTP requests to the same local endpoint significantly reduces perception latency.
+**Action:** Batch multiple service checks into 'systemctl is-active svc1 svc2 ...' and merge redundant fetches from the same API endpoint.
