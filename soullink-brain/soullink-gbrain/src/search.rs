@@ -18,6 +18,8 @@ use reqwest::Client;
 pub struct Bm25Index {
     docs: HashMap<String, Bm25Doc>,
     df: HashMap<String, usize>,
+    inverted_index: HashMap<String, Vec<String>>,
+    total_dl: usize,
     avgdl: f64,
     k1: f64,
     b: f64,
@@ -35,6 +37,8 @@ impl Bm25Index {
         Self {
             docs: HashMap::new(),
             df: HashMap::new(),
+            inverted_index: HashMap::new(),
+            total_dl: 0,
             avgdl: 0.0,
             k1: 1.2,
             b: 0.75,
@@ -52,16 +56,30 @@ impl Bm25Index {
         let mut tf = HashMap::new();
         for t in &tokens {
             *tf.entry(t.clone()).or_insert(0.0) += 1.0;
+            // Bolt ⚡: Update inverted index for O(1) per token document lookup.
+            let entries = self.inverted_index.entry(t.clone()).or_default();
+            if entries.last().map(|last_id| last_id != id).unwrap_or(true) {
+                entries.push(id.to_string());
+            }
+        }
+
+        // Bolt ⚡: Handle updates by removing old document stats if ID already exists.
+        if let Some(old_doc) = self.docs.insert(id.to_string(), Bm25Doc { id: id.to_string(), tf: tf.clone(), dl }) {
+            self.total_dl -= old_doc.dl;
+            for t in old_doc.tf.keys() {
+                if let Some(count) = self.df.get_mut(t) {
+                    *count = count.saturating_sub(1);
+                }
+            }
         }
 
         for t in tf.keys() {
             *self.df.entry(t.clone()).or_insert(0) += 1;
         }
 
-        self.docs.insert(id.to_string(), Bm25Doc { id: id.to_string(), tf, dl });
-
-        let total_dl: usize = self.docs.values().map(|d| d.dl).sum();
-        self.avgdl = if !self.docs.is_empty() { total_dl as f64 / self.docs.len() as f64 } else { 0.0 };
+        // Bolt ⚡: Incremental update of total_dl to avoid O(N) sum on every add.
+        self.total_dl += dl;
+        self.avgdl = if !self.docs.is_empty() { self.total_dl as f64 / self.docs.len() as f64 } else { 0.0 };
     }
 
     pub fn search(&self, query: &str, top_k: usize) -> Vec<(String, f64)> {
@@ -72,22 +90,40 @@ impl Bm25Index {
             .map(|s| s.to_string())
             .collect();
 
-        let mut scores = Vec::new();
         let n = self.docs.len() as f64;
+        // Bolt ⚡: Pre-calculate IDF values and target document IDs to avoid O(N*M) scans.
+        let mut idfs = HashMap::new();
+        let mut target_doc_ids = std::collections::HashSet::new();
 
-        for doc in self.docs.values() {
-            let mut score = 0.0;
-            for t in &query_tokens {
-                if let Some(&tf) = doc.tf.get(t) {
-                    let df = *self.df.get(t).unwrap_or(&0) as f64;
-                    let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
-                    let num = tf * (self.k1 + 1.0);
-                    let den = tf + self.k1 * (1.0 - self.b + self.b * doc.dl as f64 / self.avgdl.max(1.0));
-                    score += idf * num / den;
+        for t in &query_tokens {
+            if let Some(df_val) = self.df.get(t) {
+                let df = *df_val as f64;
+                let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+                idfs.insert(t, idf);
+                if let Some(doc_ids) = self.inverted_index.get(t) {
+                    for id in doc_ids {
+                        target_doc_ids.insert(id);
+                    }
                 }
             }
-            if score > 0.0 {
-                scores.push((doc.id.clone(), score));
+        }
+
+        let mut scores = Vec::new();
+        for doc_id in target_doc_ids {
+            if let Some(doc) = self.docs.get(doc_id) {
+                let mut score = 0.0;
+                for t in &query_tokens {
+                    if let Some(&tf) = doc.tf.get(t) {
+                        if let Some(&idf) = idfs.get(t) {
+                            let num = tf * (self.k1 + 1.0);
+                            let den = tf + self.k1 * (1.0 - self.b + self.b * doc.dl as f64 / self.avgdl.max(1.0));
+                            score += idf * num / den;
+                        }
+                    }
+                }
+                if score > 0.0 {
+                    scores.push((doc.id.clone(), score));
+                }
             }
         }
 
@@ -192,5 +228,52 @@ impl HybridSearcher {
         let resp = self.client.get(url).send().await?;
         let results: Vec<MemorySearchResponse> = resp.json().await?;
         Ok(results)
+    }
+}
+
+#[cfg(test)]
+mod bm25_tests {
+    use super::*;
+
+    #[test]
+    fn test_bm25_index_and_search() {
+        let mut index = Bm25Index::new();
+        index.add("doc1", "Garry Tan is the CEO of Y Combinator");
+        index.add("doc2", "The CEO of OpenAI is Sam Altman");
+        index.add("doc3", "San Francisco is a city in California");
+
+        // Test basic search
+        let results = index.search("CEO Garry", 10);
+        assert!(!results.is_empty());
+        assert_eq!(results[0].0, "doc1");
+
+        let results = index.search("Sam", 10);
+        assert_eq!(results[0].0, "doc2");
+
+        let results = index.search("San Francisco", 10);
+        assert_eq!(results[0].0, "doc3");
+
+        // Test incremental maintenance
+        assert!(index.total_dl > 0);
+        assert!(index.avgdl > 0.0);
+        assert!(!index.inverted_index.is_empty());
+
+        // Test no results
+        let results = index.search("unknown", 10);
+        assert!(results.is_empty());
+    }
+    #[test]
+    fn test_bm25_update_document() {
+        let mut index = Bm25Index::new();
+        index.add("doc1", "initial content");
+
+        // Update document
+        index.add("doc1", "updated version");
+
+        assert_eq!(index.docs.len(), 1);
+        assert_eq!(index.total_dl, 2);
+        assert_eq!(index.avgdl, 2.0);
+        assert_eq!(*index.df.get("updated").unwrap(), 1);
+        assert_eq!(*index.df.get("initial").unwrap_or(&0), 0);
     }
 }
