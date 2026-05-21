@@ -18,6 +18,7 @@ use reqwest::Client;
 pub struct Bm25Index {
     docs: HashMap<String, Bm25Doc>,
     df: HashMap<String, usize>,
+    total_dl: usize,
     avgdl: f64,
     k1: f64,
     b: f64,
@@ -35,6 +36,7 @@ impl Bm25Index {
         Self {
             docs: HashMap::new(),
             df: HashMap::new(),
+            total_dl: 0,
             avgdl: 0.0,
             k1: 1.2,
             b: 0.75,
@@ -54,14 +56,29 @@ impl Bm25Index {
             *tf.entry(t.clone()).or_insert(0.0) += 1.0;
         }
 
+        // Bolt ⚡: Update total_dl and avgdl in O(1) by maintaining a running sum.
+        // This makes rebuilding the index O(N) instead of O(N^2).
+        if let Some(old_doc) = self.docs.get(id) {
+            self.total_dl -= old_doc.dl;
+            for t in old_doc.tf.keys() {
+                if let Some(count) = self.df.get_mut(t) {
+                    if *count > 0 { *count -= 1; }
+                }
+            }
+        }
+
         for t in tf.keys() {
             *self.df.entry(t.clone()).or_insert(0) += 1;
         }
 
+        self.total_dl += dl;
         self.docs.insert(id.to_string(), Bm25Doc { id: id.to_string(), tf, dl });
 
-        let total_dl: usize = self.docs.values().map(|d| d.dl).sum();
-        self.avgdl = if !self.docs.is_empty() { total_dl as f64 / self.docs.len() as f64 } else { 0.0 };
+        self.avgdl = if !self.docs.is_empty() {
+            self.total_dl as f64 / self.docs.len() as f64
+        } else {
+            0.0
+        };
     }
 
     pub fn search(&self, query: &str, top_k: usize) -> Vec<(String, f64)> {
@@ -72,17 +89,30 @@ impl Bm25Index {
             .map(|s| s.to_string())
             .collect();
 
-        let mut scores = Vec::new();
+        // Bolt ⚡: Pre-calculate IDF for each unique query token to avoid redundant log calls.
         let n = self.docs.len() as f64;
+        let mut idfs = HashMap::new();
+        for t in &query_tokens {
+            if idfs.contains_key(t) { continue; }
+            let df = *self.df.get(t).unwrap_or(&0) as f64;
+            let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+            idfs.insert(t.clone(), idf);
+        }
+
+        let mut scores = Vec::new();
+        let avgdl = self.avgdl.max(1.0);
+        let k1_plus_1 = self.k1 + 1.0;
+        let one_minus_b = 1.0 - self.b;
 
         for doc in self.docs.values() {
             let mut score = 0.0;
+            let doc_dl_factor = self.b * (doc.dl as f64 / avgdl);
+
             for t in &query_tokens {
                 if let Some(&tf) = doc.tf.get(t) {
-                    let df = *self.df.get(t).unwrap_or(&0) as f64;
-                    let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
-                    let num = tf * (self.k1 + 1.0);
-                    let den = tf + self.k1 * (1.0 - self.b + self.b * doc.dl as f64 / self.avgdl.max(1.0));
+                    let idf = idfs.get(t).unwrap_or(&0.0);
+                    let num = tf * k1_plus_1;
+                    let den = tf + self.k1 * (one_minus_b + doc_dl_factor);
                     score += idf * num / den;
                 }
             }
