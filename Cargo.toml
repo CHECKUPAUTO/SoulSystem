@@ -5,14 +5,57 @@ members = [
     "soulsystem-multiagent",
     "soulsystem-memory-extract",
     "openclaw-u",
+    "soullink-brain/soullink-core",
+    "soullink-brain/soullink-nvml",
+    "soullink-brain/soullink-guardian",
+    "soullink-brain/soullink-orchestrator",
+    "soullink-brain/soullink-decision-v13",
+    "soullink-brain/soullink-gateway",
+    "soullink-brain/soullink-benches",
+    "soullink-brain/soullink-simd",
+    "soullink-brain/soullink-vector",
+    "soullink-brain/soullink-memory",
+    "soullink-brain/soullink-workflow",
+    "soullink-brain/soullink-crypto-bridge",
+    "soullink-brain/soullink-portfolio",
+    "soullink-brain/soullink-security",
+    "soullink-brain/soullink-eval",
+    "soullink-brain/soullink-bus",
+    "soullink-brain/soullink-actions",
+    "soullink-brain/soullink-senate",
+    "soullink-brain/soullink-reasoning",
+    "soullink-brain/soullink-vision",
+    "soullink-brain/soullink-autonomy",
+    "soullink-brain/soullink-inference",
+    "soullink-brain/soullink-proxy",
+    "soullink-brain/soullink-trt",
+    "soullink-brain/soullink-rag",
+    "soullink-brain/soullink-dali",
+    "soullink-brain/soullink-cutlass",
+    "soullink-brain/soullink-cli",
+    "soullink-brain/soullink-svs",
+    "soullink-brain/soullink-onednn",
+    "soullink-brain/soullink-secrets",
+    "soullink-brain/soullink-hooks",
+    "soullink-brain/soullink-allowlist",
+    "soullink-brain/soullink-gate",
+    "soullink-brain/soullink-circuit",
+    "soullink-brain/soullink-routing",
+    "soullink-brain/soullink-wasm-organ",
+    "soullink-brain/soullink-gbrain",
+    "soullink-organs",
+    "avid-soullink",
+    "avid-rstdp",
+    "avid-anticlone-service",
 ]
 
 [workspace.package]
-version = "0.3.0"
+version = "13.5.0"
 edition = "2021"
 rust-version = "1.75"
-authors = ["OpenClaw-U System"]
-license = "MIT OR Apache-2.0"
+authors = ["SoulLink Mesh Team"]
+license = "MIT"
+repository = "internal"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -22,6 +65,30 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tempfile = "3"
+arc-swap = "1.7"
+dashmap = "5.5"
+parking_lot = "0.12"
+ahash = "0.8"
+metrics = "0.22"
+metrics-exporter-prometheus = { version = "0.13", default-features = false, features = ["http-listener"] }
+"async-trait" = "0.1"
+subtle = "2.5"
+uuid = { version = "1", features = ["v4", "serde"] }
+rmp-serde = "1.1"
+futures = { version = "0.3", default-features = false, features = ["std"] }
+wiremock = "0.6"
+criterion = { version = "0.5", default-features = false, features = ["async_tokio", "html_reports"] }
+axum = { version = "0.7", default-features = false, features = ["http1", "http2", "json", "tokio", "tower-log"] }
+tower = { version = "0.4", default-features = false, features = ["util"] }
+tower-http = { version = "0.5", default-features = false, features = ["trace", "cors", "limit"] }
+hyper = { version = "1", features = ["server", "http1", "http2"] }
+nvml-wrapper = { version = "0.9", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+regex = "1.10"
+thiserror = "1"
+anyhow = "1"
+tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
 
 [package]
 name = "soulsystem"

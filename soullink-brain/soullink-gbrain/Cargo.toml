@@ -23,7 +23,7 @@ tracing-subscriber = { workspace = true }
 anyhow = "1"
 chrono = { workspace = true }
 regex = { workspace = true }
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 reqwest = { workspace = true }
 uuid = { workspace = true }
 
