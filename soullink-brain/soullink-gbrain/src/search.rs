@@ -18,7 +18,6 @@ use reqwest::Client;
 pub struct Bm25Index {
     docs: HashMap<String, Bm25Doc>,
     df: HashMap<String, usize>,
-    inverted_index: HashMap<String, Vec<String>>,
     total_dl: usize,
     avgdl: f64,
     k1: f64,
@@ -37,7 +36,6 @@ impl Bm25Index {
         Self {
             docs: HashMap::new(),
             df: HashMap::new(),
-            inverted_index: HashMap::new(),
             total_dl: 0,
             avgdl: 0.0,
             k1: 1.2,
@@ -73,13 +71,29 @@ impl Bm25Index {
             }
         }
 
+        // Bolt ⚡: Update total_dl and avgdl in O(1) by maintaining a running sum.
+        // This makes rebuilding the index O(N) instead of O(N^2).
+        if let Some(old_doc) = self.docs.get(id) {
+            self.total_dl -= old_doc.dl;
+            for t in old_doc.tf.keys() {
+                if let Some(count) = self.df.get_mut(t) {
+                    if *count > 0 { *count -= 1; }
+                }
+            }
+        }
+
         for t in tf.keys() {
             *self.df.entry(t.clone()).or_insert(0) += 1;
         }
 
-        // Bolt ⚡: Incremental update of total_dl to avoid O(N) sum on every add.
         self.total_dl += dl;
-        self.avgdl = if !self.docs.is_empty() { self.total_dl as f64 / self.docs.len() as f64 } else { 0.0 };
+        self.docs.insert(id.to_string(), Bm25Doc { id: id.to_string(), tf, dl });
+
+        self.avgdl = if !self.docs.is_empty() {
+            self.total_dl as f64 / self.docs.len() as f64
+        } else {
+            0.0
+        };
     }
 
     pub fn search(&self, query: &str, top_k: usize) -> Vec<(String, f64)> {
@@ -90,20 +104,31 @@ impl Bm25Index {
             .map(|s| s.to_string())
             .collect();
 
+        // Bolt ⚡: Pre-calculate IDF for each unique query token to avoid redundant log calls.
         let n = self.docs.len() as f64;
-        // Bolt ⚡: Pre-calculate IDF values and target document IDs to avoid O(N*M) scans.
         let mut idfs = HashMap::new();
-        let mut target_doc_ids = std::collections::HashSet::new();
-
         for t in &query_tokens {
-            if let Some(df_val) = self.df.get(t) {
-                let df = *df_val as f64;
-                let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
-                idfs.insert(t, idf);
-                if let Some(doc_ids) = self.inverted_index.get(t) {
-                    for id in doc_ids {
-                        target_doc_ids.insert(id);
-                    }
+            if idfs.contains_key(t) { continue; }
+            let df = *self.df.get(t).unwrap_or(&0) as f64;
+            let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+            idfs.insert(t.clone(), idf);
+        }
+
+        let mut scores = Vec::new();
+        let avgdl = self.avgdl.max(1.0);
+        let k1_plus_1 = self.k1 + 1.0;
+        let one_minus_b = 1.0 - self.b;
+
+        for doc in self.docs.values() {
+            let mut score = 0.0;
+            let doc_dl_factor = self.b * (doc.dl as f64 / avgdl);
+
+            for t in &query_tokens {
+                if let Some(&tf) = doc.tf.get(t) {
+                    let idf = idfs.get(t).unwrap_or(&0.0);
+                    let num = tf * k1_plus_1;
+                    let den = tf + self.k1 * (one_minus_b + doc_dl_factor);
+                    score += idf * num / den;
                 }
             }
         }
