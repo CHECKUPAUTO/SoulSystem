@@ -89,6 +89,16 @@ thiserror = "1"
 anyhow = "1"
 tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
 
+# Added by monorepo merge fix
+ansi-converter = "0.7"
+avid-scout = { path = "../AVID/crates/avid-scout" }
+avid-vision = { path = "../AVID/crates/avid-vision" }
+bound-system = { path = "../AVID/crates/bound-system" }
+clawd = { git = "https://github.com/CHECKUPAUTO/openclaw-evolution" }
+local-skills = { path = "soullink-brain/soullink-local-skills" }
+model-router = { path = "soullink-brain/soullink-model-router" }
+soul-memory = { path = "soullink-brain/soullink-memory" }
+
 [package]
 name = "soulsystem"
 version = "0.6.0"
