@@ -48,7 +48,6 @@ members = [
     "avid-rstdp",
     "avid-anticlone-service",
 ]
-
 [workspace.package]
 version = "13.5.0"
 edition = "2021"

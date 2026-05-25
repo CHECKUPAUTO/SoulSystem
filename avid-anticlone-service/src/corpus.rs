@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::params;
@@ -69,6 +70,7 @@ impl Corpus {
         threshold: f32,
     ) -> Result<OriginalityReport, CorpusError> {
         let candidate_fp = fingerprint_submission(submission);
+        let candidate_json = serde_json::to_string(&candidate_fp)?;
 
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare(

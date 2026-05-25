@@ -6,6 +6,7 @@ fn test_binary_exists() {
                  std::path::Path::new("../target/debug/openclaw-u").exists() ||
                  std::path::Path::new("target/debug/openclaw-u").exists();
     assert!(exists, "openclaw-u binary not found in /usr/local/bin or target/debug");
+    assert!(std::path::Path::new("/usr/local/bin/openclaw-u").exists());
 }
 
 #[test]
