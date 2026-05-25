@@ -1,0 +1,15 @@
+[package]
+name = "terminal-stream"
+version = "0.6.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal"] }
+teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
+bound-system = { workspace = true }
+ansi-converter = { workspace = true }
+spinner = { workspace = true }
+anyhow = "1"
+uuid = { version = "1", features = ["v4"] }
+serde = { workspace = true }
+rand = "0.8"

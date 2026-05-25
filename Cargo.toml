@@ -91,12 +91,24 @@ tokio-stream = { version = "0.1", default-features = false, features = ["sync"] 
 
 [package]
 name = "soulsystem"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 description = "SoulSystem — Écosystème d'agent numérique autonome"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+avid-scout = { workspace = true }
+avid-vision = { workspace = true }
+bus = { workspace = true }
+soul-memory = { workspace = true }
+bound-system = { workspace = true }
+clawd = { workspace = true }
+ansi-converter = { workspace = true }
+terminal-stream = { workspace = true }
+pty-terminal = { workspace = true }
+local-skills = { workspace = true }
+model-router = { workspace = true }
+spinner = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal"] }
@@ -120,9 +132,6 @@ flate2 = "1"
 reqwest = { version = "0.12", features = ["json"] }
 teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
 axum = "0.7"
-
-# backlog — kept for reference but not active
-# serde_yaml, uuid, hex, ring, libloading
 
 portable-pty = "0.8"
 libc = "0.2"

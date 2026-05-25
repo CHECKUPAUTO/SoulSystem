@@ -3,9 +3,9 @@
 //! Enrobe BoundSystem + Bot Telegram pour afficher la sortie
 //! des commandes en direct dans un message qui se met a jour.
 
-use crate::ansi_converter::ansi_to_telegram;
-use crate::bound_system::{BoundSystem, StreamMessage};
-use crate::spinner::Spinner;
+use ansi_converter::ansi_to_telegram;
+use bound_system::{BoundSystem, StreamMessage};
+use spinner::Spinner;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;

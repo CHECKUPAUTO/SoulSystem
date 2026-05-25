@@ -21,6 +21,12 @@ pub struct AuditLog {
     counter: u64,
 }
 
+impl bound_system::AuditTrait for AuditLog {
+    fn log(&mut self, module: &str, action: &str, details: &str) -> anyhow::Result<()> {
+        self.log(module, action, details).map(|_| ())
+    }
+}
+
 impl AuditLog {
     pub fn open(path: &str) -> anyhow::Result<Self> {
         let db = sled::open(path)?;
