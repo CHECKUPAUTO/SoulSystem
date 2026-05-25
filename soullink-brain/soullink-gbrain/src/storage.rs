@@ -193,4 +193,41 @@ impl Database {
         let count: usize = stmt.query_row(params![id], |row| row.get(0))?;
         Ok(count)
     }
+
+    pub fn get_entities_with_edge_counts(&self, ids: &[String]) -> Result<Vec<(Entity, usize)>> {
+        if ids.is_empty() { return Ok(Vec::new()); }
+        let conn = self.conn.lock().unwrap();
+        let mut results = Vec::new();
+        for chunk in ids.chunks(100) {
+            let placeholders: String = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!(
+                "SELECT e.id, e.type, e.name, e.source_page, e.confidence, e.created_at,
+                (SELECT COUNT(*) FROM edges WHERE source_id = e.id OR target_id = e.id) as edge_count
+                FROM entities e WHERE e.id IN ({})",
+                placeholders
+            );
+
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                let created_at_str: String = row.get(5)?;
+                let entity = Entity {
+                    id: row.get(0)?,
+                    entity_type: row.get(1)?,
+                    name: row.get(2)?,
+                    source_page: row.get(3)?,
+                    confidence: row.get(4)?,
+                    created_at: DateTime::parse_from_rfc3339(&created_at_str)
+                        .unwrap_or_else(|_| chrono::Utc::now().into())
+                        .with_timezone(&chrono::Utc),
+                };
+                let count: usize = row.get(6)?;
+                Ok((entity, count))
+            })?;
+
+            for row in rows {
+                results.push(row?);
+            }
+        }
+        Ok(results)
+    }
 }
