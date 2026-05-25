@@ -46,6 +46,12 @@ members = [
     "avid-soullink",
     "avid-rstdp",
     "avid-anticlone-service",
+    "scirust-trading-core",
+    "scirust-trading-engine",
+    "scirust-trading-observer",
+    "scirust-trading-persistence",
+    "scirust-trading-news",
+    "scirust-trading-monitor",
 ]
 [workspace.package]
 version = "13.5.0"
