@@ -62,6 +62,11 @@ impl Bm25Index {
         }
 
         // Bolt ⚡: Handle updates by removing old document stats if ID already exists.
+        if let Some(old_doc) = self.docs.insert(id.to_string(), Bm25Doc { id: id.to_string(), tf: tf.clone(), dl }) {
+            self.total_dl -= old_doc.dl;
+            for t in old_doc.tf.keys() {
+                if let Some(count) = self.df.get_mut(t) {
+                    *count = count.saturating_sub(1);
         if let Some(old_doc) = self.docs.get(id) {
             self.total_dl -= old_doc.dl;
             for t in old_doc.tf.keys() {
@@ -138,6 +143,14 @@ impl Bm25Index {
         }
 
         let mut scores = Vec::new();
+        for doc_id in target_doc_ids {
+            if let Some(doc) = self.docs.get(doc_id) {
+                let mut score = 0.0;
+                for t in &query_tokens {
+                    if let Some(&tf) = doc.tf.get(t) {
+                        if let Some(&idf) = idfs.get(t) {
+                            let num = tf * (self.k1 + 1.0);
+                            let den = tf + self.k1 * (1.0 - self.b + self.b * doc.dl as f64 / self.avgdl.max(1.0));
         let avgdl = self.avgdl.max(1.0);
         let k1_plus_1 = self.k1 + 1.0;
         let one_minus_b = 1.0 - self.b;
