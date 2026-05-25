@@ -157,4 +157,10 @@ gpu = []
 
 [dependencies.tokio-stream]
 version = "0.1"
-features = ["sync"]
+features = ["sync"
+    "scirust-trading-core",
+    "scirust-trading-engine",
+    "scirust-trading-observer",
+    "scirust-trading-persistence",
+    "scirust-trading-news",
+    "scirust-trading-monitor",]
