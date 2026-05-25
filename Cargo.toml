@@ -1,4 +1,3 @@
-[workspace]
 resolver = "2"
 members = [
     "soulsystem-gepa",
@@ -70,7 +69,7 @@ parking_lot = "0.12"
 ahash = "0.8"
 metrics = "0.22"
 metrics-exporter-prometheus = { version = "0.13", default-features = false, features = ["http-listener"] }
-"async-trait" = "0.1"
+async-trait = "0.1"
 subtle = "2.5"
 uuid = { version = "1", features = ["v4", "serde"] }
 rmp-serde = "1.1"
@@ -88,16 +87,21 @@ regex = "1.10"
 thiserror = "1"
 anyhow = "1"
 tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
+# local workspace crates
+ansi-converter = { path = "ansi-converter" }
+bus = { path = "bus" }
+bound-system = { path = "bound-system" }
+clawd = { path = "clawd" }
+local-skills = { path = "local-skills" }
+model-router = { path = "model-router" }
+pty-terminal = { path = "pty-terminal" }
+soul-memory = { path = "soul-memory" }
+spinner = { path = "spinner" }
+terminal-stream = { path = "terminal-stream" }
+scirust-autodiff = { path = "scirust-autodiff" }
+scirust-core = { path = "scirust-core" }
 
-# Added by monorepo merge fix
-ansi-converter = "0.7"
-avid-scout = { path = "../AVID/crates/avid-scout" }
-avid-vision = { path = "../AVID/crates/avid-vision" }
-bound-system = { path = "../AVID/crates/bound-system" }
-clawd = { git = "https://github.com/CHECKUPAUTO/openclaw-evolution" }
-local-skills = { path = "soullink-brain/soullink-local-skills" }
-model-router = { path = "soullink-brain/soullink-model-router" }
-soul-memory = { path = "soullink-brain/soullink-memory" }
+# external crates referenced as workspace deps
 
 [package]
 name = "soulsystem"
@@ -107,8 +111,6 @@ description = "SoulSystem — Écosystème d'agent numérique autonome"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-avid-scout = { workspace = true }
-avid-vision = { workspace = true }
 bus = { workspace = true }
 soul-memory = { workspace = true }
 bound-system = { workspace = true }

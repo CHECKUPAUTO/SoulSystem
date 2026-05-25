@@ -148,7 +148,7 @@ async fn main() -> Result<()> {
     info!("SoulMemory initialisée");
 
     // Discovery (mDNS sur port 42069)
-    let mut disco = soulsystem::discovery::DiscoveryService::new(42069);
+    let disco = soulsystem::discovery::DiscoveryService::new(bus.clone());
     disco.start().await?;
     info!("DiscoveryService initialisé");
 
@@ -195,10 +195,5 @@ async fn main() -> Result<()> {
     // ── Boucle principale ──────────────────────────────────────────────────
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-        let count = disco.peers().len();
-        debug_assert!(count <= 1024, "trop de pairs découverts");
-        if count > 0 {
-            tracing::debug!("{} pair(s) actif(s)", count);
-        }
     }
 }
