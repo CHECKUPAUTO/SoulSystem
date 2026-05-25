@@ -26,6 +26,6 @@
 **Learning:** Recalculating the total length of all documents using `.sum()` in every `add()` call leads to O(N^2) index rebuilding time, which is a major bottleneck as the entity count grows.
 **Action:** Maintain a running `total_dl` sum in the index struct to allow O(1) updates to `avgdl`.
 
-## 2026-05-13 - [Redundant IDF Calculations & O(N) Search Scan]
-**Learning:** Calculating IDF using `.ln()` inside the document loop and scanning all documents for every query is extremely expensive.
-**Action:** Pre-calculate IDFs for unique query tokens and use an `inverted_index` for O(1) document lookup, reducing search complexity from O(N) to O(tokens).
+## 2026-05-13 - [Redundant IDF Calculations]
+**Learning:** Calculating IDF (Inverse Document Frequency) using `.ln()` inside the document loop of a search function is extremely expensive for large collections.
+**Action:** Pre-calculate IDFs for all unique query tokens once per search request.
