@@ -21,3 +21,11 @@
 ## 2026-05-12 - [Batching Shell Commands & Consolidating HTTP Calls]
 **Learning:** Even with parallelization, spawning dozens of processes (like 'systemctl is-active') in a tight loop creates unnecessary kernel overhead and PID exhaustion. Consolidating multiple status checks into a single command call and merging redundant HTTP requests to the same local endpoint significantly reduces perception latency.
 **Action:** Batch multiple service checks into 'systemctl is-active svc1 svc2 ...' and merge redundant fetches from the same API endpoint.
+
+## 2026-05-13 - [Bm25Index O(N^2) Rebuild]
+**Learning:** Recalculating the total length of all documents using `.sum()` in every `add()` call leads to O(N^2) index rebuilding time, which is a major bottleneck as the entity count grows.
+**Action:** Maintain a running `total_dl` sum in the index struct to allow O(1) updates to `avgdl`.
+
+## 2026-05-13 - [Redundant IDF Calculations]
+**Learning:** Calculating IDF (Inverse Document Frequency) using `.ln()` inside the document loop of a search function is extremely expensive for large collections.
+**Action:** Pre-calculate IDFs for all unique query tokens once per search request.

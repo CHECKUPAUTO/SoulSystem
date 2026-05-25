@@ -130,6 +130,7 @@ impl Corpus {
 }
 
 fn fingerprint_submission(sub: &Submission) -> Fingerprint {
+    use sha2::Digest;
     let mut lines: Vec<&str> = sub.files.values().flat_map(|s| s.lines()).collect();
     lines.sort();
     let structure = serde_json::json!({

@@ -40,7 +40,6 @@ members = [
     "soullink-wasm-organ",
     "soullink-gbrain",
 ]
-
 [workspace.package]
 version = "13.5.0"
 edition = "2021"
