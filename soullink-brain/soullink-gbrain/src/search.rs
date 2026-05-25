@@ -58,15 +58,12 @@ impl Bm25Index {
             *tf.entry(t.clone()).or_insert(0.0) += 1.0;
         }
 
-        // Bolt ⚡: Handle updates by removing old document stats if ID already exists.
-        // This makes rebuilding the index O(N) instead of O(N^2).
         if let Some(old_doc) = self.docs.remove(id) {
             self.total_dl -= old_doc.dl;
             for t in old_doc.tf.keys() {
                 if let Some(count) = self.df.get_mut(t) {
                     if *count > 0 { *count -= 1; }
                 }
-                // Bolt ⚡: Prune inverted index to prevent memory leak/bloat.
                 if let Some(entries) = self.inverted_index.get_mut(t) {
                     entries.retain(|doc_id| doc_id != id);
                 }
@@ -75,7 +72,6 @@ impl Bm25Index {
 
         for t in tf.keys() {
             *self.df.entry(t.clone()).or_insert(0) += 1;
-            // Bolt ⚡: Update inverted index for O(1) per token document lookup.
             let entries = self.inverted_index.entry(t.clone()).or_default();
             entries.push(id.to_string());
         }
@@ -100,7 +96,6 @@ impl Bm25Index {
 
         if query_tokens.is_empty() { return Vec::new(); }
 
-        // Bolt ⚡: Pre-calculate IDF for each unique query token to avoid redundant log calls.
         let n = self.docs.len() as f64;
         let mut idfs = HashMap::new();
         let mut target_doc_ids = HashSet::new();
@@ -111,7 +106,6 @@ impl Bm25Index {
             let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
             idfs.insert(t.clone(), idf);
 
-            // Bolt ⚡: Only consider documents that contain at least one query token.
             if let Some(doc_ids) = self.inverted_index.get(t) {
                 for doc_id in doc_ids {
                     target_doc_ids.insert(doc_id);
@@ -192,31 +186,19 @@ impl HybridSearcher {
     }
 
     pub async fn search(&self, query: &str, top_k: usize) -> Result<Vec<SearchHit>> {
-        // 1. Vector Search (from port 9030)
         let vector_results = self.fetch_vector_results(query, top_k).await.unwrap_or_default();
-
-        // 2. BM25 Search
         let bm25_results = self.bm25.search(query, top_k);
-
-        // 3. Combined Ranking
         let mut combined: HashMap<String, f64> = HashMap::new();
 
-        // Vector: 0.4
         for res in vector_results {
-            // Memory store results might be labels. We try to map them to entities.
-            // If label is "Person:Garry Tan", it matches our entity ID.
             *combined.entry(res.label).or_insert(0.0) += 0.4 * res.score as f64;
         }
 
-        // BM25: 0.3
         let max_bm25 = bm25_results.get(0).map(|r| r.1).unwrap_or(1.0).max(1.0);
         for (id, score) in bm25_results {
             *combined.entry(id).or_insert(0.0) += 0.3 * (score / max_bm25);
         }
 
-        // 4. Graph Boost: 0.3
-        // Bolt ⚡: Use optimized counting and direct lookups to avoid O(N*M) bottlenecks.
-        // Also use batched lookups to avoid N+1 queries.
         let ids: Vec<String> = combined.keys().cloned().collect();
         let entities_with_counts = self.db.get_entities_with_edge_counts(&ids)?;
 
@@ -259,7 +241,6 @@ mod bm25_tests {
         index.add("doc2", "The CEO of OpenAI is Sam Altman");
         index.add("doc3", "San Francisco is a city in California");
 
-        // Test basic search
         let results = index.search("CEO Garry", 10);
         assert!(!results.is_empty());
         assert_eq!(results[0].0, "doc1");
@@ -270,12 +251,10 @@ mod bm25_tests {
         let results = index.search("San Francisco", 10);
         assert_eq!(results[0].0, "doc3");
 
-        // Test incremental maintenance
         assert!(index.total_dl > 0);
         assert!(index.avgdl > 0.0);
         assert!(!index.inverted_index.is_empty());
 
-        // Test no results
         let results = index.search("unknown", 10);
         assert!(results.is_empty());
     }
@@ -284,8 +263,6 @@ mod bm25_tests {
     fn test_bm25_update_document() {
         let mut index = Bm25Index::new();
         index.add("doc1", "initial content");
-
-        // Update document
         index.add("doc1", "updated version");
 
         assert_eq!(index.docs.len(), 1);

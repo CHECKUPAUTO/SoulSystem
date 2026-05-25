@@ -29,7 +29,3 @@
 ## 2026-05-13 - [Redundant IDF Calculations]
 **Learning:** Calculating IDF (Inverse Document Frequency) using `.ln()` inside the document loop of a search function is extremely expensive for large collections.
 **Action:** Pre-calculate IDFs for all unique query tokens once per search request.
-
-## 2026-05-14 - [BM25 Inverted Index & Batched DB Queries]
-**Learning:** O(N) linear scans during BM25 search and N+1 database queries during Hybrid Search ranking were the primary bottlenecks in 'soullink-gbrain'. Using an inverted index reduces search complexity to O(K) where K is the number of documents containing query tokens. Batched SQL queries with JOINs/Subqueries reduce ranking latency from O(N) roundtrips to O(1).
-**Action:** Implement 'inverted_index' in 'Bm25Index' and 'get_entities_with_edge_counts' in 'Database' for efficient retrieval.

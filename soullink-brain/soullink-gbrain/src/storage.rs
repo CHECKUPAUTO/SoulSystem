@@ -198,14 +198,7 @@ impl Database {
     pub fn get_entities_with_edge_counts(&self, ids: &[String]) -> Result<Vec<(Entity, usize)>> {
         if ids.is_empty() { return Ok(Vec::new()); }
         let conn = self.conn.lock().unwrap();
-
-        // SQLite limits the number of variables in a single statement.
-        // We use a temporary table or a JOIN for larger sets, but for top_k (usually small),
-        // we can use the IN (?) pattern or multiple queries.
-        // Here we use a query that joins entities and counts edges.
         let mut results = Vec::new();
-
-        // To keep it simple and safe for SQLite parameter limits, we process in chunks if needed.
         for chunk in ids.chunks(100) {
             let placeholders: String = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
             let sql = format!(
@@ -225,8 +218,8 @@ impl Database {
                     source_page: row.get(3)?,
                     confidence: row.get(4)?,
                     created_at: DateTime::parse_from_rfc3339(&created_at_str)
-                        .unwrap_or_else(|_| Utc::now().into())
-                        .with_timezone(&Utc),
+                        .unwrap_or_else(|_| chrono::Utc::now().into())
+                        .with_timezone(&chrono::Utc),
                 };
                 let count: usize = row.get(6)?;
                 Ok((entity, count))
@@ -236,7 +229,6 @@ impl Database {
                 results.push(row?);
             }
         }
-
         Ok(results)
     }
 }

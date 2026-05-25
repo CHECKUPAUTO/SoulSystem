@@ -10,7 +10,6 @@ pub fn gpu(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let block = &input_fn.block;
     let attrs = &input_fn.attrs;
 
-    // Find the first &mut [f32] argument to dispatch to GPU
     let mut found_slice = false;
     for arg in &sig.inputs {
         if let FnArg::Typed(PatType { ty, .. }) = arg {
@@ -32,7 +31,6 @@ pub fn gpu(_attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     if !found_slice {
-        // If no mutable f32 slice found, emit the original function as-is
         let expanded = quote! {
             #(#attrs)*
             #vis #sig #block
@@ -43,13 +41,8 @@ pub fn gpu(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let expanded = quote! {
         #(#attrs)*
         #vis #sig {
-            // Find the first &mut [f32] argument name
             let data = {
                 let mut target: Option<&mut [f32]> = None;
-                // This is a placeholder: in a real implementation we would
-                // rewrite the body to extract the correct argument.
-                // For this prototype, the gpu_or_cpu dispatch is demonstrated
-                // inside the block when the caller passes a mutable slice.
                 #block
             };
             data
