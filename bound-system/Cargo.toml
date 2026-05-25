@@ -1,0 +1,16 @@
+[package]
+name = "bound-system"
+version.workspace = true
+edition = "2024"
+
+[dependencies]
+seccompiler = "0.4"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal", "io-util"] }
+tracing = { workspace = true }
+anyhow = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+which = "6"
+libc = "0.2"
+rlimit = "0.10"
+nix = "0.27"

@@ -10,13 +10,14 @@
 //! Detection automatique: blocs shell et lignes prefixees `$` dans les
 //! reponses du LLM declenchent le streaming automatique vers Telegram.
 
-use crate::ansi_converter::ansi_to_telegram;
-// use crate::audit_log::AuditLog;
-use crate::bound_system::BoundSystem;
-use crate::local_skills::BuiltinSkills;
-use crate::model_router::ModelRouter;
-use crate::soul_memory::SoulMemory;
-use crate::terminal_stream::{ExecutionId, ExecutionInfo, TerminalStream};
+use ansi_converter::ansi_to_telegram;
+use bus::{Bus, Message};
+
+use bound_system::BoundSystem;
+use local_skills::BuiltinSkills;
+use model_router::ModelRouter;
+use soul_memory::SoulMemory;
+use terminal_stream::{ExecutionId, ExecutionInfo, TerminalStream};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -207,7 +208,7 @@ pub struct ClawdContext {
     /// Registre partage avec TerminalStream pour les callbacks stop.
     pub active_executions: Arc<Mutex<HashMap<ExecutionId, ExecutionInfo>>>,
     /// Bus interne pour la plateforme unifiee Telegram.
-    pub bus: Arc<crate::bus::Bus>,
+    pub bus: Arc<bus::Bus>,
 }
 
 /// Configuration minimale de Clawd.
@@ -218,7 +219,7 @@ pub struct Settings {
 }
 
 impl ClawdContext {
-    pub fn new(config: Settings, bus: Arc<crate::bus::Bus>) -> Result<Self> {
+    pub fn new(config: Settings, bus: Arc<bus::Bus>) -> Result<Self> {
         let skills_dir = std::path::PathBuf::from("/var/lib/soulsystem/skills");
         let _ = std::fs::create_dir_all(&skills_dir);
 
@@ -436,7 +437,7 @@ pub async fn run_bot(context: Arc<ClawdContext>) -> Result<()> {
         let mut rx = ctx_bus.bus.subscribe();
         loop {
             match rx.recv().await {
-                Ok(crate::bus::Message::Custom { topic, payload }) if topic == "telegram.reply" => {
+                Ok(bus::Message::Custom { topic, payload }) if topic == "telegram.reply" => {
                     if let Some(chat_id) = payload.get("chat_id").and_then(|v| v.as_i64()) {
                         let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
                         let _reply_to = payload.get("reply_to_message_id").and_then(|v| v.as_i64());
@@ -628,7 +629,7 @@ async fn handle_message(
     };
 
     // Publier sur le bus pour les services externes (gateway Node.js)
-    ctx.bus.publish(crate::bus::Message::Custom {
+    ctx.bus.publish(bus::Message::Custom {
         topic: "telegram.message".to_string(),
         payload: serde_json::json!({
             "chat_id": chat_id,
@@ -646,7 +647,7 @@ async fn handle_message(
         tokio::time::timeout(timeout, async {
             loop {
                 match rx.recv().await {
-                    Ok(crate::bus::Message::Custom { topic, payload })
+                    Ok(bus::Message::Custom { topic, payload })
                         if topic == "telegram.reply" =>
                     {
                         if payload.get("chat_id").and_then(|v| v.as_i64()) == Some(chat_id_f) {
@@ -787,7 +788,7 @@ async fn start_pty_session(
     chat_id: i64,
     pty_tx: tokio::sync::mpsc::UnboundedSender<(i64, String)>,
 ) -> Result<String> {
-    use crate::pty_terminal::PtyTerminal;
+    use pty_terminal::PtyTerminal;
 
     let pty = PtyTerminal::new()?;
     let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel::<String>();

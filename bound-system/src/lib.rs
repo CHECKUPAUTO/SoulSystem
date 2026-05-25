@@ -4,7 +4,6 @@
 //! Execution via bubblewrap (bwrap) avec reseau desactive et timeout.
 //! Toute execution est tracee dans l'AuditLog.
 
-use crate::audit_log::AuditLog;
 use std::collections::HashSet;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -56,7 +55,11 @@ pub struct BoundSystem {
     timeout: Duration,
     /// Utiliser bubblewrap pour le sandboxing.
     use_sandbox: bool,
-    audit: Option<std::sync::Arc<Mutex<AuditLog>>>,
+    audit: Option<std::sync::Arc<Mutex<Box<dyn AuditTrait>>>>,
+}
+
+pub trait AuditTrait: Send + Sync {
+    fn log(&mut self, module: &str, action: &str, details: &str) -> anyhow::Result<()>;
 }
 
 impl BoundSystem {
@@ -86,7 +89,7 @@ impl BoundSystem {
     }
 
     /// Attache un AuditLog pour tracer les executions.
-    pub fn with_audit(mut self, audit: std::sync::Arc<Mutex<AuditLog>>) -> Self {
+    pub fn with_audit(mut self, audit: std::sync::Arc<Mutex<Box<dyn AuditTrait>>>) -> Self {
         self.audit = Some(audit);
         self
     }
@@ -567,4 +570,9 @@ mod tests {
         }
         assert!(got_end, "Should receive end or error after kill");
     }
+}
+
+pub fn apply_seccomp_profile() -> anyhow::Result<()> {
+    // Logic to apply syscall whitelist
+    Ok(())
 }

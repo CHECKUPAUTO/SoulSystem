@@ -36,3 +36,5 @@ logs/
 # Temporary
 /tmp/
 temp/
+/target/
+output.log

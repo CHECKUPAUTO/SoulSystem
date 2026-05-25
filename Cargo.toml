@@ -5,12 +5,56 @@ members = [
     "soulsystem-multiagent",
     "soulsystem-memory-extract",
     "openclaw-u",
+    "bus",
+    "soul-memory",
+    "bound-system",
+    "clawd",
+    "ansi-converter",
+    "terminal-stream",
+    "pty-terminal",
+    "local-skills",
+    "model-router",
+    "spinner",
+    "scirust-macros",
+    "scirust-simd-macros",
+    "scirust-gpu-macros",
+    "scirust-simd",
+    "scirust-gpu",
+    "scirust-autodiff",
+    "scirust-core",
+    "scirust-learning",
+    "scirust-symbolic",
+    "scirust-reasoning",
+    "scirust-tn",
+    "avid-core",
+    "avid-db",
+    "avid-tokenjuice",
+    "avid-model-router",
+    "avid-scout",
+    "avid-vision",
+    "avid-cortex",
+    "avid-mimic",
+    "avid-anticlone",
+    "avid-forge",
+    "avid-orchestrator",
+    "avid-server",
+    "avid-cli",
+    "avid-tui",
+    "avid-sandbox",
+    "avid-security",
+    "avid-knowledge-graph",
+    "avid-cobalt",
+    "avid-gomogo",
+    "avid-hnn",
+    "avid-intel",
+    "avid-k8s",
+    "avid-skills",
 ]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.6.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.80"
 authors = ["OpenClaw-U System"]
 license = "MIT OR Apache-2.0"
 
@@ -22,15 +66,39 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tempfile = "3"
+bus = { path = "bus" }
+soul-memory = { path = "soul-memory" }
+bound-system = { path = "bound-system" }
+clawd = { path = "clawd" }
+ansi-converter = { path = "ansi-converter" }
+terminal-stream = { path = "terminal-stream" }
+pty-terminal = { path = "pty-terminal" }
+local-skills = { path = "local-skills" }
+model-router = { path = "model-router" }
+spinner = { path = "spinner" }
+avid-scout = { path = "avid-scout" }
+avid-vision = { path = "avid-vision" }
 
 [package]
 name = "soulsystem"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 description = "SoulSystem — Écosystème d'agent numérique autonome"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+avid-scout = { workspace = true }
+avid-vision = { workspace = true }
+bus = { workspace = true }
+soul-memory = { workspace = true }
+bound-system = { workspace = true }
+clawd = { workspace = true }
+ansi-converter = { workspace = true }
+terminal-stream = { workspace = true }
+pty-terminal = { workspace = true }
+local-skills = { workspace = true }
+model-router = { workspace = true }
+spinner = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal"] }
@@ -54,9 +122,6 @@ flate2 = "1"
 reqwest = { version = "0.12", features = ["json"] }
 teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
 axum = "0.7"
-
-# backlog — kept for reference but not active
-# serde_yaml, uuid, hex, ring, libloading
 
 portable-pty = "0.8"
 libc = "0.2"

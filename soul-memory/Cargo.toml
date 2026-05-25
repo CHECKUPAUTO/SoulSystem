@@ -1,0 +1,13 @@
+[package]
+name = "soul-memory"
+version = "0.6.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+anyhow = "1"
+seahash = "4.1"
+sled = "0.34"
+tokio = { workspace = true }

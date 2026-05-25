@@ -1,0 +1,6 @@
+[package]
+name = "scirust-autodiff"
+version = "0.6.0"
+edition = "2021"
+
+[dependencies]

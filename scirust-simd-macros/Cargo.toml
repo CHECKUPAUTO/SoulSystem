@@ -1,0 +1,12 @@
+[package]
+name = "scirust-simd-macros"
+version = "0.6.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "0.6.0"] }
+quote = "1.0"
+proc-macro2 = "1.0"

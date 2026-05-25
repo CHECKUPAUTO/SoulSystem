@@ -11,6 +11,8 @@ description = "SoulLink V13.5 — shared types, auth middleware, validation"
 path = "src/lib.rs"
 
 [dependencies]
+scirust-core = { path = "../../scirust-core" }
+scirust-tn = { path = "../../scirust-tn" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
