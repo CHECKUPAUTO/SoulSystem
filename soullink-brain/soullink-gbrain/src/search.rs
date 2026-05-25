@@ -7,7 +7,7 @@
 
 //! Hybrid Search implementation (BM25 + Vector + Graph Boost).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use crate::storage::Database;
@@ -18,6 +18,7 @@ use reqwest::Client;
 pub struct Bm25Index {
     docs: HashMap<String, Bm25Doc>,
     df: HashMap<String, usize>,
+    inverted_index: HashMap<String, Vec<String>>,
     total_dl: usize,
     avgdl: f64,
     k1: f64,
@@ -36,6 +37,7 @@ impl Bm25Index {
         Self {
             docs: HashMap::new(),
             df: HashMap::new(),
+            inverted_index: HashMap::new(),
             total_dl: 0,
             avgdl: 0.0,
             k1: 1.2,
@@ -54,20 +56,11 @@ impl Bm25Index {
         let mut tf = HashMap::new();
         for t in &tokens {
             *tf.entry(t.clone()).or_insert(0.0) += 1.0;
-            // Bolt ⚡: Update inverted index for O(1) per token document lookup.
-            let entries = self.inverted_index.entry(t.clone()).or_default();
-            if entries.last().map(|last_id| last_id != id).unwrap_or(true) {
-                entries.push(id.to_string());
-            }
         }
 
         // Bolt ⚡: Handle updates by removing old document stats if ID already exists.
-        if let Some(old_doc) = self.docs.insert(id.to_string(), Bm25Doc { id: id.to_string(), tf: tf.clone(), dl }) {
-            self.total_dl -= old_doc.dl;
-            for t in old_doc.tf.keys() {
-                if let Some(count) = self.df.get_mut(t) {
-                    *count = count.saturating_sub(1);
-        if let Some(old_doc) = self.docs.get(id) {
+        // This makes rebuilding the index O(N) instead of O(N^2).
+        if let Some(old_doc) = self.docs.remove(id) {
             self.total_dl -= old_doc.dl;
             for t in old_doc.tf.keys() {
                 if let Some(count) = self.df.get_mut(t) {
@@ -80,19 +73,11 @@ impl Bm25Index {
             }
         }
 
-        // Bolt ⚡: Update total_dl and avgdl in O(1) by maintaining a running sum.
-        // This makes rebuilding the index O(N) instead of O(N^2).
-        if let Some(old_doc) = self.docs.get(id) {
-            self.total_dl -= old_doc.dl;
-            for t in old_doc.tf.keys() {
-                if let Some(count) = self.df.get_mut(t) {
-                    if *count > 0 { *count -= 1; }
-                }
-            }
-        }
-
         for t in tf.keys() {
             *self.df.entry(t.clone()).or_insert(0) += 1;
+            // Bolt ⚡: Update inverted index for O(1) per token document lookup.
+            let entries = self.inverted_index.entry(t.clone()).or_default();
+            entries.push(id.to_string());
         }
 
         self.total_dl += dl;
@@ -113,44 +98,28 @@ impl Bm25Index {
             .map(|s| s.to_string())
             .collect();
 
+        if query_tokens.is_empty() { return Vec::new(); }
+
         // Bolt ⚡: Pre-calculate IDF for each unique query token to avoid redundant log calls.
         let n = self.docs.len() as f64;
         let mut idfs = HashMap::new();
+        let mut target_doc_ids = HashSet::new();
+
         for t in &query_tokens {
             if idfs.contains_key(t) { continue; }
             let df = *self.df.get(t).unwrap_or(&0) as f64;
             let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
             idfs.insert(t.clone(), idf);
-        }
 
-        let mut scores = Vec::new();
-        let avgdl = self.avgdl.max(1.0);
-        let k1_plus_1 = self.k1 + 1.0;
-        let one_minus_b = 1.0 - self.b;
-
-        for doc in self.docs.values() {
-            let mut score = 0.0;
-            let doc_dl_factor = self.b * (doc.dl as f64 / avgdl);
-
-            for t in &query_tokens {
-                if let Some(&tf) = doc.tf.get(t) {
-                    let idf = idfs.get(t).unwrap_or(&0.0);
-                    let num = tf * k1_plus_1;
-                    let den = tf + self.k1 * (one_minus_b + doc_dl_factor);
-                    score += idf * num / den;
+            // Bolt ⚡: Only consider documents that contain at least one query token.
+            if let Some(doc_ids) = self.inverted_index.get(t) {
+                for doc_id in doc_ids {
+                    target_doc_ids.insert(doc_id);
                 }
             }
         }
 
         let mut scores = Vec::new();
-        for doc_id in target_doc_ids {
-            if let Some(doc) = self.docs.get(doc_id) {
-                let mut score = 0.0;
-                for t in &query_tokens {
-                    if let Some(&tf) = doc.tf.get(t) {
-                        if let Some(&idf) = idfs.get(t) {
-                            let num = tf * (self.k1 + 1.0);
-                            let den = tf + self.k1 * (1.0 - self.b + self.b * doc.dl as f64 / self.avgdl.max(1.0));
         let avgdl = self.avgdl.max(1.0);
         let k1_plus_1 = self.k1 + 1.0;
         let one_minus_b = 1.0 - self.b;
@@ -247,21 +216,22 @@ impl HybridSearcher {
 
         // 4. Graph Boost: 0.3
         // Bolt ⚡: Use optimized counting and direct lookups to avoid O(N*M) bottlenecks.
+        // Also use batched lookups to avoid N+1 queries.
+        let ids: Vec<String> = combined.keys().cloned().collect();
+        let entities_with_counts = self.db.get_entities_with_edge_counts(&ids)?;
+
         let mut final_hits = Vec::new();
-        for (id, score) in combined {
-            let edge_count = self.db.get_edge_count_for_entity(&id).unwrap_or(0);
+        for (entity, edge_count) in entities_with_counts {
+            let score = combined.get(&entity.id).unwrap_or(&0.0);
             let boost = (edge_count as f64 * 0.1).min(1.0);
             let final_score = score + 0.3 * boost;
 
-            // Fetch entity info
-            if let Some(entity) = self.db.get_entity_by_id(&id)? {
-                final_hits.push(SearchHit {
-                    entity_id: id,
-                    score: final_score,
-                    name: entity.name,
-                    entity_type: entity.entity_type,
-                });
-            }
+            final_hits.push(SearchHit {
+                entity_id: entity.id,
+                score: final_score,
+                name: entity.name,
+                entity_type: entity.entity_type,
+            });
         }
 
         final_hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));

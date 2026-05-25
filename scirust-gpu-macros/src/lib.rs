@@ -13,18 +13,20 @@ pub fn gpu(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // Find the first &mut [f32] argument to dispatch to GPU
     let mut found_slice = false;
     for arg in &sig.inputs {
-        if let FnArg::Typed(PatType { ty, .. }) = arg
-            && let Type::Reference(TypeReference {
-                elem, mutability, ..
-            }) = ty.as_ref()
-            && mutability.is_some()
-            && let Type::Slice(slice) = elem.as_ref()
-            && let Type::Path(path) = &*slice.elem
-        {
-            let seg = &path.path.segments.first().unwrap().ident;
-            if seg == "f32" {
-                found_slice = true;
-                break;
+        if let FnArg::Typed(PatType { ty, .. }) = arg {
+            if let Type::Reference(TypeReference { elem, mutability, .. }) = ty.as_ref() {
+                if mutability.is_some() {
+                    if let Type::Slice(slice) = elem.as_ref() {
+                        if let Type::Path(path) = &*slice.elem {
+                            if let Some(seg_expr) = path.path.segments.first() {
+                                if seg_expr.ident == "f32" {
+                                    found_slice = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
