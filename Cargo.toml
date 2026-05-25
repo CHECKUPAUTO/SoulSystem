@@ -160,13 +160,3 @@ futures-util = "0.3.32"
 [features]
 dev = []
 gpu = []
-
-[dependencies.tokio-stream]
-version = "0.1"
-features = ["sync"
-    "scirust-trading-core",
-    "scirust-trading-engine",
-    "scirust-trading-observer",
-    "scirust-trading-persistence",
-    "scirust-trading-news",
-    "scirust-trading-monitor",]
