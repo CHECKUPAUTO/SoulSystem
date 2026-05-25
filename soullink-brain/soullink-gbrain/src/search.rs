@@ -67,6 +67,15 @@ impl Bm25Index {
             for t in old_doc.tf.keys() {
                 if let Some(count) = self.df.get_mut(t) {
                     *count = count.saturating_sub(1);
+        if let Some(old_doc) = self.docs.get(id) {
+            self.total_dl -= old_doc.dl;
+            for t in old_doc.tf.keys() {
+                if let Some(count) = self.df.get_mut(t) {
+                    if *count > 0 { *count -= 1; }
+                }
+                // Bolt ⚡: Prune inverted index to prevent memory leak/bloat.
+                if let Some(entries) = self.inverted_index.get_mut(t) {
+                    entries.retain(|doc_id| doc_id != id);
                 }
             }
         }
@@ -142,6 +151,19 @@ impl Bm25Index {
                         if let Some(&idf) = idfs.get(t) {
                             let num = tf * (self.k1 + 1.0);
                             let den = tf + self.k1 * (1.0 - self.b + self.b * doc.dl as f64 / self.avgdl.max(1.0));
+        let avgdl = self.avgdl.max(1.0);
+        let k1_plus_1 = self.k1 + 1.0;
+        let one_minus_b = 1.0 - self.b;
+
+        for doc_id in target_doc_ids {
+            if let Some(doc) = self.docs.get(doc_id) {
+                let mut score = 0.0;
+                let doc_dl_factor = self.b * (doc.dl as f64 / avgdl);
+                for t in &query_tokens {
+                    if let Some(&tf) = doc.tf.get(t) {
+                        if let Some(&idf) = idfs.get(t) {
+                            let num = tf * k1_plus_1;
+                            let den = tf + self.k1 * (one_minus_b + doc_dl_factor);
                             score += idf * num / den;
                         }
                     }
@@ -287,6 +309,7 @@ mod bm25_tests {
         let results = index.search("unknown", 10);
         assert!(results.is_empty());
     }
+
     #[test]
     fn test_bm25_update_document() {
         let mut index = Bm25Index::new();
