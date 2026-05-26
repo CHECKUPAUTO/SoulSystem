@@ -10,6 +10,8 @@
 #![warn(rust_2018_idioms)]
 
 pub mod auth;
+pub mod mesh;
+pub mod dynamics;
 pub mod http;
 pub mod ipc;
 pub mod kmsg_parse;

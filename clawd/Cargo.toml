@@ -25,3 +25,5 @@ model-router = { workspace = true }
 rand = "0.8"
 regex = "1"
 uuid = { version = "1", features = ["v4"] }
+axum = { workspace = true }
+tracing-subscriber = { workspace = true }

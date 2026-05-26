@@ -1,3 +1,4 @@
+[workspace]
 resolver = "2"
 members = [
     "soulsystem-gepa",
@@ -52,6 +53,8 @@ members = [
     "scirust-trading-persistence",
     "scirust-trading-news",
     "scirust-trading-monitor",
+    "scirust-simd",
+    "scirust-gpu",
 ]
 [workspace.package]
 version = "13.5.0"

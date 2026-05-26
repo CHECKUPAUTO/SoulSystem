@@ -62,6 +62,7 @@ pub mod error;
 pub mod quantize;
 pub mod quant_train;
 pub mod cuda_backend;
+pub mod unified;
 #[cfg(feature = "cuda")]
 pub mod cuda_turboquant;
 pub mod wgpu_backend;
