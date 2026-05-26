@@ -1,0 +1,29 @@
+[Unit]
+Description=Clawd Podman Container
+After=network-online.target
+
+[Service]
+Environment=PODMAN_SYSTEMD_UNIT=%n
+Restart=on-failure
+TimeoutStopSec=70
+ExecStartPre=/bin/rm -f %t/%n.ctr-id
+ExecStart=/usr/bin/podman run \
+    --cidfile=%t/%n.ctr-id \
+    --cgroups=no-conmon \
+    --rm \
+    --sdnotify=conmon \
+    --replace \
+    --name=clawd \
+    --read-only \
+    -v /opt/soulsystem/skills:/opt/soulsystem/skills:ro \
+    -v /opt/soulsystem/config:/opt/soulsystem/config:ro \
+    -v clawd-logs:/var/log/clawd:rw \
+    -p 9051:9051 \
+    clawd:latest
+ExecStop=/usr/bin/podman stop --ignore --cidfile=%t/%n.ctr-id
+ExecStopPost=/usr/bin/podman rm -f --ignore --cidfile=%t/%n.ctr-id
+Type=notify
+NotifyAccess=all
+
+[Install]
+WantedBy=default.target
