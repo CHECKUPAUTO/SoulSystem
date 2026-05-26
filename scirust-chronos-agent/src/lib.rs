@@ -24,3 +24,4 @@ pub mod learning;
 pub mod observer;
 pub mod metacognition;
 pub mod llm_bridge;
+pub mod modern_hopfield;

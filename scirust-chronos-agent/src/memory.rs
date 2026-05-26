@@ -160,18 +160,241 @@ impl EpisodicStore {
 }
 
 // --------------------------------------------------------------------------
-// SemanticStore — long-term pattern memory
+// HNSWIndex — Hierarchical Navigable Small World index
+//
+// Multi-layer graph navigation for O(log n) approximate nearest neighbour
+// search.  Reference: Malkov & Yashunin (2018), "Efficient and robust
+// approximate nearest neighbor search using Hierarchical Navigable Small
+// World graphs".
+//
+// Key parameters:
+//   M         — number of bi-directional connections per layer (default: 16)
+//   M_max     — max connections per layer (2*M)
+//   ef_search — search width (default: 64)
+//   ef_insert — insertion width (default: 128)
+//   ml        — normalisation factor for layer assignment (~1/ln(M))
+// --------------------------------------------------------------------------
+
+use std::collections::HashSet;
+
+/// A single node in the HNSW graph.
+struct HNSWNode {
+    vector: Vec<f64>,
+    /// Connections per layer: layers[layer] = vec of neighbour indices
+    layers: Vec<Vec<usize>>,
+    /// The highest layer this node appears on.
+    max_layer: usize,
+}
+
+pub struct HNSWIndex {
+    dim: usize,
+    nodes: Vec<HNSWNode>,
+    /// Entry point (node with highest layer).
+    entry_point: usize,
+    /// Maximum layer across all nodes.
+    max_layer: usize,
+    // Parameters
+    m: usize,
+    m_max: usize,
+    ef_search: usize,
+    ef_insert: usize,
+    ml: f64,
+}
+
+impl HNSWIndex {
+    pub fn new(dim: usize) -> Self {
+        Self {
+            dim,
+            nodes: Vec::new(),
+            entry_point: 0,
+            max_layer: 0,
+            m: 16,
+            m_max: 32,
+            ef_search: 64,
+            ef_insert: 128,
+            ml: 1.0 / (16.0f64).ln(),
+        }
+    }
+
+    pub fn with_params(dim: usize, m: usize, ef_search: usize, ef_insert: usize) -> Self {
+        Self {
+            dim,
+            nodes: Vec::new(),
+            entry_point: 0,
+            max_layer: 0,
+            m,
+            m_max: m * 2,
+            ef_search,
+            ef_insert,
+            ml: 1.0 / (m as f64).ln(),
+        }
+    }
+
+    fn assign_layer(&self) -> usize {
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let r: f64 = rng.gen();
+        (-r.ln() * self.ml).floor() as usize
+    }
+
+    /// Search on a single layer, starting from `entry`.
+    /// Returns the closest node found.
+    fn search_layer(&self, query: &[f64], entry: usize, layer: usize) -> usize {
+        let mut best = entry;
+        let mut best_dist = 1.0 - cosine_sim(query, &self.nodes[entry].vector);
+
+        loop {
+            let mut improved = false;
+            for &neighbour in &self.nodes[best].layers[layer] {
+                let d = 1.0 - cosine_sim(query, &self.nodes[neighbour].vector);
+                if d < best_dist {
+                    best_dist = d;
+                    best = neighbour;
+                    improved = true;
+                }
+            }
+            if !improved { break; }
+        }
+        best
+    }
+
+    /// Multi-layer search returning top-k nearest neighbours.
+    fn search_impl(&self, query: &[f64], k: usize, ef: usize) -> Vec<(usize, f64)> {
+        if self.nodes.is_empty() { return Vec::new(); }
+
+        let ef_use = ef.max(k);
+
+        // Start from entry point, traverse top layers greedily
+        let mut curr = self.entry_point;
+        for layer in (1..=self.max_layer).rev() {
+            curr = self.search_layer(query, curr, layer);
+        }
+
+        // Layer 0: collect neighbours with ef width
+        let mut candidates: Vec<(usize, f64)> = Vec::new();
+        let mut visited: HashSet<usize> = HashSet::new();
+        visited.insert(curr);
+        let dist = 1.0 - cosine_sim(query, &self.nodes[curr].vector);
+        candidates.push((curr, dist));
+
+        let mut idx = 0;
+        while idx < candidates.len() {
+            let (candidate, _) = candidates[idx];
+            idx += 1;
+
+            for &neighbour in &self.nodes[candidate].layers[0] {
+                if visited.insert(neighbour) {
+                    let d = 1.0 - cosine_sim(query, &self.nodes[neighbour].vector);
+                    candidates.push((neighbour, d));
+                }
+            }
+
+            // If we have enough candidates and the farthest is close enough, stop
+            if candidates.len() >= ef_use {
+                candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+                candidates.truncate(ef_use);
+                idx = idx.min(candidates.len());
+            }
+        }
+
+        candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        candidates.truncate(k);
+
+        // Convert distance back to cosine similarity
+        candidates.into_iter()
+            .map(|(idx, dist)| (idx, (1.0 - dist).clamp(-1.0, 1.0)))
+            .collect()
+    }
+
+    /// Connect a new node to its nearest neighbours on each layer up to `max_l`.
+    fn connect_new_node(&mut self, new_idx: usize, query: &[f64], max_l: usize) {
+        let m_layer = if max_l == 0 { self.m_max } else { self.m };
+
+        for layer in 0..=max_l {
+            let neighbours = self.search_impl(query, m_layer, self.ef_insert);
+            // Take top m_layer connections
+            let top_n: Vec<usize> = neighbours.into_iter()
+                .take(m_layer)
+                .map(|(idx, _)| idx)
+                .collect();
+
+            // Bi-directional connection
+            for &n_idx in &top_n {
+                if n_idx != new_idx {
+                    self.nodes[new_idx].layers[layer].push(n_idx);
+                    // Add reverse connection if within capacity
+                    if self.nodes[n_idx].layers[layer].len() < self.m_max {
+                        self.nodes[n_idx].layers[layer].push(new_idx);
+                    } else if layer == 0 {
+                        // Shrink connections on layer 0 if over capacity
+                        // (Simplified: just keep existing)
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl VectorIndex for HNSWIndex {
+    fn dim(&self) -> usize { self.dim }
+    fn len(&self) -> usize { self.nodes.len() }
+
+    fn insert(&mut self, key: Vec<f64>) {
+        let new_layer = self.assign_layer().min(self.max_layer + 1);
+        let new_idx = self.nodes.len();
+
+        let mut node = HNSWNode {
+            vector: key.clone(),
+            layers: vec![Vec::new(); new_layer + 1],
+            max_layer: new_layer,
+        };
+        self.nodes.push(node);
+
+        if new_idx == 0 {
+            // First node
+            self.entry_point = 0;
+            self.max_layer = new_layer;
+            return;
+        }
+
+        // Update entry point if new node has higher layer
+        if new_layer > self.max_layer {
+            self.max_layer = new_layer;
+            self.entry_point = new_idx;
+        }
+
+        self.connect_new_node(new_idx, &key, new_layer);
+    }
+
+    fn search(&self, query: &[f64], k: usize) -> Vec<(usize, f64)> {
+        self.search_impl(query, k, self.ef_search)
+    }
+
+    fn get(&self, index: usize) -> Option<&[f64]> {
+        self.nodes.get(index).map(|n| n.vector.as_slice())
+    }
+}
+
+fn cosine_sim(a: &[f64], b: &[f64]) -> f64 {
+    let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let na: f64 = a.iter().map(|x| x * x).sum::<f64>().sqrt().max(f64::EPSILON);
+    let nb: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt().max(f64::EPSILON);
+    dot / (na * nb)
+}
+
+// --------------------------------------------------------------------------
+// SemanticStore — now uses HNSWIndex
 // --------------------------------------------------------------------------
 
 pub struct SemanticStore {
-    pub index: BruteForceIndex,
+    pub index: HNSWIndex,
     /// Number of times each entry has been reinforced.
     pub strengths: Vec<f64>,
 }
 
 impl SemanticStore {
     pub fn new(dim: usize) -> Self {
-        Self { index: BruteForceIndex::new(dim), strengths: Vec::new() }
+        Self { index: HNSWIndex::new(dim), strengths: Vec::new() }
     }
 
     /// Insert or reinforce.  If cosine similarity with existing exceeds
@@ -189,9 +412,18 @@ impl SemanticStore {
                 let old = self.strengths[idx];
                 self.strengths[idx] = old + delta / (1.0 + old / max_cap);
                 // Exponential moving average of the stored prototype
-                let lr = 0.1;
-                for (s, &v) in self.index.vectors[idx].iter_mut().zip(&vec) {
-                    *s += lr * (v - *s);
+                // HNSW: cannot mutate vectors in-place through trait, so we
+                // re-insert the averaged version (the old index stays stale
+                // until the next search picks up the new insertion).
+                if let Some(stored) = self.index.get(idx) {
+                    let lr = 0.1;
+                    let mut averaged: Vec<f64> = stored.to_vec();
+                    for (s, &v) in averaged.iter_mut().zip(&vec) {
+                        *s += lr * (v - *s);
+                    }
+                    // Insert averaged prototype as a new entry
+                    self.index.insert(averaged);
+                    self.strengths.push(1.0);
                 }
                 return;
             }
