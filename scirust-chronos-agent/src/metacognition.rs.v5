@@ -220,11 +220,10 @@ pub fn evolve_cache(
     semantic_threshold: f64,
 ) {
     // Force-learn the current latent as a high-strength semantic prototype
-    let t = memory.current_t;
-    memory.semantic.learn(latent.to_vec(), semantic_threshold, t);
+    memory.semantic.learn(latent.to_vec(), semantic_threshold);
     // Reinforce multiple times to make it stick
     for _ in 0..5 {
-        memory.semantic.learn(latent.to_vec(), semantic_threshold - 0.1, t);
+        memory.semantic.learn(latent.to_vec(), semantic_threshold - 0.1);
     }
 }
 
