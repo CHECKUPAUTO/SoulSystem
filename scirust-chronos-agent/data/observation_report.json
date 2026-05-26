@@ -1,0 +1,76 @@
+{
+  "timestamp": "2026-05-26T18:46:55.758138",
+  "model": "Qwen2.5-0.5B-Instruct.Q4_K_M",
+  "total_prompts": 50,
+  "successful": 50,
+  "errors": 0,
+  "elapsed_seconds": 240.08751,
+  "embedding_dim": 896,
+  "n_clusters": 5,
+  "intra_cluster_distance": 58.7447,
+  "inter_cluster_distance": 98.9075,
+  "separation_ratio": 1.6837,
+  "cluster_membership": {
+    "0": [
+      "How does gradient descent work?",
+      "How do transformers work?",
+      "How does GPS work?",
+      "How does encryption work?",
+      "How do CPUs work?",
+      "How does WiFi work?",
+      "How does cryptography work?",
+      "How do batteries work?",
+      "How does the internet work?"
+    ],
+    "1": [
+      "Explain general relativity",
+      "Explain the Big Bang",
+      "Explain the Doppler effect",
+      "What is the Heisenberg principle?",
+      "Explain the Krebs cycle",
+      "Explain the Higgs boson"
+    ],
+    "2": [
+      "Write a poem about Rust",
+      "Write a haiku about AI"
+    ],
+    "3": [
+      "Explain recursion in programming",
+      "Define quantum computing",
+      "Explain TCP/IP protocol",
+      "Explain blockchain technology",
+      "Describe the water cycle",
+      "Explain DNA replication",
+      "Describe photosynthesis",
+      "Explain the stock market",
+      "Explain natural selection",
+      "Define artificial intelligence",
+      "Describe the human genome",
+      "Describe the solar system",
+      "Describe cloud computing",
+      "Describe the food chain"
+    ],
+    "4": [
+      "What is a neural network?",
+      "What is the meaning of life?",
+      "What is backpropagation?",
+      "What is the Pythagorean theorem?",
+      "What is machine learning?",
+      "What is the capital of Japan?",
+      "How to write a binary search",
+      "What is entropy?",
+      "What is an API?",
+      "What is the Turing test?",
+      "What is a hash function?",
+      "What is the singularity?",
+      "What is a database index?",
+      "What is time complexity?",
+      "What is an operating system?",
+      "What is the Monte Carlo method?",
+      "What is a blockchain fork?",
+      "What is a qubit?",
+      "What is the Fibonacci sequence?"
+    ]
+  },
+  "verdict": "⚠️ CLUSTERS PARTIELS"
+}
