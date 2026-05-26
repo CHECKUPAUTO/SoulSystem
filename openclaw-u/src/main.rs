@@ -4,18 +4,31 @@
 //!           autocode, sandbox, planner, learning, metacognition,
 //!           resilience, selfmod, config, prediction, parallel, creativity
 
-use openclaw_u::*;
-use openclaw_u::perception::SystemSnapshot;
-use openclaw_u::action::Action;
-use openclaw_u::memory::WeaviateMemory;
-use openclaw_u::hnn_bridge::HnnState;
-use openclaw_u::onaeu_bridge::OnaeuBridge;
-use openclaw_u::llm::{LlmEngine, LlmResponse};
-use openclaw_u::bi_bridge::{BiBridge, UplinkMessage, DownlinkMessage};
-use openclaw_u::selfmod::SelfModEngine;
-use openclaw_u::bi_bridge::http_server::{BridgeState, start_bridge_server};
-use openclaw_u::learning::QTable;
+mod perception;
+mod action;
+mod memory;
+mod hnn_bridge;
+mod onaeu_bridge;
+mod autocode;
+mod llm;
+mod bi_bridge;
+mod sandbox;
+mod planner;
+mod learning;
+mod metacognition;
+mod resilience;
+mod selfmod;
+mod config;
+#[allow(dead_code)]
+mod persistence;
+mod prediction;
+#[allow(dead_code)]
+mod parallel;
+mod creativity;
+
+use std::collections::VecDeque;
 use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 

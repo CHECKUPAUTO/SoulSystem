@@ -78,7 +78,7 @@ impl CreativityEngine {
 
     /// Invente une nouvelle action
     pub fn invent(&mut self, cycle: u64, _system_state: &crate::perception::SystemSnapshot) -> Option<CreativeAction> {
-        let methods = [
+        let methods = vec![
             InventionMethod::Combine(
                 self.base_actions[0].clone(),
                 self.base_actions[1].clone(),
