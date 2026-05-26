@@ -194,7 +194,6 @@ impl Database {
         Ok(count)
     }
 
-    /// Bolt ⚡: Fetch entities and their edge counts in batch to avoid N+1 queries during search ranking.
     pub fn get_entities_with_edge_counts(&self, ids: &[String]) -> Result<Vec<(Entity, usize)>> {
         if ids.is_empty() { return Ok(Vec::new()); }
         let conn = self.conn.lock().unwrap();

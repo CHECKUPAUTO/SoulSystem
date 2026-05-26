@@ -52,7 +52,6 @@ members = [
     "scirust-trading-persistence",
     "scirust-trading-news",
     "scirust-trading-monitor",
-    "scirust-chronos-agent",
 ]
 [workspace.package]
 version = "13.5.0"
