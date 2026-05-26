@@ -105,21 +105,96 @@ impl LLMObserver {
     /// Forward pass through the LLM in observation mode.
     ///
     /// Returns the last hidden state as a Vec<f64> (detached, read-only).
-    /// In Phase 1, this is a mock that generates realistic embeddings.
-    /// In production, this calls the actual model.
+    ///
+    /// Phase 2: calls the real embedding server at EMBED_SERVER_URL
+    /// via curl subprocess. Falls back to mock_forward if server is down.
     pub fn observe(&mut self, input_text: &str) -> Result<Vec<f64>> {
-        // Phase 1: mock observation — simulate a realistic latent vector
-        // The real model would produce this from `input_text`.
+        // Try real embedding server first
+        if let Ok(emb) = self.real_embedding(input_text) {
+            self.latent_history.push(emb.clone());
+            if self.latent_history.len() > self.history_capacity {
+                self.latent_history.remove(0);
+            }
+            self.last_latent = Some(emb.clone());
+            return Ok(emb);
+        }
+        // Fallback: mock forward
         let latent = self.mock_forward(input_text)?;
-
-        // Store in history
         self.latent_history.push(latent.clone());
         if self.latent_history.len() > self.history_capacity {
             self.latent_history.remove(0);
         }
-
         self.last_latent = Some(latent.clone());
         Ok(latent)
+    }
+
+    /// Call the real embedding server at localhost:9097.
+    /// Returns None if the server is unreachable or returns invalid data.
+    fn real_embedding(&self, input_text: &str) -> std::result::Result<Vec<f64>, String> {
+        let embed_url = "http://localhost:9097/embed";
+
+        // Build JSON payload
+        let payload = format!("{{\"input\":\"{}\"}}", input_text.replace('"', "\\\""));
+
+        // Call via curl subprocess
+        let output = std::process::Command::new("curl")
+            .arg("-s")
+            .arg("--max-time")
+            .arg("10")
+            .arg("-H")
+            .arg("Content-Type: application/json")
+            .arg("-d")
+            .arg(&payload)
+            .arg(&embed_url)
+            .output()
+            .map_err(|e| format!("curl failed: {}", e))?;
+
+        if !output.status.success() {
+            return Err(format!("curl exit: {:?}", output.status));
+        }
+
+        let body = String::from_utf8_lossy(&output.stdout);
+        let parsed: serde_json::Value = serde_json::from_str(&body)
+            .map_err(|e| format!("json parse: {}", e))?;
+
+        if let Some(emb_array) = parsed["embedding"].as_array() {
+            // The server may return a list-of-lists (per-token) or a flat list.
+            // Handle both cases.
+            let flat: Vec<f64> = if emb_array.is_empty() {
+                return Err("empty embedding".to_string());
+            } else if emb_array[0].is_array() {
+                // Multi-token: take mean across tokens
+                let n_tokens = emb_array.len();
+                let n_dims = emb_array[0].as_array()
+                    .map(|a| a.len())
+                    .unwrap_or(0);
+                if n_dims == 0 { return Err("empty token dim".to_string()); }
+                let mut mean = vec![0.0f64; n_dims];
+                for token_emb in emb_array {
+                    if let Some(values) = token_emb.as_array() {
+                        for (i, v) in values.iter().enumerate() {
+                            if i < n_dims {
+                                mean[i] += v.as_f64().unwrap_or(0.0);
+                            }
+                        }
+                    }
+                }
+                for v in &mut mean { *v /= n_tokens as f64; }
+                mean
+            } else {
+                // Flat embedding
+                emb_array.iter()
+                    .filter_map(|v| v.as_f64())
+                    .collect()
+            };
+
+            if flat.len() < 2 {
+                return Err(format!("embedding too small: {}", flat.len()));
+            }
+            Ok(flat)
+        } else {
+            Err(format!("no embedding field in response: {}", body.chars().take(200).collect::<String>()))
+        }
     }
 
     /// Get the most recent latent observation.
