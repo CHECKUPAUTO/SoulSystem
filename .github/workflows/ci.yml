@@ -1,4 +1,4 @@
-name: SoulSystem Monorepo CI
+name: CI
 
 on:
   push:
@@ -6,16 +6,46 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
+  # Job 1: Lint + Audit
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+    
+    - name: Check formatting
+      run: cargo fmt --all --check
+    
+    - name: Clippy (warnings as errors)
+      run: cargo clippy --all-targets -- -D warnings
+    
+    - name: Security audit
+      uses: actions-rust-lang/audit@v1
+      with:
+        args: --deny warnings
+
+  # Job 2: Build + Test
   build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y bubblewrap pkg-config libssl-dev
-    - name: Build
-      run: cargo build --workspace --verbose
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Check workspace
+      run: cargo check --workspace
+    
+    - name: Build release
+      run: cargo build --release
+    
     - name: Run tests
-      run: cargo test --workspace --verbose
-    - name: Clippy
-      run: cargo clippy --workspace -- -D warnings
+      run: cargo test --workspace

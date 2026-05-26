@@ -38,3 +38,6 @@ logs/
 temp/
 /target/
 output.log
+.env
+.env.local
+config/credentials*

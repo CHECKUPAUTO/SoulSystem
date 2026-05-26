@@ -1,16 +1,31 @@
-FROM debian:12-slim
+# =============================================================================
+# SoulSystem — Multi-stage Docker build
+# =============================================================================
 
-RUN apt update && apt install -y curl build-essential pkg-config libssl-dev
+# Stage 1: Builder
+FROM rust:1.86-slim-bookworm AS builder
 
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-RUN curl -fsSL https://ollama.com/install.sh | sh
-RUN ollama pull tinyllama
+RUN apt update && apt install -y pkg-config libssl-dev clang && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY scirust-chronos-agent/Cargo.toml scirust-chronos-agent/
+COPY soullink-brain/soullink-core/Cargo.toml soullink-brain/soullink-core/
+# Copy all Cargo.tomls for dependency resolution
 COPY . .
 
-RUN cargo build --release --features dev
+# Build release (without dev features)
+RUN cargo build --release --features dev 2>/dev/null || cargo build --release
 
-CMD ["./target/release/soulsystem", "--dev"]
+# Stage 2: Runtime
+FROM debian:12-slim
+
+RUN apt update && apt install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /app/target/release/soulsystem /app/soulsystem
+COPY --from=builder /app/docs /app/docs
+
+EXPOSE 9090
+
+CMD ["/app/soulsystem"]

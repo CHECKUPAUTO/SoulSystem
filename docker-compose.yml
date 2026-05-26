@@ -7,9 +7,13 @@ services:
       - "9090:9090"
     volumes:
       - soulsystem_data:/var/lib/soulsystem
+      - ./config:/config:ro
     environment:
       - SOULSYSTEM_CONFIG_DIR=/config
-      - TELEGRAM_BOT_TOKEN=changeme
+      # TELEGRAM_BOT_TOKEN must be set via .env file or export
+      # Create a .env file with: TELEGRAM_BOT_TOKEN=your_token_here
+    env_file:
+      - .env
 
 volumes:
   soulsystem_data:
