@@ -12,8 +12,9 @@ pub struct HnnState {
 
 impl HnnState {
     pub async fn fetch(client: &reqwest::Client) -> Self {
-        let mut organs = HashMap::new();
-        let mut blackboard = serde_json::Value::Null;
+        // Bolt ⚡: Use shared client and JoinSet for concurrent fetching.
+        // Replaces ~15 sequential HTTP calls with parallel ones.
+        // client is now passed from the heartbeat loop to enable connection pooling.
 
         let mut set = tokio::task::JoinSet::new();
 

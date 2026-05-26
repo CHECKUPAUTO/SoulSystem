@@ -118,16 +118,15 @@ impl BiBridge {
         // Try channel first (fast path)
         if let Ok(Some(msg)) = tokio::time::timeout(
             std::time::Duration::from_millis(100),
-            self.downlink_rx.recv(),
-        )
-        .await
-        {
+            self.downlink_rx.recv()
+        ).await {
             return Some(msg);
         }
 
         // Then poll SoulLink HTTP API for commands
-        if let Ok(Some(cmd)) = self.poll_soullink_commands().await {
-            return Some(cmd);
+        match self.poll_soullink_commands().await {
+            Ok(Some(cmd)) => Some(cmd),
+            _ => None,
         }
 
         None

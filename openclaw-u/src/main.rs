@@ -128,20 +128,22 @@ async fn heartbeat_loop(
     mut rx: mpsc::Receiver<ExternalEvent>,
     downlink_rx: mpsc::Receiver<DownlinkMessage>,
 ) {
+    // Shared HTTP client for connection pooling
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap_or_default();
+
     // Charger la config runtime
     let (llm_fast, llm_deep, heartbeat_interval, _auto_evolve_interval) = {
         let st = state.lock().await;
         let cfg = &st.runtime_config;
-        let lf = LlmEngine::new("http://127.0.0.1:11434", &cfg.llm_fast_model);
-        let ld = LlmEngine::new("http://127.0.0.1:11434", &cfg.llm_deep_model);
+        let lf = LlmEngine::new("http://127.0.0.1:11434", &cfg.llm_fast_model, http_client.clone());
+        let ld = LlmEngine::new("http://127.0.0.1:11434", &cfg.llm_deep_model, http_client.clone());
         (lf, ld, cfg.heartbeat_interval_secs, cfg.auto_evolve_interval)
     };
 
     let mut ticker = interval(Duration::from_secs(heartbeat_interval));
-    let http_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .unwrap_or_default();
     let weaviate = WeaviateMemory::new("http://127.0.0.1:8086", http_client.clone());
     let onaeu = OnaeuBridge::new("http://127.0.0.1:7878", http_client.clone());
 
@@ -581,7 +583,7 @@ async fn heartbeat_loop(
                         let history: Vec<HistoryEntry> = st.history.iter().cloned().collect();
 
                         // Decision logic based on message content via LLM if available
-                        let llm_fast = LlmEngine::new("http://127.0.0.1:11434", &st.runtime_config.llm_fast_model);
+                        let llm_fast = LlmEngine::new("http://127.0.0.1:11434", &st.runtime_config.llm_fast_model, http_client.clone());
                         drop(st);
 
                         if let Some(decision) = llm_decide(&llm_fast, &snapshot, &format!("Respond to user: {}", msg), &history, &q_table, "Interaction utilisateur directe.").await {
