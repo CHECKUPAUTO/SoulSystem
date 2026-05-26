@@ -12,22 +12,23 @@ pub struct HnnState {
 
 impl HnnState {
     pub async fn fetch(client: &reqwest::Client) -> Self {
-        // Bolt ⚡: Use shared client and JoinSet for concurrent fetching.
-        // Replaces ~15 sequential HTTP calls with parallel ones.
+        let mut organs = HashMap::new();
+        let mut blackboard = serde_json::Value::Null;
+
         let mut set = tokio::task::JoinSet::new();
 
         // 1. Fetch orchestrator blackboard (port 9020)
         let c = client.clone();
         set.spawn(async move {
-            let res = c.get("http://127.0.0.1:9020/api/stats").send().await;
+            let res = c.get("http://127.0.0.1:9020/api/stats")
+                .timeout(std::time::Duration::from_secs(3))
+                .send().await;
             if let Ok(r) = res {
                 if r.status().is_success() {
-                    if let Ok(json) = r.json::<serde_json::Value>().await {
-                        return ("blackboard", json);
-                    }
+                    return ("blackboard", r.json::<serde_json::Value>().await.ok());
                 }
             }
-            ("blackboard", serde_json::Value::Null)
+            ("blackboard", None)
         });
 
         // 2. Fetch HNN V13 organs (ports 9010-9015)
@@ -37,19 +38,19 @@ impl HnnState {
         ] {
             let c = client.clone();
             set.spawn(async move {
-                let res = c.get(format!("http://127.0.0.1:{}/api/stats", port)).send().await;
+                let res = c.get(format!("http://127.0.0.1:{}/api/stats", port))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send().await;
                 if let Ok(r) = res {
                     if r.status().is_success() {
-                        if let Ok(json) = r.json::<serde_json::Value>().await {
-                            return (name, json);
-                        }
+                        return (name, r.json::<serde_json::Value>().await.ok());
                     }
                 }
-                (name, serde_json::Value::Null)
+                (name, None)
             });
         }
 
-        // 3. Fetch V14 organs (ports 9095, 9786, etc.)
+        // 3. Fetch V14 organs (ports 9095, 9786, etc)
         for (port, name) in [
             (9095, "v14_fusion"), (9786, "chronos"),
             (9040, "foresight"), (9041, "homeostasis"), (9042, "creativity"),
@@ -57,41 +58,40 @@ impl HnnState {
         ] {
             let c = client.clone();
             set.spawn(async move {
-                let res = c.get(format!("http://127.0.0.1:{}/api/stats", port)).send().await;
+                let res = c.get(format!("http://127.0.0.1:{}/api/stats", port))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send().await;
                 if let Ok(r) = res {
                     if r.status().is_success() {
-                        if let Ok(json) = r.json::<serde_json::Value>().await {
-                            return (name, json);
-                        }
+                        return (name, r.json::<serde_json::Value>().await.ok());
                     }
                 }
-                (name, serde_json::Value::Null)
+                (name, None)
             });
         }
 
         // 4. Fetch memory (port 9030)
         let c = client.clone();
         set.spawn(async move {
-            let res = c.get("http://127.0.0.1:9030/api/stats").send().await;
+            let res = c.get("http://127.0.0.1:9030/api/stats")
+                .timeout(std::time::Duration::from_secs(2))
+                .send().await;
             if let Ok(r) = res {
                 if r.status().is_success() {
-                    if let Ok(json) = r.json::<serde_json::Value>().await {
-                        return ("neural_memory", json);
-                    }
+                    return ("neural_memory", r.json::<serde_json::Value>().await.ok());
                 }
             }
-            ("neural_memory", serde_json::Value::Null)
+            ("neural_memory", None)
         });
 
-        let mut organs = HashMap::new();
-        let mut blackboard = serde_json::Value::Null;
-
-        while let Some(Ok((name, json))) = set.join_next().await {
-            if json.is_null() { continue; }
-            if name == "blackboard" {
-                blackboard = json;
-            } else {
-                organs.insert(name.to_string(), json);
+        // Collect results
+        while let Some(res) = set.join_next().await {
+            if let Ok((name, Some(json))) = res {
+                if name == "blackboard" {
+                    blackboard = json;
+                } else {
+                    organs.insert(name.to_string(), json);
+                }
             }
         }
 

@@ -25,9 +25,9 @@ pub struct SystemSnapshot {
 }
 
 impl SystemSnapshot {
-    pub async fn capture(client: &reqwest::Client) -> Self {
-        // Bolt ⚡: Parallelize data collection to reduce latency.
-        // Sum of timeouts could be ~30s, now it's max(timeouts) ~5s.
+    pub async fn capture() -> Self {
+        let client = reqwest::Client::new();
+
         let (
             hnn,
             cpu,
@@ -42,25 +42,24 @@ impl SystemSnapshot {
             failed_logins,
             open_ports,
         ) = tokio::join!(
-            super::hnn_bridge::HnnState::fetch(client),
+            super::hnn_bridge::HnnState::fetch(&client),
             Self::read_cpu(),
             Self::read_mem(),
             Self::read_disk(),
             Self::count_services(),
-            Self::read_onaeu_state(client),
-            Self::count_weaviate(client),
-            Self::check_ollama(client),
-            Self::check_soullink_orchestrator(client),
-            Self::read_autonomy(client),
+            Self::read_onaeu_data(&client),
+            Self::count_weaviate(&client),
+            Self::check_ollama(&client),
+            Self::check_soullink_orchestrator(&client),
+            Self::read_autonomy(&client),
             Self::read_failed_logins(),
             Self::read_open_ports(),
         );
 
         let hnn_online = hnn.organs.len() as u8;
-        let hnn_healthy = hnn_online >= 10; // science, mind, engineer, crypto, creative, meta, foresight, homeostasis, creativity, social, validation...
+        let hnn_healthy = hnn_online >= 10;
 
         let mut pending = Vec::new();
-
         if cpu > 80.0 { pending.push(format!("CPU: {:.0}%", cpu)); }
         if mem > 90.0 { pending.push(format!("MEM: {:.0}%", mem)); }
         if disk > 85.0 { pending.push(format!("DISK: {:.0}%", disk)); }
@@ -189,8 +188,7 @@ impl SystemSnapshot {
         }
     }
 
-    async fn read_onaeu_state(client: &reqwest::Client) -> (u64, f64) {
-        // Bolt ⚡: Merge cycle and entropy fetches into a single HTTP call.
+    async fn read_onaeu_data(client: &reqwest::Client) -> (u64, f64) {
         match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
