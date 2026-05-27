@@ -1,0 +1,199 @@
+//! MemoryHub — Unifie soul-memory + soullink-memory + soullink-rag.
+//!
+//! Point d'entrée unique pour toutes les opérations mémoire de SoulSystem.
+//! Stocke dans soul-memory (vectoriel), indexe dans soullink-memory (graphe conceptuel),
+//! et sert du contexte via soullink-rag (pipeline RAG).
+
+use anyhow::Result;
+use soul_memory::SoulMemory;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::info;
+
+// ── MemoryHub ──────────────────────────────────────────────────────────
+
+/// Hub mémoire unifié reliant les 3 crates.
+pub struct MemoryHub {
+    /// Stockage vectoriel primaire (soul-memory, sled/Qdrant)
+    pub vector: SoulMemory,
+    /// Graphe conceptuel (soullink-memory)
+    pub graph: Option<Arc<RwLock<soullink_memory::graph::MemoryGraph>>>,
+    /// Pipeline RAG (soullink-rag)
+    pub rag: Option<soullink_rag::pipeline::PipelineConfig>,
+}
+
+impl MemoryHub {
+    /// Crée le hub mémoire. Chaque crate est initialisé séparément.
+    /// Si un crate échoue, on continue sans (dégradation gracieuse).
+    pub async fn new(data_dir: &std::path::Path) -> Self {
+        // 1. SoulMemory (vectoriel, obligatoire)
+        let vector = SoulMemory::new().expect("SoulMemory doit s'initialiser");
+
+        // 2. Soullink-memory (graphe conceptuel, optionnel)
+        let graph = match Self::init_graph(data_dir) {
+            Ok(g) => {
+                info!("MemoryHub: soullink-memory graph actif");
+                Some(Arc::new(RwLock::new(g)))
+            }
+            Err(e) => {
+                tracing::warn!("MemoryHub: soullink-memory non disponible: {}", e);
+                None
+            }
+        };
+
+        // 3. Soullink-rag (pipeline, optionnel)
+        let rag = match Self::init_rag() {
+            Ok(cfg) => {
+                info!("MemoryHub: soullink-rag config actif");
+                Some(cfg)
+            }
+            Err(e) => {
+                tracing::warn!("MemoryHub: soullink-rag non disponible: {}", e);
+                None
+            }
+        };
+
+        Self { vector, graph, rag }
+    }
+
+    fn init_graph(data_dir: &std::path::Path) -> Result<soullink_memory::graph::MemoryGraph> {
+        let decay_cfg = soullink_memory::DecayConfig::default();
+        let db_path = data_dir.join("concept_graph");
+        Ok(soullink_memory::MemoryGraph::open(&db_path, decay_cfg)?)
+    }
+
+    fn init_rag() -> Result<soullink_rag::pipeline::PipelineConfig> {
+        Ok(soullink_rag::pipeline::PipelineConfig {
+            embed_model: "nomic-embed-text".into(),
+            embed_dim: 768,
+            dedup_threshold: 0.92,
+            max_chunks: 20,
+            chunk_size: 512,
+            chunk_overlap: 64,
+        })
+    }
+
+    /// Stocke un texte dans TOUS les backends mémoire actifs.
+    pub async fn store(&self, text: &str, metadata: HashMap<String, String>) -> Result<()> {
+        // SoulMemory
+        self.vector.store(text, metadata.clone()).await?;
+
+        // Graphe conceptuel
+        if let Some(ref graph) = self.graph {
+            let kind = classify_text(text, &metadata);
+            let concept = soullink_memory::concept::Concept::new(text, kind);
+            let graph_w = graph.write().await;
+            let _ = graph_w.insert(concept, None);
+        }
+
+        Ok(())
+    }
+
+    /// Recherche du contexte.
+    pub async fn search(&self, query: &str, top_k: usize) -> Vec<SearchResult> {
+        let mut results = Vec::new();
+
+        // SoulMemory search
+        if let Ok(mut r) = self.vector.search(query, top_k).await {
+            for (text, score) in r.drain(..) {
+                results.push(SearchResult { text, score, source: "vector" });
+            }
+        }
+
+        // Graphe conceptuel search
+        if let Some(ref graph) = self.graph {
+            let graph_r = graph.read().await;
+            // Convert query to embedding via the same embedder
+            let embedder = soul_memory::SciRustEmbedder::new(64);
+            let qv = embedder.embed(query);
+            let g_results = graph_r.search(&qv, top_k);
+            for r in &g_results {
+                if let Some(concept) = graph_r.get_by_idx(r.idx) {
+                    results.push(SearchResult {
+                        text: concept.label.clone(),
+                        score: r.score as f32,
+                        source: "graph",
+                    });
+                }
+            }
+        }
+
+        // Trier par score décroissant et dédupliquer
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        results.dedup_by(|a, b| a.text == b.text);
+        results.truncate(top_k);
+        results
+    }
+
+    /// Formatte le contexte pour injection dans un prompt.
+    pub async fn get_context(&self, query: &str, limit: usize) -> String {
+        let results = self.search(query, limit).await;
+        if results.is_empty() {
+            return String::new();
+        }
+        let mut ctx = String::from("Contexte mémoire:\n");
+        for (i, r) in results.iter().enumerate() {
+            ctx.push_str(&format!("[{}] ({}) {}\n", i, r.source, r.text));
+        }
+        ctx
+    }
+
+    /// Décroissance temporelle + nettoyage.
+    pub async fn decay_and_prune(&self, threshold: f32, decay_factor: f32, max_entries: usize) {
+        let _ = self.vector.decay_and_prune(threshold, decay_factor, max_entries);
+        if let Some(ref graph) = self.graph {
+            let graph_w = graph.write().await;
+            let _ = graph_w.decay_all();
+        }
+    }
+}
+
+/// Résultat de recherche unifié.
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub text: String,
+    pub score: f32,
+    pub source: &'static str,
+}
+
+/// Classifie un texte par type de concept (skill, memory, project, etc.)
+fn classify_text(text: &str, meta: &HashMap<String, String>) -> soullink_memory::concept::ConceptKind {
+    use soullink_memory::concept::ConceptKind;
+    if let Some(tag) = meta.get("tag") {
+        match tag.as_str() {
+            "skill" | "competence" => return ConceptKind::Skill,
+            "project" => return ConceptKind::Project,
+            "person" | "user" => return ConceptKind::Person,
+            "insight" => return ConceptKind::Insight,
+            _ => {}
+        }
+    }
+    if let Some(source) = meta.get("source") {
+        match source.as_str() {
+            "chat" | "message" => return ConceptKind::Context,
+            "audit" | "security" => return ConceptKind::Event,
+            _ => {}
+        }
+    }
+    ConceptKind::Memory
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_hub_store_and_search() {
+        let dir = TempDir::new().unwrap();
+        let hub = MemoryHub::new(dir.path()).await;
+        let mut meta = HashMap::new();
+        meta.insert("source".into(), "test".into());
+        hub.store("Le chat noir dort sur le canapé", meta).await.unwrap();
+        let results = hub.search("chat canapé", 5).await;
+        assert!(!results.is_empty(), "devrait trouver le texte stocké");
+    }
+}

@@ -1,51 +1,126 @@
 //! MemoryHub — Hub mémoire unifié.
 //!
-//! Point d'entrée unique pour toutes les opérations mémoire.
-//! Backend principal : soul-memory (sled/Qdrant).
-//! Les crates soullink-memory et soullink-rag pourront être ajoutés
-//! ultérieurement via la feature "full-memory".
+//! Backend principal : soul-memory (sled/Qdrant, toujours actif).
+//! Avec feature "full-memory" : active soullink-memory (graphe conceptuel)
+//! et soullink-rag (pipeline RAG complet).
 
 use anyhow::Result;
 use soul_memory::SoulMemory;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::info;
+
+#[cfg(feature = "full-memory")]
+use soullink_memory::graph::MemoryGraph;
+#[cfg(feature = "full-memory")]
+use soullink_memory::concept::{Concept, ConceptKind};
+#[cfg(feature = "full-memory")]
+use soullink_memory::DecayConfig;
+
+#[cfg(feature = "full-memory")]
+use soullink_rag::pipeline::{PipelineConfig, TextChunker};
+
+// ── Embedding helper (SciRustEmbedder réimplémenté ici pour éviter
+// les problèmes de visibilité du trait soul_memory::Embedder) ──────────
+
+struct SimpleEmbedder { dim: usize, seeds: [u64; 8] }
+
+impl SimpleEmbedder {
+    fn new(dim: usize) -> Self {
+        Self { dim, seeds: [42, 137, 251, 491, 773, 1021, 1301, 1607] }
+    }
+
+    fn embed(&self, text: &str) -> Vec<f32> {
+        if text.is_empty() { return vec![0.0; self.dim]; }
+        use std::hash::{Hash, Hasher};
+        let chars: Vec<char> = text.chars().collect();
+        let mut vec = vec![0.0f32; self.dim];
+        for n in 2..=4usize {
+            if n > chars.len() { continue; }
+            for i in 0..=(chars.len() - n) {
+                let ngram: String = chars[i..i + n].iter().collect();
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                ngram.hash(&mut h);
+                let base = h.finish();
+                let pos_weight = 1.0 + (i as f32 / chars.len().max(1) as f32) * 0.5;
+                for (slot, &seed) in self.seeds.iter().enumerate() {
+                    let mut h2 = std::collections::hash_map::DefaultHasher::new();
+                    (base, seed).hash(&mut h2);
+                    let idx = h2.finish() as usize % self.dim;
+                    let sign = if (slot & 1) == 0 { 1.0 } else { -1.0 };
+                    vec[idx] += sign * pos_weight;
+                }
+            }
+        }
+        let norm: f32 = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.0 { for x in &mut vec { *x /= norm; } }
+        vec
+    }
+}
 
 // ── MemoryHub ──────────────────────────────────────────────────────────
 
-/// Hub mémoire unifié. Actuellement basé sur soul-memory (vectoriel).
 pub struct MemoryHub {
     pub vector: SoulMemory,
+    #[cfg(feature = "full-memory")]
+    pub graph: Option<Arc<RwLock<MemoryGraph>>>,
+    #[cfg(feature = "full-memory")]
+    pub rag_config: Option<PipelineConfig>,
 }
 
 impl MemoryHub {
-    /// Crée le hub mémoire.
     pub async fn new(data_dir: &std::path::Path) -> Self {
         let vector = SoulMemory::new().expect("SoulMemory doit s'initialiser");
-        info!("MemoryHub: soul-memory actif (data_dir: {:?})", data_dir);
-        Self { vector }
+        info!("MemoryHub: soul-memory actif");
+
+        #[cfg(feature = "full-memory")]
+        let graph = match MemoryGraph::open(
+            &data_dir.join("concept_graph"), DecayConfig::default(),
+        ) {
+            Ok(g) => { info!("MemoryHub: graph actif"); Some(Arc::new(RwLock::new(g))) }
+            Err(e) => { tracing::warn!("MemoryHub: graph echec: {}", e); None }
+        };
+
+        #[cfg(feature = "full-memory")]
+        let rag_config = Some(PipelineConfig {
+            embed_model: "nomic-embed-text".into(), embed_dim: 768,
+            dedup_threshold: 0.92, max_chunks: 20, chunk_size: 512, chunk_overlap: 64,
+        });
+
+        Self { vector, graph, rag_config }
     }
 
-    /// Stocke un texte avec métadonnées dans le stockage vectoriel.
     pub async fn store(&self, text: &str, metadata: HashMap<String, String>) -> Result<()> {
-        self.vector.store(text, metadata).await?;
+        self.vector.store(text, metadata.clone()).await?;
+        #[cfg(feature = "full-memory")]
+        if let Some(ref graph) = self.graph {
+            let kind = classify_text(text, &metadata);
+            graph.write().await.insert(Concept::new(text, kind), None);
+        }
         Ok(())
     }
 
-    /// Recherche les textes les plus proches d'une requête.
     pub async fn search(&self, query: &str, top_k: usize) -> Vec<SearchResult> {
-        match self.vector.search(query, top_k).await {
-            Ok(results) => results.into_iter().map(|(text, score)| SearchResult {
-                text, score, source: "soul-memory",
-            }).collect(),
-            Err(e) => {
-                tracing::warn!("MemoryHub search error: {}", e);
-                Vec::new()
+        let mut results: Vec<SearchResult> = Vec::new();
+        if let Ok(hits) = self.vector.search(query, top_k).await {
+            for (text, score) in hits {
+                results.push(SearchResult { text, score, source: "vector" });
             }
         }
+        #[cfg(feature = "full-memory")]
+        if let Some(ref graph) = self.graph {
+            let qv = SimpleEmbedder::new(64).embed(query);
+            for r in &graph.read().await.search(&qv, top_k) {
+                results.push(SearchResult { text: r.label.clone(), score: r.score, source: "graph" });
+            }
+        }
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        results.dedup_by(|a, b| a.text == b.text);
+        results.truncate(top_k);
+        results
     }
 
-    /// Formatte le contexte pour injection dans un prompt.
     pub async fn get_context(&self, query: &str, limit: usize) -> String {
         let results = self.search(query, limit).await;
         if results.is_empty() { return String::new(); }
@@ -56,34 +131,58 @@ impl MemoryHub {
         ctx
     }
 
-    /// Décroissance temporelle + nettoyage.
-    pub async fn decay_and_prune(&self, threshold: f32, decay_factor: f32, max_entries: usize) {
-        let _ = self.vector.decay_and_prune(threshold, decay_factor, max_entries);
+    pub async fn decay_and_prune(&self, threshold: f32, decay: f32, max: usize) {
+        let _ = self.vector.decay_and_prune(threshold, decay, max);
+        #[cfg(feature = "full-memory")]
+        if let Some(ref graph) = self.graph { let _ = graph.write().await.decay_all(); }
     }
 }
 
-/// Résultat de recherche unifié.
 #[derive(Debug, Clone)]
-pub struct SearchResult {
-    pub text: String,
-    pub score: f32,
-    pub source: &'static str,
+pub struct SearchResult { pub text: String, pub score: f32, pub source: &'static str }
+
+#[cfg(feature = "full-memory")]
+fn classify_text(_text: &str, meta: &HashMap<String, String>) -> ConceptKind {
+    if let Some(tag) = meta.get("tag") {
+        match tag.as_str() {
+            "skill" | "competence" => return ConceptKind::Skill,
+            "project" => return ConceptKind::Project,
+            "person" | "user" => return ConceptKind::Person,
+            _ => {}
+        }
+    }
+    ConceptKind::Fact
+}
+
+#[cfg(feature = "full-memory")]
+pub fn chunk_text(text: &str, config: &PipelineConfig) -> Vec<String> {
+    TextChunker::new(config).chunk(text)
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[tokio::test]
     async fn test_hub_store_and_search() {
         let dir = tempfile::TempDir::new().unwrap();
         let hub = MemoryHub::new(dir.path()).await;
-        let mut meta = HashMap::new();
-        meta.insert("source".into(), "test".into());
-        hub.store("Le chat noir dort sur le canape", meta).await.unwrap();
-        let results = hub.search("chat canape", 5).await;
-        assert!(!results.is_empty(), "devrait trouver le texte stocke");
+        hub.store("Le chat noir dort", HashMap::new()).await.unwrap();
+        assert!(!hub.search("chat noir", 5).await.is_empty());
+    }
+    #[tokio::test]
+    async fn test_hub_context() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let hub = MemoryHub::new(dir.path()).await;
+        hub.store("document de test", HashMap::new()).await.unwrap();
+        assert!(hub.get_context("document", 5).await.contains("document de test"));
+    }
+    #[test]
+    fn test_embedder_produces_valid_vector() {
+        let e = SimpleEmbedder::new(64);
+        let v = e.embed("test");
+        assert_eq!(v.len(), 64);
+        let norm: f32 = v.iter().map(|x| x*x).sum::<f32>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-4);
     }
 }

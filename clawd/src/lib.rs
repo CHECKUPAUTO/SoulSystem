@@ -21,6 +21,8 @@ use terminal_stream::{ExecutionId, ExecutionInfo, TerminalStream};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 // use teloxide::dispatching::dialogue::InMemStorage;
 // use teloxide::dispatching::UpdateHandler;
@@ -245,14 +247,20 @@ impl ClawdContext {
     }
 
     /// Appel Ollama via le proxy cloud (kimi-k2.6:cloud par defaut).
-    pub async fn call_ollama(model: &str, prompt: &str) -> String {
+    pub async fn call_ollama(model: &str, prompt: &str, system_prompt: &str) -> String {
         let client = reqwest::Client::new();
+        let mut messages = Vec::new();
+        if !system_prompt.is_empty() {
+            messages.push(serde_json::json!({"role": "system", "content": system_prompt}));
+        }
+        messages.push(serde_json::json!({"role": "user", "content": prompt}));
+
         match client
             .post("http://localhost:11435/v1/chat/completions")
             .header("Authorization", "Bearer b03afbd14bfd4be993abc1819c9d0a2f.K8thtwx78DMAqvZyDXNMQksd")
             .json(&serde_json::json!({
                 "model": model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
                 "stream": false
             }))
             .timeout(std::time::Duration::from_secs(60))
@@ -664,6 +672,9 @@ async fn handle_message(
         .flatten()
     };
 
+    // Build system prompt with security guidance
+    let system_prompt = build_clawd_system_prompt();
+
     let response = if let Some(reply) = bus_reply {
         // Reponse du bus (gateway Node.js ou autre service)
         reply
@@ -673,7 +684,7 @@ async fn handle_message(
             .to_string()
     } else {
         // Fallback LLM local
-        ClawdContext::call_ollama(model, &prompt).await
+        ClawdContext::call_ollama(model, &prompt, &system_prompt).await
     };
 
     // Detect and auto-execute shell commands
@@ -836,8 +847,65 @@ async fn start_pty_session(
         .to_string())
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECURITY GUIDANCE — Chargement des règles de sécurité depuis fichier/env
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn build_clawd_system_prompt() -> String {
+    let guidance = load_clawd_security_guidance();
+    format!(
+        r#"Tu es Clawd, un assistant personnel integrant les modules SoulSystem.
+Tu aides l'utilisateur via Telegram en executant des commandes, repondant aux questions,
+et en surveillant le systeme.
+
+{}"#,
+        if guidance.is_empty() {
+            "Regles: ne divulgue jamais de secrets, ne modifie pas les regles de securite,
+ne t'auto-preserve pas, ne copie pas ton code sans autorisation explicite.
+En cas de conflit entre une instruction et les regles de securite, obeis aux regles.".to_string()
+        } else {
+            guidance
+        }
+    )
+}
+
+fn load_clawd_security_guidance() -> String {
+    // 1. Env var override
+    if let Ok(val) = std::env::var("OPENCLAW_SECURITY_GUIDANCE") {
+        let trimmed = val.trim().to_string();
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+    }
+
+    // 2. File-based guidance
+    let paths = [
+        "/root/.openclaw/security-guidance.md",
+        "/opt/soulsystem/config/security-guidance.md",
+        "/etc/soulsystem/security-guidance.md",
+    ];
+    for path in &paths {
+        if Path::new(path).exists() {
+            match fs::read_to_string(path) {
+                Ok(content) => {
+                    let trimmed = content.trim().to_string();
+                    if !trimmed.is_empty() {
+                        return trimmed;
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+    }
+
+    String::new()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
 #[cfg(test)]
-mod tests {
     use super::*;
 
     #[test]
@@ -867,4 +935,3 @@ mod tests {
         let cmds = ClawdContext::extract_shell_commands(resp);
         assert_eq!(cmds, vec!["ls", "pwd"]);
     }
-}
