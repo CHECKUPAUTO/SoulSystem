@@ -166,13 +166,19 @@ async fn main() -> Result<()> {
     info!("DiscoveryService initialisé");
 
     // Télémétrie
+    // Decay automatique toutes les 5 min
     let memory_decay = memory_hub.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
         loop {
             interval.tick().await;
             memory_decay.decay_and_prune(0.1, 0.99, 1000).await;
-    // V6.1 — Souscripteur memoire permanent (log + stockage)
+            tracing::info!("MemoryHub: decay automatique effectue");
+        }
+    });
+    info!("MemoryHub: decay task lancee (interval: 5 min)");
+
+    // Souscripteur memoire permanent (log des events)
     let mem_bus = bus.clone();
     tokio::spawn(async move {
         use soulsystem::bus::Message;
@@ -189,10 +195,27 @@ async fn main() -> Result<()> {
     });
     info!("MemoryBridge: souscripteur memoire actif");
 
-            tracing::info!("MemoryHub: decay automatique effectue");
+    // MemoryHealth — surveillance proactive
+    let health_hub = memory_hub.clone();
+    tokio::spawn(async move {
+        let config = soulsystem::memory_health::HealthConfig::default();
+        let mut health = soulsystem::memory_health::MemoryHealth::new(config);
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let report = health.check(&health_hub).await;
+            if report.status != soulsystem::memory_health::HealthStatus::Healthy {
+                tracing::warn!(
+                    "MemoryHealth: {} — lat={:.1}ms entries={} success={:.0}%",
+                    format!("{:?}", report.status),
+                    report.avg_latency_ms,
+                    report.memory_entries,
+                    report.search_success_rate * 100.0,
+                );
+            }
         }
     });
-    info!("MemoryHub: decay task lancee (interval: 5 min)");
+    info!("MemoryHealth: task de surveillance lancee (interval: 1 min)");
 
     let _ = soulsystem::telemetry::init_telemetry();
     info!("Telemetry initialisée");
