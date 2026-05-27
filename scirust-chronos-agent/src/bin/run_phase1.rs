@@ -82,7 +82,7 @@ fn main() {
             vec![0.0; D_LATENT]
         });
 
-        memory.observe(&latent);
+        memory.observe(&latent, None);
 
         // Stats de l'observation
         let energy: f64 = latent.iter().map(|x| x * x).sum::<f64>().sqrt();
@@ -110,10 +110,10 @@ fn main() {
     println!("  🧠 Rapport mémoire:");
     println!("     SemanticStore:      {} entrées", memory.semantic.index.len());
     println!("     Alpha sync (avg):   {:.4}", memory.alpha_sync);
-    println!("     Strengths (total):  {}", memory.semantic.strengths.len());
-    if !memory.semantic.strengths.is_empty() {
-        let total_s: f64 = memory.semantic.strengths.iter().sum();
-        let max_s = memory.semantic.strengths.iter().cloned().fold(0.0f64, f64::max);
+    println!("     Strengths (total):  {}", memory.semantic.prototypes.len());
+    if !memory.semantic.prototypes.is_empty() {
+        let total_s: f64 = memory.semantic.prototypes.iter().map(|p| p.strength).sum();
+        let max_s = memory.semantic.prototypes.iter().map(|p| p.strength).fold(0.0f64, f64::max);
         println!("     Strengths (sum/max): {:.0} / {:.0}", total_s, max_s);
     }
     println!();

@@ -47,6 +47,8 @@ const N_HEADS: usize = 4;
 const D_HEAD: usize = 64;
 const NUM_STEPS: usize = 10;
 const EPISODIC_CAP: usize = 64;
+const D_TIME: usize = 6;
+const T_FUTURE: usize = 4;
 const ALPHA_THRESHOLD: f64 = 0.65;
 const REGRET_THRESHOLD: f64 = 0.2;
 const RECOVERY_THRESHOLD: f64 = 0.1;
@@ -209,7 +211,7 @@ fn run_scenario(
     stress_start: usize,
 ) -> (StressMetrics, Vec<String>) {
     let device = Device::Cpu;
-    let mut perceiver = PTNLPerceiver::new(D_INPUT, D_LATENT, M, T, &device).unwrap();
+    let mut perceiver = PTNLPerceiver::new(D_INPUT, D_LATENT, M, T, D_TIME, T_FUTURE, &device).unwrap();
     let mut bci = GRUCell::new(D_LATENT, D_HIDDEN, &device).unwrap();
     let mut memory = AtemporalMemory::new(D_LATENT, EPISODIC_CAP);
     let mut planner = StochasticDiffusionPlanner::new(NUM_STEPS, D_LATENT, &device).unwrap();
@@ -238,13 +240,14 @@ fn run_scenario(
         let flat: Vec<f64> = window.iter().flat_map(|w| w.iter()).copied().collect();
         let x = Tensor::from_slice(&flat, (T, D_INPUT), &device).unwrap();
 
-        let (latents, _) = perceiver.forward(&x).unwrap();
+        let t_axis = make_dummy_t_axis(T).unwrap();
+        let (latents, _) = perceiver.forward(&x, &t_axis).unwrap();
         let lm = latents.mean(0).unwrap();
         let l1 = if lm.dims().len() > 1 { lm.squeeze(0).unwrap() } else { lm };
         let lv: Vec<f64> = l1.to_vec1::<f64>().unwrap();
         let lf: Vec<f64> = latents.flatten_all().unwrap().to_vec1::<f64>().unwrap();
 
-        memory.observe(&lv);
+        memory.observe(&lv, None);
         let a_sync = memory.alpha_sync;
         alphas.push(a_sync);
 
@@ -332,6 +335,12 @@ fn run_scenario(
 // --------------------------------------------------------------------------
 // Main
 // --------------------------------------------------------------------------
+
+/// T_axis factice pour compatibilité V6 — produit un vecteur Time2Vec neutre
+/// (t=0 répété pour tous les tokens de la fenêtre).
+fn make_dummy_t_axis(batch_len: usize) -> candle_core::Result<Tensor> {
+    Tensor::from_slice(&vec![0.0f32; batch_len], (1, batch_len), &Device::Cpu)
+}
 
 fn main() {
     println!("╔═══════════════════════════════════════════════════════════════╗");

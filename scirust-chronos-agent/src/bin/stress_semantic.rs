@@ -57,7 +57,7 @@ fn main() {
             .collect();
 
         let before = memory.semantic.index.len();
-        memory.observe(&latent);
+        memory.observe(&latent, None);
         let after = memory.semantic.index.len();
         if after > before { metrics.total_insertions += 1; } else { metrics.total_reinforcements += 1; }
 
@@ -99,7 +99,7 @@ fn main() {
                 .collect()
         };
 
-        memory.observe(&latent);
+        memory.observe(&latent, None);
         metrics.memory_alpha.push(memory.alpha_sync);
         if memory.alpha_sync < 0.01 { metrics.alpha_collapses += 1; }
 
@@ -124,10 +124,10 @@ fn main() {
 
     // --- Rapport ---
     let total_elapsed = start.elapsed();
-    let total_strength: f64 = memory.semantic.strengths.iter().sum();
+    let total_strength: f64 = memory.semantic.prototypes.iter().map(|p| p.strength).sum();
     let entropy: f64 = if total_strength > 0.0 {
-        -memory.semantic.strengths.iter()
-            .map(|s| { let p = s / total_strength; if p > 0.0 { p * p.ln() } else { 0.0 } })
+        -memory.semantic.prototypes.iter()
+            .map(|p| { let s = p.strength; let pct = s / total_strength; if pct > 0.0 { pct * pct.ln() } else { 0.0 } })
             .sum::<f64>()
     } else { 0.0 };
 
@@ -161,7 +161,7 @@ fn main() {
     println!("╠═══════════════════════════════════════════════════════════╣");
     println!("  ⏱  Durée:                {:.2}s", total_elapsed.as_secs_f64());
     println!("  🧠 SemanticStore:         {}", memory.semantic.index.len());
-    println!("  📦 EpisodicStore:         {}", memory.episodic.index.len());
+    println!("  📦 EpisodicStore:         {}", memory.episodic.traces.len());
     println!("  ➕ Insertions est.:       {}", metrics.total_insertions);
     println!("  🔄 Reinforcements est.:   {}", metrics.total_reinforcements);
     println!("  🔍 Searches:              {}", metrics.total_searches);
@@ -171,8 +171,8 @@ fn main() {
     println!("  🧠 Alpha < 0.01:           {} / {} ({:.1}%)", alpha_below, metrics.memory_alpha.len(), collapse_ratio * 100.0);
     println!("  📏 Drift (avg/max):        {:.4} / {:.4}", avg_drift, max_drift);
     println!("  💪 Strengths (avg/max):    {:.2} / {:.0}",
-        memory.semantic.strengths.iter().sum::<f64>() / memory.semantic.strengths.len().max(1) as f64,
-        memory.semantic.strengths.iter().cloned().fold(0.0f64, f64::max));
+        memory.semantic.prototypes.iter().map(|p| p.strength).sum::<f64>() / memory.semantic.prototypes.len().max(1) as f64,
+        memory.semantic.prototypes.iter().map(|p| p.strength).fold(0.0f64, f64::max));
     println!("  🎲 Strength entropy:       {:.4}", entropy);
     println!("╠═══════════════════════════════════════════════════════════╣");
 
