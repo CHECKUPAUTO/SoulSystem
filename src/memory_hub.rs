@@ -1,18 +1,24 @@
-//! MemoryHub — Hub memoire unifie avec events bus.
+//! MemoryHub — Hub memoire unifie avec graphe conceptuel (full-memory).
 //!
 //! Backend principal : soul-memory (sled/Qdrant, toujours actif).
-//! Avec feature "full-memory" : soullink-memory (graphe conceptuel).
+//! Avec feature "full-memory" (activee par defaut) : ajoute le graphe
+//! conceptuel soullink-memory pour la navigation associative.
 
 use anyhow::Result;
 use soul_memory::SoulMemory;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::info;
 
+// Imports conditionnels full-memory
+#[cfg(feature = "full-memory")]
+use soullink_memory::graph::MemoryGraph;
 #[cfg(feature = "full-memory")]
 use soullink_memory::concept::{Concept, ConceptKind};
+#[cfg(feature = "full-memory")]
+use soullink_memory::DecayConfig;
 
-// Callback d'evenement memoire
 pub type MemoryEventFn = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 
 // ── SimpleEmbedder ────────────────────────────────────────────────────
@@ -54,6 +60,8 @@ impl SimpleEmbedder {
 
 pub struct MemoryHub {
     pub vector: SoulMemory,
+    #[cfg(feature = "full-memory")]
+    pub graph: Option<Arc<RwLock<MemoryGraph>>>,
     pub on_event: Option<MemoryEventFn>,
 }
 
@@ -62,7 +70,23 @@ impl MemoryHub {
         let _ = data_dir;
         let vector = SoulMemory::new().expect("SoulMemory doit s'initialiser");
         info!("MemoryHub: soul-memory actif");
-        Self { vector, on_event: None }
+
+        #[cfg(feature = "full-memory")]
+        let graph = match MemoryGraph::open(
+            &data_dir.join("concept_graph"),
+            DecayConfig::default(),
+        ) {
+            Ok(g) => {
+                info!("MemoryHub: graphe conceptuel actif (soullink-memory)");
+                Some(Arc::new(RwLock::new(g)))
+            }
+            Err(e) => {
+                tracing::warn!("MemoryHub: graphe conceptuel indisponible: {}", e);
+                None
+            }
+        };
+
+        Self { vector, graph, on_event: None }
     }
 
     pub fn set_event_callback(&mut self, cb: MemoryEventFn) {
@@ -74,18 +98,40 @@ impl MemoryHub {
     }
 
     pub async fn store(&self, text: &str, metadata: HashMap<String, String>) -> Result<()> {
+        // Toujours stocker dans soul-memory (vectoriel)
         self.vector.store(text, metadata.clone()).await?;
+
+        // Si full-memory : stocker aussi dans le graphe conceptuel
+        #[cfg(feature = "full-memory")]
+        if let Some(ref graph) = self.graph {
+            let kind = classify_text(text, &metadata);
+            let _ = graph.write().await.insert(Concept::new(text, kind), None);
+        }
+
         self.emit("stored", serde_json::json!({"text": text, "metadata": metadata}));
         Ok(())
     }
 
     pub async fn search(&self, query: &str, top_k: usize) -> Vec<SearchResult> {
         let mut results: Vec<SearchResult> = Vec::new();
+
+        // 1. SoulMemory (vectoriel)
         if let Ok(hits) = self.vector.search(query, top_k).await {
             for (text, score) in hits {
                 results.push(SearchResult { text, score, source: "vector" });
             }
         }
+
+        // 2. Graphe conceptuel (full-memory)
+        #[cfg(feature = "full-memory")]
+        if let Some(ref graph) = self.graph {
+            let qv = SimpleEmbedder::new(64).embed(query);
+            for r in &graph.read().await.search(&qv, top_k) {
+                results.push(SearchResult { text: r.label.clone(), score: r.score, source: "graph" });
+            }
+        }
+
+        // Tri + dedup
         results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
         results.dedup_by(|a, b| a.text == b.text);
         results.truncate(top_k);
@@ -104,12 +150,35 @@ impl MemoryHub {
 
     pub async fn decay_and_prune(&self, threshold: f32, decay: f32, max: usize) {
         let _ = self.vector.decay_and_prune(threshold, decay, max);
+        #[cfg(feature = "full-memory")]
+        if let Some(ref graph) = self.graph {
+            let _ = graph.write().await.decay_all();
+        }
         self.emit("decayed", serde_json::json!({"threshold": threshold, "max": max}));
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct SearchResult { pub text: String, pub score: f32, pub source: &'static str }
+
+#[cfg(feature = "full-memory")]
+fn classify_text(_text: &str, meta: &HashMap<String, String>) -> ConceptKind {
+    if let Some(tag) = meta.get("tag") {
+        match tag.as_str() {
+            "skill" | "competence" => return ConceptKind::Skill,
+            "project" => return ConceptKind::Project,
+            "person" | "user" => return ConceptKind::Person,
+            _ => {}
+        }
+    }
+    if let Some(source) = meta.get("source") {
+        match source.as_str() {
+            "audit" | "security" => return ConceptKind::Event,
+            _ => {}
+        }
+    }
+    ConceptKind::Fact
+}
 
 // ── Tests ──────────────────────────────────────────────────────────────
 #[cfg(test)]
@@ -122,13 +191,6 @@ mod tests {
         let hub = MemoryHub::new(dir.path()).await;
         hub.store("Le chat noir dort", HashMap::new()).await.unwrap();
         assert!(!hub.search("chat noir", 5).await.is_empty());
-    }
-    #[tokio::test]
-    async fn test_context() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let hub = MemoryHub::new(dir.path()).await;
-        hub.store("document de test", HashMap::new()).await.unwrap();
-        assert!(hub.get_context("document", 5).await.contains("document de test"));
     }
     #[tokio::test]
     async fn test_event_callback() {

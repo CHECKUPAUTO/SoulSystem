@@ -166,3 +166,4 @@ futures-util = "0.3.32"
 dev = []
 gpu = []
 full-memory = ["soullink-memory", "soullink-rag"]
+default = ["full-memory"]
