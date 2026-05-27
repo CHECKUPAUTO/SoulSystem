@@ -126,7 +126,7 @@ impl AnomalyWatcher {
     async fn emit_alert(&self, drop_ratio: f64, before: f64, after: f64) {
         use crate::bus::Message;
         let msg = Message::AvidDiscovery {
-            source: "anomaly".into(),
+            topic: "anomaly".into(),
             summary: format!(
                 "⚠️ Chute HNN {:.1}% : {:.0} → {:.0} Hz | sévérité: {}",
                 drop_ratio * 100.0,

@@ -145,6 +145,7 @@ anyhow = "1"
 thiserror = "2"
 regex = "1"
 rand = "0.8"
+rusqlite = { version = "0.32", features = ["bundled"] }
 which = "8"
 sysinfo = "0.31"
 clap = { version = "4", features = ["derive"] }
@@ -165,4 +166,4 @@ futures-util = "0.3.32"
 [features]
 dev = []
 gpu = []
-default = ["dev"]
+default = []

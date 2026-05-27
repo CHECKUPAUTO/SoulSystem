@@ -15,6 +15,7 @@ use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
 use soulsystem::bound_system::BoundSystem;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::info;
@@ -93,6 +94,320 @@ async fn main() -> Result<()> {
     }
     let memory_hub = Arc::new(memory_hub_raw);
     info!("MemoryHub initialise");
+
+    // ── Phase 0: CompactionWatchdog ────────────────────────────────────
+    let watchdog_cfg = soulsystem::compaction_watchdog::CompactionConfig {
+        data_dir: settings.paths.data_dir.clone(),
+        message_threshold: 50,
+        check_interval_secs: 30,
+        proactive_save: true,
+    };
+    let watchdog = Arc::new(
+        soulsystem::compaction_watchdog::CompactionWatchdog::new(watchdog_cfg)
+    );
+
+    // Restaurer l'état précédent s'il existe (après compaction)
+    if let Ok(Some(prev_state)) = watchdog.load_previous_state().await {
+        info!(
+            "CompactionWatchdog: contexte précédent restauré (tâche: {})",
+            prev_state.current_task
+        );
+        // Injecter le texte de restauration dans le contexte via le bus
+        let restore_text = prev_state.format_for_context();
+        bus.publish(soulsystem::bus::Message::Custom {
+            topic: "compaction.restore".into(),
+            payload: serde_json::json!({
+                "text": restore_text,
+                "saved_at": prev_state.saved_at_ms,
+            }),
+        });
+        // Nettoyer l'état après restauration
+        let _ = watchdog.clear_state().await;
+    }
+
+    // Vérifier périodiquement les triggers de compaction
+    let watchdog_clone = watchdog.clone();
+    let bus_compaction = bus.clone();
+    tokio::spawn(async move {
+        watchdog_clone.run().await;
+    });
+
+    // Surveiller le trigger de compaction (écrit par OpenClaw ou processus externe)
+    let watchdog_trigger = watchdog.clone();
+    let bus_trigger = bus.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
+        loop {
+            interval.tick().await;
+            if watchdog_trigger.check_compaction_trigger().await {
+                warn!("CompactionWatchdog: signal de compaction détecté !");
+                if let Err(e) = watchdog_trigger.on_compaction().await {
+                    tracing::error!("CompactionWatchdog: erreur sauvegarde: {}", e);
+                }
+                // Émettre un événement sur le bus
+                bus_trigger.publish(soulsystem::bus::Message::Custom {
+                    topic: "compaction.detected".into(),
+                    payload: serde_json::json!({"timestamp_ms": chrono::Utc::now().timestamp_millis() }),
+                });
+            }
+        }
+    });
+    info!("CompactionWatchdog: surveillance active (interval: 15s)");
+
+    // ── Phase 0: ContinuousSummarizer ──────────────────────────────────
+    let summarizer_cfg = soulsystem::continuous_summarizer::SummarizerConfig {
+        data_dir: settings.paths.data_dir.clone(),
+        interval_secs: 600,        // 10 minutes
+        message_threshold: 30,      // ou tous les 30 messages
+        summary_filename: "summary_latest.md".into(),
+        pending_facts_filename: "pending_facts.md".into(),
+        session_id: format!("soulsystem-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S")),
+    };
+    let summarizer = Arc::new(
+        soulsystem::continuous_summarizer::ContinuousSummarizer::new(summarizer_cfg)
+    );
+
+    // Lancer la boucle de résumé
+    let summarizer_run = summarizer.clone();
+    let bus_summary = bus.clone();
+    tokio::spawn(async move {
+        summarizer_run.run().await;
+    });
+
+    // Souscripteur qui écoute les événements du bus et alimente le résumé
+    let summarizer_bus = summarizer.clone();
+    let bus_summary_sub = bus.clone();
+    tokio::spawn(async move {
+        use soulsystem::bus::Message;
+        let mut rx = bus_summary_sub.subscribe();
+        loop {
+            match rx.recv().await {
+                Ok(Message::Custom { topic, payload }) => {
+                    match topic.as_str() {
+                        "memory.stored" => {
+                            let _ = summarizer_bus.increment_messages().await;
+                        }
+                        "memory.decision" => {
+                            if let Some(text) = payload.get("text").and_then(|v| v.as_str()) {
+                                summarizer_bus.add_decision(text).await;
+                            }
+                        }
+                        "memory.error" => {
+                            if let (Some(err), Some(fix)) = (
+                                payload.get("error").and_then(|v| v.as_str()),
+                                payload.get("fix").and_then(|v| v.as_str()),
+                            ) {
+                                summarizer_bus.add_error_fix(err, fix).await;
+                            }
+                        }
+                        "memory.fact" => {
+                            if let Some(text) = payload.get("text").and_then(|v| v.as_str()) {
+                                summarizer_bus.add_fact(text).await;
+                            }
+                        }
+                        "compaction.detected" => {
+                            info!("Summarizer: compaction détectée, génération résumé préventif");
+                            let _ = summarizer_bus.generate_summary().await;
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+    });
+    info!("ContinuousSummarizer: génération active (interval: 10min / 30msg)");
+
+    // ── Phase 0: MemoryHealth étendu ───────────────────────────────────
+    let health_hub = memory_hub.clone();
+    let health_watchdog = watchdog.clone();
+    let health_summarizer = summarizer.clone();
+    tokio::spawn(async move {
+        let config = soulsystem::memory_health::HealthConfig {
+            latency_warn_ms: 500.0,
+            max_entries_warn: 1000,
+            search_failure_ratio: 0.3,
+            window_size: 50,
+            max_compactions_per_hour: 2,
+            max_message_rate: 30.0,
+            context_size_warn_tokens: 500_000,
+            max_alpha_sync_variance: 0.4,
+            max_error_rate: 0.15,
+        };
+        let mut health = soulsystem::memory_health::MemoryHealth::new(config);
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+
+            // Alimenter les métriques depuis le watchdog
+            let comp_count = *health_watchdog.compaction_count().read().await;
+            for _ in 0..comp_count {
+                health.record_compaction();
+            }
+
+            // Vérifier le taux de messages depuis le résumé
+            let msg_count = health_summarizer.summary().read().await.message_count;
+            for _ in 0..msg_count.min(10) {
+                health.record_message();
+            }
+
+            let report = health.check(&health_hub).await;
+
+            // Émettre une alerte de fatigue sur le bus
+            if report.is_fatigued {
+                bus.publish(soulsystem::bus::Message::Custom {
+                    topic: "memory.fatigue_alert".into(),
+                    payload: serde_json::json!({
+                        "severity": "warning",
+                        "message": "Fatigue cognitive détectée — pause recommandée",
+                        "compactions": report.compactions_last_hour,
+                        "alpha_variance": report.alpha_sync_variance,
+                        "context_tokens": report.estimated_context_tokens,
+                    }),
+                });
+            }
+
+            if report.status != soulsystem::memory_health::HealthStatus::Healthy {
+                tracing::warn!(
+                    "MemoryHealth: {:?} — lat={:.1}ms comp={} msg/min={:.0} ctx={}K err={:.1}%",
+                    report.status,
+                    report.avg_latency_ms,
+                    report.compactions_last_hour,
+                    report.message_rate,
+                    report.estimated_context_tokens / 1000,
+                    report.error_rate * 100.0,
+                );
+            }
+        }
+    });
+    info!("MemoryHealth: surveillance étendue active (interval: 1 min)");
+
+    // ── Phase 1: RAG Middleware actif ──────────────────────────────────
+    let rag_cfg = soulsystem::rag_middleware::RagMiddlewareConfig {
+        data_dir: settings.paths.data_dir.join("rag"),
+        top_k: 3,
+        min_score: 0.7,
+        hybrid_alpha: 0.7,
+        cache_capacity: 100,
+        context_window: 5,
+        timeout_ms: 200,
+    };
+    let rag_middleware = Arc::new(soulsystem::rag_middleware::RagMiddleware::new(rag_cfg));
+    if let Err(e) = rag_middleware.init_store().await {
+        tracing::warn!("RAG middleware: init store échouée (mode dégradé): {}", e);
+    }
+    info!("RAG middleware: actif ({} top_k, {:.1} seuil)", 3, 0.7);
+
+    // ── Phase 1: MemorySuggest (auto-suggestion MEMORY.md) ─────────────
+    let suggest_cfg = soulsystem::memory_suggest::MemorySuggestConfig {
+        data_dir: settings.paths.data_dir.clone(),
+        memory_path: PathBuf::from(
+            std::env::var("SOULLINK_MEMORY_PATH")
+                .unwrap_or_else(|_| "/root/.openclaw/workspace/MEMORY.md".into())
+        ),
+        apply_script_path: PathBuf::from(
+            std::env::var("SOULLINK_APPLY_SCRIPT")
+                .unwrap_or_else(|_| "/root/.openclaw/workspace/apply_memory_updates.sh".into())
+        ),
+        auto_approve_threshold: 0.95,
+    };
+    let memory_suggest = Arc::new(soulsystem::memory_suggest::MemorySuggest::new(suggest_cfg));
+    if memory_suggest.has_pending().await {
+        info!("MemorySuggest: {} faits en attente de validation", memory_suggest.pending_count().await);
+    }
+    info!("MemorySuggest: suggestions actives (seuil auto: 0.95)");
+
+    // ── Phase 2: CheckpointLoader ─────────────────────────────────────
+    let checkpoint_dir = settings.paths.data_dir.join("checkpoints");
+    let checkpoint_loader = Arc::new(
+        soulsystem::checkpoint_loader::CheckpointLoader::new(checkpoint_dir)
+    );
+    if checkpoint_loader.has_checkpoints() {
+        if let Some(cp) = checkpoint_loader.load_latest() {
+            info!(
+                "CheckpointLoader: checkpoint époque {} chargé ({} métriques)",
+                cp.epoch,
+                cp.metrics.len()
+            );
+            // Publier l'info sur le bus
+            bus.publish(soulsystem::bus::Message::Custom {
+                topic: "checkpoint.loaded".into(),
+                payload: serde_json::json!({
+                    "epoch": cp.epoch,
+                    "metrics": cp.metrics,
+                }),
+            });
+        }
+    } else {
+        info!("CheckpointLoader: aucun checkpoint existant (démarrage initial)");
+    }
+
+    // Prune automatique des vieux checkpoints (garder les 5 derniers)
+    let cl_prune = checkpoint_loader.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(86400)); // 1 jour
+        loop {
+            interval.tick().await;
+            cl_prune.prune_old(5);
+        }
+    });
+    info!("CheckpointLoader: chargement initial terminé");
+
+    // ── Phase 4: SleepCycle (consolidation offline) ────────────────────
+    let sleep_cfg = soulsystem::sleep_cycle::SleepConfig {
+        data_dir: settings.paths.data_dir.clone(),
+        inactivity_threshold_secs: 1800, // 30 min
+        link_reinforcement: 0.1,
+        check_interval_secs: 300, // 5 min
+    };
+    let sleep_cycle = Arc::new(soulsystem::sleep_cycle::SleepCycle::new(sleep_cfg));
+    let sleep_hub = memory_hub.clone();
+    let sleep_bus = bus.clone();
+    tokio::spawn(async move {
+        sleep_cycle.run(sleep_hub, sleep_bus).await;
+    });
+    info!("SleepCycle: consolidation offline active (30min inactivité)");
+
+    // ── Phase 3: TemporalIndex ──────────────────────────────────────────
+    let temporal_index = match soulsystem::temporal_index::TemporalIndex::open(
+        &settings.paths.data_dir.join("temporal")
+    ) {
+        Ok(idx) => {
+            info!("TemporalIndex: index chronologique actif ({} entrées)", idx.count().unwrap_or(0));
+            Some(Arc::new(idx))
+        }
+        Err(e) => {
+            tracing::warn!("TemporalIndex: non disponible: {}", e);
+            None
+        }
+    };
+    if let Some(ref idx) = temporal_index {
+        let idx_clone = idx.clone();
+        let bus_temporal = bus.clone();
+        tokio::spawn(async move {
+            use soulsystem::bus::Message;
+            let mut rx = bus_temporal.subscribe();
+            loop {
+                match rx.recv().await {
+                    Ok(Message::Custom { topic, payload }) if topic == "memory.stored" => {
+                        let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                        let tag = payload.get("metadata").and_then(|m| m.get("tag"))
+                            .and_then(|v| v.as_str()).unwrap_or("general");
+                        let _ = idx_clone.insert_simple(
+                            &format!("mem-{}", chrono::Utc::now().timestamp_millis()),
+                            tag,
+                            &text.chars().take(200).collect::<String>(),
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(_) => break,
+                }
+            }
+        });
+        info!("TemporalIndex: souscripteur d'événements actif");
+    }
+
     // ── API HTTP REST (pour agents OpenClaw) ─────────────────────────────
     let bound_system_api = Arc::new(BoundSystem::new(BoundSystem::default_whitelist()));
     let api_state = Arc::new(soulsystem::api::ApiState {
@@ -194,28 +509,6 @@ async fn main() -> Result<()> {
         }
     });
     info!("MemoryBridge: souscripteur memoire actif");
-
-    // MemoryHealth — surveillance proactive
-    let health_hub = memory_hub.clone();
-    tokio::spawn(async move {
-        let config = soulsystem::memory_health::HealthConfig::default();
-        let mut health = soulsystem::memory_health::MemoryHealth::new(config);
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
-        loop {
-            interval.tick().await;
-            let report = health.check(&health_hub).await;
-            if report.status != soulsystem::memory_health::HealthStatus::Healthy {
-                tracing::warn!(
-                    "MemoryHealth: {} — lat={:.1}ms entries={} success={:.0}%",
-                    format!("{:?}", report.status),
-                    report.avg_latency_ms,
-                    report.memory_entries,
-                    report.search_success_rate * 100.0,
-                );
-            }
-        }
-    });
-    info!("MemoryHealth: task de surveillance lancee (interval: 1 min)");
 
     let _ = soulsystem::telemetry::init_telemetry();
     info!("Telemetry initialisée");

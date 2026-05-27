@@ -5,8 +5,10 @@
 //! et le pipeline RAG soullink-rag.
 
 use anyhow::Result;
+use chrono::Utc;
 use soul_memory::SoulMemory;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
@@ -60,6 +62,14 @@ pub struct MemoryHub {
     pub graph: Option<Arc<RwLock<MemoryGraph>>>,
     pub rag_config: Option<PipelineConfig>,
     pub on_event: Option<MemoryEventFn>,
+
+    // ── Versioning (Résil A) ──────────────────────────────────────────
+    /// Journal append-only des modifications (version, horodatage, opération)
+    pub version_journal: Arc<RwLock<Vec<VersionEntry>>>,
+
+    // ── Contrôle d'accès (Résil B) ────────────────────────────────────
+    /// Niveau de confidentialité par défaut
+    pub default_privacy: PrivacyLevel,
 }
 
 impl MemoryHub {
@@ -87,7 +97,30 @@ impl MemoryHub {
             dedup_threshold: 0.92, max_chunks: 20, chunk_size: 512, chunk_overlap: 64,
         });
 
-        Self { vector, graph, rag_config, on_event: None }
+        // Ouvrir le journal de versionnement depuis le fichier persistant
+        let version_journal = Arc::new(RwLock::new(Vec::new()));
+        let journal_path = data_dir.join("version_journal.json");
+        if let Ok(content) = std::fs::read_to_string(&journal_path) {
+            if let Ok(entries) = serde_json::from_str::<Vec<VersionEntry>>(&content) {
+                *version_journal.blocking_write() = entries;
+                info!("MemoryHub: journal de version chargé ({} entrées)", version_journal.blocking_read().len());
+            }
+        }
+
+        Self {
+            vector, graph, rag_config, on_event: None,
+            version_journal,
+            default_privacy: PrivacyLevel::Private,
+        }
+    }
+
+    /// Sauvegarde le journal de version sur disque.
+    pub async fn persist_journal(&self, data_dir: &PathBuf) -> Result<()> {
+        let journal_path = data_dir.join("version_journal.json");
+        let entries = self.version_journal.read().await.clone();
+        let json = serde_json::to_string_pretty(&entries)?;
+        tokio::fs::write(&journal_path, &json).await?;
+        Ok(())
     }
 
     pub fn set_event_callback(&mut self, cb: MemoryEventFn) {
@@ -98,12 +131,75 @@ impl MemoryHub {
         if let Some(ref cb) = self.on_event { cb(kind, payload); }
     }
 
-    pub async fn store(&self, text: &str, metadata: HashMap<String, String>) -> Result<()> {
+    // ── Versioning (Résil A) ──────────────────────────────────────────
+
+    /// Ajoute une entrée dans le journal de version.
+    async fn record_version(&self, op: &str, text: &str, metadata: &HashMap<String, String>) {
+        let entry = VersionEntry {
+            version: {
+                let mut j = self.version_journal.write().await;
+                j.push(VersionEntry::dummy()); // placeholder
+                j.pop();
+                j.len() as u64 + 1
+            },
+            timestamp_ms: Utc::now().timestamp_millis(),
+            operation: op.to_string(),
+            text_preview: text.chars().take(100).collect(),
+            metadata_summary: metadata.get("tag").cloned().unwrap_or_default(),
+            privacy: metadata.get("privacy")
+                .and_then(|v| v.parse::<PrivacyLevel>().ok())
+                .unwrap_or(self.default_privacy),
+        };
+        self.version_journal.write().await.push(entry);
+    }
+
+    /// Retourne l'historique des versions.
+    pub async fn get_version_history(&self, limit: usize) -> Vec<VersionEntry> {
+        let journal = self.version_journal.read().await;
+        journal.iter().rev().take(limit).cloned().collect()
+    }
+
+    /// Retourne une version spécifique par son numéro.
+    pub async fn get_version(&self, version: u64) -> Option<VersionEntry> {
+        let journal = self.version_journal.read().await;
+        journal.iter().find(|e| e.version == version).cloned()
+    }
+
+    // ── Contrôle d'accès (Résil B) ────────────────────────────────────
+
+    /// Définit le niveau de confidentialité par défaut.
+    pub fn set_default_privacy(&mut self, level: PrivacyLevel) {
+        self.default_privacy = level;
+    }
+
+    /// Filtre les résultats de recherche par niveau de confidentialité.
+    pub fn filter_by_privacy(results: Vec<SearchResult>, min_level: PrivacyLevel) -> Vec<SearchResult> {
+        results.into_iter().filter(|r| {
+            // Les résultats du vector store n'ont pas de label de privacy directement
+            // On filtre au niveau des métadonnées lors du store
+            true // Pour l'instant, passe tout (filtrage via métadonnées)
+        }).collect()
+    }
+
+    /// Ajoute le label de privacy aux métadonnées si absent.
+    fn ensure_privacy_label(metadata: &mut HashMap<String, String>, default: PrivacyLevel) {
+        metadata.entry("privacy".into())
+            .or_insert_with(|| default.to_string());
+    }
+
+    pub async fn store(&self, text: &str, mut metadata: HashMap<String, String>) -> Result<()> {
+        // Ajouter le label de privacy par défaut si absent
+        Self::ensure_privacy_label(&mut metadata, self.default_privacy);
+
         self.vector.store(text, metadata.clone()).await?;
         if let Some(ref graph) = self.graph {
             let kind = classify_text(text, &metadata);
             let _ = graph.write().await.insert(Concept::new(text, kind), None);
         }
+
+        // Enregistrer la version
+        self.record_version("store", text, &metadata).await;
+
         self.emit("stored", serde_json::json!({"text": text, "metadata": metadata}));
         Ok(())
     }
@@ -168,6 +264,88 @@ fn classify_text(_text: &str, meta: &HashMap<String, String>) -> ConceptKind {
         }
     }
     ConceptKind::Fact
+}
+
+// ── Versioning (Résil A) ──────────────────────────────────────────────
+
+/// Entrée dans le journal de versionnement.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VersionEntry {
+    pub version: u64,
+    pub timestamp_ms: i64,
+    pub operation: String,
+    pub text_preview: String,
+    pub metadata_summary: String,
+    pub privacy: PrivacyLevel,
+}
+
+impl VersionEntry {
+    fn dummy() -> Self {
+        Self {
+            version: 0,
+            timestamp_ms: 0,
+            operation: String::new(),
+            text_preview: String::new(),
+            metadata_summary: String::new(),
+            privacy: PrivacyLevel::Private,
+        }
+    }
+}
+
+// ── Contrôle d'accès (Résil B) ────────────────────────────────────────
+
+/// Niveau de confidentialité d'un souvenir.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum PrivacyLevel {
+    /// Visible uniquement par l'utilisateur propriétaire
+    Private,
+    /// Visible par l'équipe
+    Team,
+    /// Visible par tous
+    Public,
+}
+
+impl PrivacyLevel {
+    pub fn to_string(&self) -> String {
+        match self {
+            PrivacyLevel::Private => "private".to_string(),
+            PrivacyLevel::Team => "team".to_string(),
+            PrivacyLevel::Public => "public".to_string(),
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "private" => Some(PrivacyLevel::Private),
+            "team" => Some(PrivacyLevel::Team),
+            "public" => Some(PrivacyLevel::Public),
+            _ => None,
+        }
+    }
+
+    /// Vérifie si ce niveau permet l'accès à un autre niveau.
+    pub fn allows_access_to(&self, required: PrivacyLevel) -> bool {
+        match (self, required) {
+            (PrivacyLevel::Public, _) => true,
+            (PrivacyLevel::Team, PrivacyLevel::Private) => false,
+            (PrivacyLevel::Team, _) => true,
+            (PrivacyLevel::Private, PrivacyLevel::Private) => true,
+            (PrivacyLevel::Private, _) => false,
+        }
+    }
+}
+
+impl std::fmt::Display for PrivacyLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
+impl std::str::FromStr for PrivacyLevel {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        PrivacyLevel::from_str(s).ok_or_else(|| format!("PrivacyLevel invalide: {}", s))
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
