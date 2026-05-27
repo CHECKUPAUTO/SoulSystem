@@ -37,7 +37,7 @@
 //   steps que Euler. Pour T = 10 effectif → équivalent ~25 steps Euler.
 // ==========================================================================
 
-use candle_core::{DType, Device, Result, Tensor};
+use candle_core::{DType, Device, Result, Tensor, Var};
 use rand::Rng;
 use std::f64::consts::PI;
 
@@ -120,12 +120,12 @@ pub fn time_embedding(t: f64, d: usize, device: &Device) -> Result<Tensor> {
 // --------------------------------------------------------------------------
 
 pub struct ScoreNetwork {
-    pub w1: Tensor,   // (d_latent + d_t + d_cond, d_hidden)
-    pub w2: Tensor,   // (d_hidden, d_hidden)
-    pub w3: Tensor,   // (d_hidden, d_latent)
-    pub b1: Tensor,
-    pub b2: Tensor,
-    pub b3: Tensor,
+    pub w1: Var,   // (d_latent + d_t + d_cond, d_hidden)
+    pub w2: Var,   // (d_hidden, d_hidden)
+    pub w3: Var,   // (d_hidden, d_latent)
+    pub b1: Var,
+    pub b2: Var,
+    pub b3: Var,
     pub d_latent: usize,
     pub d_t: usize,
     pub d_cond: usize,
@@ -140,29 +140,37 @@ impl ScoreNetwork {
         let scale_in = (2.0 / d_in as f64).sqrt();
         let scale_h  = (2.0 / d_hidden as f64).sqrt();
         Ok(Self {
-            w1: Tensor::randn(0.0f64, scale_in, (d_in, d_hidden), device)?,
-            w2: Tensor::randn(0.0f64, scale_h,  (d_hidden, d_hidden), device)?,
-            w3: Tensor::randn(0.0f64, scale_h,  (d_hidden, d_latent), device)?,
-            b1: Tensor::zeros(d_hidden, DType::F64, device)?,
-            b2: Tensor::zeros(d_hidden, DType::F64, device)?,
-            b3: Tensor::zeros(d_latent, DType::F64, device)?,
+            w1: Var::from_tensor(&Tensor::randn(0.0f64, scale_in, (d_in, d_hidden), device)?)?,
+            w2: Var::from_tensor(&Tensor::randn(0.0f64, scale_h,  (d_hidden, d_hidden), device)?)?,
+            w3: Var::from_tensor(&Tensor::randn(0.0f64, scale_h,  (d_hidden, d_latent), device)?)?,
+            b1: Var::from_tensor(&Tensor::zeros(d_hidden, DType::F64, device)?)?,
+            b2: Var::from_tensor(&Tensor::zeros(d_hidden, DType::F64, device)?)?,
+            b3: Var::from_tensor(&Tensor::zeros(d_latent, DType::F64, device)?)?,
             d_latent, d_t, d_cond, d_hidden,
             device: device.clone(),
         })
+    }
+
+    /// Liste tous les paramètres entraînables (pour passage à AdamW).
+    pub fn trainable_vars(&self) -> Vec<Var> {
+        vec![
+            self.w1.clone(), self.w2.clone(), self.w3.clone(),
+            self.b1.clone(), self.b2.clone(), self.b3.clone(),
+        ]
     }
 
     /// `x` : (d_latent,), `t_emb` : (d_t,), `c` : (d_cond,) ou ∅ (zéros)
     pub fn score(&self, x: &Tensor, t_emb: &Tensor, c: &Tensor) -> Result<Tensor> {
         let inp = Tensor::cat(&[x, t_emb, c], 0)?
                          .reshape((1, self.d_latent + self.d_t + self.d_cond))?;
-        let h1 = inp.matmul(&self.w1)?
-                    .broadcast_add(&self.b1.reshape((1, self.d_hidden))?)?;
+        let h1 = inp.matmul(self.w1.as_tensor())?
+                    .broadcast_add(&self.b1.as_tensor().reshape((1, self.d_hidden))?)?;
         let h1a = candle_nn::ops::silu(&h1)?;
-        let h2 = h1a.matmul(&self.w2)?
-                    .broadcast_add(&self.b2.reshape((1, self.d_hidden))?)?;
+        let h2 = h1a.matmul(self.w2.as_tensor())?
+                    .broadcast_add(&self.b2.as_tensor().reshape((1, self.d_hidden))?)?;
         let h2a = candle_nn::ops::silu(&h2)?;
-        let out = h2a.matmul(&self.w3)?
-                     .broadcast_add(&self.b3.reshape((1, self.d_latent))?)?;
+        let out = h2a.matmul(self.w3.as_tensor())?
+                     .broadcast_add(&self.b3.as_tensor().reshape((1, self.d_latent))?)?;
         Ok(out.squeeze(0)?)
     }
 }

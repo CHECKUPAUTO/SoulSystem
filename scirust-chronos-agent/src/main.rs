@@ -19,10 +19,10 @@ use chronos_agent::hypernetwork::ConditioningHyperNetwork;
 use chronos_agent::learning::RegretOptimizer;
 use chronos_agent::memory::AtemporalMemory;
 use chronos_agent::observer::LatentObserver;
-use chronos_agent::planner::{CosineSchedule, StochasticDiffusionPlanner};
+use chronos_agent::planner::StochasticDiffusionPlanner;
 use chronos_agent::projector::TopologicalProjector;
 use chronos_agent::ptnl_perceiver::PTNLPerceiver;
-use chronos_agent::training::{ReplayBuffer, Trainer, TrainerConfig};
+use chronos_agent::training::{Trainer, ReplayBuffer};
 
 use candle_core::{Device, Tensor};
 
@@ -44,16 +44,20 @@ const N_HEADS: usize = 4;           // Attention heads per layer
 const D_HEAD: usize = 64;           // Dim per head
 const NUM_STEPS: usize = 10;        // Diffusion steps
 const EPISODIC_CAP: usize = 64;     // Episodic memory capacity
-const REPLAY_CAP: usize = 500;       // Replay buffer capacity
-const TRAIN_EVERY_N: usize = 8;       // Train every N steps
-const TRAIN_BATCH_SIZE: usize = 16;  // Training batch size
-const TRAIN_PASSES: usize = 4;       // Training passes per occasion
 const ALPHA_THRESHOLD: f64 = 0.65;  // Insight injection threshold
 const REGRET_THRESHOLD: f64 = 5.0;  // Regret trigger
-const TOTAL_STEPS: usize = 64;      // Total simulation steps
-const PHASE_INVERSION_AT: usize = 32; // When the phase flips
+const TOTAL_STEPS: usize = 1024;     // V6.1 : 1024 pour mesurer convergence long terme
+                                     // (était 256 par défaut)
+const PHASE_INVERSION_AT: usize = 512;
 const RECENTER_THRESHOLD: f64 = 0.30; // Auto-stabilisation: if α_sync < this, recenter
 // (Tuned for similarity-based α: stable ~0.5-0.9, drift <0.3)
+
+// V6.1 — Entraînement en ligne
+const TRAIN_EVERY: usize = 8;          // Step d'entraînement tous les N steps
+const REPLAY_CAPACITY: usize = 256;    // Taille du ReplayBuffer
+const TRAIN_BATCH_SIZE: usize = 8;     // Batch d'entraînement (4 good + 4 bad)
+const TRAIN_WARMUP: usize = 16;        // Pas d'entraînement avant warmup steps
+const ALPHA_WINDOW_FOR_MEDIAN: usize = 16; // Fenêtre glissante pour le split good/bad
 
 // --------------------------------------------------------------------------
 // LanguageModel trait — agnostic LLM abstraction
@@ -331,12 +335,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let regret = RegretOptimizer::new(REGRET_THRESHOLD, D_LATENT, &device);
     let mut observer = LatentObserver::new(D_LATENT);
 
-    // ---- V6 — Entraînement en ligne ----
-    let mut trainer = Trainer::new(&device)?;
-    let mut replay = ReplayBuffer::new(REPLAY_CAP, D_LATENT);
-    let schedule = CosineSchedule::new(NUM_STEPS, 0.008);
-    let mut steps_since_train = 0usize;
-
     // Pre-allocate sliding window
     let stream = generate_dialogue_stream(TOTAL_STEPS, PHASE_INVERSION_AT);
     let mut window: VecDeque<Vec<f64>> = VecDeque::with_capacity(T);
@@ -352,6 +350,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // à memory.observe() pour activer le rétro-causal binding. None au
     // premier step (pas encore de trajectoire planifiée).
     let mut next_step_prediction: Option<Vec<f64>> = None;
+
+    // V6.1 — Trainer + ReplayBuffer pour entraînement en ligne (DSM + contrastive).
+    // Collecte (latent, h_BCI, α_sync >= REPLAY_GOOD_THRESHOLD) pendant l'inférence,
+    // et tous les TRAIN_EVERY steps, samples un batch équilibré et fait
+    // un step d'AdamW sur ScoreNetwork et PotentialMLP.
+    let mut trainer = Trainer::new(
+        &device,
+        planner.score_net.trainable_vars(),
+        bci.potential.trainable_vars(),
+    )?;
+    let mut replay = ReplayBuffer::new(REPLAY_CAPACITY, D_LATENT);
+    let mut train_score_loss_log: Vec<f64> = Vec::new();
+    let mut train_pot_loss_log: Vec<f64> = Vec::new();
+    // Fenêtre glissante des α_sync pour split good/bad dynamique sur la médiane.
+    let mut alpha_window: VecDeque<f64> = VecDeque::with_capacity(ALPHA_WINDOW_FOR_MEDIAN);
 
     // ---- Main loop ----
     for step in T..TOTAL_STEPS {
@@ -454,6 +467,59 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let lt = Tensor::from_slice(&latent_vec, (D_LATENT,), &device)?;
         let h = bci.step(&lt, alpha_sync, ALPHA_THRESHOLD)?;
 
+        // 4b. V6.1 — Collecte dans le ReplayBuffer + entraînement périodique.
+        let h_vec: Vec<f64> = h.to_vec1::<f64>()?;
+        let h_q: Vec<f64> = h_vec[..D_LATENT].to_vec();
+
+        // Update fenêtre α_sync glissante
+        if alpha_window.len() >= ALPHA_WINDOW_FOR_MEDIAN {
+            alpha_window.pop_front();
+        }
+        alpha_window.push_back(alpha_sync);
+
+        // Médiane des α_sync vus → seuil dynamique good/bad
+        let alpha_median = {
+            let mut sorted: Vec<f64> = alpha_window.iter().copied().collect();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        };
+        let is_good = alpha_sync >= alpha_median;
+        replay.push(latent_vec.clone(), h_q.clone(), is_good);
+
+        if step >= T + TRAIN_WARMUP
+           && step % TRAIN_EVERY == 0
+           && replay.has_both_classes()
+           && replay.len() >= TRAIN_BATCH_SIZE
+        {
+            // V6.1 — Plusieurs passes d'AdamW par occasion (mini-epochs)
+            // pour accélérer la convergence sur le batch courant.
+            const PASSES_PER_OCCASION: usize = 4;
+            for _ in 0..PASSES_PER_OCCASION {
+                match replay.sample_balanced(TRAIN_BATCH_SIZE, &device) {
+                Ok((gl, gc, bl, _bc)) => {
+                    // DSM step sur ScoreNetwork
+                    match trainer.train_score_step(
+                        &planner.score_net, &gl, &gc, &planner.schedule)
+                    {
+                        Ok(loss) => train_score_loss_log.push(loss),
+                        Err(e) => eprintln!("DSM step error at step {}: {}", step, e),
+                    }
+                    // Contrastive step sur PotentialMLP — projection D_LATENT → d_q
+                    let d_q = D_LATENT / 2;
+                    let g_q = gl.narrow(1, 0, d_q)?;
+                    let b_q = bl.narrow(1, 0, d_q)?;
+                    match trainer.train_potential_step(
+                        &bci.potential, &g_q, &b_q)
+                    {
+                        Ok(loss) => train_pot_loss_log.push(loss),
+                        Err(e) => eprintln!("Potential step error at step {}: {}", step, e),
+                    }
+                }
+                Err(e) => eprintln!("Replay sample error at step {}: {}", step, e),
+                }
+            }  // end PASSES_PER_OCCASION
+        }
+
         // 5. TopologicalProjector: latent → LLM embedding → KV prefix
         let projected = projector.project(&latents)?;
         let kv_prefix = projector.generate_prefix_kv(
@@ -526,31 +592,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 10. LatentObserver: PCA on latent buffer
         observer.observe(&latent_flat, M, D_LATENT);
 
-        // 11. V6 — Collecte d'entraînement en ligne
-        // Stocke (latent_obs, condition=h_BCI, is_good=α_sync>0.5)
-        let h_bci: Vec<f64> = h.to_vec1::<f64>()?;
-        replay.push(latent_vec.clone(), h_bci, alpha_sync);
-
-        // Tous les TRAIN_EVERY_N steps, si le buffer a assez de samples
-        steps_since_train += 1;
-        if steps_since_train >= TRAIN_EVERY_N && replay.len() >= TRAIN_BATCH_SIZE
-            && replay.has_both_classes()
-        {
-            steps_since_train = 0;
-            match replay.sample_balanced(TRAIN_BATCH_SIZE, &device) {
-                Ok((good_l, good_c, bad_l, bad_c)) => {
-                    for _pass in 0..TRAIN_PASSES {
-                        let _score_loss = trainer.train_score_network(
-                            &mut planner.score_net, &good_l, &good_c, &schedule)?;
-                        let _energy_loss = trainer.train_potential(
-                            &mut bci.potential, &good_l, &bad_l)?;
-                    }
-                    memory.semantic.compact();
-                }
-                Err(_) => {}
-            }
-        }
-
         // Advance sliding window
         token_counter = (token_counter + 1) % 32000;
         let new_val = make_input(stream[step]);
@@ -565,13 +606,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ---- Report ----
     stats.report(PHASE_INVERSION_AT);
 
+    // V6.1 — Report d'entraînement
+    if !train_score_loss_log.is_empty() || !train_pot_loss_log.is_empty() {
+        println!();
+        println!("  🎓 Training (V6.1):");
+        if !train_score_loss_log.is_empty() {
+            let n = train_score_loss_log.len();
+            let chunk = (n / 4).max(1);
+            let q1: f64 = train_score_loss_log[..chunk].iter().sum::<f64>() / chunk as f64;
+            let q4: f64 = train_score_loss_log[n-chunk..].iter().sum::<f64>() / chunk as f64;
+            println!("       DSM (ScoreNet):    {} steps   Q1 {:.4} → Q4 {:.4} ({:+.1}%)",
+                     n, q1, q4, (q4 - q1) / q1.abs().max(1e-6) * 100.0);
+        }
+        if !train_pot_loss_log.is_empty() {
+            let n = train_pot_loss_log.len();
+            let chunk = (n / 4).max(1);
+            let q1: f64 = train_pot_loss_log[..chunk].iter().sum::<f64>() / chunk as f64;
+            let q4: f64 = train_pot_loss_log[n-chunk..].iter().sum::<f64>() / chunk as f64;
+            println!("       Contrastive (V):   {} steps   Q1 {:.4} → Q4 {:.4} ({:+.1}%)",
+                     n, q1, q4, (q4 - q1) / q1.abs().max(1e-6) * 100.0);
+        }
+        println!("       Replay buffer:     {} samples ({} good, {} bad)",
+                 replay.len(),
+                 replay.quality.iter().filter(|q| **q).count(),
+                 replay.quality.iter().filter(|q| !**q).count());
+    }
+    println!();
+
     // Export observer data
     let csv_data = observer.export_csv();
     println!("  📤 Observer CSV ({} bytes exported)", csv_data.len());
     println!("  📤 Observer JSON ({} bytes exported)", observer.export_json().len());
-    println!("  📊 Replay: {} samples ({} good / {} bad)",
-        replay.len(), replay.good_count(), replay.bad_count());
-    println!("  {}", trainer.report());
     println!();
     println!("╔═══════════════════════════════════════════════════════════════╗");
     println!("║          Chronos-Lingua simulation complete.                ║");

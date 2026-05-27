@@ -47,7 +47,7 @@
 // Cela respecte la structure hamiltonienne (le terme reste un gradient).
 // ==========================================================================
 
-use candle_core::{DType, Device, Result, Tensor};
+use candle_core::{DType, Device, Result, Tensor, Var};
 
 // --------------------------------------------------------------------------
 // Helper : clipping L2 — anti-explosion en boucle fermée non-entraînée
@@ -67,14 +67,15 @@ fn clip_l2(x: &Tensor, max_norm: f64) -> Result<Tensor> {
 // --------------------------------------------------------------------------
 
 /// Réseau pour le potentiel V : ℝ^d_q → ℝ.
-/// On stocke aussi son gradient -∇V via autograd-style manuel (ici on
-/// approxime par différence finie batchée — adéquat pour d_q ≤ 32).
-/// Pour scale-up à d_q grand, brancher candle-nn::AutogradContext.
+///
+/// Paramètres stockés en `Var` pour permettre l'autograd complet et
+/// l'optimisation par AdamW. Toutes les ops du forward utilisent
+/// `var.as_tensor()` pour rester dans le graphe différentiable.
 pub struct PotentialMLP {
-    pub w1: Tensor,   // (d_q, d_hidden)
-    pub w2: Tensor,   // (d_hidden, 1)
-    pub b1: Tensor,   // (d_hidden,)
-    pub b2: Tensor,   // (1,)
+    pub w1: Var,   // (d_q, d_hidden)
+    pub w2: Var,   // (d_hidden, 1)
+    pub b1: Var,   // (d_hidden,)
+    pub b2: Var,   // (1,)
     pub d_q: usize,
     pub d_h: usize,
     pub device: Device,
@@ -84,28 +85,46 @@ impl PotentialMLP {
     pub fn new(d_q: usize, d_h: usize, device: &Device) -> Result<Self> {
         let scale = (2.0 / d_q as f64).sqrt();
         Ok(Self {
-            w1: Tensor::randn(0.0f64, scale, (d_q, d_h), device)?,
-            w2: Tensor::randn(0.0f64, scale, (d_h, 1), device)?,
-            b1: Tensor::zeros(d_h, DType::F64, device)?,
-            b2: Tensor::zeros(1, DType::F64, device)?,
+            w1: Var::from_tensor(&Tensor::randn(0.0f64, scale, (d_q, d_h), device)?)?,
+            w2: Var::from_tensor(&Tensor::randn(0.0f64, scale, (d_h, 1), device)?)?,
+            b1: Var::from_tensor(&Tensor::zeros(d_h, DType::F64, device)?)?,
+            b2: Var::from_tensor(&Tensor::zeros(1, DType::F64, device)?)?,
             d_q, d_h,
             device: device.clone(),
         })
     }
 
-    /// V(q) — scalar
+    /// Liste tous les paramètres entraînables (pour passage à AdamW).
+    pub fn trainable_vars(&self) -> Vec<Var> {
+        vec![self.w1.clone(), self.w2.clone(), self.b1.clone(), self.b2.clone()]
+    }
+
+    /// V(q) — scalaire. Différentiable par rapport aux poids ET à q.
     pub fn value(&self, q: &Tensor) -> Result<f64> {
         let q_2d = q.reshape((1, self.d_q))?;
-        let h = q_2d.matmul(&self.w1)?
-                    .broadcast_add(&self.b1.reshape((1, self.d_h))?)?;
+        let h = q_2d.matmul(self.w1.as_tensor())?
+                    .broadcast_add(&self.b1.as_tensor().reshape((1, self.d_h))?)?;
         let h_act = candle_nn::ops::silu(&h)?;
-        // Soft-quadratic floor pour coercivité : ajoute ½‖q‖² pour garantir
-        // que V(q) → ∞ quand ‖q‖ → ∞ → attracteur globalement borné.
-        let mlp_out: f64 = h_act.matmul(&self.w2)?
-            .broadcast_add(&self.b2.reshape((1, 1))?)?
+        let mlp_out: f64 = h_act.matmul(self.w2.as_tensor())?
+            .broadcast_add(&self.b2.as_tensor().reshape((1, 1))?)?
             .squeeze(0)?.squeeze(0)?.to_scalar::<f64>()?;
         let q_norm2: f64 = q.sqr()?.sum_all()?.to_scalar::<f64>()?;
         Ok(mlp_out + 0.5 * q_norm2)
+    }
+
+    /// V(q) en Tensor (différentiable) — utile pour l'entraînement
+    /// par DSM/contrastive (backward via candle).
+    pub fn value_tensor(&self, q: &Tensor) -> Result<Tensor> {
+        let q_2d = q.reshape((1, self.d_q))?;
+        let h = q_2d.matmul(self.w1.as_tensor())?
+                    .broadcast_add(&self.b1.as_tensor().reshape((1, self.d_h))?)?;
+        let h_act = candle_nn::ops::silu(&h)?;
+        let mlp_out = h_act.matmul(self.w2.as_tensor())?
+            .broadcast_add(&self.b2.as_tensor().reshape((1, 1))?)?
+            .squeeze(0)?.squeeze(0)?;
+        let q_norm2 = q.sqr()?.sum_all()?;
+        let half = Tensor::new(0.5_f64, &self.device)?;
+        mlp_out.add(&q_norm2.broadcast_mul(&half)?)
     }
 
     /// ∇V(q) via AUTOGRAD candle — O(1) backward pass.
@@ -119,17 +138,7 @@ impl PotentialMLP {
         let q_var = candle_core::Var::from_tensor(q)?;
         let q_t = q_var.as_tensor();
         // Recompute V(q) sur le graphe différentiable.
-        let q_2d = q_t.reshape((1, self.d_q))?;
-        let h = q_2d.matmul(&self.w1)?
-                    .broadcast_add(&self.b1.reshape((1, self.d_h))?)?;
-        let h_act = candle_nn::ops::silu(&h)?;
-        let mlp_out = h_act.matmul(&self.w2)?
-            .broadcast_add(&self.b2.reshape((1, 1))?)?
-            .squeeze(0)?.squeeze(0)?;  // scalar
-        let q_norm2 = q_t.sqr()?.sum_all()?;
-        let half = Tensor::new(0.5_f64, &self.device)?;
-        let v = mlp_out.add(&q_norm2.broadcast_mul(&half)?)?;
-
+        let v = self.value_tensor(q_t)?;
         let grads = v.backward()?;
         match grads.get(q_t) {
             Some(g) => Ok(g.clone()),

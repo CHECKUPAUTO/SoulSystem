@@ -27,6 +27,7 @@ use chronos_agent::memory::AtemporalMemory;
 use chronos_agent::observer::LatentObserver;
 use chronos_agent::planner::StochasticDiffusionPlanner;
 use chronos_agent::projector::TopologicalProjector;
+use chronos_agent::training::{Trainer, ReplayBuffer};
 use chronos_agent::ptnl_perceiver::PTNLPerceiver;
 
 use candle_core::{Device, Tensor};
@@ -226,6 +227,20 @@ fn run_scenario(
     let mut window: VecDeque<Vec<f64>> = VecDeque::with_capacity(T);
     for i in 0..T.min(total) { window.push_back(make_input(steps[i].0)); }
 
+    // V6.1 — Trainer + ReplayBuffer pour entraînement EN LIGNE pendant le stress test.
+    // C'est ici qu'on mesure la résilience avec apprentissage actif :
+    // est-ce que l'agent recover plus vite quand il apprend pendant le stress ?
+    let mut trainer = Trainer::new(
+        &device,
+        planner.score_net.trainable_vars(),
+        bci.potential.trainable_vars(),
+    ).unwrap();
+    let mut replay = ReplayBuffer::new(128, D_LATENT);
+    let mut alpha_window: VecDeque<f64> = VecDeque::with_capacity(16);
+    const TRAIN_EVERY: usize = 4;
+    const TRAIN_WARMUP: usize = 8;
+    const TRAIN_BATCH: usize = 8;
+
     let mut regrets = Vec::with_capacity(total);
     let mut alphas = Vec::with_capacity(total);
     let mut coherences = Vec::with_capacity(total);
@@ -259,6 +274,38 @@ fn run_scenario(
 
         let lt = Tensor::from_slice(&lv, (D_LATENT,), &device).unwrap();
         let h = bci.step(&lt, a_sync, ALPHA_THRESHOLD).unwrap();
+
+        // V6.1 — Collecte ReplayBuffer + entraînement périodique
+        let h_vec: Vec<f64> = h.to_vec1::<f64>().unwrap();
+        let h_q: Vec<f64> = h_vec[..D_LATENT].to_vec();
+
+        if alpha_window.len() >= 16 { alpha_window.pop_front(); }
+        alpha_window.push_back(a_sync);
+        let alpha_median = {
+            let mut sorted: Vec<f64> = alpha_window.iter().copied().collect();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        };
+        let is_good = a_sync >= alpha_median;
+        replay.push(lv.clone(), h_q.clone(), is_good);
+
+        if step >= T + TRAIN_WARMUP
+           && step % TRAIN_EVERY == 0
+           && replay.has_both_classes()
+           && replay.len() >= TRAIN_BATCH
+        {
+            // 2 passes par occasion (moins que main.rs car stress_test fait
+            // 3 scenarios × ~60 steps post-warmup, ça reste suffisant)
+            for _ in 0..2 {
+                if let Ok((gl, gc, bl, _)) = replay.sample_balanced(TRAIN_BATCH, &device) {
+                    let _ = trainer.train_score_step(&planner.score_net, &gl, &gc, &planner.schedule);
+                    let d_q = D_LATENT / 2;
+                    if let (Ok(g_q), Ok(b_q)) = (gl.narrow(1, 0, d_q), bl.narrow(1, 0, d_q)) {
+                        let _ = trainer.train_potential_step(&bci.potential, &g_q, &b_q);
+                    }
+                }
+            }
+        }
 
         let proj = projector.project(&latents).unwrap();
         let kv = projector.generate_prefix_kv(&proj, N_HEADS, D_HEAD).unwrap();
