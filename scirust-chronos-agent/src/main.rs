@@ -45,8 +45,9 @@ const D_HEAD: usize = 64;           // Dim per head
 const NUM_STEPS: usize = 10;        // Diffusion steps
 const EPISODIC_CAP: usize = 64;     // Episodic memory capacity
 const REPLAY_CAP: usize = 500;       // Replay buffer capacity
-const TRAIN_EVERY_N: usize = 16;     // Train every N steps
+const TRAIN_EVERY_N: usize = 8;       // Train every N steps
 const TRAIN_BATCH_SIZE: usize = 16;  // Training batch size
+const TRAIN_PASSES: usize = 4;       // Training passes per occasion
 const ALPHA_THRESHOLD: f64 = 0.65;  // Insight injection threshold
 const REGRET_THRESHOLD: f64 = 5.0;  // Regret trigger
 const TOTAL_STEPS: usize = 64;      // Total simulation steps
@@ -527,29 +528,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // 11. V6 — Collecte d'entraînement en ligne
         // Stocke (latent_obs, condition=h_BCI, is_good=α_sync>0.5)
-        let is_good = alpha_sync > 0.5;
         let h_bci: Vec<f64> = h.to_vec1::<f64>()?;
-        replay.push(latent_vec.clone(), h_bci, is_good);
+        replay.push(latent_vec.clone(), h_bci, alpha_sync);
 
         // Tous les TRAIN_EVERY_N steps, si le buffer a assez de samples
         steps_since_train += 1;
-        if steps_since_train >= TRAIN_EVERY_N && replay.len() >= TRAIN_BATCH_SIZE {
+        if steps_since_train >= TRAIN_EVERY_N && replay.len() >= TRAIN_BATCH_SIZE
+            && replay.has_both_classes()
+        {
             steps_since_train = 0;
             match replay.sample_balanced(TRAIN_BATCH_SIZE, &device) {
                 Ok((good_l, good_c, bad_l, bad_c)) => {
-                    // DSM sur le score network du planner
-                    let _score_loss = trainer.train_score_network(
-                        &mut planner.score_net, &good_l, &good_c, &schedule)?;
-                    // Contrastive energy sur le potentiel du BCI
-                    let _energy_loss = trainer.train_potential(
-                        &mut bci.potential, &good_l, &bad_l)?;
-                    // Compactage mémoire
+                    for _pass in 0..TRAIN_PASSES {
+                        let _score_loss = trainer.train_score_network(
+                            &mut planner.score_net, &good_l, &good_c, &schedule)?;
+                        let _energy_loss = trainer.train_potential(
+                            &mut bci.potential, &good_l, &bad_l)?;
+                    }
                     memory.semantic.compact();
                 }
-                Err(e) => {
-                    // Buffer pas encore équilibré — on skip
-                    let _ = e;
-                }
+                Err(_) => {}
             }
         }
 
@@ -571,6 +569,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let csv_data = observer.export_csv();
     println!("  📤 Observer CSV ({} bytes exported)", csv_data.len());
     println!("  📤 Observer JSON ({} bytes exported)", observer.export_json().len());
+    println!("  📊 Replay: {} samples ({} good / {} bad)",
+        replay.len(), replay.good_count(), replay.bad_count());
+    println!("  {}", trainer.report());
     println!();
     println!("╔═══════════════════════════════════════════════════════════════╗");
     println!("║          Chronos-Lingua simulation complete.                ║");
