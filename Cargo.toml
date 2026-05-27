@@ -95,7 +95,7 @@ toml = { version = "0.8", default-features = false, features = ["parse"] }
 regex = "1.10"
 thiserror = "1"
 anyhow = "1"
-tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 # local workspace crates
 ansi-converter = { path = "ansi-converter" }
 bus = { path = "bus" }
@@ -153,8 +153,8 @@ flate2 = "1"
 reqwest = { version = "0.12", features = ["json"] }
 teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
 axum = "0.7"
-soullink-memory = { path = "soullink-brain/soullink-memory", optional = true }
-soullink-rag = { path = "soullink-brain/soullink-rag", optional = true }
+soullink-memory = { path = "soullink-brain/soullink-memory",  }
+soullink-rag = { path = "soullink-brain/soullink-rag",  }
 
 portable-pty = "0.8"
 libc = "0.2"
@@ -165,5 +165,4 @@ futures-util = "0.3.32"
 [features]
 dev = []
 gpu = []
-full-memory = ["soullink-memory", "soullink-rag"]
-default = ["full-memory"]
+default = ["dev"]

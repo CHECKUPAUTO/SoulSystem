@@ -1,8 +1,8 @@
-//! MemoryHub — Hub memoire unifie avec graphe conceptuel (full-memory).
+//! MemoryHub — Hub memoire unifie avec graphe conceptuel + RAG.
 //!
 //! Backend principal : soul-memory (sled/Qdrant, toujours actif).
-//! Avec feature "full-memory" (activee par defaut) : ajoute le graphe
-//! conceptuel soullink-memory pour la navigation associative.
+//! Ajoute le graphe conceptuel soullink-memory pour la navigation associative
+//! et le pipeline RAG soullink-rag.
 
 use anyhow::Result;
 use soul_memory::SoulMemory;
@@ -11,13 +11,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
 
-// Imports conditionnels full-memory
-#[cfg(feature = "full-memory")]
 use soullink_memory::graph::MemoryGraph;
-#[cfg(feature = "full-memory")]
 use soullink_memory::concept::{Concept, ConceptKind};
-#[cfg(feature = "full-memory")]
 use soullink_memory::DecayConfig;
+use soullink_rag::pipeline::PipelineConfig;
 
 pub type MemoryEventFn = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 
@@ -60,8 +57,8 @@ impl SimpleEmbedder {
 
 pub struct MemoryHub {
     pub vector: SoulMemory,
-    #[cfg(feature = "full-memory")]
     pub graph: Option<Arc<RwLock<MemoryGraph>>>,
+    pub rag_config: Option<PipelineConfig>,
     pub on_event: Option<MemoryEventFn>,
 }
 
@@ -71,7 +68,6 @@ impl MemoryHub {
         let vector = SoulMemory::new().expect("SoulMemory doit s'initialiser");
         info!("MemoryHub: soul-memory actif");
 
-        #[cfg(feature = "full-memory")]
         let graph = match MemoryGraph::open(
             &data_dir.join("concept_graph"),
             DecayConfig::default(),
@@ -86,7 +82,12 @@ impl MemoryHub {
             }
         };
 
-        Self { vector, graph, on_event: None }
+        let rag_config = Some(PipelineConfig {
+            embed_model: "nomic-embed-text".into(), embed_dim: 768,
+            dedup_threshold: 0.92, max_chunks: 20, chunk_size: 512, chunk_overlap: 64,
+        });
+
+        Self { vector, graph, rag_config, on_event: None }
     }
 
     pub fn set_event_callback(&mut self, cb: MemoryEventFn) {
@@ -98,16 +99,11 @@ impl MemoryHub {
     }
 
     pub async fn store(&self, text: &str, metadata: HashMap<String, String>) -> Result<()> {
-        // Toujours stocker dans soul-memory (vectoriel)
         self.vector.store(text, metadata.clone()).await?;
-
-        // Si full-memory : stocker aussi dans le graphe conceptuel
-        #[cfg(feature = "full-memory")]
         if let Some(ref graph) = self.graph {
             let kind = classify_text(text, &metadata);
             let _ = graph.write().await.insert(Concept::new(text, kind), None);
         }
-
         self.emit("stored", serde_json::json!({"text": text, "metadata": metadata}));
         Ok(())
     }
@@ -122,8 +118,7 @@ impl MemoryHub {
             }
         }
 
-        // 2. Graphe conceptuel (full-memory)
-        #[cfg(feature = "full-memory")]
+        // 2. Graphe conceptuel
         if let Some(ref graph) = self.graph {
             let qv = SimpleEmbedder::new(64).embed(query);
             for r in &graph.read().await.search(&qv, top_k) {
@@ -131,7 +126,6 @@ impl MemoryHub {
             }
         }
 
-        // Tri + dedup
         results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
         results.dedup_by(|a, b| a.text == b.text);
         results.truncate(top_k);
@@ -150,10 +144,7 @@ impl MemoryHub {
 
     pub async fn decay_and_prune(&self, threshold: f32, decay: f32, max: usize) {
         let _ = self.vector.decay_and_prune(threshold, decay, max);
-        #[cfg(feature = "full-memory")]
-        if let Some(ref graph) = self.graph {
-            let _ = graph.write().await.decay_all();
-        }
+        if let Some(ref graph) = self.graph { let _ = graph.write().await.decay_all(); }
         self.emit("decayed", serde_json::json!({"threshold": threshold, "max": max}));
     }
 }
@@ -161,7 +152,6 @@ impl MemoryHub {
 #[derive(Debug, Clone)]
 pub struct SearchResult { pub text: String, pub score: f32, pub source: &'static str }
 
-#[cfg(feature = "full-memory")]
 fn classify_text(_text: &str, meta: &HashMap<String, String>) -> ConceptKind {
     if let Some(tag) = meta.get("tag") {
         match tag.as_str() {
