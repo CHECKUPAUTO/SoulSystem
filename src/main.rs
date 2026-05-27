@@ -156,6 +156,17 @@ async fn main() -> Result<()> {
     info!("DiscoveryService initialisé");
 
     // Télémétrie
+    let memory_decay = memory_hub.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+        loop {
+            interval.tick().await;
+            memory_decay.decay_and_prune(0.1, 0.99, 1000).await;
+            tracing::info!("MemoryHub: decay automatique effectue");
+        }
+    });
+    info!("MemoryHub: decay task lancee (interval: 5 min)");
+
     let _ = soulsystem::telemetry::init_telemetry();
     info!("Telemetry initialisée");
 
