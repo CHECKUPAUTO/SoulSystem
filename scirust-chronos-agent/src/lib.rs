@@ -25,3 +25,5 @@ pub mod observer;
 pub mod metacognition;
 pub mod llm_bridge;
 pub mod training;
+pub mod checkpoint;
+pub mod predictive_cache;

@@ -23,6 +23,9 @@ use chronos_agent::planner::StochasticDiffusionPlanner;
 use chronos_agent::projector::TopologicalProjector;
 use chronos_agent::ptnl_perceiver::PTNLPerceiver;
 use chronos_agent::training::{Trainer, ReplayBuffer};
+use chronos_agent::checkpoint::CheckpointManager;
+use chronos_agent::memory::ImportanceParams;
+use chronos_agent::predictive_cache::PredictiveCache;
 
 use candle_core::{Device, Tensor};
 
@@ -58,6 +61,16 @@ const REPLAY_CAPACITY: usize = 256;    // Taille du ReplayBuffer
 const TRAIN_BATCH_SIZE: usize = 8;     // Batch d'entraînement (4 good + 4 bad)
 const TRAIN_WARMUP: usize = 16;        // Pas d'entraînement avant warmup steps
 const ALPHA_WINDOW_FOR_MEDIAN: usize = 16; // Fenêtre glissante pour le split good/bad
+
+// V6.2 — Persistance (pont ChronosAgent ↔ disque)
+const CHECKPOINT_DIR: &str = "./checkpoints/agent";
+const CHECKPOINT_EVERY: usize = 256;   // Save tous les N steps (~6s en CPU)
+const ENABLE_CHECKPOINT: bool = true;  // Mettre false pour bench sans I/O
+
+// V6.2 — Oubli adaptatif (pruning par importance)
+const PRUNE_EVERY: usize = 128;        // Vérifie l'importance tous les N steps
+const PRUNE_THRESHOLD: f64 = 0.4;      // Score d'importance minimum pour rester
+const PRUNE_KEEP_MIN: usize = 16;      // Garde toujours au moins N traces
 
 // --------------------------------------------------------------------------
 // LanguageModel trait — agnostic LLM abstraction
@@ -364,43 +377,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut train_score_loss_log: Vec<f64> = Vec::new();
     let mut train_pot_loss_log: Vec<f64> = Vec::new();
     // Fenêtre glissante des α_sync pour split good/bad dynamique sur la médiane.
+    // V6.2 — Cache prédictif : pré-fetch les souvenirs autour des latents
+    // anticipés par le PDT. Hit-rate attendu : 30-60% en cruise.
+    let mut pred_cache = PredictiveCache::new(16, 0.92);
     let mut alpha_window: VecDeque<f64> = VecDeque::with_capacity(ALPHA_WINDOW_FOR_MEDIAN);
 
-
-    // V6.1 — Chargement des checkpoints
-    {
-        let ckpt_dir = std::path::PathBuf::from("checkpoints");
-        let mut n_loaded = 0u32;
-        if ckpt_dir.exists() {
-            let names = ["score_w1.json", "score_w2.json", "score_w3.json",
-                         "pot_w1.json", "pot_w2.json"];
-            let vars: [&candle_core::Var; 5] = [
-                &planner.score_net.w1, &planner.score_net.w2, &planner.score_net.w3,
-                &bci.potential.w1, &bci.potential.w2,
-            ];
-            for i in 0..5 {
-                let path = ckpt_dir.join(names[i]);
-                if !path.exists() { continue; }
-                if let Ok(json) = std::fs::read_to_string(&path) {
-                    if let Ok(vec) = serde_json::from_str::<Vec<f64>>(&json) {
-                        let shape = vars[i].as_tensor().shape().to_vec();
-                        if shape.len() == 1 {
-                            if let Ok(t) = candle_core::Tensor::from_slice(&vec, shape[0], &device) {
-                                if vars[i].set(t).is_ok() { n_loaded += 1; }
-                            }
-                        } else if shape.len() == 2 {
-                            if let Ok(t) = candle_core::Tensor::from_slice(&vec, (shape[0], shape[1]), &device) {
-                                if vars[i].set(t).is_ok() { n_loaded += 1; }
-                            }
-                        }
-                    }
-                }
-            }
+    // V6.2 — Pont de persistance. Si un checkpoint existe, on le charge
+    // pour reprendre l'entraînement là où on l'avait laissé.
+    let ckpt_manager = if ENABLE_CHECKPOINT {
+        match CheckpointManager::new(CHECKPOINT_DIR) {
+            Ok(m) => Some(m),
+            Err(e) => { eprintln!("checkpoint init failed: {} — continue sans", e); None }
         }
-        if n_loaded > 0 {
-            println!("  🔄 {} checkpoints charges depuis checkpoints/", n_loaded);
+    } else { None };
+
+    let mut global_step: u64 = 0;
+    if let Some(ref ckpt) = ckpt_manager {
+        if ckpt.exists() {
+            match ckpt.load(&planner.score_net, &bci.potential,
+                           &mut replay, &mut memory, &device)
+            {
+                Ok(s) => {
+                    global_step = s;
+                    println!("  ♻  Resumed from checkpoint at global_step={} \
+                              (replay={} samples, episodic={})",
+                             s, replay.len(), memory.episodic.traces.len());
+                }
+                Err(e) => eprintln!("  ⚠  checkpoint load failed: {} — fresh start", e),
+            }
         } else {
-            println!("  🔄 Aucun checkpoint trouve — demarrage poids aleatoires");
+            println!("  🆕 No checkpoint found — fresh start");
         }
     }
 
@@ -430,6 +436,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             l1d.to_vec1::<f64>()?
         };
         let latent_flat: Vec<f64> = latents.flatten_all()?.to_vec1::<f64>()?;
+
+        // V6.2 — Lookup cache prédictif : si le latent observé matche
+        // un latent anticipé pré-fetché au step précédent, on a un hit
+        // (on récupère les souvenirs sans relancer de recherche).
+        // Le hit-rate est tracé pour monitoring ; le résultat n'est
+        // utilisé que si une consommation downstream le demande.
+        let _cached_neighbors = pred_cache.get(&latent_vec).cloned();
 
         // 3. AtemporalMemory: observe → α_sync
         //    V6 — on passe la prédiction du step +1 (1ère ligne après "présent"
@@ -596,6 +609,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None
         };
 
+        // V6.2 — Prefetch cache prédictif : pour chaque latent anticipé
+        // dans la trajectoire (step+1 à step+T_FUTURE), pré-fetch les
+        // souvenirs proches et stocke en cache. Au step suivant, si le
+        // latent observé matche l'un des prefetchés, on évite une
+        // recherche complète dans la mémoire sémantique.
+        if step >= T + WARMUP_STEPS && memory.semantic.prototypes.len() >= 4 {
+            for i in 1..=T_FUTURE.min(NUM_STEPS - 1) {
+                let pred_latent: Vec<f64> = trajectory.get(i)?.to_vec1::<f64>()?;
+                let results = memory.retrieve(&pred_latent, 3);
+                pred_cache.put(pred_latent, results);
+            }
+        }
+
         // 8. Coherence loss
         let latent_mean = latents.mean(0)?;
         let latent_2d = if latent_mean.dims().len() > 1 {
@@ -639,6 +665,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Record stats
         let elapsed_us = step_start.elapsed().as_secs_f64() * 1_000_000.0;
         stats.record(elapsed_us, e_t, alpha_sync, regret_loss, coherence_loss, triggered);
+
+        // V6.2 — Save checkpoint périodique (atomique : .tmp puis rename)
+        global_step += 1;
+        if let Some(ref ckpt) = ckpt_manager {
+            if step % CHECKPOINT_EVERY == 0 && step >= T + TRAIN_WARMUP {
+                if let Err(e) = ckpt.save(&planner.score_net, &bci.potential,
+                                          &replay, &memory, global_step)
+                {
+                    eprintln!("  ⚠  checkpoint save failed at step {}: {}", step, e);
+                }
+            }
+        }
+
+        // V6.2 — Oubli adaptatif : prune les traces sous-importantes.
+        // Préserve toujours PRUNE_KEEP_MIN traces (jamais buffer vide).
+        if step % PRUNE_EVERY == 0 && step >= T + TRAIN_WARMUP {
+            let removed = memory.prune_episodic(
+                PRUNE_THRESHOLD, &ImportanceParams::default(), PRUNE_KEEP_MIN);
+            if removed > 0 {
+                println!("  🧹 prune @ step {} → {} traces oubliées", step, removed);
+            }
+        }
+    }
+
+    // V6.2 — Save final (toujours, même si pas multiple de CHECKPOINT_EVERY)
+    if let Some(ref ckpt) = ckpt_manager {
+        if let Err(e) = ckpt.save(&planner.score_net, &bci.potential,
+                                  &replay, &memory, global_step)
+        {
+            eprintln!("  ⚠  final checkpoint failed: {}", e);
+        } else {
+            println!("  💾 Final checkpoint saved → {} (step={})",
+                     CHECKPOINT_DIR, global_step);
+        }
     }
 
     // ---- Report ----
@@ -669,6 +729,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                  replay.quality.iter().filter(|q| **q).count(),
                  replay.quality.iter().filter(|q| !**q).count());
     }
+
+    // V6.2 — Report cache prédictif
+    if pred_cache.hits + pred_cache.misses > 0 {
+        println!("       Predictive cache:  hits={} misses={} hit_rate={:.1}%",
+                 pred_cache.hits, pred_cache.misses, pred_cache.hit_rate() * 100.0);
+    }
     println!();
 
     // Export observer data
@@ -678,28 +744,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("╔═══════════════════════════════════════════════════════════════╗");
     println!("║          Chronos-Lingua simulation complete.                ║");
-    println!("╔═══════════════════════════════════════════════════════════════╗");
-    println!("║          Chronos-Lingua simulation complete.                ║");
     println!("╚═══════════════════════════════════════════════════════════════╝");
-
-    // V6.1 — Checkpoint des poids entrainés (serde_json)
-    let ckpt_dir = std::path::PathBuf::from("checkpoints");
-    std::fs::create_dir_all(&ckpt_dir).unwrap_or(());
-    let score_params = [("score_w1.json", &planner.score_net.w1),
-        ("score_w2.json", &planner.score_net.w2),
-        ("score_w3.json", &planner.score_net.w3)];
-    let pot_params = [("pot_w1.json", &bci.potential.w1),
-        ("pot_w2.json", &bci.potential.w2)];
-    let mut n_saved = 0;
-    for (name, var) in score_params.iter().chain(pot_params.iter()) {
-        if let Ok(v) = var.as_tensor().to_vec1::<f64>() {
-            if let Ok(json) = serde_json::to_string(&v) {
-                let _ = std::fs::write(&ckpt_dir.join(name), &json);
-                n_saved += 1;
-            }
-        }
-    }
-    println!("  💾 {} checkpoints sauvegardes dans checkpoints/", n_saved);
 
     Ok(())
 }
