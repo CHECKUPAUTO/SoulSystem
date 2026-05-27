@@ -640,7 +640,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("╔═══════════════════════════════════════════════════════════════╗");
     println!("║          Chronos-Lingua simulation complete.                ║");
+    println!("╔═══════════════════════════════════════════════════════════════╗");
+    println!("║          Chronos-Lingua simulation complete.                ║");
     println!("╚═══════════════════════════════════════════════════════════════╝");
+
+    // V6.1 — Checkpoint des poids entrainés (serde_json)
+    let ckpt_dir = std::path::PathBuf::from("checkpoints");
+    std::fs::create_dir_all(&ckpt_dir).unwrap_or(());
+    let score_params = [("score_w1.json", &planner.score_net.w1),
+        ("score_w2.json", &planner.score_net.w2),
+        ("score_w3.json", &planner.score_net.w3)];
+    let pot_params = [("pot_w1.json", &bci.potential.w1),
+        ("pot_w2.json", &bci.potential.w2)];
+    let mut n_saved = 0;
+    for (name, var) in score_params.iter().chain(pot_params.iter()) {
+        if let Ok(v) = var.as_tensor().to_vec1::<f64>() {
+            if let Ok(json) = serde_json::to_string(&v) {
+                let _ = std::fs::write(&ckpt_dir.join(name), &json);
+                n_saved += 1;
+            }
+        }
+    }
+    println!("  💾 {} checkpoints sauvegardes dans checkpoints/", n_saved);
 
     Ok(())
 }
