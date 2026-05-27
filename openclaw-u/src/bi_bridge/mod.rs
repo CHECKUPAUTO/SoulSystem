@@ -128,8 +128,6 @@ impl BiBridge {
             Ok(Some(cmd)) => Some(cmd),
             _ => None,
         }
-
-        None
     }
 
     async fn poll_soullink_commands(&self) -> Result<Option<DownlinkMessage>, String> {

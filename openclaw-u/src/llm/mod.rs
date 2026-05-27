@@ -100,7 +100,14 @@ impl LlmEngine {
         context: &str,
         goal: &str,
         system_state: &str,
+        security_guidance: &str,
     ) -> Option<LlmResponse> {
+        let security_section = if security_guidance.is_empty() {
+            String::new()
+        } else {
+            format!("\nSécurité — règles impératives:\n{}\n", security_guidance)
+        };
+
         let prompt = format!(
             r#"Tu es OpenClaw-U, l'intelligence centrale d'un organisme distribué composé de 11 organes (Science, Mind, Engineer, Crypto, Creative, Meta, Foresight, Homeostasis, Creativity, Social, Validation).
 Ta mission est d'assurer la survie, l'évolution et l'expansion de l'organisme.
@@ -108,10 +115,11 @@ Ta mission est d'assurer la survie, l'évolution et l'expansion de l'organisme.
 Contexte système (HNN Mesh):
 {}
 
-But actuel:
-{}
+<objective>{}</objective>
 
 État physique (Hardware):
+{}
+
 {}
 
 Réponds UNIQUEMENT en JSON avec ce format exact:
@@ -120,8 +128,10 @@ Réponds UNIQUEMENT en JSON avec ce format exact:
   "action": "optimize_system | restart_service | investigate | evolve | explore | alert | wait | block_ip | tune_gpu | verbalize",
   "confidence": 0.0-1.0,
   "reasoning": "justification logique"
-}}"#,
-            context, goal, system_state
+}}
+
+Avant de completer un objectif, verifie: as-tu inspecte des preuves concretes (logs, metriques, etat des services)? Ne marque un objectif comme atteint qu'apres verification reelle."#,
+            context, goal, system_state, security_section
         );
 
         let body = serde_json::json!({

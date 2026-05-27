@@ -34,7 +34,8 @@ impl SystemSnapshot {
             mem,
             disk,
             (services_active, services_total),
-            (onaeu_cycle, onaeu_entropy),
+            onaeu_cycle,
+            onaeu_entropy,
             weaviate_objects,
             llm_available,
             soullink_core_online,
@@ -185,7 +186,6 @@ impl SystemSnapshot {
             if let Ok(true) = res {
                 ok += 1;
             }
-            _ => (0, total),
         }
 
         (ok, services.len() as u32)
@@ -199,14 +199,12 @@ impl SystemSnapshot {
         {
             Ok(r) => {
                 if let Ok(json) = r.json::<serde_json::Value>().await {
-                    let cycle = json.get("cycle_count").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let entropy = json.get("last_entropy").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    (cycle, entropy)
+                    json.get("cycle_count").and_then(|v| v.as_u64()).unwrap_or(0)
                 } else {
-                    (0, 0.0)
+                    0
                 }
             }
-            _ => (0, 0.0),
+            _ => 0,
         }
     }
 

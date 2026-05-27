@@ -17,6 +17,7 @@ pub mod persistence;
 pub mod prediction;
 pub mod parallel;
 pub mod creativity;
+pub mod goal_store;
 
 use std::collections::VecDeque;
 use chrono::{DateTime, Utc};

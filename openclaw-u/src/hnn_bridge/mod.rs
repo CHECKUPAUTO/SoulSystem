@@ -86,6 +86,8 @@ impl HnnState {
         });
 
         // Collect results
+        let mut blackboard = serde_json::Value::Null;
+        let mut organs = HashMap::new();
         while let Some(res) = set.join_next().await {
             if let Ok((name, Some(json))) = res {
                 if name == "blackboard" {

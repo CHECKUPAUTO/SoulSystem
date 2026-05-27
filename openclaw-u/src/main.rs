@@ -4,29 +4,8 @@
 //!           autocode, sandbox, planner, learning, metacognition,
 //!           resilience, selfmod, config, prediction, parallel, creativity
 
-mod perception;
-mod action;
-mod memory;
-mod hnn_bridge;
-mod onaeu_bridge;
-mod autocode;
-mod llm;
-mod bi_bridge;
-mod sandbox;
-mod planner;
-mod learning;
-mod metacognition;
-mod resilience;
-mod selfmod;
 mod config;
-#[allow(dead_code)]
-mod persistence;
-mod prediction;
-#[allow(dead_code)]
-mod parallel;
-mod creativity;
 
-use std::collections::VecDeque;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -36,8 +15,25 @@ use rand::seq::SliceRandom;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, sleep};
 use tracing::{info, warn};
+
+use openclaw_u::action::Action;
+use openclaw_u::autocode;
+use openclaw_u::bi_bridge::{BiBridge, DownlinkMessage, UplinkMessage};
+use openclaw_u::bi_bridge::http_server::{start_bridge_server, BridgeState};
+use openclaw_u::goal_store::GoalFile;
+use openclaw_u::hnn_bridge::HnnState;
+use openclaw_u::learning::QTable;
+use openclaw_u::llm::{LlmEngine, LlmResponse};
+use openclaw_u::memory::WeaviateMemory;
+use openclaw_u::onaeu_bridge::OnaeuBridge;
+use openclaw_u::perception::SystemSnapshot;
+use openclaw_u::selfmod::SelfModEngine;
+use openclaw_u::{CoreState, HistoryEntry};
+
+mod goal_store;
+
 const _EVOLUTION_LOG: &str = "/tmp/openclaw_u_evolution.log";
-const _HEARTBEAT_INTERVAL_SECS: u64 = 30;
+const _HEARTBEAT_INTERVAL_SECS: u64 = 60;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GOAL ENGINE (fallback si LLM offline)
@@ -106,6 +102,7 @@ pub async fn llm_decide(
     history: &[HistoryEntry],
     q_table: &QTable,
     semantic_context: &str,
+    security_guidance: &str,
 ) -> Option<LlmResponse> {
     let context = snapshot.to_context();
     let recent_history = history.iter().rev().take(5)
@@ -122,7 +119,45 @@ pub async fn llm_decide(
         ),
         current_goal,
         &context,
+        security_guidance,
     ).await
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECURITY GUIDANCE — Règles de sécurité chargées depuis fichier ou env
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn load_security_guidance() -> String {
+    // 1. Env var override
+    if let Ok(val) = std::env::var("OPENCLAW_SECURITY_GUIDANCE") {
+        let trimmed = val.trim().to_string();
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+    }
+
+    // 2. File-based guidance
+    let paths = [
+        "/root/.openclaw/security-guidance.md",
+        "/opt/soulsystem/config/security-guidance.md",
+        "/etc/soulsystem/security-guidance.md",
+    ];
+    for path in &paths {
+        if Path::new(path).exists() {
+            match fs::read_to_string(path) {
+                Ok(content) => {
+                    let trimmed = content.trim().to_string();
+                    if !trimmed.is_empty() {
+                        return trimmed;
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+    }
+
+    // 3. Default minimal guidance
+    String::new()
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -223,11 +258,19 @@ async fn heartbeat_loop(
                 }
 
                 // 3. LLM COGNITION — décision intelligente
-                let st = state.lock().await;
+                let mut st = state.lock().await;
+                // 3.0 External goal store (claude-goal compat)
+                if let Some(ext_goal) = GoalFile::active_goal_text() {
+                    info!("🎯 BUT EXTERNE chargé: {}", ext_goal.chars().take(60).collect::<String>());
+                    st.goals.insert(0, ext_goal);
+                    GoalFile::complete_active();
+                }
                 let current_goal = st.goals.first().cloned().unwrap_or_else(|| "maintenance".to_string());
                 let history_clone: Vec<HistoryEntry> = st.history.iter().cloned().collect();
                 let q_table = st.q_table.clone();
                 drop(st);
+
+                let security_guidance = load_security_guidance();
 
                 let llm_decision = if snapshot.llm_available {
                     // 3.1 RAG: Semantic retrieval of past experiences
@@ -241,7 +284,7 @@ async fn heartbeat_loop(
 
                     // Use fast model for routine, deep model for problems
                     let model = if has_alerts { &llm_deep } else { &llm_fast };
-                    llm_decide(model, &snapshot, &current_goal, &history_clone, &q_table, &semantic_context).await
+                    llm_decide(model, &snapshot, &current_goal, &history_clone, &q_table, &semantic_context, &security_guidance).await
                 } else {
                     None
                 };
@@ -599,7 +642,7 @@ async fn heartbeat_loop(
                         let llm_fast = LlmEngine::new("http://127.0.0.1:11434", &st.runtime_config.llm_fast_model, http_client.clone());
                         drop(st);
 
-                        if let Some(decision) = llm_decide(&llm_fast, &snapshot, &format!("Respond to user: {}", msg), &history, &q_table, "Interaction utilisateur directe.").await {
+                        if let Some(decision) = llm_decide(&llm_fast, &snapshot, &format!("Respond to user: {}", msg), &history, &q_table, "Interaction utilisateur directe.", &load_security_guidance()).await {
                             info!("🧠 LLM RESP: {} | {}", decision.action, decision.thought);
                             let mut st = state.lock().await;
                             st.last_llm_thought = decision.thought.clone();
