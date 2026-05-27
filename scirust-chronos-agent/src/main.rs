@@ -19,9 +19,10 @@ use chronos_agent::hypernetwork::ConditioningHyperNetwork;
 use chronos_agent::learning::RegretOptimizer;
 use chronos_agent::memory::AtemporalMemory;
 use chronos_agent::observer::LatentObserver;
-use chronos_agent::planner::StochasticDiffusionPlanner;
+use chronos_agent::planner::{CosineSchedule, StochasticDiffusionPlanner};
 use chronos_agent::projector::TopologicalProjector;
 use chronos_agent::ptnl_perceiver::PTNLPerceiver;
+use chronos_agent::training::{ReplayBuffer, Trainer, TrainerConfig};
 
 use candle_core::{Device, Tensor};
 
@@ -43,6 +44,9 @@ const N_HEADS: usize = 4;           // Attention heads per layer
 const D_HEAD: usize = 64;           // Dim per head
 const NUM_STEPS: usize = 10;        // Diffusion steps
 const EPISODIC_CAP: usize = 64;     // Episodic memory capacity
+const REPLAY_CAP: usize = 500;       // Replay buffer capacity
+const TRAIN_EVERY_N: usize = 16;     // Train every N steps
+const TRAIN_BATCH_SIZE: usize = 16;  // Training batch size
 const ALPHA_THRESHOLD: f64 = 0.65;  // Insight injection threshold
 const REGRET_THRESHOLD: f64 = 5.0;  // Regret trigger
 const TOTAL_STEPS: usize = 64;      // Total simulation steps
@@ -326,6 +330,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let regret = RegretOptimizer::new(REGRET_THRESHOLD, D_LATENT, &device);
     let mut observer = LatentObserver::new(D_LATENT);
 
+    // ---- V6 — Entraînement en ligne ----
+    let mut trainer = Trainer::new(&device)?;
+    let mut replay = ReplayBuffer::new(REPLAY_CAP, D_LATENT);
+    let schedule = CosineSchedule::new(NUM_STEPS, 0.008);
+    let mut steps_since_train = 0usize;
+
     // Pre-allocate sliding window
     let stream = generate_dialogue_stream(TOTAL_STEPS, PHASE_INVERSION_AT);
     let mut window: VecDeque<Vec<f64>> = VecDeque::with_capacity(T);
@@ -514,6 +524,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // 10. LatentObserver: PCA on latent buffer
         observer.observe(&latent_flat, M, D_LATENT);
+
+        // 11. V6 — Collecte d'entraînement en ligne
+        // Stocke (latent_obs, condition=h_BCI, is_good=α_sync>0.5)
+        let is_good = alpha_sync > 0.5;
+        let h_bci: Vec<f64> = h.to_vec1::<f64>()?;
+        replay.push(latent_vec.clone(), h_bci, is_good);
+
+        // Tous les TRAIN_EVERY_N steps, si le buffer a assez de samples
+        steps_since_train += 1;
+        if steps_since_train >= TRAIN_EVERY_N && replay.len() >= TRAIN_BATCH_SIZE {
+            steps_since_train = 0;
+            match replay.sample_balanced(TRAIN_BATCH_SIZE, &device) {
+                Ok((good_l, good_c, bad_l, bad_c)) => {
+                    // DSM sur le score network du planner
+                    let _score_loss = trainer.train_score_network(
+                        &mut planner.score_net, &good_l, &good_c, &schedule)?;
+                    // Contrastive energy sur le potentiel du BCI
+                    let _energy_loss = trainer.train_potential(
+                        &mut bci.potential, &good_l, &bad_l)?;
+                    // Compactage mémoire
+                    memory.semantic.compact();
+                }
+                Err(e) => {
+                    // Buffer pas encore équilibré — on skip
+                    let _ = e;
+                }
+            }
+        }
 
         // Advance sliding window
         token_counter = (token_counter + 1) % 32000;
