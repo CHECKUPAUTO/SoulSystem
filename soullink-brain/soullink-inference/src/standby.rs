@@ -232,11 +232,11 @@ impl WarmStandby {
     pub fn suggest_preload(&self, snap: &HardwareSnapshot, priority: Priority) -> Vec<(&str, ExecutionTarget)> {
         match priority {
             Priority::Think if snap.gpu.vram_free_gb > 4.0 =>
-                vec![("qwen3-coder-next", ExecutionTarget::Gpu(Quantization::Q4_K_M))],
+                vec![("qwen2.5-coder:3b", ExecutionTarget::Gpu(Quantization::Q4_K_M))],
             Priority::Dream => snap.numa_nodes.iter()
                 .max_by(|a, b| a.memory_free_gb.partial_cmp(&b.memory_free_gb).unwrap_or(std::cmp::Ordering::Equal))
                 .filter(|n| n.memory_free_gb > 3.0)
-                .map(|n| ("qwen3-coder-next", ExecutionTarget::CpuNuma { node: n.node_id, quant: Quantization::Q2_K }))
+                .map(|n| ("qwen2.5-coder:3b", ExecutionTarget::CpuNuma { node: n.node_id, quant: Quantization::Q2_K }))
                 .into_iter().collect(),
             Priority::Embed if snap.gpu.vram_free_gb > 0.5 =>
                 vec![("nomic-embed-text", ExecutionTarget::Gpu(Quantization::Q8_0))],

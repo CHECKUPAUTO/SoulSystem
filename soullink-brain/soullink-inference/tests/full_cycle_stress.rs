@@ -66,7 +66,7 @@ fn full_cycle_vram_lifecycle() {
 
     // Think should fall back to CPU
     let think_req = GenerateRequest {
-        model: "qwen3-coder-next".into(), prompt: "think".into(),
+        model: "qwen2.5-coder:3b".into(), prompt: "think".into(),
         max_tokens: 100, temperature: 0.7,
         priority: Priority::Think, quantization: None,
     };

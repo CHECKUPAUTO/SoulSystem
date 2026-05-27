@@ -87,7 +87,7 @@ impl Default for OllamaConfig {
 }
 
 fn default_base_url() -> String { "http://127.0.0.1:11434".into() }
-fn default_model()    -> String { "glm-5.1:cloud".into() }
+fn default_model()    -> String { "qwen2.5-coder:3b".into() }
 fn default_timeout()  -> Duration { Duration::from_secs(60) }
 fn default_system()   -> String {
     "You are SoulLink, an AI interface to a mesh of specialized neural modules (brains). \

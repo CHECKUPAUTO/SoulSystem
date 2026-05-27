@@ -1,13 +1,13 @@
 # LIVESTATE — SoulSystem
 
 > Fichier de bord partagé entre agents. Mis à jour automatiquement.
-> Dernière mise à jour : 2026-05-26 22:03:38 CEST
+> Dernière mise à jour : 2026-05-27 16:44:13 CEST
 
 ## HEAD
-- **Hash:** `3af155c967fc45207287e09514e48353bd036874`
-- **Message:** refactor: audit DeepSeek — sécurité, CI, architecture, ADRs
+- **Hash:** `0484a2ad2f6bc7765fdd1546fb23f28c330cba2d`
+- **Message:** feat(memory): full-memory active par defaut + graphe conceptuel
 - **Auteur:** SoulLink
-- **Date:** 2026-05-26 20:29:54 +0200
+- **Date:** 2026-05-27 16:32:43 +0200
 
 ## Branche active
 - main

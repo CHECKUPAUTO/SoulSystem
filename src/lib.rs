@@ -34,4 +34,6 @@ pub use terminal_stream;
 pub mod ws_bridge;
 
 #[cfg(feature = "dev")]
+#[cfg(feature = "dev")]
+#[cfg(feature = "dev")]
 pub mod dev_dashboard;

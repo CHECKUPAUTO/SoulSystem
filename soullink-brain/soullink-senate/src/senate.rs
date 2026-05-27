@@ -79,7 +79,7 @@ impl Senate {
                 .timeout(std::time::Duration::from_secs(120))
                 .build()
                 .expect("failed to build HTTP client"),
-            critic_model: "glm-5.1:cloud".to_string(),
+            critic_model: "qwen2.5-coder:3b".to_string(),
             strategy: AggregationStrategy::WeightedVote,
         }
     }
@@ -172,8 +172,8 @@ mod tests {
     #[test]
     fn senate_creation() {
         let senate = Senate::new("http://localhost:11434")
-            .with_expert(Expert::new("glm-5.1:cloud", "general"))
-            .with_expert(Expert::new("qwen3-coder-next:cloud", "coding"));
+            .with_expert(Expert::new("qwen2.5-coder:3b", "general"))
+            .with_expert(Expert::new("qwen2.5-coder:3b", "coding"));
         assert_eq!(senate.experts.len(), 2);
     }
 

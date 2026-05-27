@@ -101,12 +101,12 @@ mod tests {
         let raw = r#"
             [ollama]
             base_url = "http://127.0.0.1:11434"
-            model = "glm-5.1:cloud"
+            model = "qwen2.5-coder:3b"
             timeout = "45s"
         "#;
         let cfg: OrchestratorConfig = toml::from_str(raw).unwrap();
         let ollama = cfg.ollama.unwrap();
-        assert_eq!(ollama.model, "glm-5.1:cloud");
+        assert_eq!(ollama.model, "qwen2.5-coder:3b");
         assert_eq!(ollama.timeout, Duration::from_secs(45));
     }
 

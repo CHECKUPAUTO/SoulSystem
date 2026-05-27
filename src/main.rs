@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -127,7 +127,6 @@ async fn main() -> Result<()> {
 
     // Vérifier périodiquement les triggers de compaction
     let watchdog_clone = watchdog.clone();
-    let bus_compaction = bus.clone();
     tokio::spawn(async move {
         watchdog_clone.run().await;
     });
@@ -169,7 +168,6 @@ async fn main() -> Result<()> {
 
     // Lancer la boucle de résumé
     let summarizer_run = summarizer.clone();
-    let bus_summary = bus.clone();
     tokio::spawn(async move {
         summarizer_run.run().await;
     });
@@ -223,6 +221,7 @@ async fn main() -> Result<()> {
     let health_hub = memory_hub.clone();
     let health_watchdog = watchdog.clone();
     let health_summarizer = summarizer.clone();
+    let bus_health = bus.clone();
     tokio::spawn(async move {
         let config = soulsystem::memory_health::HealthConfig {
             latency_warn_ms: 500.0,
@@ -256,7 +255,7 @@ async fn main() -> Result<()> {
 
             // Émettre une alerte de fatigue sur le bus
             if report.is_fatigued {
-                bus.publish(soulsystem::bus::Message::Custom {
+                bus_health.publish(soulsystem::bus::Message::Custom {
                     topic: "memory.fatigue_alert".into(),
                     payload: serde_json::json!({
                         "severity": "warning",
@@ -330,8 +329,9 @@ async fn main() -> Result<()> {
                 cp.epoch,
                 cp.metrics.len()
             );
+            let bus_checkpoint = bus.clone();
             // Publier l'info sur le bus
-            bus.publish(soulsystem::bus::Message::Custom {
+            bus_checkpoint.publish(soulsystem::bus::Message::Custom {
                 topic: "checkpoint.loaded".into(),
                 payload: serde_json::json!({
                     "epoch": cp.epoch,
@@ -375,7 +375,7 @@ async fn main() -> Result<()> {
     ) {
         Ok(idx) => {
             info!("TemporalIndex: index chronologique actif ({} entrées)", idx.count().unwrap_or(0));
-            Some(Arc::new(idx))
+            Some(Arc::new(std::sync::Mutex::new(idx)))
         }
         Err(e) => {
             tracing::warn!("TemporalIndex: non disponible: {}", e);
@@ -394,7 +394,7 @@ async fn main() -> Result<()> {
                         let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
                         let tag = payload.get("metadata").and_then(|m| m.get("tag"))
                             .and_then(|v| v.as_str()).unwrap_or("general");
-                        let _ = idx_clone.insert_simple(
+                        let _ = idx_clone.lock().unwrap().insert_simple(
                             &format!("mem-{}", chrono::Utc::now().timestamp_millis()),
                             tag,
                             &text.chars().take(200).collect::<String>(),

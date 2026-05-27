@@ -17,8 +17,7 @@ use tracing::{info, warn};
 /// Known model sizes in billions of parameters.
 const MODEL_SIZES: &[(&str, f64)] = &[
     ("nomic-embed-text", 0.137),   // 137M
-    ("glm-5.1:cloud", 7.0),
-    ("qwen3-coder-next", 7.0),
+    ("qwen2.5-coder:3b", 3.0),
     ("gemma4:31b", 31.0),
     ("llama3:8b", 8.0),
     ("mistral:7b", 7.0),
@@ -196,7 +195,7 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(6.0, &[20.0, 5.0]);
         let req = GenerateRequest {
-            model: "qwen3-coder-next".to_string(), prompt: "test".into(),
+            model: "qwen2.5-coder:3b".to_string(), prompt: "test".into(),
             max_tokens: 100, temperature: 0.7, priority: Priority::Think, quantization: None,
         };
         assert!(matches!(router.route(&req, &snap), ExecutionTarget::Gpu(_)));
@@ -207,7 +206,7 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(0.5, &[30.0, 5.0]);
         let req = GenerateRequest {
-            model: "qwen3-coder-next".to_string(), prompt: "test".into(),
+            model: "qwen2.5-coder:3b".to_string(), prompt: "test".into(),
             max_tokens: 100, temperature: 0.7, priority: Priority::Think, quantization: None,
         };
         match router.route(&req, &snap) {
@@ -221,7 +220,7 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(6.0, &[20.0, 5.0]);
         let req = GenerateRequest {
-            model: "qwen3-coder-next".to_string(), prompt: "dream".into(),
+            model: "qwen2.5-coder:3b".to_string(), prompt: "dream".into(),
             max_tokens: 50, temperature: 1.0, priority: Priority::Dream, quantization: None,
         };
         match router.route(&req, &snap) {
@@ -252,7 +251,7 @@ mod tests {
         snap.gpu.throttle_active = true;
         snap.gpu.gpu_temp_c = 87;
         let req = GenerateRequest {
-            model: "qwen3-coder-next".to_string(), prompt: "test".into(),
+            model: "qwen2.5-coder:3b".to_string(), prompt: "test".into(),
             max_tokens: 100, temperature: 0.7, priority: Priority::Think, quantization: None,
         };
         assert!(matches!(router.route(&req, &snap), ExecutionTarget::CpuNuma { .. }));
