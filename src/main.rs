@@ -172,6 +172,23 @@ async fn main() -> Result<()> {
         loop {
             interval.tick().await;
             memory_decay.decay_and_prune(0.1, 0.99, 1000).await;
+    // V6.1 — Souscripteur memoire permanent (log + stockage)
+    let mem_bus = bus.clone();
+    tokio::spawn(async move {
+        use soulsystem::bus::Message;
+        let mut rx = mem_bus.subscribe();
+        loop {
+            match rx.recv().await {
+                Ok(Message::Custom { topic, payload }) if topic.starts_with("memory.") => {
+                    tracing::info!("Memory event: {} — {}", topic, payload);
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+    });
+    info!("MemoryBridge: souscripteur memoire actif");
+
             tracing::info!("MemoryHub: decay automatique effectue");
         }
     });
