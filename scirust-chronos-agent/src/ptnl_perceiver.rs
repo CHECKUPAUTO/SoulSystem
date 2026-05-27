@@ -41,6 +41,31 @@
 use candle_core::{DType, Device, Result, Tensor};
 
 // --------------------------------------------------------------------------
+// Helper : clipping L2 — anti-explosion en boucle fermée non-entraînée
+// --------------------------------------------------------------------------
+
+fn clip_l2_matrix(x: &Tensor, max_norm_per_row: f64) -> Result<Tensor> {
+    // Clip ligne par ligne. Pour (M, d_latent), borne ‖latent_i‖ ≤ max.
+    if x.dims().len() != 2 {
+        return Ok(x.clone());
+    }
+    let (m, _d) = x.dims2()?;
+    let mut rows = Vec::with_capacity(m);
+    for i in 0..m {
+        let row = x.get(i)?;
+        let norm: f64 = row.sqr()?.sum_all()?.to_scalar::<f64>()?.sqrt();
+        if norm <= max_norm_per_row || norm < 1e-12 {
+            rows.push(row);
+        } else {
+            let scale = Tensor::new(max_norm_per_row / norm, x.device())?;
+            rows.push(row.broadcast_mul(&scale)?);
+        }
+    }
+    let refs: Vec<&Tensor> = rows.iter().collect();
+    Tensor::stack(&refs, 0)
+}
+
+// --------------------------------------------------------------------------
 // Time2Vec — encodage temporel apprenable
 // --------------------------------------------------------------------------
 
@@ -150,6 +175,11 @@ pub struct PTNLPerceiver {
     // Soft NoiseGate (variance threshold pour atténuation, plus de freeze binaire)
     pub noise_variance_tau: f64,
     pub last_noise_gain:    f64,
+
+    /// Anti-explosion : norme L2 max par latent en sortie. Indispensable
+    /// en boucle fermée non-entraînée pour empêcher la spirale de feedback
+    /// PTNL→BCI→PDT→PTNL.
+    pub latent_clip_norm: f64,
 }
 
 impl PTNLPerceiver {
@@ -191,6 +221,7 @@ impl PTNLPerceiver {
             device: device.clone(),
             noise_variance_tau: 0.15,
             last_noise_gain: 1.0,
+            latent_clip_norm: 3.0,
         })
     }
 
@@ -267,7 +298,9 @@ impl PTNLPerceiver {
         }
 
         // 6. MLP résiduel — VRAIE non-linéarité
-        let latents_out = self.mlp.forward(&latents_pre)?;
+        let latents_raw = self.mlp.forward(&latents_pre)?;
+        // Clip L2 ligne par ligne (anti-explosion en boucle fermée)
+        let latents_out = clip_l2_matrix(&latents_raw, self.latent_clip_norm)?;
 
         // 7. Reconstruction per-dimension (PAS de mean !)
         // projected : (M, d_input) — chaque latent reconstruit un "atome"
@@ -286,13 +319,6 @@ impl PTNLPerceiver {
         Ok((latents_out, recon_loss))
     }
 
-    /// Projette des latents de shape (B, d_latent) vers l'espace input (B, d_input).
-    /// Utilisé par la boucle bidirectionnelle pour projeter la trajectoire PDT
-    /// en entrée du PTNL (via perceiver.set_future()).
-    pub fn latent_to_input(&self, latents: &Tensor) -> Result<Tensor> {
-        latents.matmul(&self.w_o)
-    }
-
     fn compute_variance(&self, x: &Tensor) -> Result<f64> {
         let v: Vec<f64> = x.flatten_all()?.to_vec1::<f64>()?;
         let mean = v.iter().sum::<f64>() / v.len() as f64;
@@ -303,6 +329,26 @@ impl PTNLPerceiver {
         self.latents = Tensor::zeros((self.m, self.d_latent), DType::F64, &self.device)?;
         self.future_prediction = None;
         Ok(())
+    }
+
+    /// Projette un latent (ou une trajectoire de latents) dans l'espace d'observation.
+    ///
+    /// Réutilise `w_o : (d_latent, d_input)` — c'est la même projection que celle
+    /// servant à la reconstruction. Permet au main loop d'extraire la future_window
+    /// observable à partir de la trajectoire latente du PDT.
+    ///
+    /// `latent` : (d_latent,) ou (n, d_latent)
+    /// Retourne : (d_input,) ou (n, d_input)
+    pub fn latent_to_input(&self, latent: &Tensor) -> Result<Tensor> {
+        match latent.dims().len() {
+            1 => {
+                let lat_2d = latent.reshape((1, self.d_latent))?;
+                lat_2d.matmul(&self.w_o)?.squeeze(0)
+            }
+            2 => latent.matmul(&self.w_o),
+            _ => Err(candle_core::Error::Msg(
+                "latent_to_input: expected 1D or 2D tensor".into()).bt()),
+        }
     }
 }
 
