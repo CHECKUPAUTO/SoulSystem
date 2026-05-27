@@ -79,10 +79,20 @@ async fn main() -> Result<()> {
     info!("WS Bridge demarre sur 127.0.0.1:9022");
 
     // MemoryHub (vectoriel + graph conceptuel + RAG)
-    let memory_hub = Arc::new(soulsystem::memory_hub::MemoryHub::new(
+    let mut memory_hub_raw = soulsystem::memory_hub::MemoryHub::new(
         &settings.paths.data_dir
-    ).await);
-    info!("MemoryHub initialise (vector + graph + rag)");
+    ).await;
+    {
+        // Connecter le callback d'evenement sur le bus (Message::Custom)
+        let bus_clone = bus.clone();
+        memory_hub_raw.set_event_callback(std::sync::Arc::new(move |kind, payload| {
+            use soulsystem::bus::Message;
+            let topic = format!("memory.{}", kind);
+            bus_clone.publish(Message::Custom { topic, payload });
+        }));
+    }
+    let memory_hub = Arc::new(memory_hub_raw);
+    info!("MemoryHub initialise");
     // ── API HTTP REST (pour agents OpenClaw) ─────────────────────────────
     let bound_system_api = Arc::new(BoundSystem::new(BoundSystem::default_whitelist()));
     let api_state = Arc::new(soulsystem::api::ApiState {
