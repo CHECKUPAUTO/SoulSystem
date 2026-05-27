@@ -366,6 +366,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Fenêtre glissante des α_sync pour split good/bad dynamique sur la médiane.
     let mut alpha_window: VecDeque<f64> = VecDeque::with_capacity(ALPHA_WINDOW_FOR_MEDIAN);
 
+
+    // V6.1 — Chargement des checkpoints
+    {
+        let ckpt_dir = std::path::PathBuf::from("checkpoints");
+        let mut n_loaded = 0u32;
+        if ckpt_dir.exists() {
+            let names = ["score_w1.json", "score_w2.json", "score_w3.json",
+                         "pot_w1.json", "pot_w2.json"];
+            let vars: [&candle_core::Var; 5] = [
+                &planner.score_net.w1, &planner.score_net.w2, &planner.score_net.w3,
+                &bci.potential.w1, &bci.potential.w2,
+            ];
+            for i in 0..5 {
+                let path = ckpt_dir.join(names[i]);
+                if !path.exists() { continue; }
+                if let Ok(json) = std::fs::read_to_string(&path) {
+                    if let Ok(vec) = serde_json::from_str::<Vec<f64>>(&json) {
+                        let shape = vars[i].as_tensor().shape().to_vec();
+                        if shape.len() == 1 {
+                            if let Ok(t) = candle_core::Tensor::from_slice(&vec, shape[0], &device) {
+                                if vars[i].set(t).is_ok() { n_loaded += 1; }
+                            }
+                        } else if shape.len() == 2 {
+                            if let Ok(t) = candle_core::Tensor::from_slice(&vec, (shape[0], shape[1]), &device) {
+                                if vars[i].set(t).is_ok() { n_loaded += 1; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if n_loaded > 0 {
+            println!("  🔄 {} checkpoints charges depuis checkpoints/", n_loaded);
+        } else {
+            println!("  🔄 Aucun checkpoint trouve — demarrage poids aleatoires");
+        }
+    }
+
     // ---- Main loop ----
     for step in T..TOTAL_STEPS {
         let step_start = Instant::now();
