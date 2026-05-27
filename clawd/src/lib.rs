@@ -906,6 +906,7 @@ fn load_clawd_security_guidance() -> String {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[cfg(test)]
+mod tests {
     use super::*;
 
     #[test]
@@ -935,3 +936,4 @@ fn load_clawd_security_guidance() -> String {
         let cmds = ClawdContext::extract_shell_commands(resp);
         assert_eq!(cmds, vec!["ls", "pwd"]);
     }
+}
