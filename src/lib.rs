@@ -19,6 +19,7 @@ pub use local_skills;
 pub use model_router;
 pub use pty_terminal;
 pub use soul_memory;
+pub mod memory_hub;
 pub use spinner;
 pub mod telemetry;
 pub use terminal_stream;

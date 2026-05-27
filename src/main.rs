@@ -78,11 +78,17 @@ async fn main() -> Result<()> {
     });
     info!("WS Bridge demarre sur 127.0.0.1:9022");
 
+    // MemoryHub (vectoriel + graph conceptuel + RAG)
+    let memory_hub = Arc::new(soulsystem::memory_hub::MemoryHub::new(
+        &settings.paths.data_dir
+    ).await);
+    info!("MemoryHub initialise (vector + graph + rag)");
     // ── API HTTP REST (pour agents OpenClaw) ─────────────────────────────
     let bound_system_api = Arc::new(BoundSystem::new(BoundSystem::default_whitelist()));
     let api_state = Arc::new(soulsystem::api::ApiState {
         bound_system: bound_system_api,
         pty_sessions: Arc::new(Mutex::new(HashMap::new())),
+        memory: Some(memory_hub.clone()),
     });
     let api_router = soulsystem::api::router(api_state);
     tokio::spawn(async move {
@@ -126,7 +132,7 @@ async fn main() -> Result<()> {
     //   compute_backend → CPU / GPU (CUDA / ROCm / Vulkan)
     //   config       → configuration centralisée
     //   discovery    → découverte de services réseau (mDNS)
-    //   soul_memory  → mémoire vectorielle locale (sled + n-grammes)
+    //   memory_hub  → vectoriel + graphe conceptuel + RAG (unifié)
     //   telemetry    → métriques OTLP
     //
     // Activés seulement en --dev :
@@ -143,9 +149,6 @@ async fn main() -> Result<()> {
     }
     info!("AuditLogger initialise");
 
-    // SoulMemory (vectorielle locale, fallback sled)
-    let _memory = soulsystem::soul_memory::SoulMemory::new()?;
-    info!("SoulMemory initialisée");
 
     // Discovery (mDNS sur port 42069)
     let disco = soulsystem::discovery::DiscoveryService::new(bus.clone());
