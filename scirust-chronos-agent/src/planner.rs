@@ -42,6 +42,23 @@ use rand::Rng;
 use std::f64::consts::PI;
 
 // --------------------------------------------------------------------------
+// Helper : clipping L2 d'un vecteur 1D
+// --------------------------------------------------------------------------
+
+/// Si ‖x‖ > max_norm, projette sur la sphère de rayon max_norm.
+/// Sinon retourne x inchangé. Sans clipping, la boucle fermée
+/// PTNL→BCI→PDT→PTNL avec composants non-entraînés diverge
+/// exponentiellement.
+pub fn clip_l2(x: &Tensor, max_norm: f64) -> Result<Tensor> {
+    let norm: f64 = x.sqr()?.sum_all()?.to_scalar::<f64>()?.sqrt();
+    if norm <= max_norm || norm < 1e-12 {
+        return Ok(x.clone());
+    }
+    let scale = Tensor::new(max_norm / norm, x.device())?;
+    x.broadcast_mul(&scale)
+}
+
+// --------------------------------------------------------------------------
 // Schedule cosine
 // --------------------------------------------------------------------------
 
@@ -168,6 +185,12 @@ pub struct StochasticDiffusionPlanner {
     /// Buffer trajectoire — pré-alloué.
     pub trajectory: Tensor,
     pub device: Device,
+
+    // V6 — Soupapes anti-explosion (essentielles tant que les nets ne sont
+    // pas entraînés). À garder même après entraînement comme défense en
+    // profondeur. Norme L2 maximale autorisée.
+    pub score_clip_norm: f64,
+    pub state_clip_norm: f64,
 }
 
 impl StochasticDiffusionPlanner {
@@ -186,6 +209,8 @@ impl StochasticDiffusionPlanner {
             null_cond,
             trajectory,
             device: device.clone(),
+            score_clip_norm: 5.0,
+            state_clip_norm: 5.0,
         })
     }
 
@@ -199,6 +224,15 @@ impl StochasticDiffusionPlanner {
     ///   - Variance du bruit injecté : (1 - α_sync) → bruit fort si drift.
     pub fn plan(&mut self, latent_state: &Tensor, alpha_sync: f64) -> Result<Tensor> {
         let mut rng = rand::thread_rng();
+
+        // Normalise latent_state à 1D — main.rs passe parfois (1, d_latent).
+        let cond_1d = match latent_state.dims().len() {
+            1 => latent_state.clone(),
+            2 => latent_state.squeeze(0)?,
+            _ => return Err(candle_core::Error::Msg(
+                "plan: latent_state must be 1D or 2D".into()).bt()),
+        };
+        debug_assert_eq!(cond_1d.dims1()?, self.d_latent);
 
         // 1. Bruit initial x_T ~ N(0, I)
         let init_data: Vec<f64> = (0..self.d_latent)
@@ -218,14 +252,14 @@ impl StochasticDiffusionPlanner {
             let t_prev = step;
 
             // 2.1 Score guidée
-            let s_guided = self.guided_score(&x, t, latent_state, w)?;
+            let s_guided = self.guided_score(&x, t, &cond_1d, w)?;
 
             // 2.2 DPM-Solver-2 (Heun-like midpoint pour la reverse ODE)
             //     Étape prédicteur (Euler)
             let (x_pred, _) = self.euler_step(&x, &s_guided, t, t_prev)?;
 
             // Étape correcteur : score au point prédicteur
-            let s_pred = self.guided_score(&x_pred, t_prev, latent_state, w)?;
+            let s_pred = self.guided_score(&x_pred, t_prev, &cond_1d, w)?;
             let s_avg_data: Vec<f64> = s_guided.to_vec1::<f64>()?
                 .iter().zip(s_pred.to_vec1::<f64>()?.iter())
                 .map(|(a, b)| 0.5 * (a + b)).collect();
@@ -233,7 +267,7 @@ impl StochasticDiffusionPlanner {
 
             // Update avec score moyenné (ordre 2)
             let (x_new, _) = self.euler_step(&x, &s_avg, t, t_prev)?;
-            x = x_new;
+            x = clip_l2(&x_new, self.state_clip_norm)?;
 
             // 2.3 Injection de bruit stochastique (SDE — Langevin term)
             // Variance ∝ √β · (1 - α_sync) → plus bruité si drift
@@ -244,7 +278,7 @@ impl StochasticDiffusionPlanner {
                     .map(|_| rng.sample::<f64, _>(rand_distr::StandardNormal) * noise_amp)
                     .collect();
                 let noise = Tensor::from_slice(&z, self.d_latent, &self.device)?;
-                x = x.add(&noise)?;
+                x = clip_l2(&x.add(&noise)?, self.state_clip_norm)?;
             }
 
             traj_rows.push(x.to_vec1::<f64>()?);
@@ -252,7 +286,7 @@ impl StochasticDiffusionPlanner {
 
         // 3. Strict inpainting : la position finale est forcée à latent_state.
         let last_idx = traj_rows.len() - 1;
-        traj_rows[last_idx] = latent_state.to_vec1::<f64>()?;
+        traj_rows[last_idx] = cond_1d.to_vec1::<f64>()?;
 
         // Reverse pour avoir step 0 = état présent, step N-1 = horizon
         traj_rows.reverse();
@@ -266,17 +300,26 @@ impl StochasticDiffusionPlanner {
     }
 
     /// Score guidé par CFG : (1+w)·s_cond - w·s_uncond.
+    ///
+    /// Inclut un clipping L2 obligatoire — sans entraînement, le score est
+    /// arbitraire et peut exploser quand on ferme la boucle. Le clip à
+    /// `score_clip_norm` est une simple soupape de sécurité.
     fn guided_score(&self, x: &Tensor, t: usize, cond: &Tensor, w: f64)
         -> Result<Tensor>
     {
         let t_emb = time_embedding(t as f64, self.d_t_emb, &self.device)?;
         let s_cond = self.score_net.score(x, &t_emb, cond)?;
-        if w.abs() < 1e-6 { return Ok(s_cond); }
-        let s_uncond = self.score_net.score(x, &t_emb, &self.null_cond)?;
-        let one_plus_w = Tensor::new(1.0 + w, &self.device)?;
-        let w_t = Tensor::new(w, &self.device)?;
-        s_cond.broadcast_mul(&one_plus_w)?
-             .sub(&s_uncond.broadcast_mul(&w_t)?)
+        let s = if w.abs() < 1e-6 {
+            s_cond
+        } else {
+            let s_uncond = self.score_net.score(x, &t_emb, &self.null_cond)?;
+            let one_plus_w = Tensor::new(1.0 + w, &self.device)?;
+            let w_t = Tensor::new(w, &self.device)?;
+            s_cond.broadcast_mul(&one_plus_w)?
+                 .sub(&s_uncond.broadcast_mul(&w_t)?)?
+        };
+        // Clip L2 — anti-explosion en boucle fermée.
+        clip_l2(&s, self.score_clip_norm)
     }
 
     /// Un step de reverse ODE (Euler).
