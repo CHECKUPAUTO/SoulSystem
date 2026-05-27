@@ -27,3 +27,7 @@ pub mod llm_bridge;
 pub mod training;
 pub mod checkpoint;
 pub mod predictive_cache;
+pub mod evopulse;
+pub mod temporal_index;
+pub mod memory_health;
+pub mod consolidation;

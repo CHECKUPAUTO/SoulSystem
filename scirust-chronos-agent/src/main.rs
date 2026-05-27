@@ -26,6 +26,8 @@ use chronos_agent::training::{Trainer, ReplayBuffer};
 use chronos_agent::checkpoint::CheckpointManager;
 use chronos_agent::memory::ImportanceParams;
 use chronos_agent::predictive_cache::PredictiveCache;
+use chronos_agent::memory_health::{HealthMonitor, HealthAction, HealthStatus};
+use chronos_agent::consolidation::ConsolidationCycle;
 
 use candle_core::{Device, Tensor};
 
@@ -71,6 +73,10 @@ const ENABLE_CHECKPOINT: bool = true;  // Mettre false pour bench sans I/O
 const PRUNE_EVERY: usize = 128;        // Vérifie l'importance tous les N steps
 const PRUNE_THRESHOLD: f64 = 0.4;      // Score d'importance minimum pour rester
 const PRUNE_KEEP_MIN: usize = 16;      // Garde toujours au moins N traces
+
+// V6.3 — Monitoring santé + consolidation hors-ligne
+const HEALTH_CHECK_EVERY: usize = 64;     // Évalue la santé tous les N steps
+const CONSOLIDATE_EVERY: usize = 512;     // Cycle de sommeil tous les N steps
 
 // --------------------------------------------------------------------------
 // LanguageModel trait — agnostic LLM abstraction
@@ -382,6 +388,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut pred_cache = PredictiveCache::new(16, 0.92);
     let mut alpha_window: VecDeque<f64> = VecDeque::with_capacity(ALPHA_WINDOW_FOR_MEDIAN);
 
+    // V6.3 — Monitoring santé continu + consolidation hors-ligne périodique
+    let mut health = HealthMonitor::new();
+    let consolidator = ConsolidationCycle::default();
+    let mut consolidation_total_traces = 0usize;
+    let mut consolidation_total_prototypes = 0usize;
+
     // V6.2 — Pont de persistance. Si un checkpoint existe, on le charge
     // pour reprendre l'entraînement là où on l'avait laissé.
     let ckpt_manager = if ENABLE_CHECKPOINT {
@@ -687,6 +699,56 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  🧹 prune @ step {} → {} traces oubliées", step, removed);
             }
         }
+
+        // V6.3 — Health check : évalue les métriques et applique les actions
+        // recommandées (auto-réparation conservative).
+        if step % HEALTH_CHECK_EVERY == 0 && step >= T + TRAIN_WARMUP {
+            health.snapshot_semantic(memory.current_t, memory.semantic.prototypes.len());
+            let report = health.check(&memory, &pred_cache);
+            for action in &report.actions {
+                match action {
+                    HealthAction::PruneAggressive => {
+                        // Prune plus agressif que le périodique
+                        memory.prune_episodic(
+                            PRUNE_THRESHOLD * 1.5,
+                            &ImportanceParams::default(),
+                            PRUNE_KEEP_MIN);
+                    }
+                    HealthAction::ClearCache => {
+                        pred_cache.clear();
+                    }
+                    HealthAction::CompactHnsw => {
+                        memory.semantic.compact();
+                    }
+                    HealthAction::HardenSemanticThreshold => {
+                        // Pas d'action directe ici — le threshold est passé
+                        // à `semantic.learn()` au callsite, géré ailleurs.
+                    }
+                    HealthAction::NoOp => {}
+                }
+            }
+            if report.status != HealthStatus::Healthy {
+                println!("  ⚕  health @ step {} → {:?} {:?}",
+                         step, report.status, report.notes);
+            }
+        }
+
+        // V6.3 — Consolidation hors-ligne (sommeil simulé) :
+        // élève les épisodiques fréquemment confirmées en sémantiques.
+        // Coûteux (O(n²) clustering pire cas) → rare.
+        if step % CONSOLIDATE_EVERY == 0 && step >= T + TRAIN_WARMUP {
+            let report = consolidator.run(&mut memory);
+            consolidation_total_traces += report.traces_consolidated;
+            consolidation_total_prototypes += report.prototypes_created;
+            if report.prototypes_created > 0 || report.prototypes_reinforced > 0 {
+                println!("  💤 consolidation @ step {} → \
+                          {} traces dans {} clusters \
+                          ({} prototypes créés, {} renforcés)",
+                         step,
+                         report.traces_consolidated, report.clusters_found,
+                         report.prototypes_created, report.prototypes_reinforced);
+            }
+        }
     }
 
     // V6.2 — Save final (toujours, même si pas multiple de CHECKPOINT_EVERY)
@@ -735,6 +797,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("       Predictive cache:  hits={} misses={} hit_rate={:.1}%",
                  pred_cache.hits, pred_cache.misses, pred_cache.hit_rate() * 100.0);
     }
+
+    // V6.3 — Report consolidation
+    if consolidation_total_prototypes > 0 || consolidation_total_traces > 0 {
+        println!("       Consolidation:     {} traces consolidées → \
+                  {} prototypes sémantiques créés",
+                 consolidation_total_traces, consolidation_total_prototypes);
+    }
+
+    // V6.3 — Report santé
+    let final_report = health.check(&memory, &pred_cache);
+    println!("       Health:            {:?}   episodic={:.0}%   \
+              cache={:.1}%   latency={:.0}µs",
+             final_report.status,
+             final_report.episodic_fill_ratio * 100.0,
+             final_report.cache_hit_rate * 100.0,
+             final_report.retrieve_latency_avg_us);
     println!();
 
     // Export observer data
