@@ -286,6 +286,13 @@ impl PTNLPerceiver {
         Ok((latents_out, recon_loss))
     }
 
+    /// Projette des latents de shape (B, d_latent) vers l'espace input (B, d_input).
+    /// Utilisé par la boucle bidirectionnelle pour projeter la trajectoire PDT
+    /// en entrée du PTNL (via perceiver.set_future()).
+    pub fn latent_to_input(&self, latents: &Tensor) -> Result<Tensor> {
+        latents.matmul(&self.w_o)
+    }
+
     fn compute_variance(&self, x: &Tensor) -> Result<f64> {
         let v: Vec<f64> = x.flatten_all()?.to_vec1::<f64>()?;
         let mean = v.iter().sum::<f64>() / v.len() as f64;

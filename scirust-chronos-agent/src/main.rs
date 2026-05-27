@@ -29,7 +29,9 @@ use candle_core::{Device, Tensor};
 // Constants
 // --------------------------------------------------------------------------
 
-const T: usize = 32;                // Sliding window length
+const T: usize = 32;                // Sliding window length (= T_PAST)
+const T_FUTURE: usize = 4;          // V6: # of future steps anticipés via PDT trajectory
+const D_TIME: usize = 8;            // V6: Time2Vec embedding dimension
 const M: usize = 8;                 // Number of latent vectors
 const D_INPUT: usize = 4;           // Input dimension
 const D_LATENT: usize = 16;         // Latent dimension
@@ -40,8 +42,6 @@ const NUM_LAYERS: usize = 4;        // LLM layers
 const N_HEADS: usize = 4;           // Attention heads per layer
 const D_HEAD: usize = 64;           // Dim per head
 const NUM_STEPS: usize = 10;        // Diffusion steps
-const D_TIME: usize = 6;               // Time2Vec embedding dimension
-const T_FUTURE: usize = 4;            // Future window for bidirectional PTNL
 const EPISODIC_CAP: usize = 64;     // Episodic memory capacity
 const ALPHA_THRESHOLD: f64 = 0.65;  // Insight injection threshold
 const REGRET_THRESHOLD: f64 = 5.0;  // Regret trigger
@@ -305,12 +305,6 @@ impl ChronosStats {
 // Main orchestration loop
 // --------------------------------------------------------------------------
 
-/// T_axis factice pour compatibilité V6 — produit un vecteur Time2Vec neutre
-/// (t=0 répété pour tous les tokens de la fenêtre).
-fn make_dummy_t_axis(batch_len: usize) -> candle_core::Result<Tensor> {
-    Tensor::from_slice(&vec![0.0f32; batch_len], (1, batch_len), &Device::Cpu)
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("╔═══════════════════════════════════════════════════════════════╗");
     println!("║     Chronos-Lingua — Pont Holonomique + Monitoring          ║");
@@ -321,7 +315,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _rng = rand::thread_rng();
 
     // ---- Initialise all modules ----
-    let mut perceiver = PTNLPerceiver::new(D_INPUT, D_LATENT, M, T, D_TIME, T_FUTURE, &device)?;
+    let mut perceiver = PTNLPerceiver::new(
+        D_INPUT, D_LATENT, D_TIME, M, T, T_FUTURE, &device)?;
     let mut bci = GRUCell::new(D_LATENT, D_HIDDEN, &device)?;
     let mut memory = AtemporalMemory::new(D_LATENT, EPISODIC_CAP);
     let mut planner = StochasticDiffusionPlanner::new(NUM_STEPS, D_LATENT, &device)?;
@@ -342,6 +337,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut token_counter: u32 = 100;  // simulated token ID
     let mut recenter_latent: Vec<f64> = Vec::new(); // Auto-stabilisation anchor
 
+    // V6 — Prédiction du step+1 issue du PDT au step précédent. Passée
+    // à memory.observe() pour activer le rétro-causal binding. None au
+    // premier step (pas encore de trajectoire planifiée).
+    let mut next_step_prediction: Option<Vec<f64>> = None;
+
     // ---- Main loop ----
     for step in T..TOTAL_STEPS {
         let step_start = Instant::now();
@@ -351,8 +351,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let flat: Vec<f64> = window.iter().flat_map(|v| v.iter()).copied().collect();
         let x = Tensor::from_slice(&flat, (T, D_INPUT), &device)?;
 
-        // 2. PTNLPerceiver: encode to latents
-        let t_axis = make_dummy_t_axis(T)?;
+        // 1b. V6 — Time axis pour Time2Vec : timestamps relatifs centrés
+        // sur 0 = "maintenant", couvrant [past | future].
+        // Échelle [-1, T_FUTURE/T] pour que les fréquences apprises soient stables.
+        let t_axis_vals: Vec<f64> = (0..T + T_FUTURE)
+            .map(|i| (i as f64 - T as f64 + 1.0) / T as f64)
+            .collect();
+        let t_axis = Tensor::from_slice(&t_axis_vals, T + T_FUTURE, &device)?;
+
+        // 2. PTNLPerceiver: encode to latents (bidirectionnel — voit déjà
+        // le futur prédit par le PDT au step précédent via set_future).
         let (latents, _recon_loss) = perceiver.forward(&x, &t_axis)?;
         let latent_vec: Vec<f64> = {
             let lm = latents.mean(0)?;
@@ -362,7 +370,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let latent_flat: Vec<f64> = latents.flatten_all()?.to_vec1::<f64>()?;
 
         // 3. AtemporalMemory: observe → α_sync
-        memory.observe(&latent_vec, None);
+        //    V6 — on passe la prédiction du step +1 (1ère ligne après "présent"
+        //    dans la trajectoire stockée du PDT précédent) pour activer le
+        //    rétro-causal binding au step où l'observation correspondante arrivera.
+        let next_step_pred = next_step_prediction.clone();
+        memory.observe(&latent_vec, next_step_pred);
         let alpha_sync = memory.alpha_sync;
 
         // 3b. Auto-stabilisation: if alpha_sync collapsed, recenter on last healthy latent
@@ -376,6 +388,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Use the anchor for planner, not the corrupted latent
                 let h_2d = h.reshape((1, D_LATENT))?;
                 let trajectory = planner.plan(&h_2d, alpha_sync)?;
+
+                // V6 — Branche recenter : propage aussi le futur prédit
+                // pour que la perception du step suivant reste cohérente.
+                if NUM_STEPS >= 1 + T_FUTURE {
+                    let traj_input = perceiver.latent_to_input(&trajectory)?;
+                    let future_window = traj_input.narrow(0, 1, T_FUTURE)?;
+                    perceiver.set_future(future_window);
+                }
+                next_step_prediction = Some(trajectory.get(1)?.to_vec1::<f64>()?);
                 // Skip to projector with the anchor
                 let anchor_projected = projector.project(
                     &Tensor::from_slice(&recenter_latent, (1, D_LATENT), &device)?
@@ -435,6 +456,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 7. Planner: generate ideal trajectory
         let h_2d = h.reshape((1, D_LATENT))?;
         let trajectory = planner.plan(&h_2d, alpha_sync)?;
+
+        // 7b. V6 — Boucle bidirectionnelle : projette la trajectoire latente
+        //     (D_LATENT) dans l'espace d'observation (D_INPUT) via w_o du
+        //     perceiver, extrait T_FUTURE steps après le "présent" (step 0
+        //     est inpainté = état actuel), et injecte dans le PTNL pour le
+        //     step suivant. Le PTNL "verra" littéralement le futur prédit.
+        //
+        //     WARMUP : on n'active la boucle bidirectionnelle qu'après
+        //     T + WARMUP_STEPS pour laisser les composants se stabiliser.
+        //     Sans entraînement, le score net est random — fermer la boucle
+        //     tout de suite peut diverger.
+        const WARMUP_STEPS: usize = 8;
+        if step >= T + WARMUP_STEPS && NUM_STEPS >= 1 + T_FUTURE {
+            let traj_input = perceiver.latent_to_input(&trajectory)?;   // (NUM_STEPS, D_INPUT)
+            let future_window = traj_input.narrow(0, 1, T_FUTURE)?;     // skip step 0 = présent
+            perceiver.set_future(future_window);
+        }
+        // Sauve la prédiction du step +1 dans l'espace latent — sera
+        // passée à memory.observe() au step suivant pour le retro-binding.
+        next_step_prediction = if step >= T + WARMUP_STEPS {
+            Some(trajectory.get(1)?.to_vec1::<f64>()?)
+        } else {
+            None
+        };
 
         // 8. Coherence loss
         let latent_mean = latents.mean(0)?;
