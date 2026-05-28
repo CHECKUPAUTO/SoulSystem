@@ -8,3 +8,6 @@
 pub mod curiosity;
 pub mod learning_high;
 pub mod bus_publisher;
+pub mod self_quiz;
+pub mod goal_seeder;
+pub mod evo_voice;

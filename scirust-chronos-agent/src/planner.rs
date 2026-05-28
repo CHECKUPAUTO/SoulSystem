@@ -37,6 +37,7 @@
 //   steps que Euler. Pour T = 10 effectif → équivalent ~25 steps Euler.
 // ==========================================================================
 
+use crate::device::compute_dtype;
 use candle_core::{DType, Device, Result, Tensor, Var};
 use rand::Rng;
 use std::f64::consts::PI;
@@ -143,9 +144,9 @@ impl ScoreNetwork {
             w1: Var::from_tensor(&Tensor::randn(0.0f64, scale_in, (d_in, d_hidden), device)?)?,
             w2: Var::from_tensor(&Tensor::randn(0.0f64, scale_h,  (d_hidden, d_hidden), device)?)?,
             w3: Var::from_tensor(&Tensor::randn(0.0f64, scale_h,  (d_hidden, d_latent), device)?)?,
-            b1: Var::from_tensor(&Tensor::zeros(d_hidden, DType::F64, device)?)?,
-            b2: Var::from_tensor(&Tensor::zeros(d_hidden, DType::F64, device)?)?,
-            b3: Var::from_tensor(&Tensor::zeros(d_latent, DType::F64, device)?)?,
+            b1: Var::from_tensor(&Tensor::zeros(d_hidden, compute_dtype(), device)?)?,
+            b2: Var::from_tensor(&Tensor::zeros(d_hidden, compute_dtype(), device)?)?,
+            b3: Var::from_tensor(&Tensor::zeros(d_latent, compute_dtype(), device)?)?,
             d_latent, d_t, d_cond, d_hidden,
             device: device.clone(),
         })
@@ -208,8 +209,8 @@ impl StochasticDiffusionPlanner {
         let d_cond = d_latent;
         let score_net = ScoreNetwork::new(d_latent, d_t_emb, d_cond, 128, device)?;
         let schedule = CosineSchedule::new(num_steps, 0.008);
-        let null_cond = Tensor::zeros(d_cond, DType::F64, device)?;
-        let trajectory = Tensor::zeros((num_steps, d_latent), DType::F64, device)?;
+        let null_cond = Tensor::zeros(d_cond, compute_dtype(), device)?;
+        let trajectory = Tensor::zeros((num_steps, d_latent), compute_dtype(), device)?;
         Ok(Self {
             num_steps, d_latent, d_t_emb,
             score_net, schedule,

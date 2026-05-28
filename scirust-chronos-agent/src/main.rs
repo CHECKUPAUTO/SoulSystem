@@ -31,6 +31,8 @@ use chronos_agent::consolidation::ConsolidationCycle;
 use chronos_agent::memory_journal::{MemoryJournal, MemoryEvent, vector_hash};
 use chronos_agent::working_memory::{WorkingMemory, WorkingItem, WorkingMemoryConfig};
 use chronos_agent::soul_bridge::{SoulBridge, MemoryItem, InMemoryBackend};
+use chronos_agent::evopulse::curiosity::{CuriosityEngine, Trajectory};
+use chronos_agent::evopulse::learning_high::LearningHigh;
 
 use candle_core::{Device, Tensor};
 
@@ -51,7 +53,7 @@ const NUM_LAYERS: usize = 4;        // LLM layers
 const N_HEADS: usize = 4;           // Attention heads per layer
 const D_HEAD: usize = 64;           // Dim per head
 const NUM_STEPS: usize = 10;        // Diffusion steps
-const EPISODIC_CAP: usize = 256;    // Episodic memory capacity (V6.5)
+const EPISODIC_CAP: usize = 64;     // Episodic memory capacity
 const ALPHA_THRESHOLD: f64 = 0.65;  // Insight injection threshold
 const REGRET_THRESHOLD: f64 = 5.0;  // Regret trigger
 const TOTAL_STEPS: usize = 1024;     // V6.1 : 1024 pour mesurer convergence long terme
@@ -143,7 +145,7 @@ impl MockLLM {
     ) -> candle_core::Result<Self> {
         let scale = (2.0 / d_model as f64).sqrt();
         let w_proj = Tensor::randn(0.0f64, scale, (vocab_size, d_model), device)?;
-        let b_proj = Tensor::zeros(vocab_size, candle_core::DType::F64, device)?;
+        let b_proj = Tensor::zeros(vocab_size, chronos_agent::device::compute_dtype(), device)?;
         Ok(Self {
             d_model, vocab_size, num_layers, n_heads, d_head,
             device: device.clone(),
@@ -349,14 +351,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("╚═══════════════════════════════════════════════════════════════╝");
     println!();
 
-    // ---- Auto-détection GPU (CUDA si disponible, CPU sinon) ----
-    let device = Device::new_cuda(0).unwrap_or(Device::Cpu);
+    let device = Device::Cpu;
     let _rng = rand::thread_rng();
 
     // ---- Initialise all modules ----
     let mut perceiver = PTNLPerceiver::new(
         D_INPUT, D_LATENT, D_TIME, M, T, T_FUTURE, &device)?;
     let mut bci = GRUCell::new(D_LATENT, D_HIDDEN, &device)?;
+    let mut curiosity = CuriosityEngine::default();
+    let mut learning_high = LearningHigh::default();
+    let mut previous_prediction_error: Option<f64> = None;
     let mut memory = AtemporalMemory::new(D_LATENT, EPISODIC_CAP);
     let mut planner = StochasticDiffusionPlanner::new(NUM_STEPS, D_LATENT, &device)?;
     let mut hypernetwork = ConditioningHyperNetwork::new(1, 16, D_LATENT, &device)?;
@@ -523,7 +527,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .reshape((1, 1, D_LATENT))?
                 ).unwrap_or_else(|_| {
                     // Fallback: create a zero projection
-                    Tensor::zeros((1, M, D_LATENT), candle_core::DType::F64, &device).unwrap()
+                    Tensor::zeros((1, M, D_LATENT), chronos_agent::device::compute_dtype(), &device).unwrap()
                 });
                 let kv_prefix = projector.generate_prefix_kv(
                     &anchor_projected, N_HEADS, D_HEAD,
@@ -664,6 +668,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let pred_latent: Vec<f64> = trajectory.get(i)?.to_vec1::<f64>()?;
                 let results = memory.retrieve(&pred_latent, 3);
                 pred_cache.put(pred_latent, results);
+
+        // V6.5 — EvoPulse Curiosity Engine
+        let traj_values: Vec<f64> = (0..NUM_STEPS)
+            .filter_map(|i| {
+                let row = trajectory.get(i).ok()?;
+                let v: Vec<f64> = row.to_vec1().ok()?;
+                Some(v.iter().copied().sum::<f64>() / v.len() as f64)
+            })
+            .collect();
+        let traj_trajectories: Vec<Trajectory> = traj_values.iter()
+            .map(|&v| Trajectory { predicted_state_value: v })
+            .collect();
+        let uncertainty = curiosity.compute_uncertainty(&traj_trajectories);
+        if curiosity.is_reducible(uncertainty) {
+            let discomfort = curiosity.to_bci_potential(uncertainty);
+            if discomfort < 0.0 {
+                bci.apply_external_potential(discomfort);
+            }
+        }
             }
         }
 
@@ -680,6 +703,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continuous_coherence_loss(&trajectory, &latent_tiled)?;
         let e_t = per_step_err[0].abs();
 
+    // V6.5 — EvoPulse LearningHigh : detecte les chutes d'erreur
+    if let Some(prev_err) = previous_prediction_error {
+        let reward = learning_high.detect_and_reward(prev_err, e_t);
+        if reward > 0.0 {
+            bci.apply_external_potential(reward);
+        }
+    }
+    previous_prediction_error = Some(e_t);
         // 9. RegretOptimizer: divergence between LLM logits & trajectory
         let traj_flat = trajectory.flatten_all()?;
         let traj_first_d: Vec<f64> = traj_flat.to_vec1::<f64>()?[..D_LATENT].to_vec();
@@ -829,6 +860,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // V6.3 — Consolidation hors-ligne (sommeil simulé) :
+        // V6.5 — EvoPulse tick_decay
+        learning_high.tick_decay();
         // élève les épisodiques fréquemment confirmées en sémantiques.
         // Coûteux (O(n²) clustering pire cas) → rare.
         if step % CONSOLIDATE_EVERY == 0 && step >= T + TRAIN_WARMUP {

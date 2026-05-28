@@ -47,6 +47,7 @@
 // Cela respecte la structure hamiltonienne (le terme reste un gradient).
 // ==========================================================================
 
+use crate::device::compute_dtype;
 use candle_core::{DType, Device, Result, Tensor, Var};
 
 // --------------------------------------------------------------------------
@@ -87,8 +88,8 @@ impl PotentialMLP {
         Ok(Self {
             w1: Var::from_tensor(&Tensor::randn(0.0f64, scale, (d_q, d_h), device)?)?,
             w2: Var::from_tensor(&Tensor::randn(0.0f64, scale, (d_h, 1), device)?)?,
-            b1: Var::from_tensor(&Tensor::zeros(d_h, DType::F64, device)?)?,
-            b2: Var::from_tensor(&Tensor::zeros(1, DType::F64, device)?)?,
+            b1: Var::from_tensor(&Tensor::zeros(d_h, compute_dtype(), device)?)?,
+            b2: Var::from_tensor(&Tensor::zeros(1, compute_dtype(), device)?)?,
             d_q, d_h,
             device: device.clone(),
         })
@@ -210,6 +211,8 @@ pub struct GRUCell {
     /// Diagnostic : énergie totale au dernier step (pour vérifier la
     /// conservation, qui doit être stable hors mode attracteur).
     pub last_energy: f64,
+    /// Potentiel externe accumulé (EvoPulse) pour perturbation hamiltonienne.
+    pub external_potential: f64,
 }
 
 impl GRUCell {
@@ -228,8 +231,8 @@ impl GRUCell {
 
         let potential = PotentialMLP::new(d_q, d_q * 4, device)?;
 
-        let q = Tensor::zeros(d_q, DType::F64, device)?;
-        let p = Tensor::zeros(d_q, DType::F64, device)?;
+        let q = Tensor::zeros(d_q, compute_dtype(), device)?;
+        let p = Tensor::zeros(d_q, compute_dtype(), device)?;
 
         Ok(Self {
             potential, w_in,
@@ -242,13 +245,21 @@ impl GRUCell {
             input_clip_norm: 5.0,
             device: device.clone(),
             last_energy: 0.0,
+            external_potential: 0.0,
         })
     }
 
     pub fn reset(&mut self) -> Result<()> {
-        self.q = Tensor::zeros(self.d_q, DType::F64, &self.device)?;
-        self.p = Tensor::zeros(self.d_q, DType::F64, &self.device)?;
+        self.q = Tensor::zeros(self.d_q, compute_dtype(), &self.device)?;
+        self.p = Tensor::zeros(self.d_q, compute_dtype(), &self.device)?;
+        self.external_potential = 0.0;
         Ok(())
+    }
+
+    /// Ajoute un potentiel externe (EvoPulse) intégré dans la dynamique au prochain step.
+    pub fn apply_external_potential(&mut self, potential: f64) {
+        const EXT_POT_CLAMP: f64 = 0.2;
+        self.external_potential = (self.external_potential + potential).clamp(-EXT_POT_CLAMP, EXT_POT_CLAMP);
     }
 
     /// Step d'intégration symplectique avec couplage externe.
@@ -263,6 +274,13 @@ impl GRUCell {
     pub fn step(&mut self, x: &Tensor, alpha_sync: f64, threshold: f64)
         -> Result<Tensor>
     {
+        // 0. Appliquer le potentiel externe EvoPulse comme perturbation de moment.
+        if self.external_potential != 0.0 {
+            let ext_force = self.q.affine(self.dt * self.external_potential, 0.0)?;
+            self.p = self.p.add(&ext_force)?;
+            self.external_potential = 0.0;
+        }
+
         // 1. Projection input → couplage externe x_ext.
         let x_1d = if x.dims().len() == 2 { x.squeeze(0)? } else { x.clone() };
         // Clip l'input pour borner le couplage externe (anti-explosion).
@@ -360,7 +378,7 @@ mod tests {
         cell.q = Tensor::from_slice(&[0.3_f64; 8], 8, &dev()).unwrap();
         cell.p = Tensor::from_slice(&[0.1_f64; 8], 8, &dev()).unwrap();
 
-        let x = Tensor::zeros(4, DType::F64, &dev()).unwrap();
+        let x = Tensor::zeros(4, compute_dtype(), &dev()).unwrap();
         cell.step(&x, 0.0, 1.0).unwrap();  // α<threshold + couplage faible
         let e0 = cell.last_energy;
 
@@ -380,7 +398,7 @@ mod tests {
         cell.q = Tensor::from_slice(&[1.0_f64; 8], 8, &dev()).unwrap();
         cell.p = Tensor::from_slice(&[2.0_f64; 8], 8, &dev()).unwrap();
 
-        let x = Tensor::zeros(4, DType::F64, &dev()).unwrap();
+        let x = Tensor::zeros(4, compute_dtype(), &dev()).unwrap();
         // α_sync = 0 → friction max → convergence
         for _ in 0..500 {
             cell.step(&x, 0.0, 0.9).unwrap();
