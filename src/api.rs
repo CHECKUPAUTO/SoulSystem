@@ -105,6 +105,8 @@ pub fn router(state: Arc<ApiState>) -> Router {
         .route("/api/memory/store", post(memory_store_handler))
         .route("/api/memory/search", post(memory_search_handler))
         .route("/api/memory/context", post(memory_context_handler))
+        .route("/api/zerobot/chat", post(zerobot_chat_handler))
+        .route("/api/zerobot/health", get(zerobot_health_handler))
         .with_state(state)
 }
 
@@ -237,4 +239,71 @@ async fn memory_context_handler(
     let context = hub.get_context(&req.query, limit).await;
     let hit_count = if context.is_empty() { 0 } else { context.matches("[").count() };
     Ok(Json(MemoryContextResponse { context, hit_count }))
+}
+
+// ── ZeroBot handlers (proxy vers le service zerobot-api :8000) ──
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ZeroBotChatRequest {
+    pub message: String,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ZeroBotChatResponse {
+    pub response: String,
+    pub session_id: String,
+}
+
+async fn zerobot_chat_handler(
+    Json(req): Json<ZeroBotChatRequest>,
+) -> Result<Json<ZeroBotChatResponse>, StatusCode> {
+    let url = "http://zerobot-api:8000/chat";
+    let client = reqwest::Client::new();
+    match client
+        .post(url)
+        .json(&req)
+        .timeout(std::time::Duration::from_secs(120))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.json::<ZeroBotChatResponse>().await {
+                Ok(body) => Ok(Json(body)),
+                Err(e) => {
+                    eprintln!("zerobot chat parse error: {}", e);
+                    Err(StatusCode::BAD_GATEWAY)
+                }
+            }
+        }
+        Ok(resp) => {
+            eprintln!("zerobot chat HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default());
+            Err(StatusCode::BAD_GATEWAY)
+        }
+        Err(e) => {
+            eprintln!("zerobot chat network error: {} (is zerobot-api running ?)", e);
+            Err(StatusCode::SERVICE_UNAVAILABLE)
+        }
+    }
+}
+
+async fn zerobot_health_handler() -> Result<Json<serde_json::Value>, StatusCode> {
+    let url = "http://zerobot-api:8000/health";
+    let client = reqwest::Client::new();
+    match client.get(url).timeout(std::time::Duration::from_secs(5)).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.json::<serde_json::Value>().await {
+                Ok(body) => Ok(Json(body)),
+                Err(_) => Ok(Json(serde_json::json!({"zerobot": "reachable but parse failed"}))),
+            }
+        }
+        Ok(_) => {
+            eprintln!("zerobot health check failed");
+            Err(StatusCode::SERVICE_UNAVAILABLE)
+        }
+        Err(e) => {
+            eprintln!("zerobot health check network error: {}", e);
+            Err(StatusCode::SERVICE_UNAVAILABLE)
+        }
+    }
 }

@@ -1,0 +1,31 @@
+# ZeroBot — API Service
+FROM python:3.11-slim-bookworm AS base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    make \
+    curl \
+    git \
+    gdb \
+    binutils \
+    file \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /zerobot
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Download sentence-transformers model (cached at build time)
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-large-en-v1.5')" 2>/dev/null || true
+
+FROM base AS final
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /zerobot/data/chromadb /zerobot/logs /zerobot/knowledge/documents
+
+EXPOSE 8000
+
+CMD ["uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

@@ -1,40 +1,26 @@
-version: '3'
+# ZeroBot — Docker Compose
+# Orchestrates: API server, toolbox containers, ChromaDB, optional Ollama
 
 services:
-  soulsystem:
-    build: .
-    ports:
-      - "9090:9090"
-    volumes:
-      - soulsystem_data:/var/lib/soulsystem
-      - ./config:/config:ro
-    environment:
-      - SOULSYSTEM_CONFIG_DIR=/config
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-    env_file:
-      - .env
-    networks:
-      - soul-net
-
-  zerobot-api:
+  agent-api:
     build:
-      context: ./zerobot
+      context: .
       dockerfile: Dockerfile.api
     container_name: zerobot-api
     ports:
       - "8000:8000"
     volumes:
-      - ./zerobot:/zerobot
+      - ./:/zerobot
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - chromadb_data:/zerobot/data/chromadb
     environment:
       - ZEROBOT_CONFIG=/zerobot/config.yaml
+      - DOCKER_HOST=unix:///var/run/docker.sock
       - ZEROBOT_ENV=production
-      - SOULSYSTEM_URL=http://soulsystem:9090
     depends_on:
-      - zerobot-chromadb
+      - chromadb
     networks:
-      - soul-net
+      - zerobot-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
@@ -43,7 +29,7 @@ services:
       retries: 3
       start_period: 15s
 
-  zerobot-chromadb:
+  chromadb:
     image: ghcr.io/chroma-core/chroma:0.5.5
     container_name: zerobot-chromadb
     volumes:
@@ -52,17 +38,40 @@ services:
       - IS_PERSISTENT=TRUE
       - PERSIST_DIRECTORY=/chroma/chroma
       - ANONYMIZED_TELEMETRY=FALSE
+    ports:
+      - "8001:8000"
     networks:
-      - soul-net
+      - zerobot-net
     restart: unless-stopped
 
-  # ZeroBot toolbox (on-demand via Docker SDK, kept as profile)
-  zerobot-toolbox:
+  # Optional: local LLM via Ollama (uncomment to use)
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: zerobot-ollama
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   ports:
+  #     - "11434:11434"
+  #   networks:
+  #     - zerobot-net
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+
+  # Toolbox container (runs on-demand via Docker SDK, but kept alive for faster start)
+  toolbox:
     build:
-      context: ./zerobot
+      context: .
       dockerfile: Dockerfile.toolbox
     container_name: zerobot-toolbox
+    # NO network access — security by isolation
     networks: []
+    # network_mode: none  # explicitly disabled
     cap_drop:
       - ALL
     security_opt:
@@ -72,13 +81,15 @@ services:
       - /workspace:noexec,nosuid,size=100m
       - /tmp:noexec,nosuid,size=100m
     profiles:
-      - donotstart
+      - donotstart  # started on-demand by Docker SDK
+    # If started manually, sleep forever
     command: ["sleep", "infinity"]
 
 networks:
-  soul-net:
+  zerobot-net:
     driver: bridge
+    internal: false  # API network needs outbound for API calls (OpenAI)
 
 volumes:
-  soulsystem_data:
   chromadb_data:
+  # ollama_data:
