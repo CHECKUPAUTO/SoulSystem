@@ -28,6 +28,7 @@ use chronos_agent::memory::ImportanceParams;
 use chronos_agent::predictive_cache::PredictiveCache;
 use chronos_agent::memory_health::{HealthMonitor, HealthAction, HealthStatus};
 use chronos_agent::consolidation::ConsolidationCycle;
+use chronos_agent::soulsystem_bridge::SoulSystemBridge;
 
 use candle_core::{Device, Tensor};
 
@@ -48,7 +49,7 @@ const NUM_LAYERS: usize = 4;        // LLM layers
 const N_HEADS: usize = 4;           // Attention heads per layer
 const D_HEAD: usize = 64;           // Dim per head
 const NUM_STEPS: usize = 10;        // Diffusion steps
-const EPISODIC_CAP: usize = 64;     // Episodic memory capacity
+const EPISODIC_CAP: usize = 256;    // Episodic memory capacity (V6.3 recommandation)
 const ALPHA_THRESHOLD: f64 = 0.65;  // Insight injection threshold
 const REGRET_THRESHOLD: f64 = 5.0;  // Regret trigger
 const TOTAL_STEPS: usize = 1024;     // V6.1 : 1024 pour mesurer convergence long terme
@@ -339,7 +340,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("╚═══════════════════════════════════════════════════════════════╝");
     println!();
 
-    let device = Device::Cpu;
+    // Auto-détection GPU (CUDA si disponible, CPU sinon)
+    let device = Device::new_cuda(0).unwrap_or(Device::Cpu);
     let _rng = rand::thread_rng();
 
     // ---- Initialise all modules ----
@@ -419,6 +421,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         } else {
             println!("  🆕 No checkpoint found — fresh start");
+        }
+    }
+
+    // ---- Pont SoulSystem — initialisation ----
+    let soul_bridge = SoulSystemBridge::new(None);
+    if let Ok(alive) = soul_bridge.health_check() {
+        if alive {
+            println!("  🌐 SoulSystem bridge live at {}",
+                     soul_bridge.base_url());
+        } else {
+            println!("  ⚠  SoulSystem unreachable — distant saves disabled");
         }
     }
 
@@ -687,6 +700,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     eprintln!("  ⚠  checkpoint save failed at step {}: {}", step, e);
                 }
+                // SoulSystem distant push (non bloquant : on log seulement)
+                if let Err(e) = soul_bridge.store(CHECKPOINT_DIR, "chronos-agent") {
+                    if step % (CHECKPOINT_EVERY * 4) == 0 {
+                        eprintln!("  ⚠  SoulSystem push failed at step {}: {}", step, e);
+                    }
+                }
             }
         }
 
@@ -760,6 +779,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             println!("  💾 Final checkpoint saved → {} (step={})",
                      CHECKPOINT_DIR, global_step);
+        }
+        // SoulSystem push final (non bloquant)
+        if let Err(e) = soul_bridge.store(CHECKPOINT_DIR, "chronos-agent") {
+            eprintln!("  ⚠  final SoulSystem push: {}", e);
         }
     }
 

@@ -31,3 +31,4 @@ pub mod evopulse;
 pub mod temporal_index;
 pub mod memory_health;
 pub mod consolidation;
+pub mod soulsystem_bridge;
