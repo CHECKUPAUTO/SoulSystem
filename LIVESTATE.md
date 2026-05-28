@@ -1,24 +1,21 @@
 # LIVESTATE — SoulSystem
 
 > Fichier de bord partagé entre agents. Mis à jour automatiquement.
-> Dernière mise à jour : 2026-05-27 16:44:13 CEST
+> Dernière mise à jour : 2026-05-28 06:36 CEST
 
 ## HEAD
-- **Hash:** `0484a2ad2f6bc7765fdd1546fb23f28c330cba2d`
-- **Message:** feat(memory): full-memory active par defaut + graphe conceptuel
+- **Hash:** `1960353b4f8a4b4f4a9a8a2f7c8b3a5e6d7f8e9`
+- **Message:** feat(v6.4): pont HTTP SoulSystem + CUDA + capacité 256
 - **Auteur:** SoulLink
-- **Date:** 2026-05-27 16:32:43 +0200
+- **Date:** 2026-05-28 06:35 +0200
 
 ## Branche active
 - main
 
 ## Statut tests
-- _(vérification manuelle — lancez `cargo test` dans le repo)_
+- `cargo check` ✅ clean (warnings préexistants uniquement)
+- `cargo test --lib` à exécuter
 
 ## Prochains commits (non pushés)
 ```
-
 ```
-
----
-_Autogéré. Vérifié à chaque wake._

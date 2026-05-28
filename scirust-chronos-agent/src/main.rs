@@ -28,7 +28,9 @@ use chronos_agent::memory::ImportanceParams;
 use chronos_agent::predictive_cache::PredictiveCache;
 use chronos_agent::memory_health::{HealthMonitor, HealthAction, HealthStatus};
 use chronos_agent::consolidation::ConsolidationCycle;
-use chronos_agent::soulsystem_bridge::SoulSystemBridge;
+use chronos_agent::memory_journal::{MemoryJournal, MemoryEvent, vector_hash};
+use chronos_agent::working_memory::{WorkingMemory, WorkingItem, WorkingMemoryConfig};
+use chronos_agent::soul_bridge::{SoulBridge, MemoryItem, InMemoryBackend};
 
 use candle_core::{Device, Tensor};
 
@@ -49,7 +51,7 @@ const NUM_LAYERS: usize = 4;        // LLM layers
 const N_HEADS: usize = 4;           // Attention heads per layer
 const D_HEAD: usize = 64;           // Dim per head
 const NUM_STEPS: usize = 10;        // Diffusion steps
-const EPISODIC_CAP: usize = 256;    // Episodic memory capacity (V6.3 recommandation)
+const EPISODIC_CAP: usize = 256;    // Episodic memory capacity (V6.4)
 const ALPHA_THRESHOLD: f64 = 0.65;  // Insight injection threshold
 const REGRET_THRESHOLD: f64 = 5.0;  // Regret trigger
 const TOTAL_STEPS: usize = 1024;     // V6.1 : 1024 pour mesurer convergence long terme
@@ -78,6 +80,13 @@ const PRUNE_KEEP_MIN: usize = 16;      // Garde toujours au moins N traces
 // V6.3 — Monitoring santé + consolidation hors-ligne
 const HEALTH_CHECK_EVERY: usize = 64;     // Évalue la santé tous les N steps
 const CONSOLIDATE_EVERY: usize = 512;     // Cycle de sommeil tous les N steps
+
+// V6.4 — Journal, working memory, soul bridge
+const JOURNAL_PATH: &str = "./journal/agent.jsonl";
+const ENABLE_JOURNAL: bool = true;
+const ENABLE_WORKING_MEMORY: bool = true;
+const ENABLE_SOUL_BRIDGE: bool = true;
+const SOUL_BRIDGE_PUSH_EVERY: usize = 256; // Push prototypes vers SoulSystem tous les N steps
 
 // --------------------------------------------------------------------------
 // LanguageModel trait — agnostic LLM abstraction
@@ -340,7 +349,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("╚═══════════════════════════════════════════════════════════════╝");
     println!();
 
-    // Auto-détection GPU (CUDA si disponible, CPU sinon)
+    // ---- Auto-détection GPU (CUDA si disponible, CPU sinon) ----
     let device = Device::new_cuda(0).unwrap_or(Device::Cpu);
     let _rng = rand::thread_rng();
 
@@ -396,6 +405,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut consolidation_total_traces = 0usize;
     let mut consolidation_total_prototypes = 0usize;
 
+    // V6.4 — Journal append-only, working memory, soul bridge
+    let mut journal = if ENABLE_JOURNAL {
+        match MemoryJournal::open(JOURNAL_PATH) {
+            Ok(j) => Some(j),
+            Err(e) => { eprintln!("journal init failed: {}", e); None }
+        }
+    } else { None };
+
+    let mut working = if ENABLE_WORKING_MEMORY {
+        Some(WorkingMemory::with_config(WorkingMemoryConfig {
+            hot_capacity: 8, cold_capacity: 32,
+            ..Default::default()
+        }))
+    } else { None };
+
+    let mut soul_bridge = if ENABLE_SOUL_BRIDGE {
+        // Mode offline par défaut (InMemoryBackend). Pour brancher SoulSystem
+        // réel : remplacer par SoulSystemClient::new("http://localhost:9023")
+        Some(SoulBridge::new(InMemoryBackend::new()))
+    } else { None };
+    let mut last_pushed_prototype_count = 0usize;
+
     // V6.2 — Pont de persistance. Si un checkpoint existe, on le charge
     // pour reprendre l'entraînement là où on l'avait laissé.
     let ckpt_manager = if ENABLE_CHECKPOINT {
@@ -421,17 +452,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         } else {
             println!("  🆕 No checkpoint found — fresh start");
-        }
-    }
-
-    // ---- Pont SoulSystem — initialisation ----
-    let soul_bridge = SoulSystemBridge::new(None);
-    if let Ok(alive) = soul_bridge.health_check() {
-        if alive {
-            println!("  🌐 SoulSystem bridge live at {}",
-                     soul_bridge.base_url());
-        } else {
-            println!("  ⚠  SoulSystem unreachable — distant saves disabled");
         }
     }
 
@@ -691,6 +711,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let elapsed_us = step_start.elapsed().as_secs_f64() * 1_000_000.0;
         stats.record(elapsed_us, e_t, alpha_sync, regret_loss, coherence_loss, triggered);
 
+        // V6.4 — Journal append : trace de l'observation courante
+        if let Some(j) = journal.as_mut() {
+            let _ = j.append(MemoryEvent::EpisodicPush {
+                t: memory.current_t,
+                vector_hash: vector_hash(&latent_vec),
+                has_future_prediction: next_step_prediction.is_some(),
+            });
+        }
+
+        // V6.4 — Working memory : met à jour le focus avec h_BCI projeté
+        if let Some(w) = working.as_mut() {
+            let focus_vec: Vec<f64> = h.to_vec1::<f64>()?[..D_LATENT].to_vec();
+            w.update_focus(focus_vec.clone(), memory.current_t);
+            w.insert(WorkingItem {
+                id: vector_hash(&latent_vec),
+                vector: latent_vec.clone(),
+                label: format!("step_{}", step),
+                access_count: 0,
+                added_at: memory.current_t,
+                last_touched: memory.current_t,
+                priority: 0.0,
+            }, memory.current_t);
+        }
+
         // V6.2 — Save checkpoint périodique (atomique : .tmp puis rename)
         global_step += 1;
         if let Some(ref ckpt) = ckpt_manager {
@@ -699,12 +743,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                           &replay, &memory, global_step)
                 {
                     eprintln!("  ⚠  checkpoint save failed at step {}: {}", step, e);
+                } else if let Some(j) = journal.as_mut() {
+                    // Trace dans le journal pour permettre le replay-since-last-checkpoint
+                    let _ = j.append(MemoryEvent::Checkpoint {
+                        t: memory.current_t,
+                        global_step,
+                        snapshot_path: CHECKPOINT_DIR.to_string(),
+                    });
+                    let _ = j.flush();
                 }
-                // SoulSystem distant push (non bloquant : on log seulement)
-                if let Err(e) = soul_bridge.store(CHECKPOINT_DIR, "chronos-agent") {
-                    if step % (CHECKPOINT_EVERY * 4) == 0 {
-                        eprintln!("  ⚠  SoulSystem push failed at step {}: {}", step, e);
+            }
+        }
+
+        // V6.4 — Push périodique des prototypes sémantiques vers SoulSystem.
+        // Best-effort : si SoulSystem est down, on continue normalement.
+        if let Some(bridge) = soul_bridge.as_mut() {
+            if step % SOUL_BRIDGE_PUSH_EVERY == 0 && step >= T + TRAIN_WARMUP {
+                let current_count = memory.semantic.prototypes.len();
+                if current_count > last_pushed_prototype_count {
+                    let new_protos: Vec<MemoryItem> = memory.semantic.prototypes
+                        [last_pushed_prototype_count..current_count]
+                        .iter()
+                        .map(|p| MemoryItem::from_semantic_prototype(
+                            &p.vector, p.strength, p.t_created))
+                        .collect();
+                    let pushed = bridge.push_batch(&new_protos);
+                    if pushed > 0 {
+                        println!("  📡 soul_bridge: pushed {} new prototypes \
+                                  to SoulSystem (total: {})",
+                                 pushed, bridge.pushed);
                     }
+                    last_pushed_prototype_count = current_count;
                 }
             }
         }
@@ -716,6 +785,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 PRUNE_THRESHOLD, &ImportanceParams::default(), PRUNE_KEEP_MIN);
             if removed > 0 {
                 println!("  🧹 prune @ step {} → {} traces oubliées", step, removed);
+                if let Some(j) = journal.as_mut() {
+                    let _ = j.append(MemoryEvent::EpisodicPrune {
+                        t: memory.current_t,
+                        n_removed: removed,
+                        threshold: PRUNE_THRESHOLD,
+                    });
+                }
             }
         }
 
@@ -766,6 +842,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                          step,
                          report.traces_consolidated, report.clusters_found,
                          report.prototypes_created, report.prototypes_reinforced);
+                if let Some(j) = journal.as_mut() {
+                    let _ = j.append(MemoryEvent::Consolidation {
+                        t: memory.current_t,
+                        traces_consolidated: report.traces_consolidated,
+                        prototypes_created: report.prototypes_created,
+                        clusters_found: report.clusters_found,
+                    });
+                }
             }
         }
     }
@@ -779,10 +863,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             println!("  💾 Final checkpoint saved → {} (step={})",
                      CHECKPOINT_DIR, global_step);
-        }
-        // SoulSystem push final (non bloquant)
-        if let Err(e) = soul_bridge.store(CHECKPOINT_DIR, "chronos-agent") {
-            eprintln!("  ⚠  final SoulSystem push: {}", e);
         }
     }
 
@@ -836,6 +916,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
              final_report.episodic_fill_ratio * 100.0,
              final_report.cache_hit_rate * 100.0,
              final_report.retrieve_latency_avg_us);
+
+    // V6.4 — Report journal, working memory, soul bridge
+    if let Some(j) = journal.as_mut() {
+        let _ = j.flush();
+        let size = MemoryJournal::size_bytes(JOURNAL_PATH).unwrap_or(0);
+        println!("       Journal:           {} events écrits ({} KB)",
+                 j.events_written, size / 1024);
+    }
+    if let Some(w) = working.as_ref() {
+        println!("       Working memory:    hot={}/{} cold={}/{}  \
+                  inserts={} evictions={} promotions={}",
+                 w.hot_len(), w.config.hot_capacity,
+                 w.cold_len(), w.config.cold_capacity,
+                 w.total_inserts, w.total_evictions, w.total_promotions);
+    }
+    if let Some(b) = soul_bridge.as_ref() {
+        println!("       Soul bridge:       pushed={} failures={} pulled={}",
+                 b.pushed, b.push_failures, b.pulled);
+    }
     println!();
 
     // Export observer data

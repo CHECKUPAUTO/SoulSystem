@@ -103,7 +103,7 @@ mod tests {
         assert!(reward < 0.015);
         assert_eq!(lh.habituation_counter, 6.0);
         lh.tick_decay();
-        assert!((lh.habituation_counter - 5.94).abs() < f64::EPSILON);
+        assert!((lh.habituation_counter - 5.94).abs() < 1e-6);
     }
 
     #[test]

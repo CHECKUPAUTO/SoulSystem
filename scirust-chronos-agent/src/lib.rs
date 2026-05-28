@@ -1,16 +1,9 @@
 // ==========================================================================
-// chronos-agent — ChronosAgent V5 Framework + Chronos-Lingua Bridge
+// chronos-agent — ChronosAgent V6.4
 //
 // Modules
-// - ptnl_perceiver  : Cross-attention latent encoder
-// - memory          : Atemporal dual-store (episodic + semantic)
-// - bci             : GRU-based recurrent cell with retro-causal insight
-// - planner         : Stochastic diffusion trajectory planner
-// - hypernetwork    : Error-conditioned MLP for latent space adjustment
-// - coherence       : Continuous coherence loss (MSE)
-// - projector       : TopologicalProjector + deep prefix-tuning (Pont Holonomique)
-// - learning        : RegretOptimizer (Apprentissage A Posteriori)
-// - observer        : Real-time PCA latent observer + mpsc export
+// V5 → V6.4 : tous les 4 piliers refondus + entraînement + persistance
+// + monitoring + consolidation + journal + working memory + soul bridge
 // ==========================================================================
 
 pub mod ptnl_perceiver;
@@ -27,8 +20,9 @@ pub mod llm_bridge;
 pub mod training;
 pub mod checkpoint;
 pub mod predictive_cache;
-pub mod evopulse;
 pub mod temporal_index;
 pub mod memory_health;
 pub mod consolidation;
-pub mod soulsystem_bridge;
+pub mod memory_journal;
+pub mod working_memory;
+pub mod soul_bridge;
