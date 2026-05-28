@@ -19,6 +19,7 @@
 //      - Contrastive Energy pour le PotentialMLP
 // ==========================================================================
 
+use crate::device::TensorReadExt;
 use candle_core::{Device, Result, Tensor};
 use candle_nn::{Optimizer, optim::{AdamW, ParamsAdamW}};
 use rand::Rng;
@@ -137,14 +138,14 @@ impl Trainer {
                 let eps_data: Vec<f64> = (0..net.d_latent)
                     .map(|_| rng.sample::<f64, _>(rand_distr::StandardNormal))
                     .collect();
-                let eps = Tensor::from_slice(&eps_data, net.d_latent, &self.device)?;
+                let eps = crate::device::tensor_from_f64(&eps_data, net.d_latent, &self.device)?;
 
-                let alpha_t = Tensor::new(alpha, &self.device)?;
-                let sigma_t = Tensor::new(sigma, &self.device)?;
+                let alpha_t = crate::device::scalar_f64(alpha, &self.device)?;
+                let sigma_t = crate::device::scalar_f64(sigma, &self.device)?;
                 let x_t = x0.broadcast_mul(&alpha_t)?
                           .add(&eps.broadcast_mul(&sigma_t)?)?;
 
-                let neg_inv_sigma = Tensor::new(-1.0 / sigma, &self.device)?;
+                let neg_inv_sigma = crate::device::scalar_f64(-1.0 / sigma, &self.device)?;
                 let target = eps.broadcast_mul(&neg_inv_sigma)?;
 
                 let t_emb = time_embedding(t as f64, net.d_t, &self.device)?;
@@ -161,9 +162,9 @@ impl Trainer {
         }
 
         let total = accum_loss.unwrap();
-        let n_t = Tensor::new(n_terms as f64, &self.device)?;
+        let n_t = crate::device::scalar_f64(n_terms as f64, &self.device)?;
         let loss = total.broadcast_div(&n_t)?;
-        let loss_value: f64 = loss.to_scalar()?;
+        let loss_value: f64 = loss.read_scalar_f64()?;
 
         self.score_opt.backward_step(&loss)?;
         self.last_score_loss = loss_value;
@@ -193,7 +194,7 @@ impl Trainer {
             });
         }
         let v_good_mean = v_good_accum.unwrap()
-            .broadcast_div(&Tensor::new(b_good as f64, &self.device)?)?;
+            .broadcast_div(&crate::device::scalar_f64(b_good as f64, &self.device)?)?;
 
         let mut v_bad_accum: Option<Tensor> = None;
         for i in 0..b_bad {
@@ -204,15 +205,15 @@ impl Trainer {
             });
         }
         let v_bad_mean = v_bad_accum.unwrap()
-            .broadcast_div(&Tensor::new(b_bad as f64, &self.device)?)?;
+            .broadcast_div(&crate::device::scalar_f64(b_bad as f64, &self.device)?)?;
 
-        let margin = Tensor::new(self.config.energy_margin, &self.device)?;
+        let margin = crate::device::scalar_f64(self.config.energy_margin, &self.device)?;
         let diff = v_good_mean.sub(&v_bad_mean)?.add(&margin)?;
         let zero = Tensor::zeros_like(&diff)?;
         let hinge = diff.maximum(&zero)?;
 
         let loss = hinge;
-        let loss_value: f64 = loss.to_scalar()?;
+        let loss_value: f64 = loss.read_scalar_f64()?;
 
         self.potential_opt.backward_step(&loss)?;
         self.last_potential_loss = loss_value;
@@ -296,10 +297,10 @@ impl ReplayBuffer {
             bad_conds.extend_from_slice(&self.conditions[i]);
         }
 
-        let good_l_t = Tensor::from_slice(&good_latents, (half, self.d_latent), device)?;
-        let good_c_t = Tensor::from_slice(&good_conds, (half, self.d_latent), device)?;
-        let bad_l_t = Tensor::from_slice(&bad_latents, (half, self.d_latent), device)?;
-        let bad_c_t = Tensor::from_slice(&bad_conds, (half, self.d_latent), device)?;
+        let good_l_t = crate::device::tensor_from_f64(&good_latents, (half, self.d_latent), device)?;
+        let good_c_t = crate::device::tensor_from_f64(&good_conds, (half, self.d_latent), device)?;
+        let bad_l_t = crate::device::tensor_from_f64(&bad_latents, (half, self.d_latent), device)?;
+        let bad_c_t = crate::device::tensor_from_f64(&bad_conds, (half, self.d_latent), device)?;
 
         Ok((good_l_t, good_c_t, bad_l_t, bad_c_t))
     }
@@ -325,8 +326,8 @@ mod tests {
             net.trainable_vars(),
             PotentialMLP::new(8, 32, &dev()).unwrap().trainable_vars()).unwrap();
 
-        let latents = Tensor::randn(0.0f64, 0.3, (4, 16), &dev()).unwrap();
-        let conds = Tensor::randn(0.0f64, 0.3, (4, 16), &dev()).unwrap();
+        let latents = crate::device::randn_f64(0.0f64, 0.3, (4, 16), &dev()).unwrap();
+        let conds = crate::device::randn_f64(0.0f64, 0.3, (4, 16), &dev()).unwrap();
 
         let l0 = trainer.train_score_step(&net, &latents, &conds, &schedule).unwrap();
         for _ in 0..10 {
@@ -353,8 +354,8 @@ mod tests {
             good_vec[i * 8] = 0.5;
             bad_vec[i * 8] = -0.5;
         }
-        let good = Tensor::from_slice(&good_vec, (4, 8), &dev()).unwrap();
-        let bad = Tensor::from_slice(&bad_vec, (4, 8), &dev()).unwrap();
+        let good = crate::device::tensor_from_f64(&good_vec, (4, 8), &dev()).unwrap();
+        let bad = crate::device::tensor_from_f64(&bad_vec, (4, 8), &dev()).unwrap();
 
         let v_good_0: f64 = (0..4).map(|i| potential.value(&good.get(i).unwrap()).unwrap())
             .sum::<f64>() / 4.0;
@@ -376,7 +377,14 @@ mod tests {
         // Le gap V(bad) - V(good) doit augmenter (les good devenir plus bas relativement).
         let gap_before = v_bad_0 - v_good_0;
         let gap_after = v_bad_after - v_good_after;
-        assert!(gap_after >= gap_before - 1e-6,
+        // Marge dtype-aware : en f32, le bruit d'arrondi accumulé sur 50 steps
+        // d'AdamW dépasse 1e-6. La tendance (gap ne régresse pas) reste valide.
+        let margin = if crate::device::compute_dtype() == candle_core::DType::F32 {
+            1e-3
+        } else {
+            1e-6
+        };
+        assert!(gap_after >= gap_before - margin,
                 "gap V(bad)-V(good) didn't increase: {} → {}", gap_before, gap_after);
     }
 

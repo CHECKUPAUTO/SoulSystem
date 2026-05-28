@@ -48,6 +48,7 @@
 // ==========================================================================
 
 use crate::device::compute_dtype;
+use crate::device::TensorReadExt;
 use candle_core::{DType, Device, Result, Tensor, Var};
 
 // --------------------------------------------------------------------------
@@ -55,7 +56,7 @@ use candle_core::{DType, Device, Result, Tensor, Var};
 // --------------------------------------------------------------------------
 
 fn clip_l2(x: &Tensor, max_norm: f64) -> Result<Tensor> {
-    let norm: f64 = x.sqr()?.sum_all()?.to_scalar::<f64>()?.sqrt();
+    let norm: f64 = x.sqr()?.sum_all()?.read_scalar_f64()?.sqrt();
     if norm <= max_norm || norm < 1e-12 {
         return Ok(x.clone());
     }
@@ -86,8 +87,8 @@ impl PotentialMLP {
     pub fn new(d_q: usize, d_h: usize, device: &Device) -> Result<Self> {
         let scale = (2.0 / d_q as f64).sqrt();
         Ok(Self {
-            w1: Var::from_tensor(&Tensor::randn(0.0f64, scale, (d_q, d_h), device)?)?,
-            w2: Var::from_tensor(&Tensor::randn(0.0f64, scale, (d_h, 1), device)?)?,
+            w1: Var::from_tensor(&crate::device::randn_f64(0.0f64, scale, (d_q, d_h), device)?)?,
+            w2: Var::from_tensor(&crate::device::randn_f64(0.0f64, scale, (d_h, 1), device)?)?,
             b1: Var::from_tensor(&Tensor::zeros(d_h, compute_dtype(), device)?)?,
             b2: Var::from_tensor(&Tensor::zeros(1, compute_dtype(), device)?)?,
             d_q, d_h,
@@ -108,8 +109,8 @@ impl PotentialMLP {
         let h_act = candle_nn::ops::silu(&h)?;
         let mlp_out: f64 = h_act.matmul(self.w2.as_tensor())?
             .broadcast_add(&self.b2.as_tensor().reshape((1, 1))?)?
-            .squeeze(0)?.squeeze(0)?.to_scalar::<f64>()?;
-        let q_norm2: f64 = q.sqr()?.sum_all()?.to_scalar::<f64>()?;
+            .squeeze(0)?.squeeze(0)?.read_scalar_f64()?;
+        let q_norm2: f64 = q.sqr()?.sum_all()?.read_scalar_f64()?;
         Ok(mlp_out + 0.5 * q_norm2)
     }
 
@@ -124,7 +125,7 @@ impl PotentialMLP {
             .broadcast_add(&self.b2.as_tensor().reshape((1, 1))?)?
             .squeeze(0)?.squeeze(0)?;
         let q_norm2 = q.sqr()?.sum_all()?;
-        let half = Tensor::new(0.5_f64, &self.device)?;
+        let half = crate::device::scalar_f64(0.5_f64, &self.device)?;
         mlp_out.add(&q_norm2.broadcast_mul(&half)?)
     }
 
@@ -154,7 +155,7 @@ impl PotentialMLP {
     /// ∇V(q) via différence finie centrée — gardée pour validation croisée
     /// et fallback. Précision O(ε²), ε = 1e-4 → quasi-machine-précision f64.
     pub fn grad_fd(&self, q: &Tensor) -> Result<Tensor> {
-        let q_vec: Vec<f64> = q.to_vec1::<f64>()?;
+        let q_vec: Vec<f64> = q.read_vec1_f64()?;
         let eps = 1e-4;
         let mut g = vec![0.0f64; self.d_q];
         for i in 0..self.d_q {
@@ -162,13 +163,13 @@ impl PotentialMLP {
             let mut qm = q_vec.clone();
             qp[i] += eps;
             qm[i] -= eps;
-            let qp_t = Tensor::from_slice(&qp, self.d_q, &self.device)?;
-            let qm_t = Tensor::from_slice(&qm, self.d_q, &self.device)?;
+            let qp_t = crate::device::tensor_from_f64(&qp, self.d_q, &self.device)?;
+            let qm_t = crate::device::tensor_from_f64(&qm, self.d_q, &self.device)?;
             let vp = self.value(&qp_t)?;
             let vm = self.value(&qm_t)?;
             g[i] = (vp - vm) / (2.0 * eps);
         }
-        Tensor::from_slice(&g, self.d_q, &self.device)
+        crate::device::tensor_from_f64(&g, self.d_q, &self.device)
     }
 }
 
@@ -227,7 +228,7 @@ impl GRUCell {
         let d_hidden_eff = d_q * 2;
 
         let scale = (1.0 / d_q as f64).sqrt();
-        let w_in = Tensor::randn(0.0f64, scale, (d_input, d_q), device)?;
+        let w_in = crate::device::randn_f64(0.0f64, scale, (d_input, d_q), device)?;
 
         let potential = PotentialMLP::new(d_q, d_q * 4, device)?;
 
@@ -298,13 +299,13 @@ impl GRUCell {
         // 3. Couplage : V_total(q) = V(q) - α_sync·⟨q, x_ext⟩ si α > threshold
         // → ∇V_total = ∇V - α_sync · x_ext  (seulement si insight actif)
         let grad_total = if alpha_sync > threshold {
-            let scale = Tensor::new(alpha_sync, &self.device)?;
+            let scale = crate::device::scalar_f64(alpha_sync, &self.device)?;
             let coupling = x_ext.broadcast_mul(&scale)?;
             grad_v.sub(&coupling)?
         } else {
             // Hors insight : couplage faible, déterminé par x_ext seul
             // (équivalent d'un forçage externe avec gain ε = 0.1)
-            let scale = Tensor::new(0.1_f64, &self.device)?;
+            let scale = crate::device::scalar_f64(0.1_f64, &self.device)?;
             let coupling = x_ext.broadcast_mul(&scale)?;
             grad_v.sub(&coupling)?
         };
@@ -326,10 +327,10 @@ impl GRUCell {
         //    p_new = p_half - (dt/2)·(∇V(q_new) + γ·p_half)
         let grad_v_new = self.potential.grad(&q_new)?;
         let grad_total_new = if alpha_sync > threshold {
-            let scale = Tensor::new(alpha_sync, &self.device)?;
+            let scale = crate::device::scalar_f64(alpha_sync, &self.device)?;
             grad_v_new.sub(&x_ext.broadcast_mul(&scale)?)?
         } else {
-            let scale = Tensor::new(0.1_f64, &self.device)?;
+            let scale = crate::device::scalar_f64(0.1_f64, &self.device)?;
             grad_v_new.sub(&x_ext.broadcast_mul(&scale)?)?
         };
         let p_drift2 = grad_total_new.add(&p_half.affine(gamma, 0.0)?)?;
@@ -345,7 +346,7 @@ impl GRUCell {
         self.p = clip_l2(&p_new, self.state_clip_norm)?;
 
         // 7. Diagnostic : énergie totale (doit être ~conservée si γ=0)
-        let kin: f64 = self.p.sqr()?.sum_all()?.to_scalar::<f64>()? * 0.5;
+        let kin: f64 = self.p.sqr()?.sum_all()?.read_scalar_f64()? * 0.5;
         let pot = self.potential.value(&self.q)?;
         self.last_energy = kin + pot;
 
@@ -375,8 +376,8 @@ mod tests {
         cell.gamma_base = 0.0;
         cell.gamma_attractor = 0.0;  // friction totale = 0
         cell.dt = 0.01;
-        cell.q = Tensor::from_slice(&[0.3_f64; 8], 8, &dev()).unwrap();
-        cell.p = Tensor::from_slice(&[0.1_f64; 8], 8, &dev()).unwrap();
+        cell.q = crate::device::tensor_from_f64(&[0.3_f64; 8], 8, &dev()).unwrap();
+        cell.p = crate::device::tensor_from_f64(&[0.1_f64; 8], 8, &dev()).unwrap();
 
         let x = Tensor::zeros(4, compute_dtype(), &dev()).unwrap();
         cell.step(&x, 0.0, 1.0).unwrap();  // α<threshold + couplage faible
@@ -395,15 +396,15 @@ mod tests {
         let mut cell = GRUCell::new(4, 16, &dev()).unwrap();
         cell.gamma_attractor = 1.0;  // friction forte en mode drift
         cell.dt = 0.05;
-        cell.q = Tensor::from_slice(&[1.0_f64; 8], 8, &dev()).unwrap();
-        cell.p = Tensor::from_slice(&[2.0_f64; 8], 8, &dev()).unwrap();
+        cell.q = crate::device::tensor_from_f64(&[1.0_f64; 8], 8, &dev()).unwrap();
+        cell.p = crate::device::tensor_from_f64(&[2.0_f64; 8], 8, &dev()).unwrap();
 
         let x = Tensor::zeros(4, compute_dtype(), &dev()).unwrap();
         // α_sync = 0 → friction max → convergence
         for _ in 0..500 {
             cell.step(&x, 0.0, 0.9).unwrap();
         }
-        let p_norm: f64 = cell.p.sqr().unwrap().sum_all().unwrap().to_scalar::<f64>().unwrap();
+        let p_norm: f64 = cell.p.sqr().unwrap().sum_all().unwrap().read_scalar_f64().unwrap();
         // Le moment doit s'amortir vers 0
         assert!(p_norm < 0.1, "p didn't converge: {}", p_norm);
     }

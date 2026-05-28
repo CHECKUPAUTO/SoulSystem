@@ -38,6 +38,8 @@
 //      figer. Plus stable, moins fragile au stress test.
 // ==========================================================================
 
+use crate::device::TensorReadExt;
+use crate::device::compute_dtype;
 use candle_core::{DType, Device, Result, Tensor};
 
 // --------------------------------------------------------------------------
@@ -53,11 +55,11 @@ fn clip_l2_matrix(x: &Tensor, max_norm_per_row: f64) -> Result<Tensor> {
     let mut rows = Vec::with_capacity(m);
     for i in 0..m {
         let row = x.get(i)?;
-        let norm: f64 = row.sqr()?.sum_all()?.to_scalar::<f64>()?.sqrt();
+        let norm: f64 = row.sqr()?.sum_all()?.read_scalar_f64()?.sqrt();
         if norm <= max_norm_per_row || norm < 1e-12 {
             rows.push(row);
         } else {
-            let scale = Tensor::new(max_norm_per_row / norm, x.device())?;
+            let scale = crate::device::scalar_f64(max_norm_per_row / norm, x.device())?;
             rows.push(row.broadcast_mul(&scale)?);
         }
     }
@@ -87,8 +89,8 @@ impl Time2Vec {
     pub fn new(d_time: usize, device: &Device) -> Result<Self> {
         // Initialisation log-uniforme des fréquences (couvre plusieurs ordres
         // de magnitude — utile pour capturer rythmes courts et longs).
-        let omega = Tensor::randn(0.0f64, 1.0, d_time, device)?;
-        let phi = Tensor::randn(0.0f64, 0.1, d_time, device)?;
+        let omega = crate::device::randn_f64(0.0f64, 1.0, d_time, device)?;
+        let phi = crate::device::randn_f64(0.0f64, 0.1, d_time, device)?;
         Ok(Self { omega, phi, d_time, device: device.clone() })
     }
 
@@ -126,10 +128,10 @@ impl ResidualMLP {
     pub fn new(d_latent: usize, d_hidden: usize, device: &Device) -> Result<Self> {
         let scale = (2.0 / d_latent as f64).sqrt();  // He init pour GELU/ReLU
         Ok(Self {
-            w1: Tensor::randn(0.0f64, scale, (d_latent, d_hidden), device)?,
-            w2: Tensor::randn(0.0f64, scale, (d_hidden, d_latent), device)?,
-            b1: Tensor::zeros(d_hidden, DType::F64, device)?,
-            b2: Tensor::zeros(d_latent, DType::F64, device)?,
+            w1: crate::device::randn_f64(0.0f64, scale, (d_latent, d_hidden), device)?,
+            w2: crate::device::randn_f64(0.0f64, scale, (d_hidden, d_latent), device)?,
+            b1: Tensor::zeros(d_hidden, compute_dtype(), device)?,
+            b2: Tensor::zeros(d_latent, compute_dtype(), device)?,
         })
     }
 
@@ -198,18 +200,18 @@ impl PTNLPerceiver {
         let scale_k = (1.0 / d_latent as f64).sqrt();
         let scale_v = (1.0 / d_kv_input as f64).sqrt();
 
-        let w_q = Tensor::randn(0.0f64, scale_q, (d_latent, d_latent), device)?;
-        let w_k = Tensor::randn(0.0f64, scale_k, (d_kv_input, d_latent), device)?;
-        let w_v = Tensor::randn(0.0f64, scale_v, (d_kv_input, d_latent), device)?;
-        let w_o = Tensor::randn(0.0f64, 0.02f64, (d_latent, d_input), device)?;
+        let w_q = crate::device::randn_f64(0.0f64, scale_q, (d_latent, d_latent), device)?;
+        let w_k = crate::device::randn_f64(0.0f64, scale_k, (d_kv_input, d_latent), device)?;
+        let w_v = crate::device::randn_f64(0.0f64, scale_v, (d_kv_input, d_latent), device)?;
+        let w_o = crate::device::randn_f64(0.0f64, 0.02f64, (d_latent, d_input), device)?;
 
         let t_total = t_past + t_future;
-        let w_proj = Tensor::randn(0.0f64, 0.02f64, (m, t_total), device)?;
+        let w_proj = crate::device::randn_f64(0.0f64, 0.02f64, (m, t_total), device)?;
 
         let time_enc = Time2Vec::new(d_time, device)?;
         let mlp = ResidualMLP::new(d_latent, d_latent * 4, device)?;
 
-        let latents = Tensor::zeros((m, d_latent), DType::F64, device)?;
+        let latents = Tensor::zeros((m, d_latent), compute_dtype(), device)?;
 
         Ok(Self {
             w_q, w_k, w_v, w_o,
@@ -259,7 +261,7 @@ impl PTNLPerceiver {
                 // Premier step : pas encore de prédiction du PDT.
                 // On pad le futur avec des zéros.
                 let zero_fut = Tensor::zeros(
-                    (self.t_future, self.d_input), DType::F64, &self.device)?;
+                    (self.t_future, self.d_input), compute_dtype(), &self.device)?;
                 Tensor::cat(&[x_past, &zero_fut], 0)?
             }
         };  // (t_total, d_input)
@@ -280,7 +282,7 @@ impl PTNLPerceiver {
 
         // 5. Attention non-causale (full bidirectional)
         let scale = (self.d_latent as f64).sqrt();
-        let scale_t = Tensor::new(scale, &self.device)?;
+        let scale_t = crate::device::scalar_f64(scale, &self.device)?;
         let scores = q.matmul(&k.transpose(0, 1)?)?       // (M, t_total)
                       .broadcast_div(&scale_t)?;
         let attn = candle_nn::ops::softmax(&scores, 1)?;
@@ -288,10 +290,10 @@ impl PTNLPerceiver {
 
         // Application du gain de bruit (multiplicatif, continu)
         if noise_gain < 0.999 {
-            let gain_t = Tensor::new(noise_gain, &self.device)?
+            let gain_t = crate::device::scalar_f64(noise_gain, &self.device)?
                               .broadcast_as(latents_pre.shape())?;
             // Mix continu entre nouveau et ancien selon le gain
-            let one_minus_gain = Tensor::new(1.0 - noise_gain, &self.device)?
+            let one_minus_gain = crate::device::scalar_f64(1.0 - noise_gain, &self.device)?
                                        .broadcast_as(latents_pre.shape())?;
             latents_pre = latents_pre.broadcast_mul(&gain_t)?
                 .add(&self.latents.broadcast_mul(&one_minus_gain)?)?;
@@ -320,13 +322,13 @@ impl PTNLPerceiver {
     }
 
     fn compute_variance(&self, x: &Tensor) -> Result<f64> {
-        let v: Vec<f64> = x.flatten_all()?.to_vec1::<f64>()?;
+        let v: Vec<f64> = x.flatten_all()?.read_vec1_f64()?;
         let mean = v.iter().sum::<f64>() / v.len() as f64;
         Ok(v.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / v.len() as f64)
     }
 
     pub fn reset(&mut self) -> Result<()> {
-        self.latents = Tensor::zeros((self.m, self.d_latent), DType::F64, &self.device)?;
+        self.latents = Tensor::zeros((self.m, self.d_latent), compute_dtype(), &self.device)?;
         self.future_prediction = None;
         Ok(())
     }
@@ -364,7 +366,7 @@ mod tests {
     #[test]
     fn time2vec_shape() {
         let t2v = Time2Vec::new(8, &dev()).unwrap();
-        let t = Tensor::from_slice(
+        let t = crate::device::tensor_from_f64(
             &[0.0_f64, 1.0, 2.0, 3.0, 4.0], 5, &dev()).unwrap();
         let emb = t2v.encode(&t).unwrap();
         assert_eq!(emb.dims(), &[5, 8]);
@@ -373,8 +375,8 @@ mod tests {
     #[test]
     fn perceiver_bidirectional_forward() {
         let mut p = PTNLPerceiver::new(4, 16, 8, 8, 16, 4, &dev()).unwrap();
-        let x = Tensor::randn(0.0_f64, 0.3, (16, 4), &dev()).unwrap();
-        let t = Tensor::from_slice(
+        let x = crate::device::randn_f64(0.0_f64, 0.3, (16, 4), &dev()).unwrap();
+        let t = crate::device::tensor_from_f64(
             &(-16..4).map(|i| i as f64).collect::<Vec<_>>(),
             20, &dev()).unwrap();
         let (latents, loss) = p.forward(&x, &t).unwrap();
@@ -385,11 +387,11 @@ mod tests {
     #[test]
     fn perceiver_with_future_injection() {
         let mut p = PTNLPerceiver::new(4, 16, 8, 8, 16, 4, &dev()).unwrap();
-        let future = Tensor::randn(0.0_f64, 0.3, (4, 4), &dev()).unwrap();
+        let future = crate::device::randn_f64(0.0_f64, 0.3, (4, 4), &dev()).unwrap();
         p.set_future(future);
 
-        let x = Tensor::randn(0.0_f64, 0.3, (16, 4), &dev()).unwrap();
-        let t = Tensor::from_slice(
+        let x = crate::device::randn_f64(0.0_f64, 0.3, (16, 4), &dev()).unwrap();
+        let t = crate::device::tensor_from_f64(
             &(-16..4).map(|i| i as f64).collect::<Vec<_>>(),
             20, &dev()).unwrap();
         let (latents, _) = p.forward(&x, &t).unwrap();
@@ -403,8 +405,8 @@ mod tests {
         // Volontairement dans la zone graduelle (variance entre τ²=0.0225 et 1.0).
         let modest_noise: Vec<f64> = (0..64).map(|i|
             if i % 2 == 0 { 0.6 } else { -0.6 }).collect();
-        let x_noisy = Tensor::from_slice(&modest_noise, (16, 4), &dev()).unwrap();
-        let t = Tensor::from_slice(
+        let x_noisy = crate::device::tensor_from_f64(&modest_noise, (16, 4), &dev()).unwrap();
+        let t = crate::device::tensor_from_f64(
             &(-16..4).map(|i| i as f64).collect::<Vec<_>>(),
             20, &dev()).unwrap();
         p.forward(&x_noisy, &t).unwrap();

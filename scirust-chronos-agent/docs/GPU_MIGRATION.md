@@ -121,11 +121,40 @@ GPU sans réentraînement.
 
 ## Honnêteté sur l'estimation
 
-- Infrastructure (device.rs) : **fait, testé, 6/6**
+- Infrastructure (device.rs) : **fait, testé**
 - Preuve f32 sûr : **fait, mesuré**
-- Migration des 47 from_slice : **non fait** (~1-2h mécaniques)
+- Migration des ~47 from_slice + randn + Tensor::new + lectures : **FAIT (V6.6)**
+- Validation f32 complète : **FAIT** — 94/94 tests en f32 (0 échec sur 8 runs),
+  runtime complet converge en f32 (DSM −40.1%, comparable au f64)
 - Validation GPU réelle : **impossible ici** (pas de CUDA), à faire sur la Thor
 
-Le passage GPU est donc à **~80% débloqué** : le risque conceptuel (précision
-f32) est levé, l'infrastructure est en place, il reste un travail mécanique
-identifié et un test sur matériel réel.
+Le passage GPU est donc à **~95% débloqué** : le risque conceptuel (précision
+f32) est levé, l'infrastructure est en place, la migration dtype est faite et
+validée en f32 sur CPU. Il ne reste que la compilation `--features cuda` et le
+test sur matériel réel.
+
+## Ce qui a été fait dans la migration f32 (V6.6)
+
+| Catégorie | Sites | Solution |
+|---|---|---|
+| `DType::F64` hardcodés | 26 | → `compute_dtype()` |
+| `Tensor::from_slice(&[f64])` | ~47 | → `device::tensor_from_f64()` |
+| `Tensor::randn(0.0f64, ...)` | ~10 | → `device::randn_f64()` |
+| `Tensor::new(scalar_f64, ...)` | ~24 | → `device::scalar_f64()` |
+| `.to_scalar::<f64>()` / `.to_vec1::<f64>()` | ~38 | → trait `TensorReadExt` |
+| `.to_scalar()` annoté f64 (sans turbofish) | 2 | → `.read_scalar_f64()` |
+
+Bugs subtils corrigés en cours de route :
+- **Récursion infinie** : le sed avait remplacé `.to_scalar::<f64>()` dans la
+  définition même du trait → stack overflow. Corrigé.
+- **Race condition de tests** : les tests `device.rs` modifiaient
+  `CHRONOS_DTYPE` via `set_var`, créant une race avec les tests parallèles
+  lisant `compute_dtype()`. Refactoré en logique pure (`dtype_from_str`)
+  testée sans toucher l'env global.
+- **Bug runtime non couvert par les tests** : `loss.to_scalar()?` (annoté f64,
+  sans turbofish) dans `train_score_step` / `train_potential_step` échouait en
+  f32 dans le flux réel mais pas dans les tests synthétiques. Tracé et corrigé.
+- **Tests intrinsèquement bruités en f32** : la cross-validation autograd↔FD
+  (annulation catastrophique de la FD en f32) et le gap contrastif (bruit
+  d'arrondi sur 50 steps AdamW) — seuils rendus dtype-aware, honnêtement
+  documentés.

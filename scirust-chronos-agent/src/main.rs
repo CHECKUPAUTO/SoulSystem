@@ -144,7 +144,7 @@ impl MockLLM {
         device: &Device,
     ) -> candle_core::Result<Self> {
         let scale = (2.0 / d_model as f64).sqrt();
-        let w_proj = Tensor::randn(0.0f64, scale, (vocab_size, d_model), device)?;
+        let w_proj = chronos_agent::device::randn_f64(0.0f64, scale, (vocab_size, d_model), device)?;
         let b_proj = Tensor::zeros(vocab_size, chronos_agent::device::compute_dtype(), device)?;
         Ok(Self {
             d_model, vocab_size, num_layers, n_heads, d_head,

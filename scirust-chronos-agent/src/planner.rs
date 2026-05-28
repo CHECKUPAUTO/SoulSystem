@@ -37,6 +37,7 @@
 //   steps que Euler. Pour T = 10 effectif → équivalent ~25 steps Euler.
 // ==========================================================================
 
+use crate::device::TensorReadExt;
 use crate::device::compute_dtype;
 use candle_core::{DType, Device, Result, Tensor, Var};
 use rand::Rng;
@@ -51,11 +52,11 @@ use std::f64::consts::PI;
 /// PTNL→BCI→PDT→PTNL avec composants non-entraînés diverge
 /// exponentiellement.
 pub fn clip_l2(x: &Tensor, max_norm: f64) -> Result<Tensor> {
-    let norm: f64 = x.sqr()?.sum_all()?.to_scalar::<f64>()?.sqrt();
+    let norm: f64 = x.sqr()?.sum_all()?.read_scalar_f64()?.sqrt();
     if norm <= max_norm || norm < 1e-12 {
         return Ok(x.clone());
     }
-    let scale = Tensor::new(max_norm / norm, x.device())?;
+    let scale = crate::device::scalar_f64(max_norm / norm, x.device())?;
     x.broadcast_mul(&scale)
 }
 
@@ -113,7 +114,7 @@ pub fn time_embedding(t: f64, d: usize, device: &Device) -> Result<Tensor> {
         v[i] = (t * freq).sin();
         v[half + i] = (t * freq).cos();
     }
-    Tensor::from_slice(&v, d, device)
+    crate::device::tensor_from_f64(&v, d, device)
 }
 
 // --------------------------------------------------------------------------
@@ -141,9 +142,9 @@ impl ScoreNetwork {
         let scale_in = (2.0 / d_in as f64).sqrt();
         let scale_h  = (2.0 / d_hidden as f64).sqrt();
         Ok(Self {
-            w1: Var::from_tensor(&Tensor::randn(0.0f64, scale_in, (d_in, d_hidden), device)?)?,
-            w2: Var::from_tensor(&Tensor::randn(0.0f64, scale_h,  (d_hidden, d_hidden), device)?)?,
-            w3: Var::from_tensor(&Tensor::randn(0.0f64, scale_h,  (d_hidden, d_latent), device)?)?,
+            w1: Var::from_tensor(&crate::device::randn_f64(0.0f64, scale_in, (d_in, d_hidden), device)?)?,
+            w2: Var::from_tensor(&crate::device::randn_f64(0.0f64, scale_h,  (d_hidden, d_hidden), device)?)?,
+            w3: Var::from_tensor(&crate::device::randn_f64(0.0f64, scale_h,  (d_hidden, d_latent), device)?)?,
             b1: Var::from_tensor(&Tensor::zeros(d_hidden, compute_dtype(), device)?)?,
             b2: Var::from_tensor(&Tensor::zeros(d_hidden, compute_dtype(), device)?)?,
             b3: Var::from_tensor(&Tensor::zeros(d_latent, compute_dtype(), device)?)?,
@@ -247,7 +248,7 @@ impl StochasticDiffusionPlanner {
         let init_data: Vec<f64> = (0..self.d_latent)
             .map(|_| rng.sample::<f64, _>(rand_distr::StandardNormal))
             .collect();
-        let mut x = Tensor::from_slice(&init_data, self.d_latent, &self.device)?;
+        let mut x = crate::device::tensor_from_f64(&init_data, self.d_latent, &self.device)?;
 
         // CFG effectif modulé par α_sync
         let w = self.cfg_scale * alpha_sync.max(0.1);
@@ -269,10 +270,10 @@ impl StochasticDiffusionPlanner {
 
             // Étape correcteur : score au point prédicteur
             let s_pred = self.guided_score(&x_pred, t_prev, &cond_1d, w)?;
-            let s_avg_data: Vec<f64> = s_guided.to_vec1::<f64>()?
-                .iter().zip(s_pred.to_vec1::<f64>()?.iter())
+            let s_avg_data: Vec<f64> = s_guided.read_vec1_f64()?
+                .iter().zip(s_pred.read_vec1_f64()?.iter())
                 .map(|(a, b)| 0.5 * (a + b)).collect();
-            let s_avg = Tensor::from_slice(&s_avg_data, self.d_latent, &self.device)?;
+            let s_avg = crate::device::tensor_from_f64(&s_avg_data, self.d_latent, &self.device)?;
 
             // Update avec score moyenné (ordre 2)
             let (x_new, _) = self.euler_step(&x, &s_avg, t, t_prev)?;
@@ -286,23 +287,23 @@ impl StochasticDiffusionPlanner {
                 let z: Vec<f64> = (0..self.d_latent)
                     .map(|_| rng.sample::<f64, _>(rand_distr::StandardNormal) * noise_amp)
                     .collect();
-                let noise = Tensor::from_slice(&z, self.d_latent, &self.device)?;
+                let noise = crate::device::tensor_from_f64(&z, self.d_latent, &self.device)?;
                 x = clip_l2(&x.add(&noise)?, self.state_clip_norm)?;
             }
 
-            traj_rows.push(x.to_vec1::<f64>()?);
+            traj_rows.push(x.read_vec1_f64()?);
         }
 
         // 3. Strict inpainting : la position finale est forcée à latent_state.
         let last_idx = traj_rows.len() - 1;
-        traj_rows[last_idx] = cond_1d.to_vec1::<f64>()?;
+        traj_rows[last_idx] = cond_1d.read_vec1_f64()?;
 
         // Reverse pour avoir step 0 = état présent, step N-1 = horizon
         traj_rows.reverse();
 
         // Flatten en (num_steps, d_latent)
         let flat: Vec<f64> = traj_rows.into_iter().flatten().collect();
-        let traj = Tensor::from_slice(
+        let traj = crate::device::tensor_from_f64(
             &flat, (self.num_steps, self.d_latent), &self.device)?;
         self.trajectory = traj.clone();
         Ok(traj)
@@ -322,8 +323,8 @@ impl StochasticDiffusionPlanner {
             s_cond
         } else {
             let s_uncond = self.score_net.score(x, &t_emb, &self.null_cond)?;
-            let one_plus_w = Tensor::new(1.0 + w, &self.device)?;
-            let w_t = Tensor::new(w, &self.device)?;
+            let one_plus_w = crate::device::scalar_f64(1.0 + w, &self.device)?;
+            let w_t = crate::device::scalar_f64(w, &self.device)?;
             s_cond.broadcast_mul(&one_plus_w)?
                  .sub(&s_uncond.broadcast_mul(&w_t)?)?
         };
@@ -341,8 +342,8 @@ impl StochasticDiffusionPlanner {
         // dx = -f_rev · dt avec dt = 1 (steps discrets)
         let coef_x = beta_t * 0.5;
         let coef_s = beta_t;
-        let cx = Tensor::new(coef_x, &self.device)?;
-        let cs = Tensor::new(coef_s, &self.device)?;
+        let cx = crate::device::scalar_f64(coef_x, &self.device)?;
+        let cs = crate::device::scalar_f64(coef_s, &self.device)?;
         let drift = x.broadcast_mul(&cx)?.add(&score.broadcast_mul(&cs)?)?;
         let x_new = x.add(&drift)?;
         let _ = t_prev;
@@ -381,7 +382,7 @@ mod tests {
     #[test]
     fn planner_plan_shape() {
         let mut p = StochasticDiffusionPlanner::new(10, 16, &dev()).unwrap();
-        let state = Tensor::randn(0.0_f64, 0.3, 16, &dev()).unwrap();
+        let state = crate::device::randn_f64(0.0_f64, 0.3, 16, &dev()).unwrap();
         let traj = p.plan(&state, 0.7).unwrap();
         assert_eq!(traj.dims(), &[10, 16]);
     }
@@ -389,11 +390,11 @@ mod tests {
     #[test]
     fn inpainting_strict() {
         let mut p = StochasticDiffusionPlanner::new(10, 16, &dev()).unwrap();
-        let state = Tensor::from_slice(
+        let state = crate::device::tensor_from_f64(
             &[1.0_f64; 16], 16, &dev()).unwrap();
         let traj = p.plan(&state, 0.7).unwrap();
         // step 0 doit être exactement le latent_state injecté
-        let row0 = traj.get(0).unwrap().to_vec1::<f64>().unwrap();
+        let row0 = traj.get(0).unwrap().read_vec1_f64().unwrap();
         for v in row0 {
             assert!((v - 1.0).abs() < 1e-8);
         }

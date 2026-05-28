@@ -67,7 +67,13 @@ fn default_dtype_for_current_target() -> DType {
 
 /// Lit CHRONOS_DTYPE (f32|f64) si présent.
 fn dtype_from_env() -> Option<DType> {
-    match std::env::var("CHRONOS_DTYPE").ok()?.to_lowercase().as_str() {
+    dtype_from_str(&std::env::var("CHRONOS_DTYPE").ok()?)
+}
+
+/// Logique pure de parsing du dtype — testable sans toucher l'env global
+/// (évite les races entre tests parallèles).
+fn dtype_from_str(s: &str) -> Option<DType> {
+    match s.to_lowercase().as_str() {
         "f32" | "float32" => Some(DType::F32),
         "f64" | "float64" | "double" => Some(DType::F64),
         _ => None,
@@ -155,6 +161,44 @@ pub fn tensor_from_f64_vec(
     tensor_from_f64(&data, shape, device)
 }
 
+/// Crée un tenseur aléatoire normal au compute_dtype.
+/// Remplaçant de `Tensor::randn(0.0f64, std, shape, device)` pour que les
+/// poids initiaux soient dans le bon dtype (sinon mismatch en f32).
+pub fn randn_f64(
+    mean: f64,
+    std: f64,
+    shape: impl Into<candle_core::Shape>,
+    device: &Device,
+) -> candle_core::Result<candle_core::Tensor> {
+    let t = candle_core::Tensor::randn(mean, std, shape, device)?;
+    t.to_dtype(compute_dtype())
+}
+
+/// Crée un tenseur scalaire au compute_dtype. Remplaçant de
+/// `Tensor::new(value_f64, device)` pour les scalaires de broadcast
+/// (coefficients, gains, etc.) — évite le mismatch F64/F32 lors des
+/// multiplications avec des états en F32.
+pub fn scalar_f64(value: f64, device: &Device) -> candle_core::Result<candle_core::Tensor> {
+    candle_core::Tensor::new(value, device)?.to_dtype(compute_dtype())
+}
+
+/// Trait d'extension pour lire un tenseur en f64 quel que soit son dtype
+/// interne. Convertit en F64 avant lecture, évitant le DTypeMismatch quand
+/// le tenseur est en F32 (mode GPU).
+pub trait TensorReadExt {
+    fn read_scalar_f64(&self) -> candle_core::Result<f64>;
+    fn read_vec1_f64(&self) -> candle_core::Result<Vec<f64>>;
+}
+
+impl TensorReadExt for candle_core::Tensor {
+    fn read_scalar_f64(&self) -> candle_core::Result<f64> {
+        self.to_dtype(DType::F64)?.to_scalar::<f64>()
+    }
+    fn read_vec1_f64(&self) -> candle_core::Result<Vec<f64>> {
+        self.to_dtype(DType::F64)?.to_vec1::<f64>()
+    }
+}
+
 // ==========================================================================
 // Tests
 // ==========================================================================
@@ -164,18 +208,19 @@ mod tests {
 
     #[test]
     fn default_dtype_is_f64() {
-        // Sans variable d'env, on reste en f64 (compat existant)
-        std::env::remove_var("CHRONOS_DTYPE");
-        assert_eq!(compute_dtype(), DType::F64);
+        // Le défaut (logique pure, sans dépendre de l'env) est F64.
+        assert_eq!(default_dtype_for_current_target(), DType::F64);
     }
 
     #[test]
-    fn dtype_env_override() {
-        std::env::set_var("CHRONOS_DTYPE", "f32");
-        assert_eq!(compute_dtype(), DType::F32);
-        std::env::set_var("CHRONOS_DTYPE", "f64");
-        assert_eq!(compute_dtype(), DType::F64);
-        std::env::remove_var("CHRONOS_DTYPE");
+    fn dtype_from_str_parses_correctly() {
+        // Test de la logique pure — ne touche PAS l'env global, donc
+        // pas de race avec les tests parallèles lisant compute_dtype().
+        assert_eq!(dtype_from_str("f32"), Some(DType::F32));
+        assert_eq!(dtype_from_str("float32"), Some(DType::F32));
+        assert_eq!(dtype_from_str("f64"), Some(DType::F64));
+        assert_eq!(dtype_from_str("double"), Some(DType::F64));
+        assert_eq!(dtype_from_str("garbage"), None);
     }
 
     #[test]
@@ -207,20 +252,15 @@ mod tests {
     }
 
     #[test]
-    fn tensor_from_f64_respects_dtype() {
-        std::env::remove_var("CHRONOS_DTYPE");
+    fn tensor_from_f64_uses_compute_dtype() {
+        // Vérifie que le helper produit un tenseur au compute_dtype courant,
+        // sans modifier l'env (évite les races en test parallèle). Le chemin
+        // f32 est exercé par toute la suite lancée sous CHRONOS_DTYPE=f32.
         let dev = Device::Cpu;
-        // Défaut f64
         let t = tensor_from_f64(&[1.0, 2.0, 3.0], 3, &dev).unwrap();
-        assert_eq!(t.dtype(), DType::F64);
-
-        // Mode f32 : le helper convertit, pas de mismatch
-        std::env::set_var("CHRONOS_DTYPE", "f32");
-        let t32 = tensor_from_f64(&[1.0, 2.0, 3.0], 3, &dev).unwrap();
-        assert_eq!(t32.dtype(), DType::F32);
-        // Les valeurs sont préservées (à la précision f32 près)
-        let v = t32.to_dtype(DType::F64).unwrap().to_vec1::<f64>().unwrap();
-        assert!((v[0] - 1.0).abs() < 1e-6);
-        std::env::remove_var("CHRONOS_DTYPE");
+        assert_eq!(t.dtype(), compute_dtype());
+        let v = t.read_vec1_f64().unwrap();
+        assert!((v[0] - 1.0).abs() < 1e-5);
+        assert!((v[2] - 3.0).abs() < 1e-5);
     }
 }
