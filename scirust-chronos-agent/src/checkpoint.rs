@@ -362,6 +362,10 @@ impl CheckpointManager {
                 access_count: d.access_count,
             });
         }
+        // V6.3 — Reconstruit l'index temporel à partir des traces chargées.
+        let entries: Vec<(u64, usize)> = memory.episodic.traces.iter().enumerate()
+            .map(|(i, t)| (t.t_stored, i)).collect();
+        memory.episodic.temporal_idx.rebuild_from(entries);
 
         // Sémantique : on doit reconstruire l'index HNSW (lazy rebuild)
         memory.semantic.lambda = mem_dump.semantic_lambda;

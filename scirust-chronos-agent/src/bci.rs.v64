@@ -207,9 +207,12 @@ pub struct GRUCell {
 
     pub device: Device,
 
-    /// Diagnostic : énergie totale au dernier step (pour vérifier la
-    /// conservation, qui doit être stable hors mode attracteur).
+    /// Diagnostic : énergie totale au dernier step.
     pub last_energy: f64,
+
+    /// Potentiel externe cumulé (EvoPulse, métacognition) — appliqué
+    /// comme force supplémentaire dans le prochain leapfrog.
+    pub external_potential: f64,
 }
 
 impl GRUCell {
@@ -242,13 +245,20 @@ impl GRUCell {
             input_clip_norm: 5.0,
             device: device.clone(),
             last_energy: 0.0,
+            external_potential: 0.0,
         })
     }
-
     pub fn reset(&mut self) -> Result<()> {
         self.q = Tensor::zeros(self.d_q, DType::F64, &self.device)?;
         self.p = Tensor::zeros(self.d_q, DType::F64, &self.device)?;
+        self.external_potential = 0.0;
         Ok(())
+    }
+
+    /// Ajoute un potentiel externe (EvoPulse) intégré dans la dynamique au prochain step.
+    pub fn apply_external_potential(&mut self, potential: f64) {
+        const EXT_POT_CLAMP: f64 = 0.2;
+        self.external_potential = (self.external_potential + potential).clamp(-EXT_POT_CLAMP, EXT_POT_CLAMP);
     }
 
     /// Step d'intégration symplectique avec couplage externe.
@@ -263,6 +273,13 @@ impl GRUCell {
     pub fn step(&mut self, x: &Tensor, alpha_sync: f64, threshold: f64)
         -> Result<Tensor>
     {
+        // 0. Appliquer le potentiel externe EvoPulse comme perturbation de moment.
+        if self.external_potential != 0.0 {
+            let ext_force = self.q.affine(self.dt * self.external_potential, 0.0)?;
+            self.p = self.p.add(&ext_force)?;
+            self.external_potential = 0.0;
+        }
+
         // 1. Projection input → couplage externe x_ext.
         let x_1d = if x.dims().len() == 2 { x.squeeze(0)? } else { x.clone() };
         // Clip l'input pour borner le couplage externe (anti-explosion).
@@ -418,5 +435,20 @@ mod tests {
                     "autograd diff from FD: {} vs {} (abs={}, rel={})",
                     a, b, diff, rel);
         }
+    }
+
+    #[test]
+    fn test_apply_external_potential() {
+        let mut cell = GRUCell::new(4, 16, &dev()).unwrap();
+        assert_eq!(cell.external_potential, 0.0);
+        cell.apply_external_potential(0.05);
+        assert!((cell.external_potential - 0.05).abs() < 1e-6);
+        cell.apply_external_potential(0.03);
+        assert!((cell.external_potential - 0.08).abs() < 1e-6);
+        cell.apply_external_potential(0.5);
+        assert!((cell.external_potential - 0.2).abs() < 1e-6);
+        let x = Tensor::zeros(4, DType::F64, &dev()).unwrap();
+        cell.step(&x, 0.7, 0.65).unwrap();
+        assert_eq!(cell.external_potential, 0.0);
     }
 }

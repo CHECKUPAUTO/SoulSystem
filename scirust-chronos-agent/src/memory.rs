@@ -85,7 +85,7 @@ impl HnswIndex {
         }
     }
 
-    fn maybe_rebuild(&mut self) {
+    pub fn maybe_rebuild(&mut self) {
         let n = self.vectors.len();
         if n == 0 { return; }
         if self.hnsw.is_some() && n - self.last_rebuild < self.rebuild_every {
@@ -256,17 +256,27 @@ pub struct EpisodicStore {
     pub traces: VecDeque<EpisodicTrace>,
     pub capacity: usize,
     pub dim: usize,
+    /// V6.3 — Index chronologique pour requêtes time-window O(log n).
+    pub temporal_idx: crate::temporal_index::TemporalIndex,
 }
 
 impl EpisodicStore {
     pub fn new(dim: usize, capacity: usize) -> Self {
-        Self { traces: VecDeque::with_capacity(capacity), capacity, dim }
+        Self {
+            traces: VecDeque::with_capacity(capacity),
+            capacity,
+            dim,
+            temporal_idx: crate::temporal_index::TemporalIndex::new(),
+        }
     }
 
     pub fn push(&mut self, vec: Vec<f64>, t: u64, future: Option<Vec<f64>>) {
         if self.traces.len() >= self.capacity {
+            // Pop_front shift les indices : on doit reconstruire l'index.
             self.traces.pop_front();
+            self.rebuild_temporal_index();
         }
+        let new_idx = self.traces.len();
         self.traces.push_back(EpisodicTrace {
             vector: vec,
             t_stored: t,
@@ -275,6 +285,33 @@ impl EpisodicStore {
             confirmations: 0,
             access_count: 0,
         });
+        self.temporal_idx.insert(t, new_idx);
+    }
+
+    /// Reconstruit l'index chronologique à partir des traces courantes.
+    /// Appelé après pop_front ou prune (les indices internes ont bougé).
+    fn rebuild_temporal_index(&mut self) {
+        let entries: Vec<(u64, usize)> = self.traces.iter().enumerate()
+            .map(|(i, t)| (t.t_stored, i))
+            .collect();
+        self.temporal_idx.rebuild_from(entries);
+    }
+
+    /// V6.3 — Requêtes time-window via l'index chronologique.
+    /// "Souvenirs entre les steps t_min et t_max" en O(log n + k).
+    pub fn search_temporal_range(&self, t_min: u64, t_max: u64) -> Vec<&EpisodicTrace> {
+        self.temporal_idx.range(t_min..=t_max)
+            .into_iter()
+            .filter_map(|i| self.traces.get(i))
+            .collect()
+    }
+
+    /// "Les N souvenirs les plus récents avant `current_t`" en O(log n + N).
+    pub fn search_last_n(&self, current_t: u64, n: usize) -> Vec<&EpisodicTrace> {
+        self.temporal_idx.last_n_before(current_t, n)
+            .into_iter()
+            .filter_map(|i| self.traces.get(i))
+            .collect()
     }
 
     /// Recherche top-k par cosine sur le vecteur stocké.
@@ -345,6 +382,8 @@ impl EpisodicStore {
             .map(|(_, t)| t.clone())
             .collect();
         self.traces = kept;
+        // V6.3 — Les indices ont bougé après pruning, rebuild de l'index.
+        self.rebuild_temporal_index();
         n_removed
     }
 
@@ -697,5 +736,46 @@ mod tests {
         // search_readonly ne touche pas le compteur
         let _ = store.search_readonly(&[1.0, 0.0, 0.0, 0.0], 2);
         assert_eq!(store.traces[0].access_count, 1);
+    }
+
+    #[test]
+    fn temporal_search_returns_window() {
+        let mut store = EpisodicStore::new(4, 100);
+        for t in [10u64, 20, 30, 40, 50] {
+            store.push(vec![t as f64; 4], t, None);
+        }
+        let recent = store.search_temporal_range(25, 45);
+        // Doit retourner les traces aux timestamps 30 et 40
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].t_stored, 30);
+        assert_eq!(recent[1].t_stored, 40);
+    }
+
+    #[test]
+    fn temporal_index_survives_prune() {
+        let mut store = EpisodicStore::new(4, 100);
+        // 5 traces très anciennes (low importance)
+        for i in 0..5 {
+            store.push(vec![0.0; 4], i, None);
+        }
+        // 5 traces récentes (high importance)
+        for i in 90..95 {
+            store.push(vec![1.0; 4], i, None);
+            if let Some(t) = store.traces.back_mut() {
+                t.access_count = 10;
+                t.confirmations = 3;
+            }
+        }
+        assert_eq!(store.temporal_idx.len(), 10);
+
+        let removed = store.prune_low_importance(
+            100, 0.5, &ImportanceParams::default(), 3);
+        // Après prune, l'index doit refléter les traces restantes
+        assert_eq!(store.temporal_idx.len(), store.traces.len());
+        // Une requête temporelle sur la plage des récentes doit fonctionner
+        let recent = store.search_temporal_range(90, 95);
+        assert!(!recent.is_empty(),
+                "temporal_idx broken after prune: removed={} traces={}",
+                removed, store.traces.len());
     }
 }

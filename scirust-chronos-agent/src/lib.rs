@@ -1,9 +1,9 @@
 // ==========================================================================
-// chronos-agent — ChronosAgent V6.4
+// chronos-agent — ChronosAgent V6.5
 //
-// Modules
-// V5 → V6.4 : tous les 4 piliers refondus + entraînement + persistance
-// + monitoring + consolidation + journal + working memory + soul bridge
+// Modules : 4 piliers + entraînement + persistance + monitoring
+// + consolidation + journal + working memory + soul bridge
+// + contrôle d'accès + index partitionné
 // ==========================================================================
 
 pub mod ptnl_perceiver;
@@ -26,3 +26,5 @@ pub mod consolidation;
 pub mod memory_journal;
 pub mod working_memory;
 pub mod soul_bridge;
+pub mod access_control;
+pub mod sharded_index;
