@@ -1,0 +1,20 @@
+[package]
+name = "soul-identity"
+version.workspace = true
+edition.workspace = true
+description = "Identity — System 3: narrative memory, goals, self-model"
+
+[dependencies]
+soul-core = { path = "../soul-core" }
+soul-embed = { path = "../soul-embed" }
+soul-rstdp = { path = "../soul-rstdp" }
+soul-pattern-miner = { path = "../soul-pattern-miner" }
+ndarray = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+uuid = { version = "1", features = ["v4"] }
+soul-memory-store = { path = "../soul-memory-store" }
+bincode = "1"
+seahash = "1"

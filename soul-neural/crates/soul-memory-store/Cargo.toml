@@ -1,0 +1,17 @@
+[package]
+name = "soul-memory-store"
+version.workspace = true
+edition.workspace = true
+description = "HNSW-based vector store for scalable memory retrieval"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+anyhow = "1"
+tokio = { version = "1", features = ["sync"] }
+parking_lot = "0.12"
+lazy_static = "1"
+prometheus = { version = "0.13", features = ["process"] }
+log = "0.4"
+seahash = "1"
+tempfile = "3"

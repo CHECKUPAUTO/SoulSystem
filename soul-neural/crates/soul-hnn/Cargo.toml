@@ -1,0 +1,12 @@
+[package]
+name = "soul-hnn"
+version.workspace = true
+edition.workspace = true
+description = "Hamiltonian Neural Network with Dual autodiff"
+
+[dependencies]
+scirust-autodiff = { workspace = true }
+
+[lib]
+name = "soul_hnn"
+path = "src/hnn/mod.rs"

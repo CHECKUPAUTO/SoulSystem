@@ -1,0 +1,23 @@
+[package]
+name = "soul-learner"
+version.workspace = true
+edition.workspace = true
+description = "Training orchestration: scenarios, DPO, critic learning"
+
+[dependencies]
+soul-core = { path = "../soul-core" }
+soul-cortex = { path = "../soul-cortex" }
+soul-identity = { path = "../soul-identity" }
+soul-tools = { path = "../soul-tools" }
+soul-minillm = { path = "../soul-minillm" }
+soul-rstdp = { path = "../soul-rstdp" }
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+serde_json = "1"
+rand = "0.8"
+
+[dev-dependencies]
+soul-hnn = { path = "../soul-hnn" }
+soul-embed = { path = "../soul-embed" }
+soul-memory-store = { path = "../soul-memory-store" }

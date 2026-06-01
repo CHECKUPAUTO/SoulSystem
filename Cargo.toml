@@ -5,6 +5,7 @@ members = [
     "soulsystem-multiagent",
     "soulsystem-memory-extract",
     "openclaw-u",
+    "soullink-brain",
     "soullink-brain/soullink-core",
     "soullink-brain/soullink-nvml",
     "soullink-brain/soullink-guardian",
@@ -55,7 +56,8 @@ members = [
     "scirust-trading-monitor",
     "scirust-simd",
     "scirust-gpu",
-]
+    "soullink-metabolism",
+
 [workspace.package]
 version = "13.5.0"
 edition = "2021"
@@ -156,6 +158,7 @@ teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
 axum = "0.7"
 soullink-memory = { path = "soullink-brain/soullink-memory",  }
 soullink-rag = { path = "soullink-brain/soullink-rag",  }
+soullink-autonomy = { path = "soullink-brain/soullink-autonomy" }
 
 portable-pty = "0.8"
 libc = "0.2"
