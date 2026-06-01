@@ -5,7 +5,6 @@ members = [
     "soulsystem-multiagent",
     "soulsystem-memory-extract",
     "openclaw-u",
-    "soullink-brain",
     "soullink-brain/soullink-core",
     "soullink-brain/soullink-nvml",
     "soullink-brain/soullink-guardian",
@@ -57,6 +56,8 @@ members = [
     "scirust-simd",
     "scirust-gpu",
     "soullink-metabolism",
+    "bound-system",
+]
 
 [workspace.package]
 version = "13.5.0"
