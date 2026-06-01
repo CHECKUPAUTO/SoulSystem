@@ -32,7 +32,7 @@ jobs:
       with:
         args: --deny warnings
 
-  # Job 2: Build + Test
+  # Job 2: Build + Test (core)
   build:
     runs-on: ubuntu-latest
     steps:
@@ -49,3 +49,21 @@ jobs:
     
     - name: Run tests
       run: cargo test -p soulsystem
+
+  # Job 3: Sous-workspaces
+  subprojects:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: [soul-neural, avid, soullink-node, openevolve, synergie, openclaw-evolution, turboquant, brain-system-rs]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Check
+      run: cargo check --manifest-path ${{ matrix.dir }}/Cargo.toml
+    
+    - name: Test
+      run: cargo test --manifest-path ${{ matrix.dir }}/Cargo.toml
