@@ -1,0 +1,15 @@
+#!/bin/bash
+# OpenEvolve default evaluator — compile-time fitness
+# Reads Rust code from stdin, writes to temp file, tries rustc --crate-type bin
+set -e
+CODE=$(cat)
+TMPDIR=$(mktemp -d)
+TRAP="rm -rf $TMPDIR"
+trap "$TRAP" EXIT
+
+echo "$CODE" > "$TMPDIR/main.rs"
+if rustc --crate-type bin -o "$TMPDIR/main" "$TMPDIR/main.rs" 2>/dev/null; then
+    echo '{"score":1.0,"metrics":{"compile":1.0}}'
+else
+    echo '{"score":0.0,"metrics":{"compile":0.0}}'
+fi
