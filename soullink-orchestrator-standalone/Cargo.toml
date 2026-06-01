@@ -1,0 +1,59 @@
+[package]
+name = "soullink-orchestrator"
+version = "3.0.0"
+edition = "2021"
+authors = ["SoulLink Team <soullink@example.com>"]
+description = "SoulLink Neural Mesh Orchestrator - Rust Native"
+license = "MIT"
+repository = "https://github.com/yourusername/soullink-orchestrator"
+keywords = ["neural", "mesh", "orchestrator", "ai", "soullink"]
+categories = ["network-programming", "web-programming::http-server"]
+rust-version = "1.70"
+
+[[bin]]
+name = "soullink-orchestrator"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+futures = "0.3"
+
+# Web framework
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Concurrency
+dashmap = "5.5"
+
+# HTTP client (lightweight)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+minreq = { version = "2.11", features = ["json-using-serde", "https-native"] }
+
+# Logging & Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Utils
+chrono = { version = "0.4", features = ["serde"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+[workspace]

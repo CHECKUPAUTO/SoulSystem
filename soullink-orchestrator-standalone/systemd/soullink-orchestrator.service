@@ -1,0 +1,30 @@
+[Unit]
+Description=SoulLink Neural Mesh Orchestrator v3 (Rust)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=soullink
+Group=soullink
+WorkingDirectory=/opt/soullink/orchestrator
+Environment="RUST_LOG=info"
+Environment="BRAIN_DIR=/mnt/nvme/soullink_brain"
+ExecStart=/usr/local/bin/soullink-orchestrator 9020 /mnt/nvme/soullink_brain
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=soullink-orchestrator
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/mnt/nvme/soullink_brain
+
+[Install]
+WantedBy=multi-user.target
