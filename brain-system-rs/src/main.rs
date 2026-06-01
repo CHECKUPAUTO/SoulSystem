@@ -1,0 +1,37 @@
+mod neuron;
+mod persistence;
+mod api;
+
+use axum::Router;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+pub struct BrainState {
+    pub neurons: Vec<neuron::Neuron>,
+    pub synapses: Vec<neuron::Synapse>,
+    pub total_neurons: u64,
+    pub growth_events: u64,
+    pub total_spikes: u64,
+}
+
+pub type SharedBrain = Arc<RwLock<BrainState>>;
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter("info")
+        .init();
+
+    let state = persistence::load_or_default().await;
+    let brain: SharedBrain = Arc::new(RwLock::new(state));
+
+    let app = Router::new()
+        .nest("/api", api::routes(brain.clone()))
+        .layer(tower_http::cors::CorsLayer::permissive());
+
+    let addr = "0.0.0.0:8084";
+    tracing::info!("🧠 SoulLink Brain v8.5 (Rust) — listening on {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
