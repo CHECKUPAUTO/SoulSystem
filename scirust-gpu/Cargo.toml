@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 rayon = { version = "1.10", optional = true }
-cudarc = { version = "0.12", optional = true }
 wgpu = { version = "0.20", optional = true }
 pollster = { version = "0.3", optional = true }
 bytemuck = { version = "1.16", optional = true }
@@ -13,13 +12,10 @@ half = "2.5"
 scirust-core = { path = "../scirust-core", optional = true }
 libc = "0.2"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-cuda-toolkit = { version = "0.12", optional = true }
-
 [features]
 default = ["cpu-fallback"]
 cpu-fallback = ["rayon"]
-cuda = ["dep:cudarc"]
+cuda = []
 gpu-cuda = ["cuda"]
-gpu-uma = ["gpu-cuda"] # Jetson Thor UMA
+gpu-uma = ["gpu-cuda"]
 wgpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck", "dep:scirust-core"]
