@@ -1,6 +1,7 @@
 mod neuron;
 mod persistence;
 mod api;
+mod simulation;
 
 use axum::Router;
 use std::sync::Arc;
@@ -24,6 +25,18 @@ async fn main() {
 
     let state = persistence::load_or_default().await;
     let brain: SharedBrain = Arc::new(RwLock::new(state));
+
+    // Auto-save toutes les 30s
+    let brain_clone = brain.clone();
+    tokio::spawn(async move {
+        simulation::auto_save_loop(brain_clone).await;
+    });
+
+    // Simulation loop (LIF ticks)
+    let brain_clone2 = brain.clone();
+    tokio::spawn(async move {
+        simulation::simulation_loop(brain_clone2).await;
+    });
 
     let app = Router::new()
         .nest("/api", api::routes(brain.clone()))
