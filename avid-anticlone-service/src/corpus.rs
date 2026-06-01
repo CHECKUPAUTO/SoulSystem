@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CorpusError {
@@ -73,9 +73,8 @@ impl Corpus {
         let candidate_json = serde_json::to_string(&candidate_fp)?;
 
         let conn = self.pool.get()?;
-        let mut stmt = conn.prepare(
-            "SELECT id, fingerprint FROM submissions WHERE tenant_id = ?1",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT id, fingerprint FROM submissions WHERE tenant_id = ?1")?;
         let rows = stmt.query_map(params![tenant_id], |row| {
             let id: i64 = row.get(0)?;
             let fp_json: String = row.get(1)?;
@@ -93,8 +92,16 @@ impl Corpus {
                 closest = Some(id);
             }
         }
-        let verdict = if max_score > threshold { "clone" } else { "original" };
-        Ok(OriginalityReport { score: max_score, verdict: verdict.to_string(), closest_id: closest })
+        let verdict = if max_score > threshold {
+            "clone"
+        } else {
+            "original"
+        };
+        Ok(OriginalityReport {
+            score: max_score,
+            verdict: verdict.to_string(),
+            closest_id: closest,
+        })
     }
 
     pub fn submit(
@@ -140,17 +147,26 @@ fn fingerprint_submission(sub: &Submission) -> Fingerprint {
     });
 
     let mut h = sha2::Sha256::new();
-    for l in &lines { h.update(l.as_bytes()); }
-    Fingerprint { ast_hash: hex::encode(h.finalize()), structure }
+    for l in &lines {
+        h.update(l.as_bytes());
+    }
+    Fingerprint {
+        ast_hash: hex::encode(h.finalize()),
+        structure,
+    }
 }
 
 fn similarity(a: &Fingerprint, b: &Fingerprint) -> f32 {
-    if a.ast_hash == b.ast_hash { return 1.0; }
+    if a.ast_hash == b.ast_hash {
+        return 1.0;
+    }
     let mut matches = 0;
     let a_chars: Vec<char> = a.ast_hash.chars().collect();
     let b_chars: Vec<char> = b.ast_hash.chars().collect();
     for i in 0..a_chars.len().min(b_chars.len()) {
-        if a_chars[i] == b_chars[i] { matches += 1; }
+        if a_chars[i] == b_chars[i] {
+            matches += 1;
+        }
     }
     matches as f32 / a_chars.len().max(b_chars.len()) as f32
 }

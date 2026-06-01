@@ -1,8 +1,8 @@
-use std::time::SystemTime;
+use crate::pattern::PatternSignature;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::params;
-use crate::pattern::PatternSignature;
+use std::time::SystemTime;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PatternStoreError {
@@ -26,14 +26,20 @@ pub struct PatternStats {
 impl PatternStats {
     #[must_use]
     pub fn success_rate(&self) -> f32 {
-        if self.seen_count == 0 { 0.0 }
-        else { self.success_count as f32 / self.seen_count as f32 }
+        if self.seen_count == 0 {
+            0.0
+        } else {
+            self.success_count as f32 / self.seen_count as f32
+        }
     }
 
     #[must_use]
     pub fn originality_avg(&self) -> f32 {
-        if self.seen_count == 0 { 0.0 }
-        else { (self.originality_sum / self.seen_count as f64) as f32 }
+        if self.seen_count == 0 {
+            0.0
+        } else {
+            (self.originality_sum / self.seen_count as f64) as f32
+        }
     }
 }
 
@@ -111,7 +117,10 @@ impl PatternStore {
 
     pub fn mark_compiled(&self, hash: &str) -> Result<(), PatternStoreError> {
         let conn = self.pool.get()?;
-        conn.execute("UPDATE patterns SET ncpu_compiled = 1 WHERE hash = ?1", params![hash])?;
+        conn.execute(
+            "UPDATE patterns SET ncpu_compiled = 1 WHERE hash = ?1",
+            params![hash],
+        )?;
         Ok(())
     }
 }

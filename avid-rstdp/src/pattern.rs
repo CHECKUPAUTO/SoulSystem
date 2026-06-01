@@ -15,17 +15,27 @@ impl PatternSignature {
         let mut hasher = Sha256::new();
         hasher.update(canonical.as_bytes());
         let digest: [u8; 32] = hasher.finalize().into();
-        Self { hash: hex::encode(digest), canonical }
+        Self {
+            hash: hex::encode(digest),
+            canonical,
+        }
     }
 }
 
 fn canonicalize(text: &str, url: Option<&str>) -> String {
     let mut s = text.to_lowercase();
     s = collapse_urls(&s);
-    let s: String = s.chars().map(|c| if c.is_ascii_digit() { 'N' } else { c }).collect();
+    let s: String = s
+        .chars()
+        .map(|c| if c.is_ascii_digit() { 'N' } else { c })
+        .collect();
     let s: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if let Some(u) = url {
-        let domain = u.split("://").nth(1).and_then(|rest| rest.split('/').next()).unwrap_or("");
+        let domain = u
+            .split("://")
+            .nth(1)
+            .and_then(|rest| rest.split('/').next())
+            .unwrap_or("");
         format!("{s} @ {domain}")
     } else {
         s
@@ -41,7 +51,9 @@ fn collapse_urls(text: &str) -> String {
             if rest.starts_with("ttp") {
                 out.push_str("<URL>");
                 while let Some(&n) = chars.peek() {
-                    if n.is_whitespace() { break; }
+                    if n.is_whitespace() {
+                        break;
+                    }
                     chars.next();
                 }
                 continue;

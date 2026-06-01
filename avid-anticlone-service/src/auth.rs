@@ -1,5 +1,5 @@
-use axum::http::HeaderMap;
 use crate::corpus::Corpus;
+use axum::http::HeaderMap;
 
 pub fn authenticate(headers: &HeaderMap, corpus: &Corpus) -> Option<i64> {
     let key = headers.get("X-API-Key")?.to_str().ok()?;

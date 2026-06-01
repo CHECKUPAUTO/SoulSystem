@@ -36,7 +36,10 @@ pub struct HttpNcpuCompiler {
 impl HttpNcpuCompiler {
     #[must_use]
     pub fn new(base_url: impl Into<String>) -> Self {
-        Self { base_url: base_url.into(), http: reqwest::Client::new() }
+        Self {
+            base_url: base_url.into(),
+            http: reqwest::Client::new(),
+        }
     }
 }
 

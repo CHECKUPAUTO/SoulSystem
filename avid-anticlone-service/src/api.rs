@@ -25,7 +25,9 @@ pub struct CheckRequest {
     pub threshold: f32,
 }
 
-const fn default_threshold() -> f32 { 0.75 }
+const fn default_threshold() -> f32 {
+    0.75
+}
 
 #[derive(Debug, Deserialize)]
 pub struct SubmitRequest {
@@ -49,17 +51,32 @@ async fn check_handler(
     Json(req): Json<CheckRequest>,
 ) -> impl IntoResponse {
     let Some(tenant_id) = crate::auth::authenticate(&headers, &state.corpus) else {
-        return (StatusCode::UNAUTHORIZED, Json(json!({"error": "invalid api key"}))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "invalid api key"})),
+        )
+            .into_response();
     };
-    match state.corpus.check(tenant_id, &req.submission, req.threshold) {
-        Ok(report) => (StatusCode::OK, Json(json!({
-            "score": report.score,
-            "verdict": report.verdict,
-            "closest_id": report.closest_id,
-        }))).into_response(),
+    match state
+        .corpus
+        .check(tenant_id, &req.submission, req.threshold)
+    {
+        Ok(report) => (
+            StatusCode::OK,
+            Json(json!({
+                "score": report.score,
+                "verdict": report.verdict,
+                "closest_id": report.closest_id,
+            })),
+        )
+            .into_response(),
         Err(e) => {
             error!(error = %e, "check failed");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "internal"}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "internal"})),
+            )
+                .into_response()
         }
     }
 }
@@ -70,13 +87,24 @@ async fn submit_handler(
     Json(req): Json<SubmitRequest>,
 ) -> impl IntoResponse {
     let Some(tenant_id) = crate::auth::authenticate(&headers, &state.corpus) else {
-        return (StatusCode::UNAUTHORIZED, Json(json!({"error": "invalid api key"}))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "invalid api key"})),
+        )
+            .into_response();
     };
-    match state.corpus.submit(tenant_id, req.label.as_deref(), &req.submission) {
+    match state
+        .corpus
+        .submit(tenant_id, req.label.as_deref(), &req.submission)
+    {
         Ok(id) => (StatusCode::CREATED, Json(json!({"id": id}))).into_response(),
         Err(e) => {
             error!(error = %e, "submit failed");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "internal"}))).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "internal"})),
+            )
+                .into_response()
         }
     }
 }

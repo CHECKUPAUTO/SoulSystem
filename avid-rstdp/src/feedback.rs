@@ -14,7 +14,11 @@ pub struct FeedbackConfig {
 
 impl Default for FeedbackConfig {
     fn default() -> Self {
-        Self { compile_threshold: 5, originality_floor: 0.7, success_floor: 0.8 }
+        Self {
+            compile_threshold: 5,
+            originality_floor: 0.7,
+            success_floor: 0.8,
+        }
     }
 }
 
@@ -34,7 +38,11 @@ pub enum FeedbackError {
 
 impl<C: NcpuCompiler> FeedbackLoop<C> {
     pub fn new(store: Arc<PatternStore>, compiler: Arc<C>, config: FeedbackConfig) -> Self {
-        Self { store, compiler, config }
+        Self {
+            store,
+            compiler,
+            config,
+        }
     }
 
     pub async fn observe(
