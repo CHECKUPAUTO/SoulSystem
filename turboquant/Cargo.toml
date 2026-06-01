@@ -1,0 +1,95 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/turboquant-core",
+    "crates/turboquant-cpu",
+    "crates/turboquant-cuda",
+    "crates/turboquant-gguf",
+    "crates/turboquant-cli",
+    "crates/turboquant-daemon",
+    "crates/turboquant-ffi",
+    "crates/turboquant-py",
+    "crates/turboquant-bench",
+]
+
+[workspace.package]
+version = "1.0.0-rc1"
+edition = "2021"
+rust-version = "1.83"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/CHECKUPAUTO/TurboQuant"
+authors = ["CHECKUPAUTO"]
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+bytemuck = { version = "1.21", features = ["derive"] }
+ndarray = "0.16"
+rand = "0.8"
+rand_distr = "0.4"
+half = "2.4"
+rayon = "1.10"
+wide = "0.7"
+clap = { version = "=4.5.27", features = ["derive"] }
+clap_complete = "=4.5.46"
+clap_mangen = "=0.2.23"
+indicatif = "=0.17.11"
+colored = "2"
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+notify = { version = "=7.0.0", features = ["macos_kqueue"] }
+sd-notify = "0.4"
+cudarc = { version = "=0.13.1", features = ["nvrtc"] }
+pyo3 = { version = "=0.22.6", features = ["extension-module"] }
+numpy = "=0.22.1"
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "=1.5.0"
+insta = "=1.42.2"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+byteorder = "1"
+memmap2 = "0.9"
+cbindgen = "0.27"
+tempfile = "3"
+rusqlite = { version = "0.32", features = ["bundled"] }
+libc = "0.2"
+indexmap = "=2.5.0"
+hashbrown = "=0.14.5"
+
+[workspace.lints.clippy]
+pedantic = { level = "allow", priority = -1 }
+nursery = { level = "allow", priority = -1 }
+unwrap_used = "allow"
+expect_used = "allow"
+# Allow pedantic lints that are style preferences
+uninlined_format_args = "allow"
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_lossless = "allow"
+cast_sign_loss = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
+unused_self = "allow"
+needless_pass_by_value = "allow"
+redundant_closure_for_method_calls = "allow"
+option_if_let_else = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+if_not_else = "allow"
+unreadable_literal = "allow"
+doc_markdown = "allow"
+missing_const_for_fn = "allow"
+single_call_fn = "allow"
+items_after_statements = "allow"
+cast_lossless_float = "allow"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
