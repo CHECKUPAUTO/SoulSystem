@@ -7,8 +7,8 @@ description = "SciRust CLI: end-to-end mathematical intelligence pipeline"
 publish = false
 
 [dependencies]
-scirust-symbolic = { path = "../scirust-symbolic" }
-scirust-reasoning = { path = "../scirust-reasoning" }
-scirust-learning = { path = "../scirust-learning" }
-scirust-bridge = { path = "../scirust-bridge" }
-scirust-autodiff = { path = "../scirust-autodiff" }
+scirust-symbolic = { path = "/root/scirust/scirust-symbolic" }
+scirust-reasoning = { path = "/root/scirust/scirust-reasoning" }
+scirust-learning = { path = "/root/scirust/scirust-learning" }
+scirust-bridge = { path = "/root/scirust/scirust-bridge" }
+scirust-autodiff = { path = "/root/scirust/scirust-autodiff" }

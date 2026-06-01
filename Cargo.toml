@@ -57,11 +57,6 @@ members = [
     "scirust-gpu",
     "soullink-metabolism",
     "bound-system",
-    "avid-bridge",
-    "synergie-bridge",
-    "openevolve-bridge",
-    "brain-bridge",
-    "soul-neural-bridge",
 ]
 
 exclude = [
@@ -74,11 +69,6 @@ exclude = [
     "turboquant",
     "brain-system-rs",
     "soullink-orchestrator-standalone",
-    "avid-bridge",
-    "synergie-bridge",
-    "openevolve-bridge",
-    "brain-bridge",
-    "soul-neural-bridge",
 ]
 
 [workspace.package]

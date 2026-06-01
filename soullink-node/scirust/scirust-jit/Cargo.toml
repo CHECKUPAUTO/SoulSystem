@@ -5,4 +5,4 @@ edition = "2021"
 description = "Runtime kernel JIT compilation for SciRust (template-based, no LLVM)"
 
 [dependencies]
-scirust-inference = { path = "../scirust-inference" }
+scirust-inference = { path = "/root/scirust/scirust-inference" }

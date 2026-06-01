@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-scirust-core = { path = "../../scirust-core" }
-scirust-autodiff = { path = "../../scirust-autodiff" }
-scirust-inference = { path = "../../scirust-inference" }
-scirust-probability = { path = "../../scirust-probability" }
-scirust-quantum = { path = "../../scirust-quantum" }
-scirust-distributed = { path = "../../scirust-distributed" }
-scirust-simd = { path = "../../scirust-simd" }
+scirust-core = { path = "/root/scirust/scirust-core" }
+scirust-autodiff = { path = "/root/scirust/scirust-autodiff" }
+scirust-inference = { path = "/root/scirust/scirust-inference" }
+scirust-probability = { path = "/root/scirust/scirust-probability" }
+scirust-quantum = { path = "/root/scirust/scirust-quantum" }
+scirust-distributed = { path = "/root/scirust/scirust-distributed" }
+scirust-simd = { path = "/root/scirust/scirust-simd" }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

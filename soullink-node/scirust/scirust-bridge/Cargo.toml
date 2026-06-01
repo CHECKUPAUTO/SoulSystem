@@ -7,7 +7,7 @@ description = "IA bridge for SciRust: natural language parser and pipeline orche
 publish = false
 
 [dependencies]
-scirust-symbolic = { path = "../scirust-symbolic" }
-scirust-reasoning = { path = "../scirust-reasoning" }
-scirust-learning = { path = "../scirust-learning" }
+scirust-symbolic = { path = "/root/scirust/scirust-symbolic" }
+scirust-reasoning = { path = "/root/scirust/scirust-reasoning" }
+scirust-learning = { path = "/root/scirust/scirust-learning" }
 regex = "1.10"

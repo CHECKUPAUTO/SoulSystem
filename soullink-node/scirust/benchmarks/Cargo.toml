@@ -9,9 +9,9 @@ name = "bench_force"
 path = "src/bin/bench_force.rs"
 
 [dependencies]
-scirust-simd = { path = "../scirust-simd" }
-scirust-gpu = { path = "../scirust-gpu" }
-scirust-core = { path = "../scirust-core" }
+scirust-simd = { path = "/root/scirust/scirust-simd" }
+scirust-gpu = { path = "/root/scirust/scirust-gpu" }
+scirust-core = { path = "/root/scirust/scirust-core" }
 chrono = "0.4"
 rand = "0.8"
 
