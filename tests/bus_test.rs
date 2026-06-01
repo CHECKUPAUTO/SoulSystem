@@ -16,7 +16,11 @@ fn test_bus_publish_subscribe() {
     // rx1 should receive the message
     let msg = rx1.try_recv().expect("rx1 should receive message");
     match msg {
-        Message::HnnStatus { organ: _, status, energy } => {
+        Message::HnnStatus {
+            organ: _,
+            status,
+            energy,
+        } => {
             assert_eq!(status, "ok");
             assert!((energy - 100.0).abs() < 0.001);
         }
@@ -26,7 +30,11 @@ fn test_bus_publish_subscribe() {
     // rx2 should also receive the message
     let msg2 = rx2.try_recv().expect("rx2 should receive message");
     match msg2 {
-        Message::HnnStatus { organ: _, status, energy } => {
+        Message::HnnStatus {
+            organ: _,
+            status,
+            energy,
+        } => {
             assert_eq!(status, "ok");
             assert!((energy - 100.0).abs() < 0.001);
         }
@@ -54,7 +62,10 @@ fn test_bus_multiple_message_types() {
 
     // Check SynergyDetection
     match rx.try_recv().unwrap() {
-        Message::SynergyDetection { module, description } => {
+        Message::SynergyDetection {
+            module,
+            description,
+        } => {
             assert_eq!(module, "AVID");
             assert_eq!(description, "Pattern found");
         }
@@ -72,7 +83,10 @@ fn test_bus_multiple_message_types() {
 
     // Check EvolveOptimization
     match rx.try_recv().unwrap() {
-        Message::EvolveOptimization { generation, best_fitness } => {
+        Message::EvolveOptimization {
+            generation,
+            best_fitness,
+        } => {
             assert_eq!(generation, 42);
             assert!((best_fitness - 0.95).abs() < f32::EPSILON);
         }
