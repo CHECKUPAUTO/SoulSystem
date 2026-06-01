@@ -194,7 +194,7 @@ async fn pty_create_handler(
                 created: true,
             }))
         }
-        Err(e) => Ok(Json(PtyCreateResponse {
+        Err(_e) => Ok(Json(PtyCreateResponse {
             session_id,
             created: false,
         })),

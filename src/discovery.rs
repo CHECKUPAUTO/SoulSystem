@@ -37,7 +37,7 @@ impl DiscoveryService {
         #[cfg(feature = "avid")]
         let result = self.scout.crawl(url).await?;
         #[cfg(not(feature = "avid"))]
-        let result: anyhow::Result<()> = Ok(());
+        let _result: anyhow::Result<()> = Ok(());
 
         self.bus.publish(Message::SynergyDetection {
             module: "discovery".into(),

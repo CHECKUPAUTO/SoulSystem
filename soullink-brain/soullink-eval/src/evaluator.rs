@@ -1,3 +1,4 @@
+#![allow(unused_imports, dead_code)]
 //! BrainEvaluator — orchestrates the self-learning evaluation loop.
 //!
 //! 1. Receives (query, response) embedding pair

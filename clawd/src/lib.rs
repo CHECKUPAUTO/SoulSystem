@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! Clawd — Bot Telegram integrant tous les modules SoulSystem.
 //!
 //! Commandes:

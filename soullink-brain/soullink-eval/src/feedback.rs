@@ -1,3 +1,4 @@
+#![allow(unused_imports, dead_code)]
 //! Feedback Loop — async task that connects LLM responses to MemoryGraph updates.
 //!
 //! After each response generation, the orchestrator spawns a feedback task:

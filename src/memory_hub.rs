@@ -200,11 +200,11 @@ impl MemoryHub {
     /// Filtre les résultats de recherche par niveau de confidentialité.
     pub fn filter_by_privacy(
         results: Vec<SearchResult>,
-        min_level: PrivacyLevel,
+        _min_level: PrivacyLevel,
     ) -> Vec<SearchResult> {
         results
             .into_iter()
-            .filter(|r| {
+            .filter(|_r| {
                 // Les résultats du vector store n'ont pas de label de privacy directement
                 // On filtre au niveau des métadonnées lors du store
                 true // Pour l'instant, passe tout (filtrage via métadonnées)
