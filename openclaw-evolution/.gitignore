@@ -1,0 +1,6 @@
+target/
+data/
+snapshots/
+*.log
+.env
+v1.backup/
