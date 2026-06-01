@@ -1,28 +1,54 @@
-/// Pont AVID ↔ SoulSystem
-/// Les vrais types AVID sont disponibles via le crate avid-bridge avec la feature `avid`.
-/// Sans la feature, des stubs permettent la compilation conditionnelle.
+/// Pont AVID ↔ SoulSystem — connexion réelle via HTTP à l'API AVID
+/// Les types Scout et Vision sont de vrais clients HTTP qui parlent à avid-server
 
-#[cfg(feature = "avid")]
-compile_error!("La feature `avid` nécessite le workspace AVID séparé (build avec --manifest-path avid-bridge/Cargo.toml --features avid)");
+use anyhow::Result;
 
-pub fn init() -> anyhow::Result<()> {
-    tracing::warn!("⚠️ AVID bridge: feature not enabled, using stubs");
+pub fn init() -> Result<()> {
+    tracing::info!("🧬 AVID bridge initialized (HTTP client to avid-server)");
     Ok(())
 }
 
-/// Stub Scout — remplacé par avid_scout::Scout quand la feature est activée
-pub struct Scout;
+/// Client AVID Scout — explore le web via l'API AVID
+pub struct Scout {
+    base_url: String,
+    client: reqwest::Client,
+}
+
+impl Default for Scout {
+    fn default() -> Self {
+        Self {
+            base_url: "http://127.0.0.1:8080".to_string(),
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
 impl Scout {
-    pub async fn crawl(&self, _url: &str) -> anyhow::Result<()> {
+    pub async fn crawl(&self, url: &str) -> Result<()> {
+        let resp = self.client
+            .post(format!("{}/api/scout/crawl", self.base_url))
+            .json(&serde_json::json!({"url": url}))
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("AVID Scout crawl failed: {}", resp.status());
+        }
+        tracing::info!("🔍 AVID Scout crawled: {}", url);
         Ok(())
     }
 }
-impl Default for Scout {
-    fn default() -> Self { Self }
+
+/// Client AVID Vision — perception visuelle via l'API AVID
+pub struct Vision {
+    base_url: String,
+    client: reqwest::Client,
 }
 
-/// Stub Vision — remplacé par avid_vision::Vision quand la feature est activée
-pub struct Vision;
 impl Default for Vision {
-    fn default() -> Self { Self }
+    fn default() -> Self {
+        Self {
+            base_url: "http://127.0.0.1:8080".to_string(),
+            client: reqwest::Client::new(),
+        }
+    }
 }

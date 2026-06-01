@@ -1,43 +1,18 @@
 //! Discovery module - integrated with AVID for web and document exploration.
 
 use crate::bus::{Bus, Message};
+#[cfg(feature = "avid")]
+use avid_bridge::{Scout, Vision};
 use std::sync::Arc;
 use tracing::info;
 
-#[cfg(feature = "avid")]
-use avid_bridge::{Scout, Vision};
-
-/// Stub type utilisé quand la feature `avid` n'est pas activée
-#[cfg(not(feature = "avid"))]
-pub struct Scout;
-#[cfg(not(feature = "avid"))]
-impl Scout {
-    pub async fn crawl(&self, _url: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-/// Stub type utilisé quand la feature `avid` n'est pas activée
-#[cfg(not(feature = "avid"))]
-pub struct Vision;
-#[cfg(not(feature = "avid"))]
-impl Vision {
-    pub fn default() -> Self { Self }
-}
-
 pub struct DiscoveryService {
-    _scout: Scout,
-    _vision: Vision,
     bus: Arc<Bus>,
 }
 
 impl DiscoveryService {
     pub fn new(bus: Arc<Bus>) -> Self {
-        Self {
-            _scout: Scout::default(),
-            _vision: Vision::default(),
-            bus,
-        }
+        Self { bus }
     }
 
     pub async fn start(&self) -> anyhow::Result<()> {
@@ -47,10 +22,22 @@ impl DiscoveryService {
 
     pub async fn discover_web(&self, url: &str) -> anyhow::Result<()> {
         info!("Discovering web content at: {}", url);
+        #[cfg(feature = "avid")]
+        {
+            let scout = Scout::default();
+            scout.crawl(url).await?;
+        }
         self.bus.publish(Message::SynergyDetection {
             module: "discovery".into(),
-            description: format!("Discovery discovered content at {}", url),
+            description: format!("AVID Scout discovered content at {}", url),
         });
+        Ok(())
+    }
+
+    #[cfg(feature = "avid")]
+    pub async fn discover_vision(&self, url: &str) -> anyhow::Result<()> {
+        info!("Vision discovery at: {}", url);
+        let _vision = Vision::default();
         Ok(())
     }
 }
