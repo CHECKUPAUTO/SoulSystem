@@ -27,10 +27,10 @@ pub async fn route_status(State(state): State<AppState>) -> Json<Value> {
                 .and_then(|t| t.get("attractor"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
-            
+
             total_n += n;
             online += 1;
-            
+
             mesh[key] = json!({
                 "state": "online",
                 "N": n,

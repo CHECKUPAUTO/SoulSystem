@@ -11,7 +11,9 @@ use std::path::PathBuf;
 pub struct ConfigDriftDetector;
 
 impl Detector for ConfigDriftDetector {
-    fn name(&self) -> &'static str { "config_drift" }
+    fn name(&self) -> &'static str {
+        "config_drift"
+    }
 
     fn detect(&self, ctx: &DetectContext) -> Result<Vec<Synergy>> {
         let mut configs: Vec<(String, PathBuf, HashSet<String>)> = Vec::new();
@@ -28,23 +30,38 @@ impl Detector for ConfigDriftDetector {
         let mut out = Vec::new();
         for i in 0..configs.len() {
             for j in (i + 1)..configs.len() {
-                if configs[i].0 == configs[j].0 { continue; }
+                if configs[i].0 == configs[j].0 {
+                    continue;
+                }
                 let a = &configs[i].2;
                 let b = &configs[j].2;
                 let inter = a.intersection(b).count();
-                if inter < 5 { continue; }
+                if inter < 5 {
+                    continue;
+                }
                 let union = a.len() + b.len() - inter;
                 let jac = inter as f32 / union.max(1) as f32;
-                if jac < 0.50 { continue; }
+                if jac < 0.50 {
+                    continue;
+                }
 
                 let shared: Vec<String> = a.intersection(b).take(10).cloned().collect();
                 let id = Synergy::stable_id(
                     "ConfigUnification",
-                    &configs[i].0, &configs[j].0,
+                    &configs[i].0,
+                    &configs[j].0,
                     &format!(
                         "{}~{}",
-                        configs[i].1.file_name().and_then(|s| s.to_str()).unwrap_or(""),
-                        configs[j].1.file_name().and_then(|s| s.to_str()).unwrap_or("")
+                        configs[i]
+                            .1
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(""),
+                        configs[j]
+                            .1
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
                     ),
                 );
                 let auto = auto_score_from(2, jac, type_floor("ConfigUnification"));
@@ -57,7 +74,8 @@ impl Detector for ConfigDriftDetector {
                         "Configs `{}` ↔ `{}` partagent {} clés (Jaccard {:.0}%) : {}",
                         configs[i].1.display(),
                         configs[j].1.display(),
-                        inter, jac * 100.0,
+                        inter,
+                        jac * 100.0,
                         shared.join(", ")
                     ),
                     priority: priority_from_score(auto),
@@ -84,13 +102,18 @@ impl Detector for ConfigDriftDetector {
                     suggested_action: Some(format!(
                         "Extraire un schéma commun (`commons-config`) chargé par les deux projets"
                     )),
-                    fingerprint: blake3::hash(format!("cfg:{}:{}", id, inter).as_bytes()).to_string(),
+                    fingerprint: blake3::hash(format!("cfg:{}:{}", id, inter).as_bytes())
+                        .to_string(),
                     ..Default::default()
                 });
             }
         }
 
-        out.sort_by(|x, y| y.auto_score.partial_cmp(&x.auto_score).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|x, y| {
+            y.auto_score
+                .partial_cmp(&x.auto_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         out.truncate(40);
         Ok(out)
     }
@@ -106,7 +129,12 @@ fn extract_keys(path: &PathBuf) -> Option<HashSet<String>> {
         "env" => collect_env(&text, &mut keys),
         "json" => collect_json(&text, &mut keys),
         _ => {
-            if path.file_name().and_then(|s| s.to_str()).map(|s| s.starts_with(".env")).unwrap_or(false) {
+            if path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.starts_with(".env"))
+                .unwrap_or(false)
+            {
                 collect_env(&text, &mut keys);
             }
         }
@@ -123,7 +151,11 @@ fn collect_toml(text: &str, out: &mut HashSet<String>) {
 fn walk_toml(v: &toml::Value, prefix: &str, out: &mut HashSet<String>) {
     if let toml::Value::Table(t) = v {
         for (k, vv) in t {
-            let np = if prefix.is_empty() { k.clone() } else { format!("{}.{}", prefix, k) };
+            let np = if prefix.is_empty() {
+                k.clone()
+            } else {
+                format!("{}.{}", prefix, k)
+            };
             walk_toml(vv, &np, out);
             out.insert(np);
         }
@@ -139,7 +171,11 @@ fn collect_json(text: &str, out: &mut HashSet<String>) {
 fn walk_json(v: &serde_json::Value, prefix: &str, out: &mut HashSet<String>) {
     if let serde_json::Value::Object(m) = v {
         for (k, vv) in m {
-            let np = if prefix.is_empty() { k.clone() } else { format!("{}.{}", prefix, k) };
+            let np = if prefix.is_empty() {
+                k.clone()
+            } else {
+                format!("{}.{}", prefix, k)
+            };
             walk_json(vv, &np, out);
             out.insert(np);
         }
@@ -149,7 +185,9 @@ fn walk_json(v: &serde_json::Value, prefix: &str, out: &mut HashSet<String>) {
 fn collect_env(text: &str, out: &mut HashSet<String>) {
     for line in text.lines() {
         let l = line.trim();
-        if l.is_empty() || l.starts_with('#') { continue; }
+        if l.is_empty() || l.starts_with('#') {
+            continue;
+        }
         if let Some(eq) = l.find('=') {
             let k = l[..eq].trim().to_string();
             if !k.is_empty() {
@@ -163,13 +201,21 @@ fn collect_yaml(text: &str, out: &mut HashSet<String>) {
     let mut stack: Vec<(usize, String)> = Vec::new();
     for line in text.lines() {
         let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
         let indent = line.len() - trimmed.len();
         if let Some(colon) = trimmed.find(':') {
             let key = trimmed[..colon].trim().to_string();
-            if key.starts_with('-') || key.is_empty() { continue; }
+            if key.starts_with('-') || key.is_empty() {
+                continue;
+            }
             while let Some((i, _)) = stack.last() {
-                if *i >= indent { stack.pop(); } else { break; }
+                if *i >= indent {
+                    stack.pop();
+                } else {
+                    break;
+                }
             }
             let dotted = if stack.is_empty() {
                 key.clone()

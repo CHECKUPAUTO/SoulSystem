@@ -53,8 +53,7 @@ impl Hessian {
             2 => self.data[0] * self.data[3] - self.data[1] * self.data[2],
             3 => {
                 let a = &self.data;
-                a[0] * (a[4] * a[8] - a[5] * a[7])
-                    - a[1] * (a[3] * a[8] - a[5] * a[6])
+                a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6])
                     + a[2] * (a[3] * a[7] - a[4] * a[6])
             }
             _ => {
@@ -116,13 +115,17 @@ where
             let mut q_mp = q.to_vec(); // -e_i +e_j
             let mut q_mm = q.to_vec(); // -e_i -e_j
 
-            q_pp[i] += h; q_pp[j] += h;
-            q_pm[i] += h; q_pm[j] -= h;
-            q_mp[i] -= h; q_mp[j] += h;
-            q_mm[i] -= h; q_mm[j] -= h;
+            q_pp[i] += h;
+            q_pp[j] += h;
+            q_pm[i] += h;
+            q_pm[j] -= h;
+            q_mp[i] -= h;
+            q_mp[j] += h;
+            q_mm[i] -= h;
+            q_mm[j] -= h;
 
-            let val = (energy_fn(&q_pp) - energy_fn(&q_pm)
-                     - energy_fn(&q_mp) + energy_fn(&q_mm)) * h2_inv;
+            let val = (energy_fn(&q_pp) - energy_fn(&q_pm) - energy_fn(&q_mp) + energy_fn(&q_mm))
+                * h2_inv;
 
             hess.set(i, j, val);
             hess.set(j, i, val); // symétrique
@@ -210,7 +213,11 @@ impl Hessian {
         let eigvals = self.eigenvalues_power(100);
         let max = eigvals.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
         let min = eigvals.iter().map(|v| v.abs()).fold(f32::MAX, f32::min);
-        if min < 1e-10 { f32::INFINITY } else { max / min }
+        if min < 1e-10 {
+            f32::INFINITY
+        } else {
+            max / min
+        }
     }
 }
 
@@ -232,7 +239,11 @@ fn power_iteration(mat: &Hessian, max_iter: usize) -> (f32, Vec<f32>) {
             return (0.0, v);
         }
         v = av.iter().map(|x| x / norm).collect();
-        eigenvalue = v.iter().zip(mat.matvec(&v).iter()).map(|(a, b)| a * b).sum();
+        eigenvalue = v
+            .iter()
+            .zip(mat.matvec(&v).iter())
+            .map(|(a, b)| a * b)
+            .sum();
     }
 
     (eigenvalue, v)
@@ -265,8 +276,16 @@ mod tests {
         let diag = h.diagonal();
         let has_positive = diag.iter().any(|&v| v > 0.5);
         let has_negative = diag.iter().any(|&v| v < -0.5);
-        assert!(has_positive && has_negative, "Devrait être un point selle: diag={:?}", diag);
+        assert!(
+            has_positive && has_negative,
+            "Devrait être un point selle: diag={:?}",
+            diag
+        );
         // Vérifier le morse_index (nb de valeurs propres négatives)
-        assert_eq!(morse_index(&h), 1, "Morse index devrait être 1 pour un point selle 2D");
+        assert_eq!(
+            morse_index(&h),
+            1,
+            "Morse index devrait être 1 pour un point selle 2D"
+        );
     }
 }

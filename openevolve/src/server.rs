@@ -13,8 +13,8 @@
 
 use crate::config::Config;
 use crate::database::ProgramDatabase;
-use crate::metrics as om;
 use crate::evolution::EvolutionEngine;
+use crate::metrics as om;
 use crate::program::Program;
 use anyhow::{Context, Result};
 use axum::{
@@ -84,8 +84,7 @@ pub async fn run_server(cfg: Config, db: ProgramDatabase, bind: &str) -> Result<
         .finish()
         .context("build governor config")?;
 
-    let evolve_router = Router::new()
-        .route("/evolve", post(evolve));
+    let evolve_router = Router::new().route("/evolve", post(evolve));
 
     let v1 = Router::new()
         .route("/health", get(health))
@@ -157,7 +156,9 @@ async fn library(
     let db = state.db.read().await;
     let mut all = db.snapshot().await;
     all.sort_by(|a, b| {
-        b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
     all.truncate(limit);
     Json(all)
@@ -186,8 +187,17 @@ async fn islands(State(state): State<Arc<AppState>>) -> Json<Vec<IslandSummary>>
     for (island, scores) in buckets {
         let size = scores.len();
         let best = scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let mean = if size > 0 { scores.iter().sum::<f64>() / size as f64 } else { 0.0 };
-        out.push(IslandSummary { island, size, best_score: best, mean_score: mean });
+        let mean = if size > 0 {
+            scores.iter().sum::<f64>() / size as f64
+        } else {
+            0.0
+        };
+        out.push(IslandSummary {
+            island,
+            size,
+            best_score: best,
+            mean_score: mean,
+        });
     }
     Json(out)
 }
@@ -208,7 +218,11 @@ async fn handle_socket(mut socket: WebSocket, mut rx: broadcast::Receiver<serde_
     loop {
         match rx.recv().await {
             Ok(msg) => {
-                if socket.send(Message::Text(msg.to_string().into())).await.is_err() {
+                if socket
+                    .send(Message::Text(msg.to_string().into()))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -270,7 +284,8 @@ async fn evolve(
                 "error": e.to_string(),
             })),
         }
-    }).await;
+    })
+    .await;
 
     let _ = tokio::fs::remove_dir_all(&output_dir).await;
 

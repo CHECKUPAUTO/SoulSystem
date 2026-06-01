@@ -1,6 +1,6 @@
+use soul_core::Goal;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use soul_core::Goal;
 
 pub struct MonitorState {
     pub goals: Arc<Mutex<Vec<Goal>>>,
@@ -8,11 +8,11 @@ pub struct MonitorState {
 }
 
 impl MonitorState {
-    pub fn new(
-        goals: Arc<Mutex<Vec<Goal>>>,
-        recent_episodes: Arc<Mutex<Vec<String>>>,
-    ) -> Self {
-        Self { goals, recent_episodes }
+    pub fn new(goals: Arc<Mutex<Vec<Goal>>>, recent_episodes: Arc<Mutex<Vec<String>>>) -> Self {
+        Self {
+            goals,
+            recent_episodes,
+        }
     }
 
     pub async fn report_json(&self) -> serde_json::Value {

@@ -35,12 +35,32 @@ use tracing::{debug, info, warn};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
-    AgentTick { tick: u64, ts: chrono::DateTime<chrono::Utc> },
-    ScanCompleted { synergies: usize, elapsed_ms: u64 },
-    SynergyDetected { id: String, score: f32, title: String },
-    SynergyUpdated { id: String, status: String },
-    ActionApplied { synergy_id: String, kind: String, success: bool },
-    Log { level: String, msg: String },
+    AgentTick {
+        tick: u64,
+        ts: chrono::DateTime<chrono::Utc>,
+    },
+    ScanCompleted {
+        synergies: usize,
+        elapsed_ms: u64,
+    },
+    SynergyDetected {
+        id: String,
+        score: f32,
+        title: String,
+    },
+    SynergyUpdated {
+        id: String,
+        status: String,
+    },
+    ActionApplied {
+        synergy_id: String,
+        kind: String,
+        success: bool,
+    },
+    Log {
+        level: String,
+        msg: String,
+    },
 }
 
 pub struct Agent {
@@ -52,19 +72,32 @@ pub struct Agent {
 impl Agent {
     pub fn new(cfg: Arc<Config>) -> Self {
         let (tx, _rx) = broadcast::channel(256);
-        Self { cfg, events_tx: tx, tick_counter: AtomicU64::new(0) }
+        Self {
+            cfg,
+            events_tx: tx,
+            tick_counter: AtomicU64::new(0),
+        }
     }
 
-    pub fn cfg(&self) -> &Config { &self.cfg }
-    pub fn events_tx(&self) -> &broadcast::Sender<Event> { &self.events_tx }
+    pub fn cfg(&self) -> &Config {
+        &self.cfg
+    }
+    pub fn events_tx(&self) -> &broadcast::Sender<Event> {
+        &self.events_tx
+    }
 
-    fn emit(&self, ev: Event) { let _ = self.events_tx.send(ev); }
+    fn emit(&self, ev: Event) {
+        let _ = self.events_tx.send(ev);
+    }
 
     /// Cycle complet — un seul tour.
     pub async fn one_shot_scan(&self, only: Option<&HashSet<String>>) -> Result<ScanReport> {
         let t0 = Instant::now();
         let tick = self.tick_counter.fetch_add(1, Ordering::SeqCst) + 1;
-        self.emit(Event::AgentTick { tick, ts: chrono::Utc::now() });
+        self.emit(Event::AgentTick {
+            tick,
+            ts: chrono::Utc::now(),
+        });
 
         // 1) Découverte
         let eco = Ecosystem::discover(&self.cfg)?;
@@ -115,7 +148,10 @@ impl Agent {
         // 5) Runtime
         let runtime = match scanner::runtime::snapshot() {
             Ok(r) => Some(r),
-            Err(e) => { warn!(target: "agent.runtime", error = %e); None }
+            Err(e) => {
+                warn!(target: "agent.runtime", error = %e);
+                None
+            }
         };
 
         // 6) Co-commits
@@ -128,7 +164,9 @@ impl Agent {
                     if seen_roots.insert(cur.clone()) {
                         match scanner::git::analyze_repo(&cur, self.cfg.agent.git_window) {
                             Ok(m) => cocommits.merge(m),
-                            Err(e) => debug!(target: "agent.git", path = %cur.display(), error = %e),
+                            Err(e) => {
+                                debug!(target: "agent.git", path = %cur.display(), error = %e)
+                            }
                         }
                     }
                     break;
@@ -150,7 +188,11 @@ impl Agent {
             public_items: Arc::new(public_items),
             deps: Arc::new(deps),
             runtime: Arc::new(runtime),
-            cocommits: Arc::new(if cocommits.is_empty() { None } else { Some(cocommits) }),
+            cocommits: Arc::new(if cocommits.is_empty() {
+                None
+            } else {
+                Some(cocommits)
+            }),
         };
 
         // 8) Détecteurs sync (parallèle)
@@ -164,14 +206,28 @@ impl Agent {
                 Ok(c) => c,
                 Err(e) => {
                     warn!(target: "agent.embed", error = %e);
-                    return self.finalize(t0, ctx.ecosystem.as_ref().clone(), sync_synergies, ctx.file_index.as_ref()).await;
+                    return self
+                        .finalize(
+                            t0,
+                            ctx.ecosystem.as_ref().clone(),
+                            sync_synergies,
+                            ctx.file_index.as_ref(),
+                        )
+                        .await;
                 }
             };
             let mut embed = match EmbedClient::new(self.cfg.embed.clone(), cache) {
                 Ok(c) => c,
                 Err(e) => {
                     warn!(target: "agent.embed", error = %e, "embed client KO");
-                    return self.finalize(t0, ctx.ecosystem.as_ref().clone(), sync_synergies, ctx.file_index.as_ref()).await;
+                    return self
+                        .finalize(
+                            t0,
+                            ctx.ecosystem.as_ref().clone(),
+                            sync_synergies,
+                            ctx.file_index.as_ref(),
+                        )
+                        .await;
                 }
             };
             match detect::run_semantic(&ctx, &mut embed).await {
@@ -185,7 +241,8 @@ impl Agent {
         all.extend(semantic_synergies);
         let merged = detect::merge_synergies(all);
         let mut filtered = crate::filter::apply_all(merged);
-        let opt = crate::memory::load_optimizer().unwrap_or_else(|_| crate::rstdp::RSTDPOptimizer::new(0.1, 0.9));
+        let opt = crate::memory::load_optimizer()
+            .unwrap_or_else(|_| crate::rstdp::RSTDPOptimizer::new(0.1, 0.9));
         crate::rstdp::rescore_batch(&mut filtered, &opt);
 
         // 11) Persistance + stale
@@ -209,7 +266,8 @@ impl Agent {
                 title: s.description.lines().next().unwrap_or("").to_string(),
             });
         }
-        let staled = crate::memory::mark_unseen_stale(&seen_ids, self.cfg.agent.stale_after_days).unwrap_or(0);
+        let staled = crate::memory::mark_unseen_stale(&seen_ids, self.cfg.agent.stale_after_days)
+            .unwrap_or(0);
         if staled > 0 {
             info!(target: "agent", staled, "synergies marquées Stale");
         }
@@ -312,16 +370,24 @@ impl Agent {
     async fn apply_top_actions(&self, report: &ScanReport) {
         let threshold = self.cfg.agent.action_threshold;
         let cap = self.cfg.agent.max_actions_per_tick.max(0);
-        if cap == 0 { return; }
+        if cap == 0 {
+            return;
+        }
 
         let mut top: Vec<&Synergy> = report
             .synergies
             .iter()
             .filter(|s| s.adjusted_score >= threshold)
             .collect();
-        top.sort_by(|a, b| b.adjusted_score.partial_cmp(&a.adjusted_score).unwrap_or(std::cmp::Ordering::Equal));
+        top.sort_by(|a, b| {
+            b.adjusted_score
+                .partial_cmp(&a.adjusted_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         let top: Vec<&Synergy> = top.into_iter().take(cap).collect();
-        if top.is_empty() { return; }
+        if top.is_empty() {
+            return;
+        }
 
         let tele = crate::telegram::Telegram::new(
             self.cfg.action.telegram_bot_token.clone(),
@@ -334,25 +400,50 @@ impl Agent {
             }
             if let Some(repo_path) = &self.cfg.action.github_proposals_repo {
                 let proposals_dir = repo_path.join("proposals");
-                let files = match crate::github::write_scaffolding(syn, &proposals_dir, self.cfg.agent.dry_run) {
+                let files = match crate::github::write_scaffolding(
+                    syn,
+                    &proposals_dir,
+                    self.cfg.agent.dry_run,
+                ) {
                     Ok(v) => v,
                     Err(e) => {
                         warn!(target: "agent.action", error = %e, "scaffolding KO");
-                        self.emit(Event::ActionApplied { synergy_id: syn.id.clone(), kind: "scaffolding".into(), success: false });
+                        self.emit(Event::ActionApplied {
+                            synergy_id: syn.id.clone(),
+                            kind: "scaffolding".into(),
+                            success: false,
+                        });
                         continue;
                     }
                 };
-                self.emit(Event::ActionApplied { synergy_id: syn.id.clone(), kind: "scaffolding".into(), success: true });
+                self.emit(Event::ActionApplied {
+                    synergy_id: syn.id.clone(),
+                    kind: "scaffolding".into(),
+                    success: true,
+                });
 
                 if self.cfg.action.auto_apply_safe_patches && !self.cfg.agent.dry_run {
-                    match crate::github::commit_proposal(repo_path, &self.cfg.action.branch_prefix, syn, &files) {
+                    match crate::github::commit_proposal(
+                        repo_path,
+                        &self.cfg.action.branch_prefix,
+                        syn,
+                        &files,
+                    ) {
                         Ok(sha) => {
                             info!(target: "agent.action", sha = %sha, "commit OK");
-                            self.emit(Event::ActionApplied { synergy_id: syn.id.clone(), kind: "commit".into(), success: true });
+                            self.emit(Event::ActionApplied {
+                                synergy_id: syn.id.clone(),
+                                kind: "commit".into(),
+                                success: true,
+                            });
                         }
                         Err(e) => {
                             warn!(target: "agent.action", error = %e, "commit KO");
-                            self.emit(Event::ActionApplied { synergy_id: syn.id.clone(), kind: "commit".into(), success: false });
+                            self.emit(Event::ActionApplied {
+                                synergy_id: syn.id.clone(),
+                                kind: "commit".into(),
+                                success: false,
+                            });
                         }
                     }
                 }
@@ -361,21 +452,36 @@ impl Agent {
     }
 }
 
-fn legacy_project_infos(projects: &[Project], idx: &HashMap<String, FileIndex>) -> Vec<crate::detect::ProjectInfo> {
-    projects.iter().map(|p| {
-        let files: Vec<String> = idx
-            .get(&p.name)
-            .map(|fi| fi.by_lang.values().flatten().map(|pb| pb.to_string_lossy().into_owned()).collect())
-            .unwrap_or_default();
-        crate::detect::ProjectInfo {
-            name: p.name.clone(),
-            path: p.path.to_string_lossy().into_owned(),
-            files,
-        }
-    }).collect()
+fn legacy_project_infos(
+    projects: &[Project],
+    idx: &HashMap<String, FileIndex>,
+) -> Vec<crate::detect::ProjectInfo> {
+    projects
+        .iter()
+        .map(|p| {
+            let files: Vec<String> = idx
+                .get(&p.name)
+                .map(|fi| {
+                    fi.by_lang
+                        .values()
+                        .flatten()
+                        .map(|pb| pb.to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            crate::detect::ProjectInfo {
+                name: p.name.clone(),
+                path: p.path.to_string_lossy().into_owned(),
+                files,
+            }
+        })
+        .collect()
 }
 
-fn filter_cfg(base: &crate::detect::DetectConfig, only: Option<&HashSet<String>>) -> crate::detect::DetectConfig {
+fn filter_cfg(
+    base: &crate::detect::DetectConfig,
+    only: Option<&HashSet<String>>,
+) -> crate::detect::DetectConfig {
     let mut c = base.clone();
     if let Some(set) = only {
         c.symbolic = set.contains("symbolic");

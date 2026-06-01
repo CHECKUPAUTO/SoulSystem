@@ -205,10 +205,10 @@ pub struct AuditThresholds {
 impl Default for AuditThresholds {
     fn default() -> Self {
         Self {
-            min_code_ratio: 0.3,       // 30% des mutations doivent avoir du code
-            min_compile_ratio: 0.1,    // 10% des agents doivent compiler
-            min_run_ratio: 0.05,       // 5% doivent tourner
-            min_unique_codes: 3,       // Au moins 3 codes différents
+            min_code_ratio: 0.3,    // 30% des mutations doivent avoir du code
+            min_compile_ratio: 0.1, // 10% des agents doivent compiler
+            min_run_ratio: 0.05,    // 5% doivent tourner
+            min_unique_codes: 3,    // Au moins 3 codes différents
             max_consecutive_failures: 5,
             min_fitness_after_cycles: vec![
                 (10, 0.05),  // Après 10 cycles : fitness > 0.05
@@ -268,7 +268,9 @@ impl Auditor {
                 "PRODUCTION",
                 &format!(
                     "{}/{} mutations avec code ({:.0}%)",
-                    input.mutations_with_code, input.mutations_generated, code_ratio * 100.0
+                    input.mutations_with_code,
+                    input.mutations_generated,
+                    code_ratio * 100.0
                 ),
                 code_ratio,
             ));
@@ -299,7 +301,9 @@ impl Auditor {
                 "COMPILATION",
                 &format!(
                     "{}/{} agents compilent ({:.0}%)",
-                    input.agents_compiling, input.population_size, compile_ratio * 100.0
+                    input.agents_compiling,
+                    input.population_size,
+                    compile_ratio * 100.0
                 ),
                 compile_ratio,
             ));
@@ -333,11 +337,18 @@ impl Auditor {
                 self.thresholds.min_run_ratio,
             ));
         } else {
-            let v = if run_ratio > 0.0 { AuditVerdict::Pass } else { AuditVerdict::Warning };
+            let v = if run_ratio > 0.0 {
+                AuditVerdict::Pass
+            } else {
+                AuditVerdict::Warning
+            };
             checks.push(AuditCheck {
                 name: "EXECUTION".into(),
                 verdict: v,
-                detail: format!("{}/{} agents tournent", input.agents_running, input.population_size),
+                detail: format!(
+                    "{}/{} agents tournent",
+                    input.agents_running, input.population_size
+                ),
                 metric: run_ratio,
                 threshold: self.thresholds.min_run_ratio,
             });
@@ -401,7 +412,10 @@ impl Auditor {
         } else {
             checks.push(AuditCheck::pass(
                 "DIVERSITY",
-                &format!("{} codes uniques, {:.1} lignes en moyenne", input.unique_code_hashes, input.avg_code_lines),
+                &format!(
+                    "{} codes uniques, {:.1} lignes en moyenne",
+                    input.unique_code_hashes, input.avg_code_lines
+                ),
                 input.unique_code_hashes as f32,
             ));
         }
@@ -438,8 +452,14 @@ impl Auditor {
         }
 
         // ── Verdict global ──────────────────────────
-        let fails = checks.iter().filter(|c| c.verdict == AuditVerdict::Fail).count();
-        let warns = checks.iter().filter(|c| c.verdict == AuditVerdict::Warning).count();
+        let fails = checks
+            .iter()
+            .filter(|c| c.verdict == AuditVerdict::Fail)
+            .count();
+        let warns = checks
+            .iter()
+            .filter(|c| c.verdict == AuditVerdict::Warning)
+            .count();
 
         let overall_verdict = if fails >= 2 {
             AuditVerdict::Fail
@@ -457,17 +477,18 @@ impl Auditor {
         }
 
         // Déterminer l'action recommandée
-        let recommended_action = if self.consecutive_failures >= self.thresholds.max_consecutive_failures {
-            AuditAction::ForceRollback
-        } else if self.consecutive_failures >= 3 {
-            AuditAction::SwitchToDeep
-        } else if self.consecutive_failures >= 2 {
-            AuditAction::IncreaseMutation
-        } else if overall_verdict == AuditVerdict::Fail {
-            AuditAction::IncreaseMutation
-        } else {
-            AuditAction::Continue
-        };
+        let recommended_action =
+            if self.consecutive_failures >= self.thresholds.max_consecutive_failures {
+                AuditAction::ForceRollback
+            } else if self.consecutive_failures >= 3 {
+                AuditAction::SwitchToDeep
+            } else if self.consecutive_failures >= 2 {
+                AuditAction::IncreaseMutation
+            } else if overall_verdict == AuditVerdict::Fail {
+                AuditAction::IncreaseMutation
+            } else {
+                AuditAction::Continue
+            };
 
         let report = AuditReport {
             cycle: input.cycle,
@@ -512,8 +533,12 @@ impl Auditor {
         for check in &report.checks {
             match check.verdict {
                 AuditVerdict::Pass => info!("  {} {}: {}", check.verdict, check.name, check.detail),
-                AuditVerdict::Warning => warn!("  {} {}: {}", check.verdict, check.name, check.detail),
-                AuditVerdict::Fail => error!("  {} {}: {}", check.verdict, check.name, check.detail),
+                AuditVerdict::Warning => {
+                    warn!("  {} {}: {}", check.verdict, check.name, check.detail)
+                }
+                AuditVerdict::Fail => {
+                    error!("  {} {}: {}", check.verdict, check.name, check.detail)
+                }
             }
         }
     }
@@ -523,7 +548,11 @@ impl Auditor {
         let filename = format!(
             "audit_cycle_{:06}_{}.json",
             report.cycle,
-            if report.overall_verdict == AuditVerdict::Fail { "FAIL" } else { "ok" }
+            if report.overall_verdict == AuditVerdict::Fail {
+                "FAIL"
+            } else {
+                "ok"
+            }
         );
         let path = self.log_dir.join(filename);
         if let Ok(json) = serde_json::to_string_pretty(report) {
@@ -538,8 +567,14 @@ impl Auditor {
         }
 
         let recent = &self.history[self.history.len().saturating_sub(window)..];
-        let passes = recent.iter().filter(|r| r.overall_verdict == AuditVerdict::Pass).count();
-        let fails = recent.iter().filter(|r| r.overall_verdict == AuditVerdict::Fail).count();
+        let passes = recent
+            .iter()
+            .filter(|r| r.overall_verdict == AuditVerdict::Pass)
+            .count();
+        let fails = recent
+            .iter()
+            .filter(|r| r.overall_verdict == AuditVerdict::Fail)
+            .count();
 
         if passes as f32 / recent.len() as f32 > 0.7 {
             AuditTrend::Improving

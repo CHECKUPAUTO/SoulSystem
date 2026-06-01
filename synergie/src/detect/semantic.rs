@@ -21,15 +21,23 @@ pub async fn run(ctx: &DetectContext, embed: &mut EmbedClient) -> Result<Vec<Syn
     let mut entries: Vec<Entry> = Vec::new();
     for (proj, items) in ctx.public_items.iter() {
         for (idx, it) in items.iter().enumerate() {
-            if !it.kind.is_callable() { continue; }
+            if !it.kind.is_callable() {
+                continue;
+            }
             let mut text = String::new();
             if let Some(d) = &it.doc {
                 text.push_str(d.trim());
                 text.push('\n');
             }
             text.push_str(&it.signature);
-            if text.trim().len() < MIN_SIG_LEN { continue; }
-            entries.push(Entry { project: proj.clone(), item_idx: idx, text });
+            if text.trim().len() < MIN_SIG_LEN {
+                continue;
+            }
+            entries.push(Entry {
+                project: proj.clone(),
+                item_idx: idx,
+                text,
+            });
         }
     }
     if entries.len() > MAX_EMBED_TEXTS {
@@ -62,17 +70,27 @@ pub async fn run(ctx: &DetectContext, embed: &mut EmbedClient) -> Result<Vec<Syn
     for &bk in &bkeys {
         for off in [0isize, 1, -1] {
             let target = bk as isize + off;
-            if target < 0 { continue; }
+            if target < 0 {
+                continue;
+            }
             let tk = target as usize;
-            if !buckets.contains_key(&tk) { continue; }
+            if !buckets.contains_key(&tk) {
+                continue;
+            }
             let a = &buckets[&bk];
             let b = &buckets[&tk];
             for &i in a {
                 for &j in b {
-                    if i >= j { continue; }
-                    if entries[i].project == entries[j].project { continue; }
+                    if i >= j {
+                        continue;
+                    }
+                    if entries[i].project == entries[j].project {
+                        continue;
+                    }
                     let sim = cosine(&vectors[i], &vectors[j]);
-                    if sim < threshold { continue; }
+                    if sim < threshold {
+                        continue;
+                    }
                     if let Some(syn) = build_synergy(ctx, &entries[i], &entries[j], sim) {
                         out.push(syn);
                     }
@@ -81,19 +99,30 @@ pub async fn run(ctx: &DetectContext, embed: &mut EmbedClient) -> Result<Vec<Syn
         }
     }
 
-    out.sort_by(|x, y| y.auto_score.partial_cmp(&x.auto_score).unwrap_or(std::cmp::Ordering::Equal));
+    out.sort_by(|x, y| {
+        y.auto_score
+            .partial_cmp(&x.auto_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     out.truncate(40);
     Ok(out)
 }
 
 fn build_synergy(ctx: &DetectContext, a: &Entry, b: &Entry, sim: f32) -> Option<Synergy> {
-    let item_a = ctx.public_items.get(&a.project).and_then(|v| v.get(a.item_idx))?;
-    let item_b = ctx.public_items.get(&b.project).and_then(|v| v.get(b.item_idx))?;
+    let item_a = ctx
+        .public_items
+        .get(&a.project)
+        .and_then(|v| v.get(a.item_idx))?;
+    let item_b = ctx
+        .public_items
+        .get(&b.project)
+        .and_then(|v| v.get(b.item_idx))?;
     let auto = auto_score_from(2, sim, type_floor("SemanticOverlap"));
     let priority = priority_from_score(auto);
     let id = Synergy::stable_id(
         "SemanticOverlap",
-        &a.project, &b.project,
+        &a.project,
+        &b.project,
         &format!("{}~{}", item_a.name, item_b.name),
     );
     let description = format!(
@@ -108,7 +137,11 @@ fn build_synergy(ctx: &DetectContext, a: &Entry, b: &Entry, sim: f32) -> Option<
         description,
         priority,
         effort: "medium".into(),
-        value: if sim > 0.94 { "high".into() } else { "medium".into() },
+        value: if sim > 0.94 {
+            "high".into()
+        } else {
+            "medium".into()
+        },
         auto_score: auto,
         adjusted_score: auto,
         evidence: vec![

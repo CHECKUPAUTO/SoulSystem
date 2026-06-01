@@ -137,14 +137,20 @@ pub fn compression_ratio(qv: &QuantizedVector) -> f32 {
 /// Erreur de quantification (RMSE normalisée)
 pub fn quantization_error(original: &[f32], qv: &QuantizedVector) -> f32 {
     let reconstructed = dequantize(qv);
-    let mse: f32 = original.iter()
+    let mse: f32 = original
+        .iter()
         .zip(reconstructed.iter())
         .map(|(a, b)| (a - b).powi(2))
         .sum::<f32>()
         / original.len() as f32;
 
-    let rms_orig: f32 = (original.iter().map(|x| x * x).sum::<f32>() / original.len() as f32).sqrt();
-    if rms_orig < 1e-10 { 0.0 } else { mse.sqrt() / rms_orig }
+    let rms_orig: f32 =
+        (original.iter().map(|x| x * x).sum::<f32>() / original.len() as f32).sqrt();
+    if rms_orig < 1e-10 {
+        0.0
+    } else {
+        mse.sqrt() / rms_orig
+    }
 }
 
 // ── Packing 3-bit ──────────────────────────
@@ -156,7 +162,11 @@ fn pack_3bit(codes: &[u8]) -> Vec<u8> {
     let mut i = 0;
     while i < codes.len() {
         let a = codes[i] & 0x07;
-        let b = if i + 1 < codes.len() { codes[i + 1] & 0x07 } else { 0 };
+        let b = if i + 1 < codes.len() {
+            codes[i + 1] & 0x07
+        } else {
+            0
+        };
         // Pack : [aaa bbb 00]
         packed.push((a << 5) | (b << 2));
         i += 2;
@@ -180,7 +190,10 @@ pub fn auto_quantize(data: &[f32], target_error: f32) -> QuantizedVector {
     let block_sizes = [16, 32, 64, 128];
 
     for &bs in &block_sizes {
-        let config = QuantConfig { block_size: bs, symmetric: true };
+        let config = QuantConfig {
+            block_size: bs,
+            symmetric: true,
+        };
         let qv = quantize(data, &config);
         let error = quantization_error(data, &qv);
         if error <= target_error {
@@ -189,7 +202,13 @@ pub fn auto_quantize(data: &[f32], target_error: f32) -> QuantizedVector {
     }
 
     // Fallback : plus petit block size
-    quantize(data, &QuantConfig { block_size: 16, symmetric: true })
+    quantize(
+        data,
+        &QuantConfig {
+            block_size: 16,
+            symmetric: true,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -205,7 +224,11 @@ mod tests {
 
         assert_eq!(reconstructed.len(), data.len());
         let error = quantization_error(&data, &qv);
-        assert!(error < 0.3, "Erreur de quantification trop élevée: {}", error);
+        assert!(
+            error < 0.3,
+            "Erreur de quantification trop élevée: {}",
+            error
+        );
     }
 
     #[test]

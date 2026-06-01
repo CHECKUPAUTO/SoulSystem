@@ -199,7 +199,11 @@ pub struct UiFeedbackEntry {
 
 /// Enregistre un feedback UI/MCP : met à jour le statut + applique
 /// la récompense R-STDP sur le coefficient du type de la synergie.
-pub fn record_feedback(synergy_id: &str, status: SynergyStatus, note: Option<String>) -> Result<Synergy> {
+pub fn record_feedback(
+    synergy_id: &str,
+    status: SynergyStatus,
+    note: Option<String>,
+) -> Result<Synergy> {
     let mut s = get_synergy(synergy_id)?
         .ok_or_else(|| anyhow::anyhow!("synergy not found: {synergy_id}"))?;
     s.status = status;

@@ -1,5 +1,5 @@
 //! SoulLink Orchestrateur v3 — Rust Native
-//! 
+//!
 //! Remplace brain_orchestrator.py
 //! Architecture: axum + tokio + dashmap + reqwest
 //!
@@ -14,10 +14,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use tower_http::{
-    cors::CorsLayer,
-    trace::TraceLayer,
-};
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -35,9 +32,8 @@ async fn main() {
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
         .finish();
-    
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("Failed to set subscriber");
+
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
 
     // Parse arguments
     let (port, brain_dir) = parse_args();
@@ -48,7 +44,10 @@ async fn main() {
     info!("🚀 SoulLink Orchestrateur v3 (Rust) — port {}", port);
     info!(
         "🧠 Cerveaux: {:?}",
-        state.brains_iter().map(|e| e.key().clone()).collect::<Vec<_>>()
+        state
+            .brains_iter()
+            .map(|e| e.key().clone())
+            .collect::<Vec<_>>()
     );
 
     // Construction du router
@@ -57,11 +56,20 @@ async fn main() {
         .route("/", get(routes::index::route_index))
         // Routes mesh
         .route("/api/mesh/status", get(routes::status::route_status))
-        .route("/api/mesh/turbulence", get(routes::turbulence::route_turbulence))
+        .route(
+            "/api/mesh/turbulence",
+            get(routes::turbulence::route_turbulence),
+        )
         .route("/api/mesh/query", post(routes::query::route_query))
         .route("/api/mesh/think", post(routes::think::route_think))
-        .route("/api/mesh/reinforce", post(routes::reinforce::route_reinforce))
-        .route("/api/mesh/stimulate", post(routes::stimulate::route_stimulate))
+        .route(
+            "/api/mesh/reinforce",
+            post(routes::reinforce::route_reinforce),
+        )
+        .route(
+            "/api/mesh/stimulate",
+            post(routes::stimulate::route_stimulate),
+        )
         .route("/api/mesh/spawn", post(routes::spawn::route_spawn))
         .route("/api/mesh/brains", get(routes::brains::route_brains))
         // Metrics Prometheus
@@ -78,8 +86,6 @@ async fn main() {
         .expect("Failed to bind");
 
     info!("✅ Listening on 0.0.0.0:{}", port);
-    
-    axum::serve(listener, app)
-        .await
-        .expect("Server error");
+
+    axum::serve(listener, app).await.expect("Server error");
 }

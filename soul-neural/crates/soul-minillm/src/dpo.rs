@@ -22,13 +22,20 @@ pub struct LoRAAdapter {
 
 impl LoRAAdapter {
     pub fn new(rank: usize, alpha: f32, layer_dims: &[(usize, usize)]) -> Self {
-        let a_matrices = layer_dims.iter()
+        let a_matrices = layer_dims
+            .iter()
             .map(|&(in_dim, _)| vec![vec![0.01; rank]; in_dim])
             .collect();
-        let b_matrices = layer_dims.iter()
+        let b_matrices = layer_dims
+            .iter()
             .map(|&(_, out_dim)| vec![vec![0.0; out_dim]; rank])
             .collect();
-        Self { rank, alpha, a_matrices, b_matrices }
+        Self {
+            rank,
+            alpha,
+            a_matrices,
+            b_matrices,
+        }
     }
 
     pub fn forward(&self, layer_idx: usize, input: &[f32]) -> Vec<f32> {
@@ -36,8 +43,8 @@ impl LoRAAdapter {
             return input.to_vec();
         }
         // h = input @ A @ B * (alpha / rank)
-        let a = &self.a_matrices[layer_idx];  // [in_dim x rank]
-        let b = &self.b_matrices[layer_idx];  // [rank x out_dim]
+        let a = &self.a_matrices[layer_idx]; // [in_dim x rank]
+        let b = &self.b_matrices[layer_idx]; // [rank x out_dim]
         let in_dim = a.len();
         let rank = self.rank;
         let out_dim = b[0].len();
@@ -61,11 +68,7 @@ impl LoRAAdapter {
 
 /// DPO loss for a batch of preference pairs.
 /// Uses log-probability ratios from the model to compute the DPO loss.
-pub fn dpo_loss(
-    logprob_chosen: f32,
-    logprob_rejected: f32,
-    beta: f32,
-) -> f32 {
+pub fn dpo_loss(logprob_chosen: f32, logprob_rejected: f32, beta: f32) -> f32 {
     // L_DPO = -log(sigmoid(beta * (logprob_chosen - logprob_rejected)))
     let diff = beta * (logprob_chosen - logprob_rejected);
     // Stable sigmoid log: log(sigmoid(x)) = -softplus(-x)
@@ -73,7 +76,11 @@ pub fn dpo_loss(
 }
 
 fn softplus(x: f32) -> f32 {
-    if x > 20.0 { x } else { (1.0 + x.exp()).ln() }
+    if x > 20.0 {
+        x
+    } else {
+        (1.0 + x.exp()).ln()
+    }
 }
 
 impl MiniLLM {
@@ -92,12 +99,21 @@ impl MiniLLM {
     pub fn apply_lora_update(&mut self, _lora: &LoRAAdapter) {
         // Placeholder: in production, add LoRA weights to model's transformer layers
         // For now, log the intent
-        tracing::info!("LoRA update applied: {} parameters", _lora.a_matrices.len() * _lora.rank * 2);
+        tracing::info!(
+            "LoRA update applied: {} parameters",
+            _lora.a_matrices.len() * _lora.rank * 2
+        );
     }
 
     /// Real DPO training step — computes loss and updates LoRA adapter via
     /// numerical gradient approximation.
-    pub async fn dpo_step_real(&mut self, batch: &[DPOPair], lora: &mut LoRAAdapter, beta: f32, lr: f32) -> Result<f32> {
+    pub async fn dpo_step_real(
+        &mut self,
+        batch: &[DPOPair],
+        lora: &mut LoRAAdapter,
+        beta: f32,
+        lr: f32,
+    ) -> Result<f32> {
         let mut total_loss = 0.0f32;
 
         for pair in batch {
@@ -141,12 +157,17 @@ pub struct DpoBuffer {
 
 impl DpoBuffer {
     pub fn new(capacity: usize) -> Self {
-        Self { inner: RwLock::new(VecDeque::with_capacity(capacity)), capacity }
+        Self {
+            inner: RwLock::new(VecDeque::with_capacity(capacity)),
+            capacity,
+        }
     }
 
     pub fn push(&self, pair: DPOPair) {
         let mut lock = self.inner.write().unwrap();
-        if lock.len() >= self.capacity { lock.pop_front(); }
+        if lock.len() >= self.capacity {
+            lock.pop_front();
+        }
         lock.push_back(pair);
         DPO_BUFFER_SIZE.set(lock.len() as i64);
     }
@@ -159,7 +180,9 @@ impl DpoBuffer {
         batch
     }
 
-    pub fn len(&self) -> usize { self.inner.read().unwrap().len() }
+    pub fn len(&self) -> usize {
+        self.inner.read().unwrap().len()
+    }
 }
 
 lazy_static::lazy_static! {
@@ -179,8 +202,16 @@ mod dpo_tests {
     #[test]
     fn test_dpo_buffer_push_drain() {
         let buf = DpoBuffer::new(10);
-        buf.push(DPOPair { prompt: "p".into(), chosen: "c".into(), rejected: "r".into() });
-        buf.push(DPOPair { prompt: "p2".into(), chosen: "c2".into(), rejected: "r2".into() });
+        buf.push(DPOPair {
+            prompt: "p".into(),
+            chosen: "c".into(),
+            rejected: "r".into(),
+        });
+        buf.push(DPOPair {
+            prompt: "p2".into(),
+            chosen: "c2".into(),
+            rejected: "r2".into(),
+        });
         assert_eq!(buf.len(), 2);
         let batch = buf.drain_batch(1);
         assert_eq!(batch.len(), 1);

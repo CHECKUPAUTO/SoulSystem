@@ -5,7 +5,10 @@ use axum::{extract::State, Json};
 use serde_json::{json, Value};
 
 /// Route POST /api/mesh/stimulate
-pub async fn route_stimulate(State(state): State<AppState>, Json(body): Json<Value>) -> Json<Value> {
+pub async fn route_stimulate(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
     let module = body
         .get("module")
         .and_then(|v| v.as_str())
@@ -22,7 +25,10 @@ pub async fn route_stimulate(State(state): State<AppState>, Json(body): Json<Val
         )
         .await;
 
-    let ok_count = results.values().filter(|r| r.get("error").is_none()).count();
+    let ok_count = results
+        .values()
+        .filter(|r| r.get("error").is_none())
+        .count();
 
     Json(json!({
         "ok": true,

@@ -159,18 +159,27 @@ edition = "2021"
 
         // Phase 1 : Compilation
         let compile_start = Instant::now();
-        let compile_result = self.run_command(
-            "cargo",
-            &["build", "--release", "--manifest-path",
-              sandbox_dir.join("Cargo.toml").to_str().unwrap_or("")],
-        ).await;
+        let compile_result = self
+            .run_command(
+                "cargo",
+                &[
+                    "build",
+                    "--release",
+                    "--manifest-path",
+                    sandbox_dir.join("Cargo.toml").to_str().unwrap_or(""),
+                ],
+            )
+            .await;
         let compile_time_ms = compile_start.elapsed().as_millis() as u64;
 
         let (compile_ok, compile_stderr) = match compile_result {
             Ok((success, _, stderr)) => (success, stderr),
             Err(e) => {
                 self.cleanup(&sandbox_dir);
-                return SandboxResult::compile_fail(format!("Erreur compilation: {}", e), compile_time_ms);
+                return SandboxResult::compile_fail(
+                    format!("Erreur compilation: {}", e),
+                    compile_time_ms,
+                );
             }
         };
 
@@ -224,7 +233,11 @@ edition = "2021"
             run_time_ms,
             stdout,
             stderr,
-            error: if ran_ok { None } else { Some("Exécution échouée".into()) },
+            error: if ran_ok {
+                None
+            } else {
+                Some("Exécution échouée".into())
+            },
         }
     }
 
@@ -297,20 +310,11 @@ fn main() {{
     }
 
     /// Exécuter une commande avec timeout
-    async fn run_command(
-        &self,
-        cmd: &str,
-        args: &[&str],
-    ) -> Result<(bool, String, String)> {
-        let output = tokio::time::timeout(
-            self.timeout,
-            Command::new(cmd)
-                .args(args)
-                .output(),
-        )
-        .await
-        .map_err(|_| anyhow::anyhow!("Timeout après {:?}", self.timeout))?
-        .map_err(|e| anyhow::anyhow!("Erreur commande: {}", e))?;
+    async fn run_command(&self, cmd: &str, args: &[&str]) -> Result<(bool, String, String)> {
+        let output = tokio::time::timeout(self.timeout, Command::new(cmd).args(args).output())
+            .await
+            .map_err(|_| anyhow::anyhow!("Timeout après {:?}", self.timeout))?
+            .map_err(|e| anyhow::anyhow!("Erreur commande: {}", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();

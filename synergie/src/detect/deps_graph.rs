@@ -13,18 +13,47 @@ pub struct DepsGraphDetector;
 
 static NOISE: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
-        "serde", "serde_json", "tokio", "anyhow", "thiserror", "tracing",
-        "log", "env_logger", "chrono", "uuid", "once_cell", "futures",
-        "async-trait", "regex", "bytes", "hex", "base64", "rand",
-        "requests", "urllib3", "click", "rich", "pydantic", "pyyaml",
-        "numpy", "pandas", "tqdm", "loguru",
-        "lodash", "chalk", "axios", "express", "dotenv",
+        "serde",
+        "serde_json",
+        "tokio",
+        "anyhow",
+        "thiserror",
+        "tracing",
+        "log",
+        "env_logger",
+        "chrono",
+        "uuid",
+        "once_cell",
+        "futures",
+        "async-trait",
+        "regex",
+        "bytes",
+        "hex",
+        "base64",
+        "rand",
+        "requests",
+        "urllib3",
+        "click",
+        "rich",
+        "pydantic",
+        "pyyaml",
+        "numpy",
+        "pandas",
+        "tqdm",
+        "loguru",
+        "lodash",
+        "chalk",
+        "axios",
+        "express",
+        "dotenv",
         "github.com/stretchr/testify",
     ])
 });
 
 impl Detector for DepsGraphDetector {
-    fn name(&self) -> &'static str { "deps_graph" }
+    fn name(&self) -> &'static str {
+        "deps_graph"
+    }
 
     fn detect(&self, ctx: &DetectContext) -> Result<Vec<Synergy>> {
         let mut by_dep: HashMap<String, Vec<String>> = HashMap::new();
@@ -34,7 +63,9 @@ impl Detector for DepsGraphDetector {
             let mut set = HashSet::new();
             for d in &deps.dependencies {
                 let n = d.name.to_lowercase();
-                if n.is_empty() { continue; }
+                if n.is_empty() {
+                    continue;
+                }
                 by_dep.entry(n.clone()).or_default().push(proj.clone());
                 set.insert(n);
             }
@@ -45,8 +76,12 @@ impl Detector for DepsGraphDetector {
 
         // A) SharedDependency par paire (a, b) pour CHAQUE dépendance non-bruyante partagée.
         for (dep, projs) in by_dep.iter() {
-            if projs.len() < 2 { continue; }
-            if NOISE.contains(dep.as_str()) && projs.len() < 4 { continue; }
+            if projs.len() < 2 {
+                continue;
+            }
+            if NOISE.contains(dep.as_str()) && projs.len() < 4 {
+                continue;
+            }
             // dedup + sort
             let mut uniq: Vec<&String> = projs.iter().collect();
             uniq.sort();
@@ -95,14 +130,20 @@ impl Detector for DepsGraphDetector {
                 let b = pnames[j];
                 let da = &by_project[a];
                 let db = &by_project[b];
-                if da.len() < 3 || db.len() < 3 { continue; }
+                if da.len() < 3 || db.len() < 3 {
+                    continue;
+                }
                 let inter = da.intersection(db).count();
                 let smaller = da.len().min(db.len());
                 let ratio = inter as f32 / smaller as f32;
-                if ratio < 0.40 { continue; }
+                if ratio < 0.40 {
+                    continue;
+                }
                 let union = da.union(db).count();
                 let jac = inter as f32 / union.max(1) as f32;
-                if jac < 0.30 { continue; }
+                if jac < 0.30 {
+                    continue;
+                }
                 let shared: Vec<String> = da.intersection(db).take(8).cloned().collect();
                 let id = Synergy::stable_id("Fusion", a, b, "fusion");
                 let auto = auto_score_from(2, jac, type_floor("Fusion"));
@@ -138,7 +179,11 @@ impl Detector for DepsGraphDetector {
             }
         }
 
-        out.sort_by(|x, y| y.auto_score.partial_cmp(&x.auto_score).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|x, y| {
+            y.auto_score
+                .partial_cmp(&x.auto_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         out.truncate(120);
         Ok(out)
     }
@@ -148,7 +193,11 @@ fn evidence_for_dep(ctx: &DetectContext, project: &str, dep: &str) -> Evidence {
     let mut frag = format!("{}", dep);
     let mut path = std::path::PathBuf::from("(deps)");
     if let Some(pd) = ctx.deps.get(project) {
-        if let Some(d) = pd.dependencies.iter().find(|d| d.name.to_lowercase() == dep) {
+        if let Some(d) = pd
+            .dependencies
+            .iter()
+            .find(|d| d.name.to_lowercase() == dep)
+        {
             path = d.manifest.clone();
             frag = format!("{} {}", d.name, d.version.as_deref().unwrap_or("*"));
         }

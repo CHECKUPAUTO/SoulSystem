@@ -52,7 +52,9 @@ impl Detector for SymbolicDetector {
                             synergies.push(Synergy {
                                 id: format!(
                                     "symbolic-{}-{}-{}",
-                                    p1_name, p2_name, hash_expr(s1_str)
+                                    p1_name,
+                                    p2_name,
+                                    hash_expr(s1_str)
                                 ),
                                 synergy_type: "Deduplication".into(),
                                 source_project: p1_name.clone(),
@@ -82,7 +84,9 @@ fn clean_expression(input: &str) -> String {
         let left = &trimmed[..eq_pos].trim();
         if left.contains('(')
             || left.contains("let")
-            || left.chars().all(|c| c.is_alphanumeric() || c == '_' || c == ' ')
+            || left
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == ' ')
         {
             return right.to_string();
         }
@@ -110,11 +114,9 @@ fn expr_depth(expr: &scirust_symbolic::Expr) -> usize {
     use scirust_symbolic::Expr;
     match expr {
         Expr::Const(_) | Expr::Var(_) => 1,
-        Expr::Add(a, b)
-        | Expr::Sub(a, b)
-        | Expr::Mul(a, b)
-        | Expr::Div(a, b)
-        | Expr::Pow(a, b) => 1 + expr_depth(a).max(expr_depth(b)),
+        Expr::Add(a, b) | Expr::Sub(a, b) | Expr::Mul(a, b) | Expr::Div(a, b) | Expr::Pow(a, b) => {
+            1 + expr_depth(a).max(expr_depth(b))
+        }
         Expr::Neg(a)
         | Expr::Sin(a)
         | Expr::Cos(a)

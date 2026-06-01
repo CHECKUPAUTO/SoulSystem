@@ -36,9 +36,13 @@ pub fn priority_from_score(s: f32) -> u8 {
 }
 
 pub fn value_from_sources(n_projects: usize, mean_weight: f32) -> String {
-    if n_projects >= 4 || mean_weight > 0.9 { "high".into() }
-    else if n_projects >= 2 || mean_weight > 0.7 { "medium".into() }
-    else { "low".into() }
+    if n_projects >= 4 || mean_weight > 0.9 {
+        "high".into()
+    } else if n_projects >= 2 || mean_weight > 0.7 {
+        "medium".into()
+    } else {
+        "low".into()
+    }
 }
 
 pub fn effort_from_size(n_items: usize) -> String {

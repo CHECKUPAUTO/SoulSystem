@@ -12,7 +12,11 @@ use tracing::{info, warn};
 
 /// Génère un scaffolding (proposal.md + crate squelette si dedup) dans
 /// `proposals_dir/<synergy_id>/` et renvoie les chemins écrits.
-pub fn write_scaffolding(synergy: &Synergy, proposals_dir: &Path, dry_run: bool) -> Result<Vec<PathBuf>> {
+pub fn write_scaffolding(
+    synergy: &Synergy,
+    proposals_dir: &Path,
+    dry_run: bool,
+) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     let dir = proposals_dir.join(&synergy.id);
     if !dry_run {
@@ -88,7 +92,10 @@ pub fn commit_proposal(
             .context("branch create")?
             .into_reference(),
     };
-    let ref_name = branch_ref.name().map(|s| s.to_string()).context("branch name")?;
+    let ref_name = branch_ref
+        .name()
+        .map(|s| s.to_string())
+        .context("branch name")?;
     repo.set_head(&ref_name).context("set_head")?;
 
     let mut index = repo.index().context("index")?;

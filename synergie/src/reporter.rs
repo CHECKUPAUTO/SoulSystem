@@ -15,7 +15,11 @@ pub fn build_stats(synergies: &[Synergy]) -> ReportStats {
         *by_status.entry(format!("{:?}", s.status)).or_default() += 1;
         total_score += s.adjusted_score;
     }
-    let mean = if synergies.is_empty() { 0.0 } else { total_score / synergies.len() as f32 };
+    let mean = if synergies.is_empty() {
+        0.0
+    } else {
+        total_score / synergies.len() as f32
+    };
     ReportStats {
         total: synergies.len(),
         by_type,
@@ -35,7 +39,12 @@ pub fn summary_string(r: &ScanReport) -> String {
     let head: Vec<String> = top
         .iter()
         .take(5)
-        .map(|s| format!("  [{:.2}] {} → {} ({})", s.adjusted_score, s.source_project, s.target_project, s.synergy_type))
+        .map(|s| {
+            format!(
+                "  [{:.2}] {} → {} ({})",
+                s.adjusted_score, s.source_project, s.target_project, s.synergy_type
+            )
+        })
         .collect();
     format!(
         "Scan terminé : {} projets, {} synergies en {} ms, score moyen {:.2}\nTop 5 :\n{}",

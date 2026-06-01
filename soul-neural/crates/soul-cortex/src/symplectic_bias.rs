@@ -28,11 +28,24 @@ struct ProjectState {
 
 impl Default for ProjectState {
     fn default() -> Self {
-        Self { w_proj: vec![], dim_hnn: 1, dim_emb: 1, top_k: 10, temperature: 1.0, enabled: false }
+        Self {
+            w_proj: vec![],
+            dim_hnn: 1,
+            dim_emb: 1,
+            top_k: 10,
+            temperature: 1.0,
+            enabled: false,
+        }
     }
 }
 
-pub fn init_projection(w_proj: Vec<f32>, dim_hnn: usize, dim_emb: usize, temperature: f64, top_k: usize) {
+pub fn init_projection(
+    w_proj: Vec<f32>,
+    dim_hnn: usize,
+    dim_emb: usize,
+    temperature: f64,
+    top_k: usize,
+) {
     let mut state = STATE.lock().unwrap();
     state.w_proj = w_proj;
     state.dim_hnn = dim_hnn;
@@ -53,11 +66,7 @@ pub fn reset() {
     state.temperature = 1.0;
 }
 
-pub fn apply_symplectic_bias(
-    mut logits: Vec<f64>,
-    state_q: &[f64],
-    state_p: &[f64],
-) -> Vec<f64> {
+pub fn apply_symplectic_bias(mut logits: Vec<f64>, state_q: &[f64], state_p: &[f64]) -> Vec<f64> {
     let _timer = BIAS_DURATION.start_timer();
 
     let state = STATE.lock().unwrap();
@@ -73,11 +82,19 @@ pub fn apply_symplectic_bias(
     drop(state);
 
     let mut hnn_vec: Vec<f64> = Vec::with_capacity(2 * dim_hnn);
-    for &x in state_q.iter().take(dim_hnn) { hnn_vec.push(x); }
-    for &x in state_p.iter().take(dim_hnn) { hnn_vec.push(x); }
+    for &x in state_q.iter().take(dim_hnn) {
+        hnn_vec.push(x);
+    }
+    for &x in state_p.iter().take(dim_hnn) {
+        hnn_vec.push(x);
+    }
     let norm: f64 = hnn_vec.iter().map(|x| x * x).sum::<f64>().sqrt();
-    if norm < 1e-10 { return logits; }
-    for v in &mut hnn_vec { *v /= norm; }
+    if norm < 1e-10 {
+        return logits;
+    }
+    for v in &mut hnn_vec {
+        *v /= norm;
+    }
 
     let proj_len = hnn_vec.len().min(w_proj.len());
     let mut hnn_proj = vec![0.0f64; proj_len];
@@ -154,6 +171,8 @@ mod tests {
         init_projection(vec![1e5; 6], 1, 3, 1e5, 3);
         let logits = vec![1e10, -1e10, 0.0];
         let r = apply_symplectic_bias(logits, &[1.0], &[1.0]);
-        for &v in &r { assert!(v.is_finite(), "should be finite, got {}", v); }
+        for &v in &r {
+            assert!(v.is_finite(), "should be finite, got {}", v);
+        }
     }
 }

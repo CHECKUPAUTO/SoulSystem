@@ -32,8 +32,12 @@ pub struct AgentCfg {
     pub stale_after_days: i64,
 }
 
-fn default_git_window() -> usize { 300 }
-fn default_stale_after_days() -> i64 { 14 }
+fn default_git_window() -> usize {
+    300
+}
+fn default_stale_after_days() -> i64 {
+    14
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EcosystemCfg {
@@ -50,8 +54,12 @@ pub struct EcosystemCfg {
     pub ignore_regex: Option<Regex>,
 }
 
-fn default_true() -> bool { true }
-fn default_max_file_size() -> usize { 2 * 1024 * 1024 } // 2 MiB
+fn default_true() -> bool {
+    true
+}
+fn default_max_file_size() -> usize {
+    2 * 1024 * 1024
+} // 2 MiB
 
 impl EcosystemCfg {
     pub fn compile_ignore(&mut self) {
@@ -87,10 +95,18 @@ pub struct EmbedCfg {
     pub similarity_threshold: f32,
 }
 
-fn default_embed_mode() -> String { "local".to_string() }
-fn default_embed_endpoint() -> String { "http://127.0.0.1:7440/embed".to_string() }
-fn default_embed_timeout() -> u64 { 15 }
-fn default_similarity_threshold() -> f32 { 0.86 }
+fn default_embed_mode() -> String {
+    "local".to_string()
+}
+fn default_embed_endpoint() -> String {
+    "http://127.0.0.1:7440/embed".to_string()
+}
+fn default_embed_timeout() -> u64 {
+    15
+}
+fn default_similarity_threshold() -> f32 {
+    0.86
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistenceCfg {
@@ -100,7 +116,9 @@ pub struct PersistenceCfg {
     pub max_history: usize,
 }
 
-fn default_max_history() -> usize { 50 }
+fn default_max_history() -> usize {
+    50
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiCfg {
@@ -114,7 +132,9 @@ pub struct ApiCfg {
     pub auth_token: Option<String>,
 }
 
-fn default_ws_path() -> String { "/ws".to_string() }
+fn default_ws_path() -> String {
+    "/ws".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionCfg {
@@ -132,14 +152,16 @@ pub struct ActionCfg {
     pub github_remote: Option<String>,
 }
 
-fn default_branch_prefix() -> String { "synergie/auto/".to_string() }
+fn default_branch_prefix() -> String {
+    "synergie/auto/".to_string()
+}
 
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("lecture {}", path.display()))?;
-        let mut cfg: Self = toml::from_str(&text)
-            .with_context(|| format!("parse TOML {}", path.display()))?;
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("lecture {}", path.display()))?;
+        let mut cfg: Self =
+            toml::from_str(&text).with_context(|| format!("parse TOML {}", path.display()))?;
         cfg.ecosystem.compile_ignore();
         cfg.apply_env_overrides();
         Ok(cfg)

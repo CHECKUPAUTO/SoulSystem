@@ -19,7 +19,9 @@ struct PortInfo {
 }
 
 impl Detector for PortOverlapDetector {
-    fn name(&self) -> &'static str { "port_overlap" }
+    fn name(&self) -> &'static str {
+        "port_overlap"
+    }
 
     fn detect(&self, ctx: &DetectContext) -> Result<Vec<Synergy>> {
         let mut ports: Vec<PortInfo> = Vec::new();
@@ -30,7 +32,11 @@ impl Detector for PortOverlapDetector {
                         project: p.name.clone(),
                         port,
                         source: format!("{} ({})", s.source, s.kind),
-                        path: p.manifests.first().cloned().unwrap_or_else(|| p.path.clone()),
+                        path: p
+                            .manifests
+                            .first()
+                            .cloned()
+                            .unwrap_or_else(|| p.path.clone()),
                     });
                 }
             }
@@ -72,14 +78,21 @@ impl Detector for PortOverlapDetector {
             by_port.entry(p.port).or_default().push(p);
         }
         for (port, infos) in &by_port {
-            if infos.len() < 2 { continue; }
+            if infos.len() < 2 {
+                continue;
+            }
             for i in 0..infos.len() {
                 for j in (i + 1)..infos.len() {
                     let a = infos[i];
                     let b = infos[j];
-                    if a.project == b.project { continue; }
+                    if a.project == b.project {
+                        continue;
+                    }
                     let id = Synergy::stable_id(
-                        "ServiceBus", &a.project, &b.project, &format!("port-{}", port),
+                        "ServiceBus",
+                        &a.project,
+                        &b.project,
+                        &format!("port-{}", port),
                     );
                     let auto = auto_score_from(2, 1.0, type_floor("ServiceBus"));
                     out.push(Synergy {
@@ -122,14 +135,20 @@ impl Detector for PortOverlapDetector {
             if current.is_empty() || p - current.last().unwrap() <= 16 {
                 current.push(p);
             } else {
-                if current.len() >= 2 { groups.push(current.clone()); }
+                if current.len() >= 2 {
+                    groups.push(current.clone());
+                }
                 current = vec![p];
             }
         }
-        if current.len() >= 2 { groups.push(current); }
+        if current.len() >= 2 {
+            groups.push(current);
+        }
 
         for group in groups {
-            if group.len() <= 1 { continue; }
+            if group.len() <= 1 {
+                continue;
+            }
             let mut infos: Vec<&PortInfo> = Vec::new();
             for port in &group {
                 if let Some(v) = sorted_ports.get(port) {
@@ -140,9 +159,13 @@ impl Detector for PortOverlapDetector {
                 for j in (i + 1)..infos.len() {
                     let a = infos[i];
                     let b = infos[j];
-                    if a.project == b.project || a.port == b.port { continue; }
+                    if a.project == b.project || a.port == b.port {
+                        continue;
+                    }
                     let id = Synergy::stable_id(
-                        "ServiceBus", &a.project, &b.project,
+                        "ServiceBus",
+                        &a.project,
+                        &b.project,
                         &format!("bus-{}-{}", a.port.min(b.port), a.port.max(b.port)),
                     );
                     let auto = auto_score_from(2, 0.7, type_floor("ServiceBus"));
@@ -161,18 +184,35 @@ impl Detector for PortOverlapDetector {
                         auto_score: auto,
                         adjusted_score: auto,
                         evidence: vec![
-                            Evidence { project: a.project.clone(), path: a.path.clone(), line: None, fragment: format!("port {} via {}", a.port, a.source), weight: 0.7 },
-                            Evidence { project: b.project.clone(), path: b.path.clone(), line: None, fragment: format!("port {} via {}", b.port, b.source), weight: 0.7 },
+                            Evidence {
+                                project: a.project.clone(),
+                                path: a.path.clone(),
+                                line: None,
+                                fragment: format!("port {} via {}", a.port, a.source),
+                                weight: 0.7,
+                            },
+                            Evidence {
+                                project: b.project.clone(),
+                                path: b.path.clone(),
+                                line: None,
+                                fragment: format!("port {} via {}", b.port, b.source),
+                                weight: 0.7,
+                            },
                         ],
                         suggested_action: Some("Déployer NATS/MQTT comme bus central".into()),
-                        fingerprint: blake3::hash(format!("bus:{}:{}", a.port, b.port).as_bytes()).to_string(),
+                        fingerprint: blake3::hash(format!("bus:{}:{}", a.port, b.port).as_bytes())
+                            .to_string(),
                         ..Default::default()
                     });
                 }
             }
         }
 
-        out.sort_by(|x, y| y.auto_score.partial_cmp(&x.auto_score).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|x, y| {
+            y.auto_score
+                .partial_cmp(&x.auto_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         out.truncate(40);
         Ok(out)
     }

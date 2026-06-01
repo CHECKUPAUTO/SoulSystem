@@ -73,7 +73,13 @@ impl Adam {
 
     /// Adam standard
     pub fn adam(dim: usize) -> Self {
-        Self::new(dim, AdamConfig { weight_decay: 0.0, ..Default::default() })
+        Self::new(
+            dim,
+            AdamConfig {
+                weight_decay: 0.0,
+                ..Default::default()
+            },
+        )
     }
 
     /// AdamW avec weight decay
@@ -107,8 +113,8 @@ impl Adam {
 
         for i in 0..dim {
             // m_t = β₁ * m_{t-1} + (1 - β₁) * g_t
-            self.state.m[i] = self.config.beta1 * self.state.m[i]
-                + (1.0 - self.config.beta1) * grads[i];
+            self.state.m[i] =
+                self.config.beta1 * self.state.m[i] + (1.0 - self.config.beta1) * grads[i];
 
             // v_t = β₂ * v_{t-1} + (1 - β₂) * g_t²
             self.state.v[i] = self.config.beta2 * self.state.v[i]
@@ -145,8 +151,7 @@ impl Adam {
             self.config.lr * (step as f32 / warmup_steps as f32)
         } else {
             // Cosine decay
-            let progress = (step - warmup_steps) as f32
-                / (total_steps - warmup_steps) as f32;
+            let progress = (step - warmup_steps) as f32 / (total_steps - warmup_steps) as f32;
             self.config.lr * 0.5 * (1.0 + (std::f32::consts::PI * progress).cos())
         }
     }
@@ -214,7 +219,11 @@ mod tests {
             opt.step(&mut params, &grad);
         }
 
-        assert!(params[0].abs() < 0.01, "Adam devrait converger vers 0, got {}", params[0]);
+        assert!(
+            params[0].abs() < 0.01,
+            "Adam devrait converger vers 0, got {}",
+            params[0]
+        );
     }
 
     #[test]
@@ -228,6 +237,9 @@ mod tests {
             opt.step(&mut params, &grad);
         }
 
-        assert!(params[0].abs() < 10.0, "AdamW weight decay devrait réduire le param");
+        assert!(
+            params[0].abs() < 10.0,
+            "AdamW weight decay devrait réduire le param"
+        );
     }
 }

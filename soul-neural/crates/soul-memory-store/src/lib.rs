@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use parking_lot::RwLock;
 use anyhow::Result;
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 /// A simple HNSW-like vector store with concurrent reads.
 /// Uses hierarchical navigable small world graphs for approximate nearest neighbor search.
@@ -67,9 +67,13 @@ impl HnswVectorStore {
 
     /// Search for the k nearest neighbors.
     pub fn search(&self, query: &[f32], k: usize) -> Vec<(f32, usize)> {
-        if self.vectors.is_empty() { return Vec::new(); }
+        if self.vectors.is_empty() {
+            return Vec::new();
+        }
 
-        let mut dists: Vec<(f32, usize)> = self.vectors.iter()
+        let mut dists: Vec<(f32, usize)> = self
+            .vectors
+            .iter()
             .enumerate()
             .map(|(i, v)| (euclidean_dist(query, v), i))
             .collect();
@@ -84,11 +88,17 @@ impl HnswVectorStore {
     }
 
     /// Number of stored vectors.
-    pub fn len(&self) -> usize { self.vectors.len() }
+    pub fn len(&self) -> usize {
+        self.vectors.len()
+    }
 
-    pub fn is_empty(&self) -> bool { self.vectors.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.vectors.is_empty()
+    }
 
-    pub fn dim(&self) -> usize { self.dim }
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
 }
 
 /// Thread-safe wrapper with concurrent read access.
@@ -115,13 +125,21 @@ impl SharedVectorStore {
         self.inner.read().get_metadata(id).map(|v| v.to_vec())
     }
 
-    pub fn len(&self) -> usize { self.inner.read().len() }
+    pub fn len(&self) -> usize {
+        self.inner.read().len()
+    }
 
-    pub fn dim(&self) -> usize { self.inner.read().dim() }
+    pub fn dim(&self) -> usize {
+        self.inner.read().dim()
+    }
 }
 
 fn euclidean_dist(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b).map(|(x, y)| (x - y).powi(2)).sum::<f32>().sqrt()
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).powi(2))
+        .sum::<f32>()
+        .sqrt()
 }
 
 lazy_static::lazy_static! {
@@ -152,13 +170,25 @@ impl HnswVectorStore {
 
     pub fn load(path: &str) -> Result<Self> {
         let bin = std::fs::read(path)?;
-        let (data_bytes, meta_bytes, graph_bytes, dim, max_conn): (Vec<u8>, Vec<u8>, Vec<u8>, usize, usize) =
-            bincode::deserialize(&bin)?;
+        let (data_bytes, meta_bytes, graph_bytes, dim, max_conn): (
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            usize,
+            usize,
+        ) = bincode::deserialize(&bin)?;
         let vectors: Vec<Vec<f32>> = bincode::deserialize(&data_bytes)?;
         let metadata: Vec<Vec<u8>> = bincode::deserialize(&meta_bytes)?;
         let graph: Vec<Vec<Vec<usize>>> = bincode::deserialize(&graph_bytes)?;
         let layers = vec![0; vectors.len()];
-        Ok(Self { vectors, metadata, layers, graph, max_connections: max_conn, dim })
+        Ok(Self {
+            vectors,
+            metadata,
+            layers,
+            graph,
+            max_connections: max_conn,
+            dim,
+        })
     }
 }
 
@@ -169,7 +199,9 @@ impl SharedVectorStore {
 
     pub fn load(path: &str, _dim: usize, _max_connections: usize) -> Result<Self> {
         let inner = HnswVectorStore::load(path)?;
-        Ok(Self { inner: Arc::new(RwLock::new(inner)) })
+        Ok(Self {
+            inner: Arc::new(RwLock::new(inner)),
+        })
     }
 }
 
@@ -214,6 +246,9 @@ mod store_tests {
         let shared = SharedVectorStore::new(3, 10);
         let id1 = shared.insert(vec![1.0, 0.0, 0.0], b"same".to_vec());
         let id2 = shared.insert(vec![1.0, 0.0, 0.0], b"same".to_vec());
-        assert_ne!(id1, id2, "Should insert both, dedup is caller responsibility");
+        assert_ne!(
+            id1, id2,
+            "Should insert both, dedup is caller responsibility"
+        );
     }
 }

@@ -1,8 +1,8 @@
+use anyhow::Result;
 use soul_core::{Goal, GoalStatus, Outcome};
 use soul_embed::Embedder;
 use soul_memory_store::SharedVectorStore;
 use std::collections::HashMap;
-use anyhow::Result;
 use std::sync::Arc;
 
 pub struct SelfModel {
@@ -11,7 +11,9 @@ pub struct SelfModel {
 
 impl SelfModel {
     pub fn new() -> Self {
-        Self { beliefs: HashMap::new() }
+        Self {
+            beliefs: HashMap::new(),
+        }
     }
 
     pub fn update(&mut self, capability: &str, outcome: &Outcome) {
@@ -47,7 +49,8 @@ impl NarrativeMemory {
     }
 
     pub fn search_by_embedding(&self, query: &[f32], k: usize) -> Vec<(f32, String)> {
-        self.store.search(query, k)
+        self.store
+            .search(query, k)
             .into_iter()
             .filter_map(|(dist, id)| {
                 if let Some(meta) = self.store.get_metadata(id) {
@@ -79,7 +82,14 @@ impl Identity {
         }
     }
 
-    pub async fn record_episode(&mut self, subject: &str, predicate: &str, object: &str, _salience: f64, outcome: Option<Outcome>) -> Result<()> {
+    pub async fn record_episode(
+        &mut self,
+        subject: &str,
+        predicate: &str,
+        object: &str,
+        _salience: f64,
+        outcome: Option<Outcome>,
+    ) -> Result<()> {
         let text = format!("{} {} {}", subject, predicate, object);
         let embedding = self.embedder.embed(&text).await?;
         let emb_f32: Vec<f32> = embedding.iter().map(|&x| x as f32).collect();
@@ -104,7 +114,10 @@ impl Identity {
             description: description.to_string(),
             embedding,
             priority: 0.5,
-            created_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
             deadline,
             status: GoalStatus::Active,
         };
@@ -112,7 +125,8 @@ impl Identity {
     }
 
     pub fn top_goal(&self) -> Option<&Goal> {
-        self.goals.iter()
+        self.goals
+            .iter()
             .filter(|g| g.status == GoalStatus::Active)
             .max_by(|a, b| a.priority.partial_cmp(&b.priority).unwrap())
     }
@@ -129,7 +143,9 @@ mod tests {
         let embedder = Embedder::new(&["test"]);
         let store = SharedVectorStore::new(128, 10);
         let mut id = Identity::new(embedder, Arc::new(store));
-        let result = id.record_episode("self", "feels", "happy", 0.5, Some(Outcome::Success(1.0))).await;
+        let result = id
+            .record_episode("self", "feels", "happy", 0.5, Some(Outcome::Success(1.0)))
+            .await;
         assert!(result.is_ok(), "Recording episode should succeed");
     }
 

@@ -77,7 +77,11 @@ impl Concept {
         // Combiner les embeddings par moyenne
         let merged_embedding = match (&a.embedding, &b.embedding) {
             (Some(ea), Some(eb)) if ea.len() == eb.len() => {
-                let avg: Vec<f32> = ea.iter().zip(eb.iter()).map(|(x, y)| (x + y) / 2.0).collect();
+                let avg: Vec<f32> = ea
+                    .iter()
+                    .zip(eb.iter())
+                    .map(|(x, y)| (x + y) / 2.0)
+                    .collect();
                 Some(avg)
             }
             (Some(e), None) | (None, Some(e)) => Some(e.clone()),
@@ -86,7 +90,10 @@ impl Concept {
 
         Concept {
             identity: format!("{}+{}", a.identity, b.identity),
-            transformation_rule: format!("({}) ∘ ({})", a.transformation_rule, b.transformation_rule),
+            transformation_rule: format!(
+                "({}) ∘ ({})",
+                a.transformation_rule, b.transformation_rule
+            ),
             stability: (a.stability + b.stability) / 2.0,
             generation: a.generation.max(b.generation) + 1,
             parent_concepts: vec![a.identity.clone(), b.identity.clone()],
@@ -191,7 +198,8 @@ impl ConceptEngine {
 
     fn prune(&mut self) {
         // Garder les concepts avec un taux de succès décent ou peu testés
-        self.concepts.retain(|c| c.stability > 0.1 || c.usage_count < 3);
+        self.concepts
+            .retain(|c| c.stability > 0.1 || c.usage_count < 3);
 
         if self.concepts.len() > self.max_concepts {
             self.concepts
@@ -205,7 +213,9 @@ impl ConceptEngine {
     }
 
     pub fn average_stability(&self) -> f32 {
-        if self.concepts.is_empty() { return 0.0; }
+        if self.concepts.is_empty() {
+            return 0.0;
+        }
         self.concepts.iter().map(|c| c.stability).sum::<f32>() / self.concepts.len() as f32
     }
 }

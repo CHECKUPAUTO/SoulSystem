@@ -103,13 +103,35 @@ impl Config {
     pub fn display(&self) {
         tracing::info!("Configuration OpenClaw v0.2:");
         tracing::info!("  Ollama URL       : {}", self.ollama_url);
-        tracing::info!("  Modèle FAST      : {} (conc={}, ctx={})", self.model_fast, self.max_concurrent_fast, self.context_window_fast);
-        tracing::info!("  Modèle DEEP      : {} (conc={}, ctx={})", self.model_deep, self.max_concurrent_deep, self.context_window_deep);
+        tracing::info!(
+            "  Modèle FAST      : {} (conc={}, ctx={})",
+            self.model_fast,
+            self.max_concurrent_fast,
+            self.context_window_fast
+        );
+        tracing::info!(
+            "  Modèle DEEP      : {} (conc={}, ctx={})",
+            self.model_deep,
+            self.max_concurrent_deep,
+            self.context_window_deep
+        );
         tracing::info!("  Modèle EMBED     : {}", self.model_embed);
         tracing::info!("  Population       : {}", self.population_size);
-        tracing::info!("  Mutation/Survie  : {:.0}% / {:.0}%", self.mutation_rate * 100.0, self.survival_rate * 100.0);
-        tracing::info!("  Stagnation seuil : {} cycles (min Δ={:.4})", self.stagnation_threshold, self.stagnation_min_improvement);
-        tracing::info!("  Sandbox          : {} (timeout={}s)", if self.sandbox_enabled { "ON" } else { "OFF" }, self.sandbox_timeout_secs);
+        tracing::info!(
+            "  Mutation/Survie  : {:.0}% / {:.0}%",
+            self.mutation_rate * 100.0,
+            self.survival_rate * 100.0
+        );
+        tracing::info!(
+            "  Stagnation seuil : {} cycles (min Δ={:.4})",
+            self.stagnation_threshold,
+            self.stagnation_min_improvement
+        );
+        tracing::info!(
+            "  Sandbox          : {} (timeout={}s)",
+            if self.sandbox_enabled { "ON" } else { "OFF" },
+            self.sandbox_timeout_secs
+        );
     }
 }
 

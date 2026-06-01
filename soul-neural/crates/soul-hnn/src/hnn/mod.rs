@@ -1,6 +1,6 @@
+pub mod hamiltonian;
 pub mod integrator;
 pub mod learn;
-pub mod hamiltonian;
 
 pub use hamiltonian::HamiltonianNN;
 pub use integrator::SymplecticIntegrator;

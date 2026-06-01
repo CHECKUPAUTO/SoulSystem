@@ -179,13 +179,7 @@ mod tests {
         // Vérifie que q et p restent bornés (oscillateur harmonique stable)
         for &(q, p) in &trajectory {
             let h = energy.total_energy(q, p);
-            assert!(
-                h < 10.0,
-                "Energy exploded: H={} at (q={}, p={})",
-                h,
-                q,
-                p
-            );
+            assert!(h < 10.0, "Energy exploded: H={} at (q={}, p={})", h, q, p);
         }
     }
 }

@@ -16,11 +16,11 @@ pub async fn route_spawn(State(state): State<AppState>, Json(body): Json<Value>)
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    
+
     if domain.is_empty() {
         return Json(json!({"ok": false, "error": "domain requis"}));
     }
-    
+
     if state.brain_exists(&domain) {
         return Json(json!({
             "ok": false,
@@ -41,7 +41,11 @@ pub async fn route_spawn(State(state): State<AppState>, Json(body): Json<Value>)
     let speciality = body
         .get("speciality")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_else(|| vec![domain.clone()]);
 
     state.increment_spawn_count();
@@ -49,7 +53,7 @@ pub async fn route_spawn(State(state): State<AppState>, Json(body): Json<Value>)
     // Spawn en background
     tokio::spawn(async move {
         info!("[SPAWN] Lancement Brain-{} sur :{}", domain_c, port);
-        
+
         let result = Command::new("python3")
             .arg(format!("{}/brain_v12.py", brain_dir))
             .arg("--brain")
@@ -60,7 +64,7 @@ pub async fn route_spawn(State(state): State<AppState>, Json(body): Json<Value>)
             Ok(_child) => {
                 // Attendre le démarrage
                 sleep(Duration::from_secs(8)).await;
-                
+
                 // Vérifier que le cerveau est accessible
                 let url = format!("http://localhost:{}/api/stats", port);
                 let client = reqwest::Client::builder()
@@ -69,10 +73,9 @@ pub async fn route_spawn(State(state): State<AppState>, Json(body): Json<Value>)
                     .unwrap();
 
                 for _ in 0..6 {
-                    if let Ok(Ok(resp)) = tokio::time::timeout(
-                        Duration::from_secs(2),
-                        client.get(&url).send()
-                    ).await {
+                    if let Ok(Ok(resp)) =
+                        tokio::time::timeout(Duration::from_secs(2), client.get(&url).send()).await
+                    {
                         if resp.status().is_success() {
                             info!("[SPAWN] ✅ Brain-{} actif sur :{}", domain_c, port);
                             return;

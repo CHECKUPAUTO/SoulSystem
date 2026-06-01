@@ -168,11 +168,7 @@ impl OllamaEngine {
 
     /// Générer une mutation pour un agent
     /// Le prompt demande du code Rust EXÉCUTABLE
-    pub async fn generate_mutation(
-        &self,
-        agent: &Agent,
-        context: &str,
-    ) -> Result<Mutation> {
+    pub async fn generate_mutation(&self, agent: &Agent, context: &str) -> Result<Mutation> {
         let mutation_type = MutationType::random();
 
         let prompt = format!(
@@ -213,7 +209,11 @@ Réponds UNIQUEMENT avec le code Rust entre ```rust et ```. Pas d'explication."#
             agent.metrics.tests_total,
             agent.generation,
             agent.stagnation_count,
-            if agent.code.is_empty() { "// code initial vide" } else { &agent.code },
+            if agent.code.is_empty() {
+                "// code initial vide"
+            } else {
+                &agent.code
+            },
             mutation_type,
             context.chars().take(800).collect::<String>(),
             mutation_type.label()
@@ -221,7 +221,9 @@ Réponds UNIQUEMENT avec le code Rust entre ```rust et ```. Pas d'explication."#
 
         info!(
             "Mutation {:?} pour agent {} [mode={}]",
-            mutation_type, &agent.id[..8], self.current_mode
+            mutation_type,
+            &agent.id[..8],
+            self.current_mode
         );
 
         match self.generate(&prompt, 0.7).await {
@@ -296,7 +298,8 @@ Résume en 3-5 points techniques."#,
     /// Code de secours quand Ollama est indisponible
     fn fallback_code(role: &crate::agent::Role) -> String {
         match role {
-            crate::agent::Role::Explorer => r#"
+            crate::agent::Role::Explorer => {
+                r#"
 fn main() {
     let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let sum: i64 = data.iter().sum();
@@ -304,8 +307,10 @@ fn main() {
     let passed = if (mean - 5.5).abs() < 0.01 { 1 } else { 0 };
     println!("OPENCLAW_TESTS:{}/1", passed);
     println!("OPENCLAW_STATUS:OK");
-}"#,
-            crate::agent::Role::Optimizer => r#"
+}"#
+            }
+            crate::agent::Role::Optimizer => {
+                r#"
 fn main() {
     let mut v: Vec<i32> = (0..1000).rev().collect();
     v.sort_unstable();
@@ -313,14 +318,17 @@ fn main() {
     let passed = if sorted { 1 } else { 0 };
     println!("OPENCLAW_TESTS:{}/1", passed);
     println!("OPENCLAW_STATUS:OK");
-}"#,
-            _ => r#"
+}"#
+            }
+            _ => {
+                r#"
 fn main() {
     let result = (0..100).filter(|x| x % 2 == 0).count();
     let passed = if result == 50 { 1 } else { 0 };
     println!("OPENCLAW_TESTS:{}/1", passed);
     println!("OPENCLAW_STATUS:OK");
-}"#,
+}"#
+            }
         }
         .trim()
         .to_string()

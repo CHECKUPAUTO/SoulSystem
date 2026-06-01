@@ -1,7 +1,7 @@
+use anyhow::Result;
+use ndarray::Array2;
 use soul_embed::Embedder;
 use soul_minillm::MiniLLM;
-use ndarray::Array2;
-use anyhow::Result;
 pub mod symplectic_bias;
 
 /// Un cortex unifiant dynamique hamiltonienne et génération LLM.
@@ -16,15 +16,17 @@ pub struct Cortex {
 }
 
 impl Cortex {
-    pub fn new(
-        hnn: soul_hnn::HamiltonianNN,
-        llm: MiniLLM,
-        embedder: Embedder,
-    ) -> Self {
+    pub fn new(hnn: soul_hnn::HamiltonianNN, llm: MiniLLM, embedder: Embedder) -> Self {
         let dim_hnn = hnn.state_dim();
         let dim_llm = llm.latent_dim().expect("LLM must expose latent dim");
         let state_projection = Array2::zeros((dim_hnn, dim_llm));
-        Cortex { hnn, llm, embedder, state_projection, token_bias_weight: 0.1 }
+        Cortex {
+            hnn,
+            llm,
+            embedder,
+            state_projection,
+            token_bias_weight: 0.1,
+        }
     }
 
     pub async fn perceive(&mut self, stimulus: &str) -> Result<()> {
@@ -44,7 +46,9 @@ impl Cortex {
             let biased_logits = self.apply_symplectic_bias(logits)?;
             let token = self.llm.sample_token(&biased_logits)?;
             let token_str = self.llm.decode_token(token)?;
-            if token_str == "<eos>" { break; }
+            if token_str == "<eos>" {
+                break;
+            }
             generated.push_str(&token_str);
             current_input.push_str(&token_str);
             let token_embed = self.embedder.embed(&token_str).await?;

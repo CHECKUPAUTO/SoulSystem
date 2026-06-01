@@ -1,5 +1,5 @@
 use crate::agent::Population;
-use crate::audit::{AuditAction, AuditInput, Auditor, AuditVerdict};
+use crate::audit::{AuditAction, AuditInput, AuditVerdict, Auditor};
 use crate::batch_embed::BatchEmbedder;
 use crate::concept::ConceptEngine;
 use crate::concept_graph::LiveConceptGraph;
@@ -61,8 +61,10 @@ impl EvolutionSystem {
         );
 
         match ollama.health_check().await {
-            Ok(true) => info!("✓ Ollama connecté (fast={}, deep={}, embed={})",
-                config.model_fast, config.model_deep, config.model_embed),
+            Ok(true) => info!(
+                "✓ Ollama connecté (fast={}, deep={}, embed={})",
+                config.model_fast, config.model_deep, config.model_embed
+            ),
             _ => warn!("⚠ Ollama non disponible"),
         }
 
@@ -72,9 +74,7 @@ impl EvolutionSystem {
         let sandbox = Sandbox::new(config.sandbox_dir.clone(), config.sandbox_timeout_secs)?;
 
         // v0.3 : Batch embedder (GPU accelerated)
-        let batch_embedder = BatchEmbedder::new(
-            &config.ollama_url, &config.model_embed, 1, 20,
-        );
+        let batch_embedder = BatchEmbedder::new(&config.ollama_url, &config.model_embed, 1, 20);
 
         // v0.3 : GNN Concept Graph vivant
         let concept_graph = LiveConceptGraph::new(384, 500); // nomic-embed = 768 dim, on prend 384
@@ -92,13 +92,25 @@ impl EvolutionSystem {
                     info!("◄ Restauration snapshot cycle={}", snap.cycle);
                     let memory = Memory::new(1000);
                     memory.import(snap.memory_data);
-                    (snap.population, memory, snap.meta_language, snap.concept_engine,
-                     snap.il_version, snap.cycle + 1)
+                    (
+                        snap.population,
+                        memory,
+                        snap.meta_language,
+                        snap.concept_engine,
+                        snap.il_version,
+                        snap.cycle + 1,
+                    )
                 }
                 None => {
                     info!("► Nouveau système");
-                    (Population::initialize(config.population_size), Memory::new(1000),
-                     MetaLanguage::new(), ConceptEngine::new(30), 0, 0)
+                    (
+                        Population::initialize(config.population_size),
+                        Memory::new(1000),
+                        MetaLanguage::new(),
+                        ConceptEngine::new(30),
+                        0,
+                        0,
+                    )
                 }
             };
 
@@ -106,18 +118,38 @@ impl EvolutionSystem {
         std::fs::create_dir_all(&config.logs_dir)?;
 
         let net_stats = organ_network.stats();
-        info!("Population: {} agents | Mémoire: {} | Concepts: {}",
-            population.agents.len(), memory.len(), concept_engine.concepts.len());
-        info!("MoE: {} organes, {} experts total | Graph: initialisé",
-            net_stats.n_organs, net_stats.total_experts);
+        info!(
+            "Population: {} agents | Mémoire: {} | Concepts: {}",
+            population.agents.len(),
+            memory.len(),
+            concept_engine.concepts.len()
+        );
+        info!(
+            "MoE: {} organes, {} experts total | Graph: initialisé",
+            net_stats.n_organs, net_stats.total_experts
+        );
         info!("Audit: ACTIF (seuils chargés)");
         info!("═══════════════════════════════════════════");
 
         Ok(Self {
-            config, population, memory, meta_language, concept_engine,
-            il_version, cycle, crawler, ranking, ollama, sandbox, snapshot_mgr,
-            batch_embedder, concept_graph, organ_network, auditor,
-            _last_crawl_results: None, _last_ranked_context: None,
+            config,
+            population,
+            memory,
+            meta_language,
+            concept_engine,
+            il_version,
+            cycle,
+            crawler,
+            ranking,
+            ollama,
+            sandbox,
+            snapshot_mgr,
+            batch_embedder,
+            concept_graph,
+            organ_network,
+            auditor,
+            _last_crawl_results: None,
+            _last_ranked_context: None,
             prev_avg_fitness: 0.0,
         })
     }
@@ -144,7 +176,12 @@ impl EvolutionSystem {
         // ── 2. Stratégie IL ─────
         let rule = self.meta_language.select_rule(is_stagnating).clone();
         let il_program = self.meta_language.expand_to_program(&rule, &["default"]);
-        info!("Stratégie: {} ({} steps, mode={})", rule.pattern, il_program.len(), self.ollama.current_mode);
+        info!(
+            "Stratégie: {} ({} steps, mode={})",
+            rule.pattern,
+            il_program.len(),
+            self.ollama.current_mode
+        );
 
         // ── 3. Crawler web ─────
         let crawl_results = self.crawler.crawl_batch(&self.config.seed_urls, 4).await;
@@ -155,17 +192,30 @@ impl EvolutionSystem {
         }
 
         // ── 4. Batch Embed + Ranking sémantique (GPU) ─────
-        let curiosity = self.ollama.generate_curiosity_task(
-            &format!("fitness={:.3}, gen={}, stagnation={}", self.population.average_fitness(), self.population.generation, is_stagnating)
-        ).await.unwrap_or_else(|_| "rust optimization".into());
+        let curiosity = self
+            .ollama
+            .generate_curiosity_task(&format!(
+                "fitness={:.3}, gen={}, stagnation={}",
+                self.population.average_fitness(),
+                self.population.generation,
+                is_stagnating
+            ))
+            .await
+            .unwrap_or_else(|_| "rust optimization".into());
 
         // Embed query + tous les contenus crawlés en UN SEUL batch
         let mut texts_to_embed: Vec<String> = vec![curiosity.clone()];
-        texts_to_embed.extend(crawl_results.iter().map(|cr| {
-            format!("{} {}", cr.title, &cr.content[..cr.content.len().min(400)])
-        }));
+        texts_to_embed.extend(
+            crawl_results
+                .iter()
+                .map(|cr| format!("{} {}", cr.title, &cr.content[..cr.content.len().min(400)])),
+        );
 
-        let embeddings = self.batch_embedder.embed_batch(&texts_to_embed).await.unwrap_or_default();
+        let embeddings = self
+            .batch_embedder
+            .embed_batch(&texts_to_embed)
+            .await
+            .unwrap_or_default();
 
         // Ranking par similarité sémantique
         let mut ranked_crawl: Vec<(usize, f32, String)> = Vec::new();
@@ -184,14 +234,17 @@ impl EvolutionSystem {
         }
 
         // ── 5. Alimenter le Concept Graph ─────
-        let crawl_pairs: Vec<(String, String)> = crawl_results.iter()
+        let crawl_pairs: Vec<(String, String)> = crawl_results
+            .iter()
             .map(|cr| (cr.url.clone(), cr.content.clone()))
             .collect();
-        let graph_added = self.concept_graph
+        let graph_added = self
+            .concept_graph
             .ingest_from_crawl(&crawl_pairs, &mut self.batch_embedder)
             .await
             .unwrap_or(0);
-        self.concept_graph.ingest_from_memory(&self.memory, &mut self.batch_embedder)
+        self.concept_graph
+            .ingest_from_memory(&self.memory, &mut self.batch_embedder)
             .await
             .ok();
 
@@ -205,16 +258,19 @@ impl EvolutionSystem {
         }
 
         // ── 7. Mutations LLM ─────
-        let context = ranked_crawl.iter().take(3)
+        let context = ranked_crawl
+            .iter()
+            .take(3)
             .map(|(_, _, content)| content.chars().take(400).collect::<String>())
-            .collect::<Vec<_>>().join("\n---\n");
+            .collect::<Vec<_>>()
+            .join("\n---\n");
 
         let weak_threshold = self.population.average_fitness() * 0.7;
         let targets: Vec<usize> = (0..self.population.agents.len())
             .filter(|i| {
                 self.population.agents[*i].is_weak(weak_threshold)
-                || self.population.agents[*i].is_stagnant(self.config.stagnation_threshold)
-                || rand::random::<f32>() < self.config.mutation_rate
+                    || self.population.agents[*i].is_stagnant(self.config.stagnation_threshold)
+                    || rand::random::<f32>() < self.config.mutation_rate
             })
             .collect();
 
@@ -229,7 +285,11 @@ impl EvolutionSystem {
                         mutations_with_code += 1;
                         // Ingérer la mutation dans le concept graph
                         if let Some(emb) = embeddings.first() {
-                            self.concept_graph.ingest_mutation(&agent.id, &mutation.description, emb.clone());
+                            self.concept_graph.ingest_mutation(
+                                &agent.id,
+                                &mutation.description,
+                                emb.clone(),
+                            );
                         }
                     }
                     self.population.agents[*idx].apply_mutation(&mutation);
@@ -248,9 +308,19 @@ impl EvolutionSystem {
                 if self.population.agents[i].code.is_empty() {
                     continue;
                 }
-                let result = self.sandbox.evaluate(&self.population.agents[i].id, &self.population.agents[i].code).await;
-                if result.compiled { sandbox_compile += 1; }
-                if result.ran_ok { sandbox_run += 1; }
+                let result = self
+                    .sandbox
+                    .evaluate(
+                        &self.population.agents[i].id,
+                        &self.population.agents[i].code,
+                    )
+                    .await;
+                if result.compiled {
+                    sandbox_compile += 1;
+                }
+                if result.ran_ok {
+                    sandbox_run += 1;
+                }
                 self.population.agents[i].update_from_sandbox(&result);
             }
         }
@@ -260,13 +330,17 @@ impl EvolutionSystem {
         let new_avg = self.population.average_fitness();
 
         // ── 10. Évoluer méta-systèmes ─────
-        self.meta_language.report_execution(&rule.pattern, new_avg > self.prev_avg_fitness);
+        self.meta_language
+            .report_execution(&rule.pattern, new_avg > self.prev_avg_fitness);
         self.meta_language.evolve_grammar();
         self.concept_engine.evolve_all(new_avg);
         self.il_version += 1;
 
         // ── 11. AUDIT OBLIGATOIRE ─────
-        let unique_codes: HashSet<String> = self.population.agents.iter()
+        let unique_codes: HashSet<String> = self
+            .population
+            .agents
+            .iter()
             .filter(|a| !a.code.is_empty())
             .map(|a| {
                 use sha2::{Digest, Sha256};
@@ -279,7 +353,10 @@ impl EvolutionSystem {
         let avg_code_lines = if unique_codes.is_empty() {
             0.0
         } else {
-            let total_lines: usize = self.population.agents.iter()
+            let total_lines: usize = self
+                .population
+                .agents
+                .iter()
                 .filter(|a| !a.code.is_empty())
                 .map(|a| a.code.lines().count())
                 .sum();
@@ -299,7 +376,11 @@ impl EvolutionSystem {
             population_size: self.population.agents.len(),
             avg_fitness: new_avg,
             prev_avg_fitness: self.prev_avg_fitness,
-            best_fitness: self.population.best_agent().map(|a| a.fitness).unwrap_or(0.0),
+            best_fitness: self
+                .population
+                .best_agent()
+                .map(|a| a.fitness)
+                .unwrap_or(0.0),
             unique_code_hashes: unique_codes.len(),
             avg_code_lines,
             graph_active_nodes: graph_stats.active_nodes,
@@ -315,8 +396,11 @@ impl EvolutionSystem {
         match audit_report.recommended_action {
             AuditAction::Continue => { /* rien */ }
             AuditAction::IncreaseMutation => {
-                warn!("AUDIT → Augmentation taux de mutation: {:.0}% → {:.0}%",
-                    self.config.mutation_rate * 100.0, (self.config.mutation_rate * 1.5).min(0.8) * 100.0);
+                warn!(
+                    "AUDIT → Augmentation taux de mutation: {:.0}% → {:.0}%",
+                    self.config.mutation_rate * 100.0,
+                    (self.config.mutation_rate * 1.5).min(0.8) * 100.0
+                );
                 self.config.mutation_rate = (self.config.mutation_rate * 1.5).min(0.8);
             }
             AuditAction::SwitchToDeep => {
@@ -324,7 +408,10 @@ impl EvolutionSystem {
                 self.ollama.set_mode(InferenceMode::Deep);
             }
             AuditAction::ForceRollback => {
-                error!("AUDIT → ROLLBACK FORCÉ ({} échecs consécutifs)", audit_report.consecutive_failures);
+                error!(
+                    "AUDIT → ROLLBACK FORCÉ ({} échecs consécutifs)",
+                    audit_report.consecutive_failures
+                );
                 if let Ok(Some(snap)) = self.snapshot_mgr.load_latest() {
                     self.restore_from_snapshot(snap);
                     info!("Restauré depuis dernier snapshot");
@@ -338,8 +425,12 @@ impl EvolutionSystem {
         // ── 13. Snapshot ─────
         if self.cycle % self.config.snapshot_interval as u64 == 0 {
             let snap = SnapshotManager::create_snapshot(
-                self.cycle, &self.population, self.memory.export(),
-                self.il_version, &self.meta_language, &self.concept_engine,
+                self.cycle,
+                &self.population,
+                self.memory.export(),
+                self.il_version,
+                &self.meta_language,
+                &self.concept_engine,
                 self.ollama.current_mode,
             );
             self.snapshot_mgr.save(&snap).ok();
@@ -348,7 +439,11 @@ impl EvolutionSystem {
         let report = CycleReport {
             cycle: self.cycle,
             avg_fitness: new_avg,
-            best_fitness: self.population.best_agent().map(|a| a.fitness).unwrap_or(0.0),
+            best_fitness: self
+                .population
+                .best_agent()
+                .map(|a| a.fitness)
+                .unwrap_or(0.0),
             agents_compiling: sandbox_compile,
             agents_running: sandbox_run,
             mutations_generated,
@@ -369,9 +464,16 @@ impl EvolutionSystem {
 
         info!(
             "CYCLE {} FIN — fitness={:.3} compile={}/{} run={}/{} codes={} audit={} graph={}n/{}e",
-            self.cycle, new_avg, sandbox_compile, self.population.agents.len(),
-            sandbox_run, self.population.agents.len(), unique_codes.len(),
-            audit_report.overall_verdict, graph_stats.active_nodes, graph_stats.strong_edges
+            self.cycle,
+            new_avg,
+            sandbox_compile,
+            self.population.agents.len(),
+            sandbox_run,
+            self.population.agents.len(),
+            unique_codes.len(),
+            audit_report.overall_verdict,
+            graph_stats.active_nodes,
+            graph_stats.strong_edges
         );
 
         self.cycle += 1;
@@ -389,9 +491,13 @@ impl EvolutionSystem {
                 Ok(report) => {
                     info!(
                         "C{}: fit={:.3} comp={}/{} codes={} audit={} mode={}",
-                        report.cycle, report.avg_fitness,
-                        report.agents_compiling, report.population_size,
-                        report.unique_codes, report.audit_verdict, report.inference_mode
+                        report.cycle,
+                        report.avg_fitness,
+                        report.agents_compiling,
+                        report.population_size,
+                        report.unique_codes,
+                        report.audit_verdict,
+                        report.inference_mode
                     );
                 }
                 Err(e) => {

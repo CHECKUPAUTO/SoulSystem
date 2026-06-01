@@ -70,7 +70,11 @@ fn parse_cargo(project: &str, manifest: &Path, text: &str, out: &mut Vec<Depende
             }
         }
     }
-    if let Some(ws) = v.get("workspace").and_then(|x| x.get("dependencies")).and_then(|x| x.as_table()) {
+    if let Some(ws) = v
+        .get("workspace")
+        .and_then(|x| x.get("dependencies"))
+        .and_then(|x| x.as_table())
+    {
         for (k, vv) in ws {
             let version = vv.as_str().map(|s| s.to_string()).or_else(|| {
                 vv.as_table()
@@ -141,9 +145,14 @@ fn parse_pyproject(project: &str, manifest: &Path, text: &str, out: &mut Vec<Dep
         .and_then(|x| x.as_table())
     {
         for (k, vv) in t {
-            if k == "python" { continue; }
+            if k == "python" {
+                continue;
+            }
             let version = vv.as_str().map(|s| s.to_string()).or_else(|| {
-                vv.as_table().and_then(|tt| tt.get("version")).and_then(|x| x.as_str()).map(|s| s.to_string())
+                vv.as_table()
+                    .and_then(|tt| tt.get("version"))
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string())
             });
             out.push(Dependency {
                 project: project.to_string(),
@@ -169,7 +178,11 @@ fn split_pep_dep(s: &str) -> (String, Option<String>) {
     }
     let rest: String = iter.collect();
     let trimmed = rest.trim();
-    let version = if trimmed.is_empty() { None } else { Some(trimmed.to_string()) };
+    let version = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    };
     (name, version)
 }
 
@@ -180,7 +193,9 @@ fn parse_pip(project: &str, manifest: &Path, text: &str, out: &mut Vec<Dependenc
             continue;
         }
         let (name, version) = split_pep_dep(l);
-        if name.is_empty() { continue; }
+        if name.is_empty() {
+            continue;
+        }
         out.push(Dependency {
             project: project.to_string(),
             manifest: manifest.to_path_buf(),
@@ -197,9 +212,13 @@ fn parse_setup_py(project: &str, manifest: &Path, text: &str, out: &mut Vec<Depe
         let list = cap.get(1).map(|m| m.as_str()).unwrap_or("");
         for raw in list.split(',') {
             let s = raw.trim().trim_matches(|c: char| c == '"' || c == '\'');
-            if s.is_empty() { continue; }
+            if s.is_empty() {
+                continue;
+            }
             let (name, version) = split_pep_dep(s);
-            if name.is_empty() { continue; }
+            if name.is_empty() {
+                continue;
+            }
             out.push(Dependency {
                 project: project.to_string(),
                 manifest: manifest.to_path_buf(),

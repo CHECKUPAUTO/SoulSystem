@@ -18,7 +18,9 @@ const MIN_TOKENS: usize = 12;
 pub struct DuplicateDetector;
 
 impl Detector for DuplicateDetector {
-    fn name(&self) -> &'static str { "duplicate" }
+    fn name(&self) -> &'static str {
+        "duplicate"
+    }
 
     fn detect(&self, ctx: &DetectContext) -> Result<Vec<Synergy>> {
         let n_sig = ctx.cfg.minhash_signatures.max(32);
@@ -33,8 +35,12 @@ impl Detector for DuplicateDetector {
         let mut slots: Vec<Slot> = Vec::new();
         for (proj, items) in ctx.public_items.iter() {
             for it in items {
-                if !it.kind.is_callable() { continue; }
-                if it.body_tokens.len() < MIN_TOKENS { continue; }
+                if !it.kind.is_callable() {
+                    continue;
+                }
+                if it.body_tokens.len() < MIN_TOKENS {
+                    continue;
+                }
                 let token_hashes: HashSet<u64> = it
                     .body_tokens
                     .iter()
@@ -44,9 +50,16 @@ impl Detector for DuplicateDetector {
                         h.finish()
                     })
                     .collect();
-                if token_hashes.len() < MIN_TOKENS { continue; }
+                if token_hashes.len() < MIN_TOKENS {
+                    continue;
+                }
                 let signature = minhash_signature(&token_hashes, n_sig);
-                slots.push(Slot { project: proj.as_str(), item: it, tokens: token_hashes, signature });
+                slots.push(Slot {
+                    project: proj.as_str(),
+                    item: it,
+                    tokens: token_hashes,
+                    signature,
+                });
             }
         }
 
@@ -57,7 +70,9 @@ impl Detector for DuplicateDetector {
             for band in 0..b {
                 let start = band * r;
                 let end = (start + r).min(s.signature.len());
-                if end <= start { break; }
+                if end <= start {
+                    break;
+                }
                 let mut h = XxHash64::with_seed(0xDEADBEEF + band as u64);
                 for &x in &s.signature[start..end] {
                     h.write(&x.to_le_bytes());
@@ -68,11 +83,15 @@ impl Detector for DuplicateDetector {
 
         let mut candidate_pairs: HashSet<(usize, usize)> = HashSet::new();
         for (_, ids) in buckets.iter() {
-            if ids.len() < 2 { continue; }
+            if ids.len() < 2 {
+                continue;
+            }
             for i in 0..ids.len() {
                 for j in (i + 1)..ids.len() {
                     let (a, b) = (ids[i], ids[j]);
-                    if slots[a].project == slots[b].project { continue; }
+                    if slots[a].project == slots[b].project {
+                        continue;
+                    }
                     let key = if a < b { (a, b) } else { (b, a) };
                     candidate_pairs.insert(key);
                 }
@@ -82,13 +101,16 @@ impl Detector for DuplicateDetector {
         let mut out = Vec::new();
         for (i, j) in candidate_pairs {
             let jac = jaccard(&slots[i].tokens, &slots[j].tokens);
-            if jac < threshold { continue; }
+            if jac < threshold {
+                continue;
+            }
             let (a, b) = (&slots[i], &slots[j]);
             let auto = auto_score_from(2, jac, type_floor("Deduplication"));
             let priority = priority_from_score(auto);
             let id = Synergy::stable_id(
                 "Deduplication",
-                a.project, b.project,
+                a.project,
+                b.project,
                 &format!("{}~{}", a.item.name, b.item.name),
             );
             let description = format!(
@@ -136,42 +158,63 @@ impl Detector for DuplicateDetector {
             });
         }
 
-        out.sort_by(|x, y| y.auto_score.partial_cmp(&x.auto_score).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|x, y| {
+            y.auto_score
+                .partial_cmp(&x.auto_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         out.truncate(80);
         Ok(out)
     }
 }
 
 fn minhash_signature(tokens: &HashSet<u64>, n_sig: usize) -> Vec<u64> {
-    if tokens.is_empty() { return vec![u64::MAX; n_sig]; }
+    if tokens.is_empty() {
+        return vec![u64::MAX; n_sig];
+    }
     let mut sig = vec![u64::MAX; n_sig];
     for &t in tokens {
         for k in 0..n_sig {
-            let mut h = XxHash64::with_seed((0x9E3779B97F4A7C15u64).wrapping_mul((k as u64).wrapping_add(1)));
+            let mut h = XxHash64::with_seed(
+                (0x9E3779B97F4A7C15u64).wrapping_mul((k as u64).wrapping_add(1)),
+            );
             h.write(&t.to_le_bytes());
             let v = h.finish();
-            if v < sig[k] { sig[k] = v; }
+            if v < sig[k] {
+                sig[k] = v;
+            }
         }
     }
     sig
 }
 
 fn jaccard(a: &HashSet<u64>, b: &HashSet<u64>) -> f32 {
-    if a.is_empty() || b.is_empty() { return 0.0; }
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
     let inter = a.intersection(b).count();
     let union = a.len() + b.len() - inter;
-    if union == 0 { 0.0 } else { inter as f32 / union as f32 }
+    if union == 0 {
+        0.0
+    } else {
+        inter as f32 / union as f32
+    }
 }
 
 fn lsh_r_for(threshold: f32, n_sig: usize) -> usize {
     let mut best_r = 4;
     let mut best_dist = f32::MAX;
     for r in 2..=16 {
-        if n_sig % r != 0 { continue; }
+        if n_sig % r != 0 {
+            continue;
+        }
         let bb = n_sig / r;
         let approx = (1.0 / bb as f32).powf(1.0 / r as f32);
         let d = (approx - threshold).abs();
-        if d < best_dist { best_dist = d; best_r = r; }
+        if d < best_dist {
+            best_dist = d;
+            best_r = r;
+        }
     }
     best_r
 }

@@ -1,6 +1,6 @@
+mod api;
 mod neuron;
 mod persistence;
-mod api;
 mod simulation;
 
 use axum::Router;
@@ -19,9 +19,7 @@ pub type SharedBrain = Arc<RwLock<BrainState>>;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     let state = persistence::load_or_default().await;
     let brain: SharedBrain = Arc::new(RwLock::new(state));

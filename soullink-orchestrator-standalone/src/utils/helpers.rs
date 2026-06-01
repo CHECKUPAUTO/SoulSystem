@@ -15,7 +15,7 @@ pub fn now_ts() -> u64 {
 /// Fusionne les concepts de plusieurs cerveaux
 pub fn merge_concepts(results: &HashMap<String, Value>) -> Vec<Value> {
     let mut all: HashMap<String, (f64, f64, String)> = HashMap::new(); // concept → (score, mastery, brain)
-    
+
     for (brain, r) in results {
         if let Some(concepts) = r.get("top_concepts").and_then(|v| v.as_array()) {
             for c in concepts {
@@ -26,11 +26,11 @@ pub fn merge_concepts(results: &HashMap<String, Value>) -> Vec<Value> {
                     .to_string();
                 let mastery = c.get("mastery").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let score = c.get("score").and_then(|v| v.as_f64()).unwrap_or(mastery);
-                
+
                 if concept.is_empty() {
                     continue;
                 }
-                
+
                 let entry = all.entry(concept).or_insert((0.0, 0.0, brain.clone()));
                 if score > entry.0 {
                     *entry = (score, mastery, brain.clone());
@@ -38,10 +38,10 @@ pub fn merge_concepts(results: &HashMap<String, Value>) -> Vec<Value> {
             }
         }
     }
-    
+
     let mut sorted: Vec<_> = all.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.0.partial_cmp(&a.1.0).unwrap());
-    
+    sorted.sort_by(|a, b| b.1 .0.partial_cmp(&a.1 .0).unwrap());
+
     sorted
         .iter()
         .take(20)
@@ -61,12 +61,12 @@ pub fn calculate_avg_mastery(concepts: &[Value]) -> f64 {
     if concepts.is_empty() {
         return 0.0;
     }
-    
+
     let sum: f64 = concepts
         .iter()
         .filter_map(|c| c.get("mastery").and_then(|v| v.as_f64()))
         .sum();
-    
+
     sum / concepts.len() as f64
 }
 
@@ -99,16 +99,16 @@ pub fn find_next_port(used_ports: &[u16], start: u16) -> u16 {
 /// Parse les arguments de ligne de commande
 pub fn parse_args() -> (u16, String) {
     let args: Vec<String> = std::env::args().collect();
-    
+
     let port = args
         .get(1)
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(9020);
-    
+
     let brain_dir = args
         .get(2)
         .cloned()
         .unwrap_or_else(|| "/mnt/nvme/soullink_brain".to_string());
-    
+
     (port, brain_dir)
 }

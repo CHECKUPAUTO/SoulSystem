@@ -1,9 +1,9 @@
 //! Sandbox pour exécution sécurisée de code compilé.
 //! Utilise bubblewrap (bwrap) pour l'isolation si disponible.
 
+use anyhow::Result;
 use std::path::Path;
 use std::process::Output;
-use anyhow::Result;
 use tracing::warn;
 
 /// Configuration de la sandbox (backward compat)
@@ -44,14 +44,25 @@ fn run_in_bwrap_sandbox(program: &str) -> Result<Output> {
 
     let output = std::process::Command::new("bwrap")
         .args([
-            "--ro-bind", "/usr", "/usr",
-            "--ro-bind", "/lib", "/lib",
-            "--ro-bind", "/lib64", "/lib64",
-            "--ro-bind", "/bin", "/bin",
-            "--tmpfs", "/tmp",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--ro-bind",
+            "/lib",
+            "/lib",
+            "--ro-bind",
+            "/lib64",
+            "/lib64",
+            "--ro-bind",
+            "/bin",
+            "/bin",
+            "--tmpfs",
+            "/tmp",
             "--unshare-net",
             "--die-with-parent",
-            "--", "rustc", tmpfile.to_str().unwrap(),
+            "--",
+            "rustc",
+            tmpfile.to_str().unwrap(),
         ])
         .output()?;
 

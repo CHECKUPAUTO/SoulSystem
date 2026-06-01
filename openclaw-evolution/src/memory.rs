@@ -121,7 +121,11 @@ impl Memory {
         let data = self.export();
         let json = serde_json::to_string_pretty(&data)?;
         std::fs::write(path, json)?;
-        info!("Mémoire sauvegardée: {} entrées vers {:?}", data.len(), path);
+        info!(
+            "Mémoire sauvegardée: {} entrées vers {:?}",
+            data.len(),
+            path
+        );
         Ok(())
     }
 

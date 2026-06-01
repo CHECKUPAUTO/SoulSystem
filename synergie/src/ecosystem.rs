@@ -99,7 +99,9 @@ fn kind_of(manifest: &str) -> ProjectKind {
 }
 
 fn upgrade_kind(a: ProjectKind, b: ProjectKind) -> ProjectKind {
-    if a == b { return a; }
+    if a == b {
+        return a;
+    }
     ProjectKind::Mixed
 }
 
@@ -108,8 +110,20 @@ fn derive_tags(dir: &Path, name: &str, kind: &ProjectKind) -> Vec<String> {
     let lower = name.to_lowercase();
     let path_lower = dir.to_string_lossy().to_lowercase();
     for hint in [
-        "soullink", "openclaw", "cortex", "avid", "aris", "openevolve", "memori",
-        "tribe", "ncpu", "msa", "promptify", "ironreview", "turboquant", "synergie",
+        "soullink",
+        "openclaw",
+        "cortex",
+        "avid",
+        "aris",
+        "openevolve",
+        "memori",
+        "tribe",
+        "ncpu",
+        "msa",
+        "promptify",
+        "ironreview",
+        "turboquant",
+        "synergie",
     ] {
         if lower.contains(hint) || path_lower.contains(hint) {
             tags.push(hint.to_string());

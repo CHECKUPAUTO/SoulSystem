@@ -48,7 +48,12 @@ impl ConceptGraph {
     pub fn add_node(&mut self, label: &str, features: Vec<f32>) -> usize {
         let id = self.nodes.len();
         let h = features.clone();
-        self.nodes.push(Node { id, label: label.to_string(), h, x: features });
+        self.nodes.push(Node {
+            id,
+            label: label.to_string(),
+            h,
+            x: features,
+        });
         self.adjacency.push(Vec::new());
         id
     }
@@ -106,7 +111,11 @@ impl GNNLayer {
 
         Self {
             weights: (0..hidden_dim)
-                .map(|_| (0..hidden_dim).map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale).collect())
+                .map(|_| {
+                    (0..hidden_dim)
+                        .map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale)
+                        .collect()
+                })
                 .collect(),
             bias: vec![0.0; hidden_dim],
             hidden_dim,
@@ -133,7 +142,8 @@ impl GNNLayer {
             }
 
             // Phase 1 : Message — transformer les embeddings des voisins
-            let messages: Vec<(Vec<f32>, f32)> = neighbors.iter()
+            let messages: Vec<(Vec<f32>, f32)> = neighbors
+                .iter()
                 .map(|&(u, w)| (self.transform(&graph.nodes[u].h), w))
                 .collect();
 
@@ -201,7 +211,11 @@ impl GNNLayer {
                     }
                 }
                 // Remplacer les -inf par 0
-                agg.iter_mut().for_each(|x| if *x == f32::NEG_INFINITY { *x = 0.0 });
+                agg.iter_mut().for_each(|x| {
+                    if *x == f32::NEG_INFINITY {
+                        *x = 0.0
+                    }
+                });
                 agg
             }
         }

@@ -1,5 +1,5 @@
-use super::EnergyNetwork;
 use super::integrator::SymplecticIntegrator;
+use super::EnergyNetwork;
 
 /// HamiltonianNN — wrapper around EnergyNetwork + SymplecticIntegrator
 /// that maintains a combined state vector [q_0..q_n, p_0..p_n].
@@ -63,9 +63,7 @@ impl HamiltonianNN {
             let q = self.state[i];
             let p = self.state[n + i];
             // Single step of SymplecticIntegrator for each oscillator
-            let traj = self
-                .integrator
-                .integrate(q, p, &self.energy);
+            let traj = self.integrator.integrate(q, p, &self.energy);
             if let Some(&(q_new, p_new)) = traj.last() {
                 new_state[i] = q_new;
                 new_state[n + i] = p_new;

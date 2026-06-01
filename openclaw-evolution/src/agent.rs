@@ -332,7 +332,10 @@ impl Population {
     }
 
     pub fn weak_agents(&self, threshold: f32) -> Vec<&Agent> {
-        self.agents.iter().filter(|a| a.is_weak(threshold)).collect()
+        self.agents
+            .iter()
+            .filter(|a| a.is_weak(threshold))
+            .collect()
     }
 
     /// Détecte la stagnation globale de la population

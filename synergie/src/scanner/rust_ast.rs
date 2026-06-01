@@ -5,8 +5,8 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 use syn::visit::Visit;
 use syn::{
-    File, ImplItem, Item, ItemConst, ItemEnum, ItemFn, ItemImpl, ItemStatic,
-    ItemStruct, ItemTrait, Visibility,
+    File, ImplItem, Item, ItemConst, ItemEnum, ItemFn, ItemImpl, ItemStatic, ItemStruct, ItemTrait,
+    Visibility,
 };
 
 /// Parse tous les fichiers Rust passés et renvoie les items `pub`.
@@ -57,7 +57,15 @@ impl<'a> Visitor<'a> {
         matches!(vis, Visibility::Public(_))
     }
 
-    fn push(&mut self, kind: ItemKind, name: String, signature: String, line: usize, body_text: &str, doc: Option<String>) {
+    fn push(
+        &mut self,
+        kind: ItemKind,
+        name: String,
+        signature: String,
+        line: usize,
+        body_text: &str,
+        doc: Option<String>,
+    ) {
         let body_tokens = tokenize(body_text);
         self.items.push(PublicItem {
             project: self.project.clone(),
@@ -75,39 +83,81 @@ impl<'a> Visitor<'a> {
 impl<'ast, 'a> Visit<'ast> for Visitor<'a> {
     fn visit_item(&mut self, item: &'ast Item) {
         match item {
-            Item::Fn(ItemFn { vis, sig, block, attrs, .. }) if Self::is_pub(vis) => {
-                let kind = if sig.asyncness.is_some() { ItemKind::AsyncFn } else { ItemKind::Fn };
+            Item::Fn(ItemFn {
+                vis,
+                sig,
+                block,
+                attrs,
+                ..
+            }) if Self::is_pub(vis) => {
+                let kind = if sig.asyncness.is_some() {
+                    ItemKind::AsyncFn
+                } else {
+                    ItemKind::Fn
+                };
                 let line = self.line_of(0);
                 let signature = quote::quote!(#sig).to_string();
                 let body = quote::quote!(#block).to_string();
                 let doc = extract_doc(attrs);
                 self.push(kind, sig.ident.to_string(), signature, line, &body, doc);
             }
-            Item::Struct(ItemStruct { vis, ident, attrs, .. }) if Self::is_pub(vis) => {
+            Item::Struct(ItemStruct {
+                vis, ident, attrs, ..
+            }) if Self::is_pub(vis) => {
                 let line = self.line_of(0);
                 let doc = extract_doc(attrs);
-                self.push(ItemKind::Struct, ident.to_string(), format!("pub struct {}", ident), line, "", doc);
+                self.push(
+                    ItemKind::Struct,
+                    ident.to_string(),
+                    format!("pub struct {}", ident),
+                    line,
+                    "",
+                    doc,
+                );
             }
-            Item::Enum(ItemEnum { vis, ident, attrs, .. }) if Self::is_pub(vis) => {
+            Item::Enum(ItemEnum {
+                vis, ident, attrs, ..
+            }) if Self::is_pub(vis) => {
                 let line = self.line_of(0);
                 let doc = extract_doc(attrs);
-                self.push(ItemKind::Enum, ident.to_string(), format!("pub enum {}", ident), line, "", doc);
+                self.push(
+                    ItemKind::Enum,
+                    ident.to_string(),
+                    format!("pub enum {}", ident),
+                    line,
+                    "",
+                    doc,
+                );
             }
-            Item::Trait(ItemTrait { vis, ident, attrs, .. }) if Self::is_pub(vis) => {
+            Item::Trait(ItemTrait {
+                vis, ident, attrs, ..
+            }) if Self::is_pub(vis) => {
                 let line = self.line_of(0);
                 let doc = extract_doc(attrs);
-                self.push(ItemKind::Trait, ident.to_string(), format!("pub trait {}", ident), line, "", doc);
+                self.push(
+                    ItemKind::Trait,
+                    ident.to_string(),
+                    format!("pub trait {}", ident),
+                    line,
+                    "",
+                    doc,
+                );
             }
             Item::Impl(ItemImpl { items, self_ty, .. }) => {
                 let ty_str = quote::quote!(#self_ty).to_string();
                 for ii in items {
                     if let ImplItem::Fn(m) = ii {
                         if Self::is_pub(&m.vis) {
-                            let kind = if m.sig.asyncness.is_some() { ItemKind::AsyncFn } else { ItemKind::Fn };
+                            let kind = if m.sig.asyncness.is_some() {
+                                ItemKind::AsyncFn
+                            } else {
+                                ItemKind::Fn
+                            };
                             let sig = &m.sig;
                             let body = &m.block;
                             let name = format!("{}::{}", ty_str.trim(), sig.ident);
-                            let signature = format!("impl {} {{ {} }}", ty_str.trim(), quote::quote!(#sig));
+                            let signature =
+                                format!("impl {} {{ {} }}", ty_str.trim(), quote::quote!(#sig));
                             let body_str = quote::quote!(#body).to_string();
                             let doc = extract_doc(&m.attrs);
                             self.push(kind, name, signature, self.line_of(0), &body_str, doc);
@@ -115,13 +165,31 @@ impl<'ast, 'a> Visit<'ast> for Visitor<'a> {
                     }
                 }
             }
-            Item::Const(ItemConst { vis, ident, attrs, .. }) if Self::is_pub(vis) => {
+            Item::Const(ItemConst {
+                vis, ident, attrs, ..
+            }) if Self::is_pub(vis) => {
                 let doc = extract_doc(attrs);
-                self.push(ItemKind::Const, ident.to_string(), format!("pub const {}", ident), self.line_of(0), "", doc);
+                self.push(
+                    ItemKind::Const,
+                    ident.to_string(),
+                    format!("pub const {}", ident),
+                    self.line_of(0),
+                    "",
+                    doc,
+                );
             }
-            Item::Static(ItemStatic { vis, ident, attrs, .. }) if Self::is_pub(vis) => {
+            Item::Static(ItemStatic {
+                vis, ident, attrs, ..
+            }) if Self::is_pub(vis) => {
                 let doc = extract_doc(attrs);
-                self.push(ItemKind::Static, ident.to_string(), format!("pub static {}", ident), self.line_of(0), "", doc);
+                self.push(
+                    ItemKind::Static,
+                    ident.to_string(),
+                    format!("pub static {}", ident),
+                    self.line_of(0),
+                    "",
+                    doc,
+                );
             }
             _ => {}
         }
@@ -142,7 +210,11 @@ fn extract_doc(attrs: &[syn::Attribute]) -> Option<String> {
             }
         }
     }
-    if lines.is_empty() { None } else { Some(lines.join("\n")) }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
 }
 
 pub fn tokenize(text: &str) -> Vec<String> {

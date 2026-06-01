@@ -7,8 +7,9 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::path::PathBuf;
 
-static RE_DEF: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?m)^(?P<indent>[ \t]*)def\s+(?P<name>\w+)\s*\((?P<args>[^)]*)\)").unwrap());
+static RE_DEF: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^(?P<indent>[ \t]*)def\s+(?P<name>\w+)\s*\((?P<args>[^)]*)\)").unwrap()
+});
 static RE_CLASS: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?m)^(?P<indent>[ \t]*)class\s+(?P<name>\w+)").unwrap());
 static RE_DOC: Lazy<Regex> =
@@ -57,7 +58,11 @@ fn parse_file(project: &str, path: &PathBuf) -> Option<Vec<PublicItem>> {
                     project: project.to_string(),
                     file: path.clone(),
                     line: line_no,
-                    kind: if in_class { ItemKind::PyClass } else { ItemKind::PyClass },
+                    kind: if in_class {
+                        ItemKind::PyClass
+                    } else {
+                        ItemKind::PyClass
+                    },
                     name: name.clone(),
                     signature: format!("class {}", name),
                     body_tokens: extract_body_tokens(&text[byte..]),
@@ -76,7 +81,11 @@ fn parse_file(project: &str, path: &PathBuf) -> Option<Vec<PublicItem>> {
                 continue;
             }
             let in_class = !class_stack.is_empty();
-            let kind = if in_class { ItemKind::PyMethod } else { ItemKind::PyFunction };
+            let kind = if in_class {
+                ItemKind::PyMethod
+            } else {
+                ItemKind::PyFunction
+            };
             let args = cap.name("args").map(|m| m.as_str()).unwrap_or("");
             let signature = format!("def {}({})", name, args);
             items.push(PublicItem {
@@ -120,16 +129,22 @@ fn extract_body_tokens(s: &str) -> Vec<String> {
 fn extract_docstring_after(text: &str, start: usize) -> Option<String> {
     let snippet = text.get(start..)?;
     let head: String = snippet.chars().take(800).collect();
-    RE_DOC.captures(&head).map(|c| c.get(1).unwrap().as_str().trim().to_string())
+    RE_DOC
+        .captures(&head)
+        .map(|c| c.get(1).unwrap().as_str().trim().to_string())
 }
 
 /// Extrait les imports d'un projet (utile pour deps_graph fallback).
 pub fn imports_of(project: &PathBuf) -> Vec<String> {
     let mut out = Vec::new();
-    let re_import = Regex::new(r"(?m)^\s*(?:from\s+([\w\.]+)\s+import|import\s+([\w\.]+))").unwrap();
+    let re_import =
+        Regex::new(r"(?m)^\s*(?:from\s+([\w\.]+)\s+import|import\s+([\w\.]+))").unwrap();
     if let Ok(text) = std::fs::read_to_string(project) {
         for cap in re_import.captures_iter(&text) {
-            let name = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str().to_string());
+            let name = cap
+                .get(1)
+                .or_else(|| cap.get(2))
+                .map(|m| m.as_str().to_string());
             if let Some(n) = name {
                 out.push(n.split('.').next().unwrap_or(&n).to_string());
             }

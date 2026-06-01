@@ -1,7 +1,7 @@
-use soul_core::{Tool, Goal};
+use anyhow::Result;
+use soul_core::{Goal, Tool};
 use soul_embed::Embedder;
 use std::collections::HashMap;
-use anyhow::Result;
 
 pub struct ToolOrchestrator {
     tools: HashMap<String, Box<dyn Tool>>,
@@ -12,7 +12,11 @@ pub struct ToolOrchestrator {
 
 impl ToolOrchestrator {
     pub fn new(embedder: Embedder) -> Self {
-        Self { tools: HashMap::new(), embedder, recipes: HashMap::new() }
+        Self {
+            tools: HashMap::new(),
+            embedder,
+            recipes: HashMap::new(),
+        }
     }
 
     pub fn register_tool(&mut self, tool: Box<dyn Tool>) {
@@ -26,7 +30,11 @@ impl ToolOrchestrator {
         Ok(vec![])
     }
 
-    pub async fn execute_sequence(&self, sequence: &[String], params: &serde_json::Value) -> Result<Vec<serde_json::Value>> {
+    pub async fn execute_sequence(
+        &self,
+        sequence: &[String],
+        params: &serde_json::Value,
+    ) -> Result<Vec<serde_json::Value>> {
         let mut results = Vec::new();
         for tool_name in sequence {
             if let Some(tool) = self.tools.get(tool_name) {
@@ -40,7 +48,8 @@ impl ToolOrchestrator {
     }
 
     pub fn learn_from_success(&mut self, sequence: &[String], goal_desc: &str) {
-        self.recipes.insert(goal_desc.to_string(), sequence.to_vec());
+        self.recipes
+            .insert(goal_desc.to_string(), sequence.to_vec());
     }
 }
 
@@ -65,6 +74,9 @@ mod tests {
         };
         let rt = tokio::runtime::Runtime::new().unwrap();
         let seq = rt.block_on(o.plan_for_goal(&goal)).unwrap();
-        assert!(seq.is_empty(), "Fresh orchestrator should return empty plan");
+        assert!(
+            seq.is_empty(),
+            "Fresh orchestrator should return empty plan"
+        );
     }
 }

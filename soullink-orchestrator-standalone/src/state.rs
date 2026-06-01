@@ -25,7 +25,7 @@ impl AppState {
     pub fn new(brain_dir: &str) -> Self {
         let default_brains = Self::create_default_brains();
         let brains: DashMap<String, BrainConfig> = DashMap::new();
-        
+
         for (k, v) in default_brains {
             brains.insert(k, v);
         }
@@ -42,12 +42,51 @@ impl AppState {
         let mut brains = HashMap::new();
 
         let specs = [
-            ("science", 9010u16, vec!["physics", "math", "chemistry", "computation", "science"]),
-            ("mind", 9011, vec!["neuroscience", "language", "philosophy", "memory", "mind"]),
-            ("engineer", 9012, vec!["optimization", "logic", "algebra", "computation", "engineering"]),
-            ("crypto", 9013, vec!["trading", "blockchain", "defi", "markets", "crypto", "finance"]),
-            ("creative", 9014, vec!["patterns", "geometry", "art", "vision", "design", "creative"]),
-            ("meta", 9015, vec!["learning", "optimization", "meta", "reinforcement"]),
+            (
+                "science",
+                9010u16,
+                vec!["physics", "math", "chemistry", "computation", "science"],
+            ),
+            (
+                "mind",
+                9011,
+                vec!["neuroscience", "language", "philosophy", "memory", "mind"],
+            ),
+            (
+                "engineer",
+                9012,
+                vec![
+                    "optimization",
+                    "logic",
+                    "algebra",
+                    "computation",
+                    "engineering",
+                ],
+            ),
+            (
+                "crypto",
+                9013,
+                vec![
+                    "trading",
+                    "blockchain",
+                    "defi",
+                    "markets",
+                    "crypto",
+                    "finance",
+                ],
+            ),
+            (
+                "creative",
+                9014,
+                vec![
+                    "patterns", "geometry", "art", "vision", "design", "creative",
+                ],
+            ),
+            (
+                "meta",
+                9015,
+                vec!["learning", "optimization", "meta", "reinforcement"],
+            ),
         ];
 
         for (name, port, spec) in &specs {
@@ -110,15 +149,17 @@ impl AppState {
         body: Option<Value>,
         keys: Option<Vec<String>>,
     ) -> HashMap<String, Value> {
-        let keys = keys.unwrap_or_else(|| {
-            self.brains.iter().map(|e| e.key().clone()).collect()
-        });
+        let keys = keys.unwrap_or_else(|| self.brains.iter().map(|e| e.key().clone()).collect());
 
         let mut results = HashMap::new();
         let mut set = JoinSet::new();
 
         for key in keys {
-            let url = self.brains.get(&key).map(|b| b.url.clone()).unwrap_or_default();
+            let url = self
+                .brains
+                .get(&key)
+                .map(|b| b.url.clone())
+                .unwrap_or_default();
             let ep = endpoint.to_string();
             let body = body.clone();
 
@@ -174,7 +215,7 @@ impl AppState {
     /// Sélectionne les cerveaux les plus pertinents pour une requête
     pub fn select_brains(&self, query: &str) -> Vec<String> {
         let q = query.to_lowercase();
-        
+
         let mut scores: Vec<(String, f64)> = self
             .brains
             .iter()
@@ -192,13 +233,9 @@ impl AppState {
             .collect();
 
         scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        
-        let mut selected: Vec<String> = scores
-            .iter()
-            .take(3)
-            .map(|(k, _)| k.clone())
-            .collect();
-        
+
+        let mut selected: Vec<String> = scores.iter().take(3).map(|(k, _)| k.clone()).collect();
+
         if !selected.contains(&"meta".to_string()) {
             selected.push("meta".to_string());
         }

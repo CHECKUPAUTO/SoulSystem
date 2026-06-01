@@ -12,7 +12,9 @@ use std::path::PathBuf;
 pub struct CoCommitDetector;
 
 impl Detector for CoCommitDetector {
-    fn name(&self) -> &'static str { "cocommit" }
+    fn name(&self) -> &'static str {
+        "cocommit"
+    }
 
     fn detect(&self, ctx: &DetectContext) -> Result<Vec<Synergy>> {
         let Some(matrix) = ctx.cocommits.as_ref() else {
@@ -41,9 +43,17 @@ impl Detector for CoCommitDetector {
         // (pa, pb) → liste de paires de fichiers avec jaccard.
         let mut inter: HashMap<(String, String), Vec<(String, String, f32)>> = HashMap::new();
         for (a, b, jac) in pairs {
-            let (Some(pa), Some(pb)) = (find_owner(&a), find_owner(&b)) else { continue };
-            if pa == pb { continue; }
-            let key = if pa < pb { (pa.clone(), pb.clone()) } else { (pb.clone(), pa.clone()) };
+            let (Some(pa), Some(pb)) = (find_owner(&a), find_owner(&b)) else {
+                continue;
+            };
+            if pa == pb {
+                continue;
+            }
+            let key = if pa < pb {
+                (pa.clone(), pb.clone())
+            } else {
+                (pb.clone(), pa.clone())
+            };
             inter.entry(key).or_default().push((a, b, jac));
         }
 
@@ -81,7 +91,11 @@ impl Detector for CoCommitDetector {
             });
         }
 
-        out.sort_by(|x, y| y.auto_score.partial_cmp(&x.auto_score).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|x, y| {
+            y.auto_score
+                .partial_cmp(&x.auto_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         out.truncate(30);
         Ok(out)
     }

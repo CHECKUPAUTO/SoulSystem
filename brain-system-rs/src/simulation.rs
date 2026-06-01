@@ -66,7 +66,9 @@ pub fn grow(state: &mut crate::BrainState, count: usize) -> Vec<u64> {
         let id = state.total_neurons;
         state.total_neurons += 1;
         let (x, y, z) = neuron::random_pos(m.pos, 60.0);
-        state.neurons.push(neuron::Neuron::new(id, &m.name, x, y, z));
+        state
+            .neurons
+            .push(neuron::Neuron::new(id, &m.name, x, y, z));
         new_ids.push(id);
     }
     state.growth_events += 1;
@@ -79,7 +81,9 @@ pub fn grow(state: &mut crate::BrainState, count: usize) -> Vec<u64> {
                 let target = rng.gen_range(0..n) as u64;
                 if target != src {
                     let weight = rng.gen::<f64>() * 0.5;
-                    state.synapses.push(neuron::Synapse::new(src, target, weight));
+                    state
+                        .synapses
+                        .push(neuron::Synapse::new(src, target, weight));
                 }
             }
         }

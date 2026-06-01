@@ -1,5 +1,5 @@
-pub mod lif;
 pub mod bridge;
+pub mod lif;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -68,7 +68,8 @@ impl RecurrentSNN {
             for j in 0..self.neurons.len() {
                 let pre = spikes[i] as u8;
                 let post = spikes[j] as u8;
-                self.eligibility[i][j] = self.eligibility[i][j] * 0.9 + (pre as f64 * post as f64) * 0.1;
+                self.eligibility[i][j] =
+                    self.eligibility[i][j] * 0.9 + (pre as f64 * post as f64) * 0.1;
                 self.weights[i][j] += 0.001 * self.eligibility[i][j] * reward;
             }
         }
@@ -79,14 +80,17 @@ impl RecurrentSNN {
         }
 
         self.spike_buffer.push(spikes.clone());
-        if self.spike_buffer.len() > 100 { self.spike_buffer.remove(0); }
+        if self.spike_buffer.len() > 100 {
+            self.spike_buffer.remove(0);
+        }
 
         let active_ratio = spikes.iter().filter(|&&s| s).count() as f64 / self.neurons.len() as f64;
         active_ratio > self.activity_threshold
     }
 
     pub fn current_spike_pattern(&self) -> Vec<f64> {
-        self.spike_buffer.last()
+        self.spike_buffer
+            .last()
             .map(|v| v.iter().map(|&b| if b { 1.0 } else { 0.0 }).collect())
             .unwrap_or_else(|| vec![0.0; self.neurons.len()])
     }
@@ -129,7 +133,10 @@ pub struct AsyncSpikeOrchestrator {
 impl AsyncSpikeOrchestrator {
     pub fn new(buffer_size: usize) -> Self {
         let (tx, rx) = mpsc::channel(buffer_size);
-        Self { sender: tx, receiver: rx }
+        Self {
+            sender: tx,
+            receiver: rx,
+        }
     }
 
     pub fn get_sender(&self) -> mpsc::Sender<SpikeEvent> {
@@ -140,7 +147,10 @@ impl AsyncSpikeOrchestrator {
         while let Some(event) = self.receiver.recv().await {
             // In a real implementation, this would trigger downstream neurons
             // or update synaptic weights.
-            println!("Async Spike: Neuron {} at {}", event.neuron_id, event.timestamp);
+            println!(
+                "Async Spike: Neuron {} at {}",
+                event.neuron_id, event.timestamp
+            );
         }
     }
 }
@@ -156,7 +166,11 @@ impl SNNDecoder {
     pub fn new(num_neurons: usize, intents: Vec<String>) -> Self {
         let num_intents = intents.len();
         let weights = vec![vec![0.0; num_intents]; num_neurons];
-        Self { weights, intent_vocab: intents, learning_rate: 0.01 }
+        Self {
+            weights,
+            intent_vocab: intents,
+            learning_rate: 0.01,
+        }
     }
 
     pub fn decode(&self, spike_pattern: &[f64]) -> (String, f64) {
@@ -169,7 +183,8 @@ impl SNNDecoder {
             }
         }
         let probs = softmax(&scores);
-        let idx = probs.iter()
+        let idx = probs
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(i, _)| i)
@@ -192,15 +207,17 @@ fn softmax(logits: &[f64]) -> Vec<f64> {
     let max = logits.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let exps: Vec<f64> = logits.iter().map(|x| (x - max).exp()).collect();
     let sum: f64 = exps.iter().sum();
-    if sum == 0.0 { return vec![0.0; logits.len()]; }
+    if sum == 0.0 {
+        return vec![0.0; logits.len()];
+    }
     exps.iter().map(|e| e / sum).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bridge::{LatencyEncoder, RateEncoder};
     use crate::lif::LIFNeuron;
-    use crate::bridge::{RateEncoder, LatencyEncoder};
 
     #[test]
     fn test_snn_creation() {
@@ -214,7 +231,10 @@ mod tests {
         snn.inject(&[1.0; 10]);
         let _thought = snn.step(0.01, 0.0);
         // Should not panic
-        println!("Spike activity: {}", snn.current_spike_pattern().iter().sum::<f64>());
+        println!(
+            "Spike activity: {}",
+            snn.current_spike_pattern().iter().sum::<f64>()
+        );
     }
 
     #[test]

@@ -11,7 +11,9 @@ use std::path::PathBuf;
 pub struct DocXrefDetector;
 
 impl Detector for DocXrefDetector {
-    fn name(&self) -> &'static str { "doc_xref" }
+    fn name(&self) -> &'static str {
+        "doc_xref"
+    }
 
     fn detect(&self, ctx: &DetectContext) -> Result<Vec<Synergy>> {
         let mut docs_by_project: HashMap<String, Vec<(PathBuf, String)>> = HashMap::new();
@@ -39,14 +41,22 @@ impl Detector for DocXrefDetector {
         for (src, docs) in &docs_by_project {
             for (path, text) in docs {
                 for dst in &project_names {
-                    if dst == src { continue; }
+                    if dst == src {
+                        continue;
+                    }
                     let lower = text.to_ascii_lowercase();
                     let needle = dst.to_ascii_lowercase();
                     if let Some(pos) = find_word(&lower, &needle) {
                         let line_start = lower[..pos].rfind('\n').map(|n| n + 1).unwrap_or(0);
-                        let line_end = lower[pos..].find('\n').map(|n| pos + n).unwrap_or(lower.len());
+                        let line_end = lower[pos..]
+                            .find('\n')
+                            .map(|n| pos + n)
+                            .unwrap_or(lower.len());
                         let snippet = text[line_start..line_end].trim().to_string();
-                        xrefs.entry((src.clone(), dst.clone())).or_default().push((path.clone(), snippet));
+                        xrefs
+                            .entry((src.clone(), dst.clone()))
+                            .or_default()
+                            .push((path.clone(), snippet));
                     }
                 }
             }
@@ -63,20 +73,26 @@ impl Detector for DocXrefDetector {
                 target_project: dst.clone(),
                 description: format!(
                     "Les docs de `{}` mentionnent `{}` à {} reprise(s)",
-                    src, dst, mentions.len()
+                    src,
+                    dst,
+                    mentions.len()
                 ),
                 priority: priority_from_score(auto),
                 effort: "easy".into(),
                 value: "low".into(),
                 auto_score: auto,
                 adjusted_score: auto,
-                evidence: mentions.iter().take(5).map(|(p, s)| Evidence {
-                    project: src.clone(),
-                    path: p.clone(),
-                    line: None,
-                    fragment: s.clone(),
-                    weight: 0.6,
-                }).collect(),
+                evidence: mentions
+                    .iter()
+                    .take(5)
+                    .map(|(p, s)| Evidence {
+                        project: src.clone(),
+                        path: p.clone(),
+                        line: None,
+                        fragment: s.clone(),
+                        weight: 0.6,
+                    })
+                    .collect(),
                 suggested_action: Some(format!(
                     "Vérifier dans le code si `{}` dépend réellement de `{}` ; formaliser si oui",
                     src, dst
@@ -86,14 +102,20 @@ impl Detector for DocXrefDetector {
             });
         }
 
-        out.sort_by(|x, y| y.auto_score.partial_cmp(&x.auto_score).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|x, y| {
+            y.auto_score
+                .partial_cmp(&x.auto_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         out.truncate(40);
         Ok(out)
     }
 }
 
 fn find_word(hay: &str, needle: &str) -> Option<usize> {
-    if needle.len() < 3 { return None; }
+    if needle.len() < 3 {
+        return None;
+    }
     let mut start = 0;
     while let Some(pos) = hay[start..].find(needle) {
         let abs = start + pos;
@@ -102,9 +124,10 @@ fn find_word(hay: &str, needle: &str) -> Option<usize> {
                 && hay.as_bytes()[abs - 1] != b'_');
         let after = abs + needle.len();
         let after_ok = after >= hay.len()
-            || (!hay.as_bytes()[after].is_ascii_alphanumeric()
-                && hay.as_bytes()[after] != b'_');
-        if before_ok && after_ok { return Some(abs); }
+            || (!hay.as_bytes()[after].is_ascii_alphanumeric() && hay.as_bytes()[after] != b'_');
+        if before_ok && after_ok {
+            return Some(abs);
+        }
         start = abs + needle.len();
     }
     None

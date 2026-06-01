@@ -1,4 +1,4 @@
-use scirust_core::nn::transformer::mini_llm::{MiniLLM as CoreMiniLLM, CharTokenizer};
+use scirust_core::nn::transformer::mini_llm::{CharTokenizer, MiniLLM as CoreMiniLLM};
 
 use anyhow::Result;
 use std::sync::{Arc, Mutex};

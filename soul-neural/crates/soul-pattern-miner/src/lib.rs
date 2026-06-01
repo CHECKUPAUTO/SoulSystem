@@ -124,7 +124,9 @@ fn linear_regression(x: &[f64], y: &[f64]) -> (f64, f64) {
     let sxx: f64 = x.iter().map(|&v| v * v).sum();
     let sxy: f64 = x.iter().zip(y.iter()).map(|(&a, &b)| a * b).sum();
     let denom = n * sxx - sx * sx;
-    if denom.abs() < 1e-15 { return (0.0, sy / n); }
+    if denom.abs() < 1e-15 {
+        return (0.0, sy / n);
+    }
     let a = (n * sxy - sx * sy) / denom;
     let b = (sy - a * sx) / n;
     (a, b)
@@ -326,23 +328,12 @@ fn generate_expressions(max_depth: usize) -> Vec<ExprNode> {
             }
             for e1 in &exprs[d1].clone() {
                 for e2 in &exprs[d2].clone() {
-                    exprs[depth].push(ExprNode::Add(
-                        Box::new(e1.clone()),
-                        Box::new(e2.clone()),
-                    ));
-                    exprs[depth].push(ExprNode::Sub(
-                        Box::new(e1.clone()),
-                        Box::new(e2.clone()),
-                    ));
-                    exprs[depth].push(ExprNode::Mul(
-                        Box::new(e1.clone()),
-                        Box::new(e2.clone()),
-                    ));
+                    exprs[depth].push(ExprNode::Add(Box::new(e1.clone()), Box::new(e2.clone())));
+                    exprs[depth].push(ExprNode::Sub(Box::new(e1.clone()), Box::new(e2.clone())));
+                    exprs[depth].push(ExprNode::Mul(Box::new(e1.clone()), Box::new(e2.clone())));
                     if !is_zero(e2) {
-                        exprs[depth].push(ExprNode::Div(
-                            Box::new(e1.clone()),
-                            Box::new(e2.clone()),
-                        ));
+                        exprs[depth]
+                            .push(ExprNode::Div(Box::new(e1.clone()), Box::new(e2.clone())));
                     }
                 }
             }
@@ -382,7 +373,9 @@ mod tests {
         let noise_level = 0.15;
         let mut rng = fastrand::Rng::new();
         // Generate y = sin(x) where x_i = i (the miner evaluates at x=i)
-        let y: Vec<f64> = (0..n).map(|i| (i as f64).sin() + noise_level * (rng.f64() - 0.5)).collect();
+        let y: Vec<f64> = (0..n)
+            .map(|i| (i as f64).sin() + noise_level * (rng.f64() - 0.5))
+            .collect();
 
         let miner = PatternMiner::new(3);
         let results = miner.mine(&y);
@@ -510,12 +503,17 @@ mod tests {
 
         assert!(results.len() >= 2, "should produce at least 2 patterns");
         // Filter out NaN scores before checking sort order
-        let valid_scores: Vec<f64> = results.iter().map(|p| p.score).filter(|s| !s.is_nan()).collect();
+        let valid_scores: Vec<f64> = results
+            .iter()
+            .map(|p| p.score)
+            .filter(|s| !s.is_nan())
+            .collect();
         for w in valid_scores.windows(2) {
             assert!(
                 w[0] + 1e-9 >= w[1],
                 "mine_multi scores should be sorted descending, got {} >= {}",
-                w[0], w[1]
+                w[0],
+                w[1]
             );
         }
 

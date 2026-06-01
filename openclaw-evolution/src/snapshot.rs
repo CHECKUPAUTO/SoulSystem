@@ -42,7 +42,10 @@ pub struct SnapshotManager {
 impl SnapshotManager {
     pub fn new(snapshot_dir: PathBuf, max_snapshots: usize) -> Result<Self> {
         std::fs::create_dir_all(&snapshot_dir)?;
-        Ok(Self { snapshot_dir, max_snapshots })
+        Ok(Self {
+            snapshot_dir,
+            max_snapshots,
+        })
     }
 
     pub fn save(&self, snapshot: &Snapshot) -> Result<PathBuf> {
@@ -57,8 +60,10 @@ impl SnapshotManager {
 
         info!(
             "Snapshot: cycle={}, fitness={:.3}, compile={}/{}, fichier={}",
-            snapshot.cycle, snapshot.metrics.avg_fitness,
-            snapshot.metrics.agents_compiling, snapshot.metrics.population_size,
+            snapshot.cycle,
+            snapshot.metrics.avg_fitness,
+            snapshot.metrics.agents_compiling,
+            snapshot.metrics.population_size,
             filename
         );
 
@@ -107,7 +112,9 @@ impl SnapshotManager {
 
     fn cleanup(&self) -> Result<()> {
         let mut snapshots = self.list_snapshots()?;
-        if snapshots.len() <= self.max_snapshots { return Ok(()); }
+        if snapshots.len() <= self.max_snapshots {
+            return Ok(());
+        }
         snapshots.sort();
         let to_remove = snapshots.len() - self.max_snapshots;
         for name in snapshots.into_iter().take(to_remove) {
@@ -125,8 +132,16 @@ impl SnapshotManager {
         concept_engine: &ConceptEngine,
         inference_mode: InferenceMode,
     ) -> Snapshot {
-        let agents_compiling = population.agents.iter().filter(|a| a.metrics.compiles).count();
-        let agents_running = population.agents.iter().filter(|a| a.metrics.runs_ok).count();
+        let agents_compiling = population
+            .agents
+            .iter()
+            .filter(|a| a.metrics.compiles)
+            .count();
+        let agents_running = population
+            .agents
+            .iter()
+            .filter(|a| a.metrics.runs_ok)
+            .count();
 
         Snapshot {
             id: uuid::Uuid::new_v4().to_string(),

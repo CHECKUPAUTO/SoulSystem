@@ -35,10 +35,18 @@ impl RankingEngine {
     pub fn new(top_k: usize) -> Self {
         Self {
             focus_keywords: vec![
-                "rust".into(), "ai".into(), "machine learning".into(),
-                "llm".into(), "optimization".into(), "evolution".into(),
-                "algorithm".into(), "agent".into(), "performance".into(),
-                "async".into(), "concurrent".into(), "memory".into(),
+                "rust".into(),
+                "ai".into(),
+                "machine learning".into(),
+                "llm".into(),
+                "optimization".into(),
+                "evolution".into(),
+                "algorithm".into(),
+                "agent".into(),
+                "performance".into(),
+                "async".into(),
+                "concurrent".into(),
+                "memory".into(),
             ],
             seen_hashes: Vec::new(),
             top_k,
@@ -69,7 +77,11 @@ impl RankingEngine {
             let structural_quality = self.compute_structural_quality(&crawl);
 
             // Générer l'embedding du contenu
-            let content_text = format!("{} {}", crawl.title, &crawl.content[..crawl.content.len().min(500)]);
+            let content_text = format!(
+                "{} {}",
+                crawl.title,
+                &crawl.content[..crawl.content.len().min(500)]
+            );
             let embedding = match ollama.embed(&content_text).await {
                 Ok(emb) => Some(emb),
                 Err(e) => {
@@ -127,7 +139,8 @@ impl RankingEngine {
                 let keyword_score = self.compute_keyword_score(&crawl);
                 let novelty_score = self.compute_novelty(&crawl);
                 let structural_quality = self.compute_structural_quality(&crawl);
-                let total_score = keyword_score * 0.4 + novelty_score * 0.3 + structural_quality * 0.3;
+                let total_score =
+                    keyword_score * 0.4 + novelty_score * 0.3 + structural_quality * 0.3;
 
                 RankedResult {
                     crawl,
@@ -162,17 +175,31 @@ impl RankingEngine {
 
     fn compute_novelty(&self, crawl: &CrawlResult) -> f32 {
         let hash = content_hash(&crawl.content);
-        if self.seen_hashes.contains(&hash) { 0.0 } else { 1.0 }
+        if self.seen_hashes.contains(&hash) {
+            0.0
+        } else {
+            1.0
+        }
     }
 
     fn compute_structural_quality(&self, crawl: &CrawlResult) -> f32 {
         let mut score = 0.0f32;
         let len = crawl.content.len();
-        if len > 200 { score += 0.3; }
-        if len > 500 { score += 0.2; }
-        if !crawl.title.is_empty() { score += 0.2; }
-        if !crawl.links.is_empty() { score += 0.15; }
-        if crawl.content.matches('.').count() > 3 { score += 0.15; }
+        if len > 200 {
+            score += 0.3;
+        }
+        if len > 500 {
+            score += 0.2;
+        }
+        if !crawl.title.is_empty() {
+            score += 0.2;
+        }
+        if !crawl.links.is_empty() {
+            score += 0.15;
+        }
+        if crawl.content.matches('.').count() > 3 {
+            score += 0.15;
+        }
         score.min(1.0)
     }
 }

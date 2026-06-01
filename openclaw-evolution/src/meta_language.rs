@@ -29,35 +29,66 @@ impl MetaLanguage {
             grammar_rules: vec![
                 GrammarRule {
                     pattern: "EXPLORE".into(),
-                    expansion: vec!["Search".into(), "Embed".into(), "Rank".into(), "Store".into()],
+                    expansion: vec![
+                        "Search".into(),
+                        "Embed".into(),
+                        "Rank".into(),
+                        "Store".into(),
+                    ],
                     weight: 1.0,
                     usage_count: 0,
                     avg_success: 0.5,
                 },
                 GrammarRule {
                     pattern: "EVOLVE".into(),
-                    expansion: vec!["Load".into(), "Mutate".into(), "Simulate".into(), "Validate".into(), "Commit".into()],
+                    expansion: vec![
+                        "Load".into(),
+                        "Mutate".into(),
+                        "Simulate".into(),
+                        "Validate".into(),
+                        "Commit".into(),
+                    ],
                     weight: 1.0,
                     usage_count: 0,
                     avg_success: 0.5,
                 },
                 GrammarRule {
                     pattern: "OPTIMIZE".into(),
-                    expansion: vec!["Observe".into(), "Identify".into(), "Mutate".into(), "Simulate".into(), "Apply".into()],
+                    expansion: vec![
+                        "Observe".into(),
+                        "Identify".into(),
+                        "Mutate".into(),
+                        "Simulate".into(),
+                        "Apply".into(),
+                    ],
                     weight: 1.0,
                     usage_count: 0,
                     avg_success: 0.5,
                 },
                 GrammarRule {
                     pattern: "SAFE_EVOLVE".into(),
-                    expansion: vec!["Load".into(), "Mutate".into(), "Simulate".into(), "Validate".into(), "Commit".into(), "Rollback".into()],
+                    expansion: vec![
+                        "Load".into(),
+                        "Mutate".into(),
+                        "Simulate".into(),
+                        "Validate".into(),
+                        "Commit".into(),
+                        "Rollback".into(),
+                    ],
                     weight: 0.8,
                     usage_count: 0,
                     avg_success: 0.5,
                 },
                 GrammarRule {
                     pattern: "DEEP_EVOLVE".into(),
-                    expansion: vec!["Observe".into(), "SwitchMode".into(), "Mutate".into(), "Simulate".into(), "Validate".into(), "SwitchMode".into()],
+                    expansion: vec![
+                        "Observe".into(),
+                        "SwitchMode".into(),
+                        "Mutate".into(),
+                        "Simulate".into(),
+                        "Validate".into(),
+                        "SwitchMode".into(),
+                    ],
                     weight: 0.6,
                     usage_count: 0,
                     avg_success: 0.5,
@@ -156,6 +187,9 @@ impl MetaLanguage {
     }
 
     pub fn available_patterns(&self) -> Vec<String> {
-        self.grammar_rules.iter().map(|r| r.pattern.clone()).collect()
+        self.grammar_rules
+            .iter()
+            .map(|r| r.pattern.clone())
+            .collect()
     }
 }

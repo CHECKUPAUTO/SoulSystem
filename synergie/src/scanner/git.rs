@@ -20,7 +20,11 @@ impl CoCommitMatrix {
     }
 
     pub fn jaccard(&self, a: &str, b: &str) -> f32 {
-        let (k1, k2) = if a <= b { (a.to_string(), b.to_string()) } else { (b.to_string(), a.to_string()) };
+        let (k1, k2) = if a <= b {
+            (a.to_string(), b.to_string())
+        } else {
+            (b.to_string(), a.to_string())
+        };
         let inter = *self.pairs.get(&(k1, k2)).unwrap_or(&0) as f32;
         let ua = *self.freq.get(a).unwrap_or(&0) as f32;
         let ub = *self.freq.get(b).unwrap_or(&0) as f32;
@@ -85,7 +89,10 @@ pub fn analyze_repo(repo_path: &Path, window: usize) -> Result<CoCommitMatrix> {
         };
 
         // Collect changed files vs first parent.
-        let tree = match commit.tree() { Ok(t) => t, Err(_) => continue };
+        let tree = match commit.tree() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
         let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
         let diff = match repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None) {
             Ok(d) => d,
@@ -102,8 +109,11 @@ pub fn analyze_repo(repo_path: &Path, window: usize) -> Result<CoCommitMatrix> {
                 }
                 true
             },
-            None, None, None,
-        ).ok();
+            None,
+            None,
+            None,
+        )
+        .ok();
 
         for f in &files {
             *mtx.freq.entry(f.clone()).or_insert(0) += 1;

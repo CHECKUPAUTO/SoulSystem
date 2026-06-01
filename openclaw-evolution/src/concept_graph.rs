@@ -10,7 +10,7 @@
 //! les embeddings pour aligner la sémantique.
 
 use crate::batch_embed::BatchEmbedder;
-use crate::math::graph::{ConceptGraph, GNNStack, graph_readout, Node, Edge};
+use crate::math::graph::{graph_readout, ConceptGraph, Edge, GNNStack, Node};
 use crate::memory::Memory;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -247,7 +247,7 @@ impl LiveConceptGraph {
         let mut gnn_graph = ConceptGraph::new();
 
         for node in &self.nodes {
-            let padded = pad_to(& node.embedding, self.gnn_dim);
+            let padded = pad_to(&node.embedding, self.gnn_dim);
             gnn_graph.add_node(&node.label, padded);
         }
 
@@ -273,7 +273,11 @@ impl LiveConceptGraph {
             }
         }
 
-        info!("GNN propagation: {} nœuds, {} arêtes", self.nodes.len(), self.edges.len());
+        info!(
+            "GNN propagation: {} nœuds, {} arêtes",
+            self.nodes.len(),
+            self.edges.len()
+        );
     }
 
     /// Trouver les concepts les plus proches d'un embedding
@@ -381,11 +385,21 @@ fn extract_concept_label(key: &str) -> String {
 
 fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
     let len = a.len().min(b.len());
-    if len == 0 { return 0.0; }
-    let dot: f32 = a[..len].iter().zip(b[..len].iter()).map(|(x, y)| x * y).sum();
+    if len == 0 {
+        return 0.0;
+    }
+    let dot: f32 = a[..len]
+        .iter()
+        .zip(b[..len].iter())
+        .map(|(x, y)| x * y)
+        .sum();
     let na: f32 = a[..len].iter().map(|x| x * x).sum::<f32>().sqrt();
     let nb: f32 = b[..len].iter().map(|x| x * x).sum::<f32>().sqrt();
-    if na < 1e-10 || nb < 1e-10 { 0.0 } else { dot / (na * nb) }
+    if na < 1e-10 || nb < 1e-10 {
+        0.0
+    } else {
+        dot / (na * nb)
+    }
 }
 
 fn pad_to(v: &[f32], target: usize) -> Vec<f32> {

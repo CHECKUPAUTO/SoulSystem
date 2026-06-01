@@ -70,11 +70,7 @@ impl Crawler {
         let response = self.client.get(url).send().await?;
 
         if !response.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "HTTP {} pour {}",
-                response.status(),
-                url
-            ));
+            return Err(anyhow::anyhow!("HTTP {} pour {}", response.status(), url));
         }
 
         let body = response.text().await?;

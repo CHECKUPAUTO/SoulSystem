@@ -34,7 +34,12 @@ impl LangevinConfig {
     /// Config calibrée : σ² = 2γkT (relation fluctuation-dissipation)
     pub fn thermalized(dt: f32, gamma: f32, temperature: f32) -> Self {
         let sigma = (2.0 * gamma * temperature).sqrt();
-        Self { dt, sigma, gamma, temperature }
+        Self {
+            dt,
+            sigma,
+            gamma,
+            temperature,
+        }
     }
 }
 
@@ -114,9 +119,8 @@ impl LangevinIntegrator {
             let noise = self.config.sigma * sqrt_dt * dw;
 
             // Mise à jour du moment
-            state.p[i] -= grad[i] * self.config.dt
-                + self.config.gamma * state.p[i] * self.config.dt
-                - noise;
+            state.p[i] -=
+                grad[i] * self.config.dt + self.config.gamma * state.p[i] * self.config.dt - noise;
 
             // Mise à jour de la position
             state.q[i] += (state.p[i] / mass) * self.config.dt;
@@ -201,6 +205,10 @@ mod tests {
         }
 
         let dist: f32 = state.q.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!(dist < 1.0, "Devrait converger vers l'origine, dist={}", dist);
+        assert!(
+            dist < 1.0,
+            "Devrait converger vers l'origine, dist={}",
+            dist
+        );
     }
 }

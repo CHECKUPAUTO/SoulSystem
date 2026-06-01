@@ -2,8 +2,8 @@
 
 use crate::state::AppState;
 use crate::utils::helpers::format_metrics;
-use axum::{extract::State, response::Response};
 use axum::http::{header, StatusCode};
+use axum::{extract::State, response::Response};
 
 /// Route GET /metrics
 pub async fn route_metrics(State(state): State<AppState>) -> Response {

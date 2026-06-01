@@ -1,5 +1,5 @@
 //! SoulLink Orchestrator - Core Types
-//! 
+//!
 //! Defines all data structures for the neural mesh orchestration system.
 
 use serde::{Deserialize, Serialize};
@@ -162,7 +162,9 @@ impl<T: Serialize> ApiResponse<T> {
     pub fn error(msg: impl Into<String>) -> ApiResponse<ErrorData> {
         ApiResponse {
             ok: false,
-            data: ErrorData { message: msg.into() },
+            data: ErrorData {
+                message: msg.into(),
+            },
             error: Some("error".to_string()),
         }
     }

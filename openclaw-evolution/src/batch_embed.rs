@@ -64,8 +64,8 @@ impl BatchEmbedder {
         }
 
         self.total_embedded += texts.len() as u64;
-        self.total_batches += (texts.len() as u64 + self.max_batch_size as u64 - 1)
-            / self.max_batch_size as u64;
+        self.total_batches +=
+            (texts.len() as u64 + self.max_batch_size as u64 - 1) / self.max_batch_size as u64;
 
         Ok(all_embeddings)
     }
@@ -92,7 +92,11 @@ impl BatchEmbedder {
 
         match resp.embeddings {
             Some(embs) => {
-                info!("Batch embed: {} textes → {} vecteurs", texts.len(), embs.len());
+                info!(
+                    "Batch embed: {} textes → {} vecteurs",
+                    texts.len(),
+                    embs.len()
+                );
                 Ok(embs)
             }
             None => {

@@ -1,4 +1,4 @@
-use crate::{BrainState, neuron};
+use crate::{neuron, BrainState};
 use axum::{
     extract::State,
     routing::{get, post},
@@ -51,7 +51,9 @@ async fn post_stimulus(
         let id = brain.total_neurons;
         brain.total_neurons += 1;
         let (x, y, z) = neuron::random_pos(m.pos, 60.0);
-        brain.neurons.push(neuron::Neuron::new(id, &m.name, x, y, z));
+        brain
+            .neurons
+            .push(neuron::Neuron::new(id, &m.name, x, y, z));
         new_ids.push(id);
     }
     brain.growth_events += 1;
@@ -63,7 +65,11 @@ async fn post_stimulus(
             for _ in 0..3 {
                 let target = rand::random::<usize>() % n;
                 if target as u64 != src {
-                    brain.synapses.push(neuron::Synapse::new(src, target as u64, rand::random::<f64>() * 0.5));
+                    brain.synapses.push(neuron::Synapse::new(
+                        src,
+                        target as u64,
+                        rand::random::<f64>() * 0.5,
+                    ));
                 }
             }
         }

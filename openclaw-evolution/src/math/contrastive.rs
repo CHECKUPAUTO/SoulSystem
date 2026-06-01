@@ -30,7 +30,11 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
     let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if norm_a < 1e-10 || norm_b < 1e-10 { 0.0 } else { dot / (norm_a * norm_b) }
+    if norm_a < 1e-10 || norm_b < 1e-10 {
+        0.0
+    } else {
+        dot / (norm_a * norm_b)
+    }
 }
 
 /// InfoNCE Loss pour une paire positive (anchor, positive) contre des négatifs
@@ -51,8 +55,16 @@ pub fn info_nce_loss(
     }
 
     // log-sum-exp stable
-    let max = log_sum_exp_parts.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let log_sum_exp = max + log_sum_exp_parts.iter().map(|x| (x - max).exp()).sum::<f32>().ln();
+    let max = log_sum_exp_parts
+        .iter()
+        .cloned()
+        .fold(f32::NEG_INFINITY, f32::max);
+    let log_sum_exp = max
+        + log_sum_exp_parts
+            .iter()
+            .map(|x| (x - max).exp())
+            .sum::<f32>()
+            .ln();
 
     // L = -sim_pos + log_sum_exp
     -sim_pos + log_sum_exp
@@ -65,7 +77,9 @@ pub fn info_nce_loss(
 /// L = (1/2N) Σ_k [l(k, k+N) + l(k+N, k)]
 pub fn nt_xent_loss(embeddings: &[Vec<f32>], temperature: f32) -> f32 {
     let n = embeddings.len();
-    if n < 2 { return 0.0; }
+    if n < 2 {
+        return 0.0;
+    }
 
     // Assumer que les paires positives sont (i, i + n/2) pour i < n/2
     let half = n / 2;
@@ -86,8 +100,16 @@ pub fn nt_xent_loss(embeddings: &[Vec<f32>], temperature: f32) -> f32 {
             }
         }
 
-        let max = log_denom_parts.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let log_sum_exp = max + log_denom_parts.iter().map(|x| (x - max).exp()).sum::<f32>().ln();
+        let max = log_denom_parts
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
+        let log_sum_exp = max
+            + log_denom_parts
+                .iter()
+                .map(|x| (x - max).exp())
+                .sum::<f32>()
+                .ln();
 
         total_loss += -sim_pos + log_sum_exp;
     }
@@ -134,7 +156,12 @@ pub fn info_nce_gradient(
     }
 
     // Soustraire le positif
-    let norm_p: f32 = positive.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-10);
+    let norm_p: f32 = positive
+        .iter()
+        .map(|x| x * x)
+        .sum::<f32>()
+        .sqrt()
+        .max(1e-10);
     for d in 0..dim {
         grad[d] -= positive[d] / (norm_a * norm_p);
         grad[d] /= temperature;
@@ -157,7 +184,13 @@ impl Projector {
         let init = |rows: usize, cols: usize| -> Vec<Vec<f32>> {
             let s = (2.0 / rows as f32).sqrt();
             let mut rng = rand::thread_rng();
-            (0..rows).map(|_| (0..cols).map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * s).collect()).collect()
+            (0..rows)
+                .map(|_| {
+                    (0..cols)
+                        .map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * s)
+                        .collect()
+                })
+                .collect()
         };
 
         Self {

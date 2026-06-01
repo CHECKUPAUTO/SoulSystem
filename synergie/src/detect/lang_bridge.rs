@@ -12,7 +12,10 @@ use std::collections::HashMap;
 pub struct LangBridgeDetector;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Lang { Rust, Python }
+enum Lang {
+    Rust,
+    Python,
+}
 
 fn lang_of(kind: ItemKind) -> Option<Lang> {
     match kind {
@@ -30,17 +33,28 @@ fn normalize(name: &str) -> String {
 }
 
 impl Detector for LangBridgeDetector {
-    fn name(&self) -> &'static str { "lang_bridge" }
+    fn name(&self) -> &'static str {
+        "lang_bridge"
+    }
 
     fn detect(&self, ctx: &DetectContext) -> Result<Vec<Synergy>> {
         let mut by_name: HashMap<String, Vec<(String, Lang, usize)>> = HashMap::new();
         for (proj, items) in ctx.public_items.iter() {
             for (idx, it) in items.iter().enumerate() {
-                let Some(l) = lang_of(it.kind) else { continue; };
+                let Some(l) = lang_of(it.kind) else {
+                    continue;
+                };
                 let key = normalize(&it.name);
-                if key.len() < 5 { continue; }
-                if key.starts_with("__") && key.ends_with("__") { continue; }
-                if matches!(key.as_str(), "new" | "from" | "into" | "main" | "init" | "default" | "build" | "run") {
+                if key.len() < 5 {
+                    continue;
+                }
+                if key.starts_with("__") && key.ends_with("__") {
+                    continue;
+                }
+                if matches!(
+                    key.as_str(),
+                    "new" | "from" | "into" | "main" | "init" | "default" | "build" | "run"
+                ) {
                     continue;
                 }
                 by_name.entry(key).or_default().push((proj.clone(), l, idx));
@@ -54,7 +68,9 @@ impl Detector for LangBridgeDetector {
                 for j in (i + 1)..occurs.len() {
                     let (proj_a, lang_a, idx_a) = &occurs[i];
                     let (proj_b, lang_b, idx_b) = &occurs[j];
-                    if lang_a == lang_b { continue; }
+                    if lang_a == lang_b {
+                        continue;
+                    }
 
                     let id = Synergy::stable_id("LanguageBridge", proj_a, proj_b, &name);
                     let auto = auto_score_from(2, 0.85, type_floor("LanguageBridge"));
@@ -62,7 +78,9 @@ impl Detector for LangBridgeDetector {
                         ctx.public_items.get(proj_a).and_then(|v| v.get(*idx_a)),
                         ctx.public_items.get(proj_b).and_then(|v| v.get(*idx_b)),
                     );
-                    let (Some(ia), Some(ib)) = (item_a, item_b) else { continue };
+                    let (Some(ia), Some(ib)) = (item_a, item_b) else {
+                        continue;
+                    };
                     out.push(Synergy {
                         id: id.clone(),
                         synergy_type: "LanguageBridge".into(),
@@ -104,7 +122,11 @@ impl Detector for LangBridgeDetector {
             }
         }
 
-        out.sort_by(|x, y| y.auto_score.partial_cmp(&x.auto_score).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|x, y| {
+            y.auto_score
+                .partial_cmp(&x.auto_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         out.truncate(40);
         Ok(out)
     }

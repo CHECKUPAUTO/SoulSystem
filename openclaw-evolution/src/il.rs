@@ -131,7 +131,10 @@ impl ILProgram {
         p.push(ILInstruction::new(OpCode::Load, vec![agent_id]));
         p.push(ILInstruction::new(OpCode::Mutate, vec![mutation_type]));
         p.push(ILInstruction::new(OpCode::Simulate, vec!["sandbox"]));
-        p.push(ILInstruction::new(OpCode::Validate, vec!["fitness_improved"]));
+        p.push(ILInstruction::new(
+            OpCode::Validate,
+            vec!["fitness_improved"],
+        ));
         p.push(ILInstruction::new(OpCode::Commit, vec!["if_improved"]));
         p.push(ILInstruction::new(OpCode::Rollback, vec!["if_degraded"]));
         p

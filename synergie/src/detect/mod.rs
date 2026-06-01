@@ -7,7 +7,7 @@
 //! `expressions` (utilisés par `symbolic.rs`), et ajoute des champs
 //! optionnels pour les détecteurs v3.
 
-use crate::scanner::{FileIndex, ProjectDeps, RuntimeSnapshot, PublicItem, CoCommitMatrix};
+use crate::scanner::{CoCommitMatrix, FileIndex, ProjectDeps, PublicItem, RuntimeSnapshot};
 use crate::types::{Project, Synergy};
 use anyhow::Result;
 use rayon::prelude::*;
@@ -15,16 +15,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
-pub mod symbolic;
-pub mod duplicate;
-pub mod semantic;
-pub mod deps_graph;
 pub mod api_surface;
-pub mod config_drift;
-pub mod port_overlap;
 pub mod cocommit;
-pub mod lang_bridge;
+pub mod config_drift;
+pub mod deps_graph;
 pub mod doc_xref;
+pub mod duplicate;
+pub mod lang_bridge;
+pub mod port_overlap;
+pub mod semantic;
+pub mod symbolic;
 
 /// Contexte partagé passé à chaque détecteur.
 ///
@@ -98,10 +98,18 @@ pub struct DetectConfig {
     pub cocommit_window: usize,
 }
 
-fn default_minhash_signatures() -> usize { 128 }
-fn default_duplicate_jaccard() -> f32 { 0.75 }
-fn default_semantic_threshold() -> f32 { 0.86 }
-fn default_cocommit_window() -> usize { 200 }
+fn default_minhash_signatures() -> usize {
+    128
+}
+fn default_duplicate_jaccard() -> f32 {
+    0.75
+}
+fn default_semantic_threshold() -> f32 {
+    0.86
+}
+fn default_cocommit_window() -> usize {
+    200
+}
 
 impl Default for DetectConfig {
     fn default() -> Self {
@@ -200,7 +208,10 @@ pub fn run_sync_detectors(ctx: &DetectContext) -> Result<Vec<Synergy>> {
 }
 
 /// Lance le détecteur sémantique (async).
-pub async fn run_semantic(ctx: &DetectContext, embed: &mut crate::embed::EmbedClient) -> Result<Vec<Synergy>> {
+pub async fn run_semantic(
+    ctx: &DetectContext,
+    embed: &mut crate::embed::EmbedClient,
+) -> Result<Vec<Synergy>> {
     if !ctx.cfg.semantic {
         return Ok(vec![]);
     }
@@ -221,8 +232,11 @@ pub fn merge_synergies(all: Vec<Synergy>) -> Vec<Synergy> {
                     keep.evidence.extend(existing.evidence.drain(..));
                     *existing = keep;
                 } else {
-                    let mut seen: std::collections::HashSet<String> =
-                        existing.evidence.iter().map(|e| e.fragment.clone()).collect();
+                    let mut seen: std::collections::HashSet<String> = existing
+                        .evidence
+                        .iter()
+                        .map(|e| e.fragment.clone())
+                        .collect();
                     for e in s.evidence {
                         if seen.insert(e.fragment.clone()) {
                             existing.evidence.push(e);

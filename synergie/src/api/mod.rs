@@ -40,7 +40,10 @@ struct AppState {
 
 pub async fn serve(cfg: Arc<Config>, agent: Arc<Agent>) -> Result<()> {
     let bind = format!("{}:{}", cfg.api.bind, cfg.api.port);
-    let state = AppState { cfg: cfg.clone(), agent };
+    let state = AppState {
+        cfg: cfg.clone(),
+        agent,
+    };
 
     let mut router = Router::new()
         .route("/health", get(health))
@@ -58,7 +61,12 @@ pub async fn serve(cfg: Arc<Config>, agent: Arc<Agent>) -> Result<()> {
         .with_state(state);
 
     if cfg.api.cors_allow_any {
-        router = router.layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any));
+        router = router.layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        );
     }
 
     info!(target: "api", bind = %bind, "HTTP/WS API démarrée");
@@ -70,7 +78,9 @@ pub async fn serve(cfg: Arc<Config>, agent: Arc<Agent>) -> Result<()> {
 // ─── Auth helper ────────────────────────────────────────────────────────
 
 fn check_auth(headers: &HeaderMap, expected: &Option<String>) -> Result<(), StatusCode> {
-    let Some(token) = expected else { return Ok(()); };
+    let Some(token) = expected else {
+        return Ok(());
+    };
     let h = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -93,16 +103,31 @@ struct HealthResp {
 
 async fn health(State(_s): State<AppState>) -> impl IntoResponse {
     let counts = crate::memory::counts().unwrap_or(crate::memory::MemoryCounts {
-        synergies: 0, embed_cache: 0, history: 0, feedback: 0,
+        synergies: 0,
+        embed_cache: 0,
+        history: 0,
+        feedback: 0,
     });
-    Json(HealthResp { status: "ok", version: env!("CARGO_PKG_VERSION"), counts })
+    Json(HealthResp {
+        status: "ok",
+        version: env!("CARGO_PKG_VERSION"),
+        counts,
+    })
 }
 
 async fn ecosystem(State(s): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) { return (c, Json(serde_json::json!({}))); }
+    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) {
+        return (c, Json(serde_json::json!({})));
+    }
     match crate::ecosystem::Ecosystem::discover(&s.cfg) {
-        Ok(eco) => (StatusCode::OK, Json(serde_json::json!({"projects": eco.projects}))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
+        Ok(eco) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"projects": eco.projects})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
     }
 }
 
@@ -117,14 +142,18 @@ struct SynergyFilter {
     #[serde(default = "default_limit")]
     limit: usize,
 }
-fn default_limit() -> usize { 100 }
+fn default_limit() -> usize {
+    100
+}
 
 async fn synergies(
     State(s): State<AppState>,
     Query(q): Query<SynergyFilter>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) { return (c, Json(serde_json::json!([]))); }
+    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) {
+        return (c, Json(serde_json::json!([])));
+    }
     let mut list = crate::memory::list_synergies().unwrap_or_default();
     if let Some(st) = &q.status {
         list.retain(|x| format!("{:?}", x.status).eq_ignore_ascii_case(st));
@@ -135,22 +164,46 @@ async fn synergies(
     if let Some(min) = q.min_score {
         list.retain(|x| x.adjusted_score >= min);
     }
-    list.sort_by(|a, b| b.adjusted_score.partial_cmp(&a.adjusted_score).unwrap_or(std::cmp::Ordering::Equal));
+    list.sort_by(|a, b| {
+        b.adjusted_score
+            .partial_cmp(&a.adjusted_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     list.truncate(q.limit);
-    (StatusCode::OK, Json(serde_json::to_value(list).unwrap_or(serde_json::json!([]))))
+    (
+        StatusCode::OK,
+        Json(serde_json::to_value(list).unwrap_or(serde_json::json!([]))),
+    )
 }
 
-async fn synergy_by_id(State(s): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) { return (c, Json(serde_json::json!({}))); }
+async fn synergy_by_id(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) {
+        return (c, Json(serde_json::json!({})));
+    }
     match crate::memory::get_synergy(&id) {
-        Ok(Some(s)) => (StatusCode::OK, Json(serde_json::to_value(s).unwrap_or_default())),
-        Ok(None) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "not found"}))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
+        Ok(Some(s)) => (
+            StatusCode::OK,
+            Json(serde_json::to_value(s).unwrap_or_default()),
+        ),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not found"})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
     }
 }
 
 async fn scan_trigger(State(s): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) { return (c, Json(serde_json::json!({}))); }
+    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) {
+        return (c, Json(serde_json::json!({})));
+    }
     let agent = s.agent.clone();
     tokio::spawn(async move {
         match agent.one_shot_scan(None).await {
@@ -161,7 +214,10 @@ async fn scan_trigger(State(s): State<AppState>, headers: HeaderMap) -> impl Int
             Err(e) => warn!(target: "api", error = %e, "scan async échoué"),
         }
     });
-    (StatusCode::ACCEPTED, Json(serde_json::json!({"status": "started"})))
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({"status": "started"})),
+    )
 }
 
 #[derive(Deserialize)]
@@ -177,7 +233,9 @@ async fn feedback(
     headers: HeaderMap,
     Json(body): Json<FeedbackBody>,
 ) -> impl IntoResponse {
-    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) { return (c, Json(serde_json::json!({}))); }
+    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) {
+        return (c, Json(serde_json::json!({})));
+    }
     let status = match body.status.to_lowercase().as_str() {
         "implemented" => SynergyStatus::Implemented,
         "rejected" => SynergyStatus::Rejected,
@@ -192,22 +250,38 @@ async fn feedback(
                 id: syn.id.clone(),
                 status: format!("{:?}", syn.status),
             });
-            (StatusCode::OK, Json(serde_json::to_value(syn).unwrap_or_default()))
+            (
+                StatusCode::OK,
+                Json(serde_json::to_value(syn).unwrap_or_default()),
+            )
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
     }
 }
 
 async fn report_latest(State(s): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) { return (c, Json(serde_json::json!({}))); }
+    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) {
+        return (c, Json(serde_json::json!({})));
+    }
     match s.agent.load_last_report().await {
-        Ok(r) => (StatusCode::OK, Json(serde_json::to_value(r).unwrap_or_default())),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
+        Ok(r) => (
+            StatusCode::OK,
+            Json(serde_json::to_value(r).unwrap_or_default()),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
     }
 }
 
 async fn proposals(State(s): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) { return (c, Json(serde_json::json!([]))); }
+    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) {
+        return (c, Json(serde_json::json!([])));
+    }
     let mut out = Vec::new();
     if let Some(repo) = &s.cfg.action.github_proposals_repo {
         let dir = repo.join("proposals");
@@ -227,9 +301,17 @@ async fn proposals(State(s): State<AppState>, headers: HeaderMap) -> impl IntoRe
 }
 
 async fn metrics(State(_s): State<AppState>) -> impl IntoResponse {
-    let counts = crate::memory::counts().unwrap_or(crate::memory::MemoryCounts { synergies: 0, embed_cache: 0, history: 0, feedback: 0 });
+    let counts = crate::memory::counts().unwrap_or(crate::memory::MemoryCounts {
+        synergies: 0,
+        embed_cache: 0,
+        history: 0,
+        feedback: 0,
+    });
     let opt = crate::memory::load_optimizer().ok();
-    let coefs: HashMap<String, f64> = opt.as_ref().map(|o| o.coefficients().clone()).unwrap_or_default();
+    let coefs: HashMap<String, f64> = opt
+        .as_ref()
+        .map(|o| o.coefficients().clone())
+        .unwrap_or_default();
     Json(serde_json::json!({
         "synergies": counts.synergies,
         "embed_cache": counts.embed_cache,
@@ -270,15 +352,31 @@ async fn ws_handler(ws: WebSocketUpgrade, State(s): State<AppState>) -> impl Int
 }
 
 async fn sync_github(State(s): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) { return (c, Json(serde_json::json!({}))); }
+    if let Err(c) = check_auth(&headers, &s.cfg.api.auth_token) {
+        return (c, Json(serde_json::json!({})));
+    }
     let Some(repo) = &s.cfg.action.github_proposals_repo else {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "no proposals repo configured"})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "no proposals repo configured"})),
+        );
     };
-    let remote = s.cfg.action.github_remote.clone().unwrap_or_else(|| "origin".into());
+    let remote = s
+        .cfg
+        .action
+        .github_remote
+        .clone()
+        .unwrap_or_else(|| "origin".into());
     let branch = "main";
     match crate::github::push(repo, &remote, branch) {
-        Ok(_) => (StatusCode::OK, Json(serde_json::json!({"status": "pushed"}))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))),
+        Ok(_) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"status": "pushed"})),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
     }
 }
 

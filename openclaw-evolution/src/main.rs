@@ -31,7 +31,8 @@ async fn main() -> anyhow::Result<()> {
         .compact()
         .init();
 
-    println!(r#"
+    println!(
+        r#"
     ╔═══════════════════════════════════════════════╗
     ║                                               ║
     ║      ██████  ██████  ███████ ███    ██         ║
@@ -49,7 +50,8 @@ async fn main() -> anyhow::Result<()> {
     ║   v0.3.0 — Évolution AUDITÉE                 ║
     ║   Batch GPU | MoE Organes | GNN Graph | Audit ║
     ╚═══════════════════════════════════════════════╝
-    "#);
+    "#
+    );
 
     let config = Config::from_env();
     config.display();

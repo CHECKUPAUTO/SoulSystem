@@ -44,7 +44,12 @@ impl EmbedClient {
         } else {
             None
         };
-        Ok(Self { cfg, cache, http, local })
+        Ok(Self {
+            cfg,
+            cache,
+            http,
+            local,
+        })
     }
 
     pub async fn embed_one(&self, text: &str) -> Result<Vec<f32>> {
@@ -124,7 +129,9 @@ impl EmbedClient {
 
 pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
     let n = a.len().min(b.len());
-    if n == 0 { return 0.0; }
+    if n == 0 {
+        return 0.0;
+    }
     let mut dot = 0.0f32;
     let mut na = 0.0f32;
     let mut nb = 0.0f32;
@@ -133,12 +140,16 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
         na += a[i] * a[i];
         nb += b[i] * b[i];
     }
-    if na <= 0.0 || nb <= 0.0 { return 0.0; }
+    if na <= 0.0 || nb <= 0.0 {
+        return 0.0;
+    }
     dot / (na.sqrt() * nb.sqrt())
 }
 
 pub fn chunk_text(text: &str, chunk_lines: usize) -> Vec<String> {
-    if chunk_lines == 0 { return vec![text.to_string()]; }
+    if chunk_lines == 0 {
+        return vec![text.to_string()];
+    }
     let lines: Vec<&str> = text.lines().collect();
     if lines.len() <= chunk_lines {
         return vec![text.to_string()];
@@ -153,4 +164,6 @@ fn cache_key(endpoint: &str, dim: usize, text: &str) -> Vec<u8> {
 }
 
 #[allow(dead_code)]
-fn _ensure_debug(_e: &EmbedCfg) { debug!("embed cfg"); }
+fn _ensure_debug(_e: &EmbedCfg) {
+    debug!("embed cfg");
+}

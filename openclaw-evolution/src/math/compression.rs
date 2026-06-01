@@ -6,8 +6,8 @@
 //! Algorithme : itération de puissance randomisée (Halko, Martinsson, Tropp 2011)
 //! Adapté pour f32 sur GPU local sans LAPACK.
 
-use serde::{Deserialize, Serialize};
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 /// Résultat d'une SVD tronquée
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,7 +28,11 @@ impl TruncatedSVD {
     /// Reconstruire l'approximation A ≈ U_r Σ_r V_r^T
     pub fn reconstruct(&self) -> Vec<Vec<f32>> {
         let m = self.u.len();
-        let n = if self.vt.is_empty() { 0 } else { self.vt[0].len() };
+        let n = if self.vt.is_empty() {
+            0
+        } else {
+            self.vt[0].len()
+        };
         let mut result = vec![vec![0.0; n]; m];
 
         for k in 0..self.rank {
@@ -56,7 +60,11 @@ impl TruncatedSVD {
 
     /// Décompresser : q_approx = V_r q_compressed
     pub fn decompress(&self, compressed: &[f32]) -> Vec<f32> {
-        let n = if self.vt.is_empty() { 0 } else { self.vt[0].len() };
+        let n = if self.vt.is_empty() {
+            0
+        } else {
+            self.vt[0].len()
+        };
         let mut q = vec![0.0; n];
         for k in 0..self.rank.min(compressed.len()) {
             for j in 0..n {
@@ -80,7 +88,11 @@ impl TruncatedSVD {
             }
         }
 
-        if orig_sq < 1e-12 { 0.0 } else { (err_sq / orig_sq).sqrt() }
+        if orig_sq < 1e-12 {
+            0.0
+        } else {
+            (err_sq / orig_sq).sqrt()
+        }
     }
 }
 
@@ -96,7 +108,11 @@ pub fn truncated_svd(matrix: &[Vec<f32>], rank: usize, power_iter: usize) -> Tru
 
     if r == 0 || m == 0 || n == 0 {
         return TruncatedSVD {
-            u: vec![], sigma: vec![], vt: vec![], rank: 0, energy_ratio: 0.0,
+            u: vec![],
+            sigma: vec![],
+            vt: vec![],
+            rank: 0,
+            energy_ratio: 0.0,
         };
     }
 
@@ -132,14 +148,25 @@ pub fn truncated_svd(matrix: &[Vec<f32>], rank: usize, power_iter: usize) -> Tru
     let u = mat_mul(&q, &u_b, m, r, r);
 
     // Calcul du ratio d'énergie
-    let total_energy: f32 = matrix.iter()
+    let total_energy: f32 = matrix
+        .iter()
         .flat_map(|row| row.iter())
         .map(|x| x * x)
         .sum();
     let captured_energy: f32 = sigma.iter().map(|s| s * s).sum();
-    let energy_ratio = if total_energy > 0.0 { captured_energy / total_energy } else { 0.0 };
+    let energy_ratio = if total_energy > 0.0 {
+        captured_energy / total_energy
+    } else {
+        0.0
+    };
 
-    TruncatedSVD { u, sigma, vt, rank: r, energy_ratio }
+    TruncatedSVD {
+        u,
+        sigma,
+        vt,
+        rank: r,
+        energy_ratio,
+    }
 }
 
 /// Adaptation LoRA : décompose un delta de poids en deux matrices low-rank
@@ -148,7 +175,11 @@ pub fn lora_decompose(delta_weights: &[Vec<f32>], rank: usize) -> (Vec<Vec<f32>>
 
     // A = U √Σ, B = √Σ V^T
     let m = svd.u.len();
-    let n = if svd.vt.is_empty() { 0 } else { svd.vt[0].len() };
+    let n = if svd.vt.is_empty() {
+        0
+    } else {
+        svd.vt[0].len()
+    };
 
     let mut a = vec![vec![0.0; svd.rank]; m];
     let mut b = vec![vec![0.0; n]; svd.rank];
@@ -182,7 +213,13 @@ fn mat_mul(a: &[Vec<f32>], b: &[Vec<f32>], m: usize, k: usize, n: usize) -> Vec<
 }
 
 /// C = A^T * B (k×m transposé @ m×n → k×n)
-fn mat_mul_transpose_left(a: &[Vec<f32>], b: &[Vec<f32>], m: usize, k: usize, n: usize) -> Vec<Vec<f32>> {
+fn mat_mul_transpose_left(
+    a: &[Vec<f32>],
+    b: &[Vec<f32>],
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Vec<Vec<f32>> {
     let mut c = vec![vec![0.0; n]; k];
     for i in 0..k {
         for j in 0..n {
@@ -238,7 +275,9 @@ fn small_svd(b: &[Vec<f32>], r: usize, n: usize) -> (Vec<Vec<f32>>, Vec<f32>, Ve
                 }
             }
             let u_norm: f32 = u.iter().map(|x| x * x).sum::<f32>().sqrt();
-            if u_norm < 1e-12 { break; }
+            if u_norm < 1e-12 {
+                break;
+            }
             u.iter_mut().for_each(|x| *x /= u_norm);
 
             // v = B^T u
@@ -249,7 +288,9 @@ fn small_svd(b: &[Vec<f32>], r: usize, n: usize) -> (Vec<Vec<f32>>, Vec<f32>, Ve
                 }
             }
             let v_norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-            if v_norm < 1e-12 { break; }
+            if v_norm < 1e-12 {
+                break;
+            }
             v.iter_mut().for_each(|x| *x /= v_norm);
         }
 
@@ -280,7 +321,9 @@ fn small_svd(b: &[Vec<f32>], r: usize, n: usize) -> (Vec<Vec<f32>>, Vec<f32>, Ve
     }
 
     // Reformater en matrices
-    let u_mat: Vec<Vec<f32>> = (0..r).map(|i| u_vecs.iter().map(|u| u[i]).collect()).collect();
+    let u_mat: Vec<Vec<f32>> = (0..r)
+        .map(|i| u_vecs.iter().map(|u| u[i]).collect())
+        .collect();
     let vt_mat = v_vecs;
 
     (u_mat, sigma, vt_mat)

@@ -19,12 +19,48 @@ pub struct Module {
 
 pub fn default_modules() -> Vec<Module> {
     vec![
-        Module { name: "perception".into(), neuron_count: 20, color: "#3dffc0".into(), weight: 0.15, pos: [-158.0, 82.0, 78.0] },
-        Module { name: "memory".into(),     neuron_count: 50, color: "#ff6b6b".into(), weight: 0.20, pos: [142.0, 20.0, 20.0] },
-        Module { name: "reasoning".into(),  neuron_count: 40, color: "#ffd93d".into(), weight: 0.25, pos: [-80.0, -96.0, 120.0] },
-        Module { name: "action".into(),     neuron_count: 30, color: "#6bcbff".into(), weight: 0.15, pos: [160.0, -50.0, -80.0] },
-        Module { name: "emotion".into(),    neuron_count: 25, color: "#c084fc".into(), weight: 0.10, pos: [-200.0, 40.0, -60.0] },
-        Module { name: "meta".into(),       neuron_count: 35, color: "#fb923c".into(), weight: 0.15, pos: [40.0, 160.0, 20.0] },
+        Module {
+            name: "perception".into(),
+            neuron_count: 20,
+            color: "#3dffc0".into(),
+            weight: 0.15,
+            pos: [-158.0, 82.0, 78.0],
+        },
+        Module {
+            name: "memory".into(),
+            neuron_count: 50,
+            color: "#ff6b6b".into(),
+            weight: 0.20,
+            pos: [142.0, 20.0, 20.0],
+        },
+        Module {
+            name: "reasoning".into(),
+            neuron_count: 40,
+            color: "#ffd93d".into(),
+            weight: 0.25,
+            pos: [-80.0, -96.0, 120.0],
+        },
+        Module {
+            name: "action".into(),
+            neuron_count: 30,
+            color: "#6bcbff".into(),
+            weight: 0.15,
+            pos: [160.0, -50.0, -80.0],
+        },
+        Module {
+            name: "emotion".into(),
+            neuron_count: 25,
+            color: "#c084fc".into(),
+            weight: 0.10,
+            pos: [-200.0, 40.0, -60.0],
+        },
+        Module {
+            name: "meta".into(),
+            neuron_count: 35,
+            color: "#fb923c".into(),
+            weight: 0.15,
+            pos: [40.0, 160.0, 20.0],
+        },
     ]
 }
 
@@ -41,7 +77,15 @@ pub struct Neuron {
 
 impl Neuron {
     pub fn new(id: u64, module: &str, x: f64, y: f64, z: f64) -> Self {
-        Self { id, module: module.to_string(), v: VR, refractory: 0.0, x, y, z }
+        Self {
+            id,
+            module: module.to_string(),
+            v: VR,
+            refractory: 0.0,
+            x,
+            y,
+            z,
+        }
     }
 
     pub fn update(&mut self, input: f64) -> bool {
@@ -70,7 +114,12 @@ pub struct Synapse {
 impl Synapse {
     pub fn new(source: u64, target: u64, weight: f64) -> Self {
         let mut rng = rand::thread_rng();
-        Self { source, target, weight, delay: 1.0 + rng.gen::<f64>() * 5.0 }
+        Self {
+            source,
+            target,
+            weight,
+            delay: 1.0 + rng.gen::<f64>() * 5.0,
+        }
     }
 }
 

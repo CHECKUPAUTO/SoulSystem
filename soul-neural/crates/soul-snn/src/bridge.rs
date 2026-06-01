@@ -39,7 +39,8 @@ impl LatencyEncoder {
 
         // Latency is inversely proportional to activation.
         // If activation is 1.0, latency is 0. If activation is near 0, latency is near window_size.
-        let latency = ((1.0 - activation.clamp(0.0, 1.0)) * (self.window_size as f64 - 1.0)) as usize;
+        let latency =
+            ((1.0 - activation.clamp(0.0, 1.0)) * (self.window_size as f64 - 1.0)) as usize;
         if latency < self.window_size {
             spikes[latency] = true;
         }

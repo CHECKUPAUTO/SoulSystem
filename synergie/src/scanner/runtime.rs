@@ -48,7 +48,13 @@ pub fn snapshot() -> Result<RuntimeSnapshot> {
 
     // systemctl list-units
     if let Ok(out) = Command::new("systemctl")
-        .args(["list-units", "--type=service", "--all", "--no-legend", "--plain"])
+        .args([
+            "list-units",
+            "--type=service",
+            "--all",
+            "--no-legend",
+            "--plain",
+        ])
         .output()
     {
         if out.status.success() {
@@ -83,13 +89,17 @@ fn parse_ss(text: &str, proto: &str, snap: &mut RuntimeSnapshot) {
     for line in text.lines() {
         // Format ss : State Recv-Q Send-Q Local Address:Port Peer Address:Port users:(("name",pid=N,fd=M))
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 4 { continue; }
+        if parts.len() < 4 {
+            continue;
+        }
         let local = parts[3];
         let (addr, port) = match local.rsplit_once(':') {
             Some((a, p)) => (a.to_string(), p.parse::<u16>().unwrap_or(0)),
             None => continue,
         };
-        if port == 0 { continue; }
+        if port == 0 {
+            continue;
+        }
 
         let mut pid = None;
         let mut process = None;

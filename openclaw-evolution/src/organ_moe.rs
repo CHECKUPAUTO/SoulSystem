@@ -7,8 +7,8 @@
 //! Le routing s'adapte au contexte : un même organe peut répondre
 //! différemment selon le type de stimulus.
 
-use crate::math::moe::{MixtureOfExperts, MoEConfig, MoEOutput};
 use crate::math::attention::softmax;
+use crate::math::moe::{MixtureOfExperts, MoEConfig, MoEOutput};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::info;
@@ -68,12 +68,24 @@ impl OrganRole {
     /// Tous les rôles
     pub fn all() -> Vec<OrganRole> {
         vec![
-            OrganRole::Science, OrganRole::Mind, OrganRole::Engineer,
-            OrganRole::Crypto, OrganRole::Creative, OrganRole::Meta,
-            OrganRole::Memory, OrganRole::Reflex, OrganRole::Integration,
-            OrganRole::Perception, OrganRole::Affect, OrganRole::Language,
-            OrganRole::Reasoning, OrganRole::Foresight, OrganRole::Homeostasis,
-            OrganRole::Creativity, OrganRole::Social, OrganRole::Validation,
+            OrganRole::Science,
+            OrganRole::Mind,
+            OrganRole::Engineer,
+            OrganRole::Crypto,
+            OrganRole::Creative,
+            OrganRole::Meta,
+            OrganRole::Memory,
+            OrganRole::Reflex,
+            OrganRole::Integration,
+            OrganRole::Perception,
+            OrganRole::Affect,
+            OrganRole::Language,
+            OrganRole::Reasoning,
+            OrganRole::Foresight,
+            OrganRole::Homeostasis,
+            OrganRole::Creativity,
+            OrganRole::Social,
+            OrganRole::Validation,
         ]
     }
 }
@@ -197,7 +209,11 @@ impl OrganNetwork {
             .iter()
             .enumerate()
             .map(|(i, role)| {
-                OrganMoE::new(&format!("{:?}", role).to_lowercase(), base_port + i as u16, role.clone())
+                OrganMoE::new(
+                    &format!("{:?}", role).to_lowercase(),
+                    base_port + i as u16,
+                    role.clone(),
+                )
             })
             .collect();
 

@@ -39,8 +39,16 @@ pub fn scaled_dot_product_attention(
 ) -> AttentionOutput {
     let seq_q = queries.len();
     let seq_k = keys.len();
-    let d_k = if queries.is_empty() { 1 } else { queries[0].len() };
-    let d_v = if values.is_empty() { 1 } else { values[0].len() };
+    let d_k = if queries.is_empty() {
+        1
+    } else {
+        queries[0].len()
+    };
+    let d_v = if values.is_empty() {
+        1
+    } else {
+        values[0].len()
+    };
     let scale = (d_k as f32).sqrt();
 
     // Calcul des scores : Q K^T / √d_k
@@ -48,7 +56,11 @@ pub fn scaled_dot_product_attention(
     for i in 0..seq_q {
         let mut scores = vec![0.0; seq_k];
         for j in 0..seq_k {
-            let dot: f32 = queries[i].iter().zip(keys[j].iter()).map(|(q, k)| q * k).sum();
+            let dot: f32 = queries[i]
+                .iter()
+                .zip(keys[j].iter())
+                .map(|(q, k)| q * k)
+                .sum();
             scores[j] = dot / scale;
         }
         // Softmax
@@ -96,7 +108,11 @@ impl MultiHeadAttention {
         let init_weights = |rows: usize, cols: usize| -> Vec<Vec<f32>> {
             let mut rng = rand::thread_rng();
             (0..rows)
-                .map(|_| (0..cols).map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale).collect())
+                .map(|_| {
+                    (0..cols)
+                        .map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale)
+                        .collect()
+                })
                 .collect()
         };
 
@@ -105,7 +121,16 @@ impl MultiHeadAttention {
         let w_v: Vec<Vec<Vec<f32>>> = (0..n_heads).map(|_| init_weights(d_model, d_v)).collect();
         let w_o = init_weights(n_heads * d_v, d_model);
 
-        Self { n_heads, d_model, d_k, d_v, w_q, w_k, w_v, w_o }
+        Self {
+            n_heads,
+            d_model,
+            d_k,
+            d_v,
+            w_q,
+            w_k,
+            w_v,
+            w_o,
+        }
     }
 
     /// Forward pass
@@ -145,24 +170,34 @@ impl MultiHeadAttention {
         // Projection de sortie
         let output = project(&concat, &self.w_o);
 
-        AttentionOutput { output, weights: avg_weights }
+        AttentionOutput {
+            output,
+            weights: avg_weights,
+        }
     }
 }
 
 /// Projection linéaire : X @ W (chaque vecteur de X multiplié par W)
 fn project(input: &[Vec<f32>], weights: &[Vec<f32>]) -> Vec<Vec<f32>> {
     let rows = weights.len();
-    let cols = if weights.is_empty() { 0 } else { weights[0].len() };
+    let cols = if weights.is_empty() {
+        0
+    } else {
+        weights[0].len()
+    };
 
-    input.iter().map(|x| {
-        let mut out = vec![0.0; cols];
-        for j in 0..cols {
-            for i in 0..rows.min(x.len()) {
-                out[j] += x[i] * weights[i][j];
+    input
+        .iter()
+        .map(|x| {
+            let mut out = vec![0.0; cols];
+            for j in 0..cols {
+                for i in 0..rows.min(x.len()) {
+                    out[j] += x[i] * weights[i][j];
+                }
             }
-        }
-        out
-    }).collect()
+            out
+        })
+        .collect()
 }
 
 use rand::Rng;

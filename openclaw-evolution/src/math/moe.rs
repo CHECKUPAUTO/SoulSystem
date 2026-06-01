@@ -38,7 +38,11 @@ impl Expert {
 
         Self {
             weights: (0..input_dim)
-                .map(|_| (0..output_dim).map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale).collect())
+                .map(|_| {
+                    (0..output_dim)
+                        .map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale)
+                        .collect()
+                })
                 .collect(),
             bias: vec![0.0; output_dim],
             usage_count: 0,
@@ -85,7 +89,11 @@ impl GatingNetwork {
 
         Self {
             weights: (0..input_dim)
-                .map(|_| (0..n_experts).map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale).collect())
+                .map(|_| {
+                    (0..n_experts)
+                        .map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale)
+                        .collect()
+                })
                 .collect(),
             bias: vec![0.0; n_experts],
             noise_scale: 0.1,
@@ -116,7 +124,8 @@ impl GatingNetwork {
         let probs = softmax(&logits);
 
         // Trouver top-k
-        let mut indexed: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
+        let mut indexed: Vec<(usize, f32)> =
+            probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
         indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         indexed.truncate(k);
 
@@ -145,7 +154,11 @@ impl MixtureOfExperts {
             .collect();
         let gating = GatingNetwork::new(config.input_dim, config.n_experts);
 
-        Self { config, experts, gating }
+        Self {
+            config,
+            experts,
+            gating,
+        }
     }
 
     /// Forward pass : route vers top-k experts et combine les sorties
@@ -179,7 +192,9 @@ impl MixtureOfExperts {
         let counts: Vec<f32> = self.experts.iter().map(|e| e.usage_count as f32).collect();
         let n = counts.len() as f32;
         let mean = counts.iter().sum::<f32>() / n;
-        if mean < 1e-10 { return 0.0; }
+        if mean < 1e-10 {
+            return 0.0;
+        }
         let variance = counts.iter().map(|c| (c - mean).powi(2)).sum::<f32>() / n;
         self.config.balance_coeff * (variance / (mean * mean))
     }
@@ -197,7 +212,10 @@ impl MixtureOfExperts {
         if total == 0 {
             vec![1.0 / self.experts.len() as f32; self.experts.len()]
         } else {
-            self.experts.iter().map(|e| e.usage_count as f32 / total as f32).collect()
+            self.experts
+                .iter()
+                .map(|e| e.usage_count as f32 / total as f32)
+                .collect()
         }
     }
 }
@@ -239,6 +257,10 @@ mod tests {
         let x = vec![1.0; 8];
         let gates = gating.top_k_gate(&x, 3, false);
         let sum: f32 = gates.iter().map(|(_, w)| w).sum();
-        assert!((sum - 1.0).abs() < 1e-4, "Top-k weights should sum to 1, got {}", sum);
+        assert!(
+            (sum - 1.0).abs() < 1e-4,
+            "Top-k weights should sum to 1, got {}",
+            sum
+        );
     }
 }

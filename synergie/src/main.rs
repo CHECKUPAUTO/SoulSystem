@@ -84,7 +84,10 @@ enum Cmd {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,synergie=info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info,synergie=info")),
+        )
         .init();
 
     let cli = Cli::parse();
@@ -103,7 +106,10 @@ async fn main() -> Result<()> {
                 }
             }
             let parsed: Option<HashSet<String>> = only.map(|s| {
-                s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()
+                s.split(',')
+                    .map(|x| x.trim().to_string())
+                    .filter(|x| !x.is_empty())
+                    .collect()
             });
             let report = agent.one_shot_scan(parsed.as_ref()).await?;
             let path = agent.write_report(&report).await?;
@@ -115,7 +121,9 @@ async fn main() -> Result<()> {
         }
         Cmd::Serve { port } => {
             let mut cfg_mut = (*cfg).clone();
-            if let Some(p) = port { cfg_mut.api.port = p; }
+            if let Some(p) = port {
+                cfg_mut.api.port = p;
+            }
             let cfg_arc = Arc::new(cfg_mut);
             let agent2 = Arc::new(agent::Agent::new(cfg_arc.clone()));
             let agent_loop = agent2.clone();
@@ -135,7 +143,12 @@ async fn main() -> Result<()> {
             for s in r.synergies.iter().take(20) {
                 println!(
                     "  [{:.2}] {:>4} {} ({}) {} → {}",
-                    s.adjusted_score, s.priority, s.synergy_type, s.id, s.source_project, s.target_project
+                    s.adjusted_score,
+                    s.priority,
+                    s.synergy_type,
+                    s.id,
+                    s.source_project,
+                    s.target_project
                 );
             }
         }
@@ -144,31 +157,58 @@ async fn main() -> Result<()> {
             println!("Découverte de {} projet(s) :", eco.projects.len());
             for p in eco.projects {
                 println!("  • {:<35} {:?}  [{}]", p.name, p.kind, p.tags.join(","));
-                for m in &p.manifests { println!("      ↳ {}", m.display()); }
-                for s in &p.services { println!("      ↳ service {} port={:?} ({})", s.kind, s.port, s.source); }
+                for m in &p.manifests {
+                    println!("      ↳ {}", m.display());
+                }
+                for s in &p.services {
+                    println!(
+                        "      ↳ service {} port={:?} ({})",
+                        s.kind, s.port, s.source
+                    );
+                }
             }
         }
         Cmd::Sync => {
             let Some(repo) = &cfg.action.github_proposals_repo else {
                 anyhow::bail!("aucun repo proposals configuré (action.github_proposals_repo)");
             };
-            let remote = cfg.action.github_remote.clone().unwrap_or_else(|| "origin".into());
+            let remote = cfg
+                .action
+                .github_remote
+                .clone()
+                .unwrap_or_else(|| "origin".into());
             github::push(repo, &remote, "main")?;
             info!("push GitHub OK");
         }
         Cmd::Status => {
             let counts = memory::counts().unwrap_or(memory::MemoryCounts {
-                synergies: 0, embed_cache: 0, history: 0, feedback: 0,
+                synergies: 0,
+                embed_cache: 0,
+                history: 0,
+                feedback: 0,
             });
             let opt = memory::load_optimizer().ok();
             println!("SYNERGIE v{}", env!("CARGO_PKG_VERSION"));
-            println!("Tick : {} s  |  Threshold : {:.2}  |  Dry run : {}", cfg.agent.tick_seconds, cfg.agent.action_threshold, cfg.agent.dry_run);
+            println!(
+                "Tick : {} s  |  Threshold : {:.2}  |  Dry run : {}",
+                cfg.agent.tick_seconds, cfg.agent.action_threshold, cfg.agent.dry_run
+            );
             println!("API  : http://{}:{}", cfg.api.bind, cfg.api.port);
-            println!("DB   : {} / {} synergies, {} hist, {} feedback, {} embeds",
+            println!(
+                "DB   : {} / {} synergies, {} hist, {} feedback, {} embeds",
                 cfg.persistence.path.display(),
-                counts.synergies, counts.history, counts.feedback, counts.embed_cache);
+                counts.synergies,
+                counts.history,
+                counts.feedback,
+                counts.embed_cache
+            );
             if let Some(o) = opt {
-                println!("R-STDP : lr={} momentum={} | {} coefficients", o.lr(), o.momentum(), o.coefficients().len());
+                println!(
+                    "R-STDP : lr={} momentum={} | {} coefficients",
+                    o.lr(),
+                    o.momentum(),
+                    o.coefficients().len()
+                );
                 for (k, v) in o.coefficients() {
                     println!("   {:<24} = {:.3}", k, v);
                 }

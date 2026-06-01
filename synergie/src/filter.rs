@@ -32,10 +32,10 @@ pub fn filter_symbolic(mut synergies: Vec<Synergy>) -> Vec<Synergy> {
             if let (Some((e1_a, e1_b)), Some((e2_a, e2_b))) =
                 (extract_exprs(desc_i), extract_exprs(desc_j))
             {
-                let match_1 = parse_both_and_compare(&e1_a, &e2_a)
-                    && parse_both_and_compare(&e1_b, &e2_b);
-                let match_2 = parse_both_and_compare(&e1_a, &e2_b)
-                    && parse_both_and_compare(&e1_b, &e2_a);
+                let match_1 =
+                    parse_both_and_compare(&e1_a, &e2_a) && parse_both_and_compare(&e1_b, &e2_b);
+                let match_2 =
+                    parse_both_and_compare(&e1_a, &e2_b) && parse_both_and_compare(&e1_b, &e2_a);
 
                 if match_1 || match_2 {
                     used[j] = true;
@@ -120,7 +120,11 @@ mod tests {
             },
         ];
         let filtered = filter_symbolic(synergies);
-        assert!(filtered.len() <= 2, "devrait fusionner, obtenu {}", filtered.len());
+        assert!(
+            filtered.len() <= 2,
+            "devrait fusionner, obtenu {}",
+            filtered.len()
+        );
     }
 
     #[test]

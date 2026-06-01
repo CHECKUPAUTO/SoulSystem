@@ -23,13 +23,16 @@ pub async fn route_turbulence(State(state): State<AppState>) -> Json<Value> {
                 .unwrap_or("?")
                 .to_string();
             let val = r.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let crit = r.get("is_critical").and_then(|v| v.as_bool()).unwrap_or(false);
-            
+            let crit = r
+                .get("is_critical")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
             if crit {
                 critical_brains.push(key.clone());
             }
             *attractor_counts.entry(att.clone()).or_insert(0) += 1;
-            
+
             mesh_turb[key] = json!({
                 "value": val,
                 "critical": crit,
@@ -43,12 +46,8 @@ pub async fn route_turbulence(State(state): State<AppState>) -> Json<Value> {
         .iter()
         .filter(|(_, r)| r.get("error").is_none())
         .max_by(|(_, a), (_, b)| {
-            let sa = attractor_score(
-                a.get("attractor").and_then(|v| v.as_str()).unwrap_or(""),
-            );
-            let sb = attractor_score(
-                b.get("attractor").and_then(|v| v.as_str()).unwrap_or(""),
-            );
+            let sa = attractor_score(a.get("attractor").and_then(|v| v.as_str()).unwrap_or(""));
+            let sb = attractor_score(b.get("attractor").and_then(|v| v.as_str()).unwrap_or(""));
             sa.partial_cmp(&sb).unwrap()
         })
         .map(|(k, _)| k.clone())

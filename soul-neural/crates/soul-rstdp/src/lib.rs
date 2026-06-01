@@ -22,11 +22,23 @@ pub struct FeedbackEntry {
 
 impl RSTDPOptimizer {
     pub fn new(lr: f64) -> Self {
-        Self { coefficients: HashMap::new(), lr, momentum: 0.0, velocity: HashMap::new(), history: Vec::new() }
+        Self {
+            coefficients: HashMap::new(),
+            lr,
+            momentum: 0.0,
+            velocity: HashMap::new(),
+            history: Vec::new(),
+        }
     }
     pub fn with_momentum(lr: f64, momentum: f64) -> Self {
         assert!((0.0..=1.0).contains(&momentum), "momentum must be in [0,1]");
-        Self { coefficients: HashMap::new(), lr, momentum, velocity: HashMap::new(), history: Vec::new() }
+        Self {
+            coefficients: HashMap::new(),
+            lr,
+            momentum,
+            velocity: HashMap::new(),
+            history: Vec::new(),
+        }
     }
     pub fn reinforce(&mut self, synergy_type: &str, reward: f64, note: Option<&str>) {
         let coef = *self.coefficients.get(synergy_type).unwrap_or(&1.0);
@@ -41,16 +53,28 @@ impl RSTDPOptimizer {
         self.history.push(FeedbackEntry {
             synergy_type: synergy_type.to_string(),
             reward,
-            timestamp: format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()),
+            timestamp: format!(
+                "{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            ),
             note: note.map(String::from),
         });
     }
     pub fn get_coefficient(&self, synergy_type: &str) -> f64 {
         *self.coefficients.get(synergy_type).unwrap_or(&1.0)
     }
-    pub fn feedback_history(&self) -> &[FeedbackEntry] { &self.history }
-    pub fn coefficients(&self) -> &HashMap<String, f64> { &self.coefficients }
-    pub fn momentum(&self) -> f64 { self.momentum }
+    pub fn feedback_history(&self) -> &[FeedbackEntry] {
+        &self.history
+    }
+    pub fn coefficients(&self) -> &HashMap<String, f64> {
+        &self.coefficients
+    }
+    pub fn momentum(&self) -> f64 {
+        self.momentum
+    }
 }
 
 #[cfg(test)]
@@ -83,7 +107,11 @@ mod tests {
         let c = Dual::var(2.0);
         let delta = Dual::primal(0.5);
         let new_c = c + delta;
-        assert!((new_c.grad() - 1.0).abs() < 1e-10, "grad = {}", new_c.grad());
+        assert!(
+            (new_c.grad() - 1.0).abs() < 1e-10,
+            "grad = {}",
+            new_c.grad()
+        );
     }
     #[test]
     fn test_feedback_history() {

@@ -36,7 +36,10 @@ struct JsonRpcResponse {
 }
 
 #[derive(Serialize)]
-struct JsonRpcError { code: i32, message: String }
+struct JsonRpcError {
+    code: i32,
+    message: String,
+}
 
 pub async fn run_stdio(agent: Arc<Agent>) -> Result<()> {
     info!(target: "mcp", "MCP stdio démarré");
@@ -46,7 +49,9 @@ pub async fn run_stdio(agent: Arc<Agent>) -> Result<()> {
 
     while let Some(line) = reader.next_line().await? {
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         let req: JsonRpcRequest = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(e) => {
@@ -65,7 +70,11 @@ pub async fn run_stdio(agent: Arc<Agent>) -> Result<()> {
             })),
             "tools/list" => Some(tools_list_json()),
             "tools/call" => {
-                let name = req.params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let name = req
+                    .params
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let args = req.params.get("arguments").cloned().unwrap_or(json!({}));
                 Some(call_tool(name, args, &agent).await)
             }
@@ -73,7 +82,12 @@ pub async fn run_stdio(agent: Arc<Agent>) -> Result<()> {
             other => Some(call_tool(other, req.params, &agent).await),
         };
 
-        let out = JsonRpcResponse { jsonrpc: "2.0", id, result: resp, error: None };
+        let out = JsonRpcResponse {
+            jsonrpc: "2.0",
+            id,
+            result: resp,
+            error: None,
+        };
         let text = serde_json::to_string(&out)?;
         stdout.write_all(text.as_bytes()).await?;
         stdout.write_all(b"\n").await?;
@@ -141,23 +155,42 @@ async fn call_tool(name: &str, args: serde_json::Value, agent: &Arc<Agent>) -> s
                 list.retain(|x| x.adjusted_score as f64 >= m);
             }
             let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
-            list.sort_by(|a, b| b.adjusted_score.partial_cmp(&a.adjusted_score).unwrap_or(std::cmp::Ordering::Equal));
+            list.sort_by(|a, b| {
+                b.adjusted_score
+                    .partial_cmp(&a.adjusted_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             list.truncate(limit);
             json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&list).unwrap_or_default()}]})
         }
         "get_synergy" => {
             let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("");
             match crate::memory::get_synergy(id) {
-                Ok(Some(s)) => json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&s).unwrap_or_default()}]}),
-                Ok(None) => json!({"content": [{"type": "text", "text": format!("synergie {} introuvable", id)}], "isError": true}),
-                Err(e) => json!({"content": [{"type": "text", "text": e.to_string()}], "isError": true}),
+                Ok(Some(s)) => {
+                    json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&s).unwrap_or_default()}]})
+                }
+                Ok(None) => {
+                    json!({"content": [{"type": "text", "text": format!("synergie {} introuvable", id)}], "isError": true})
+                }
+                Err(e) => {
+                    json!({"content": [{"type": "text", "text": e.to_string()}], "isError": true})
+                }
             }
         }
         "propose_next_action" => {
             let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(3) as usize;
             let mut list = crate::memory::list_synergies().unwrap_or_default();
-            list.retain(|s| matches!(s.status, SynergyStatus::Proposed | SynergyStatus::Investigating));
-            list.sort_by(|a, b| b.adjusted_score.partial_cmp(&a.adjusted_score).unwrap_or(std::cmp::Ordering::Equal));
+            list.retain(|s| {
+                matches!(
+                    s.status,
+                    SynergyStatus::Proposed | SynergyStatus::Investigating
+                )
+            });
+            list.sort_by(|a, b| {
+                b.adjusted_score
+                    .partial_cmp(&a.adjusted_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             list.truncate(limit);
             json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&list).unwrap_or_default()}]})
         }
@@ -173,18 +206,29 @@ async fn call_tool(name: &str, args: serde_json::Value, agent: &Arc<Agent>) -> s
             let agent = agent.clone();
             tokio::spawn(async move {
                 match agent.one_shot_scan(only.as_ref()).await {
-                    Ok(r) => { let _ = agent.write_report(&r).await; }
+                    Ok(r) => {
+                        let _ = agent.write_report(&r).await;
+                    }
                     Err(e) => warn!(target: "mcp", error = %e),
                 }
             });
             json!({"content": [{"type": "text", "text": "scan déclenché (asynchrone)"}]})
         }
         "get_ecosystem" => match crate::ecosystem::Ecosystem::discover(agent.cfg()) {
-            Ok(eco) => json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&eco.projects).unwrap_or_default()}]}),
-            Err(e) => json!({"content": [{"type": "text", "text": e.to_string()}], "isError": true}),
+            Ok(eco) => {
+                json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&eco.projects).unwrap_or_default()}]})
+            }
+            Err(e) => {
+                json!({"content": [{"type": "text", "text": e.to_string()}], "isError": true})
+            }
         },
         "get_metrics" => {
-            let counts = crate::memory::counts().unwrap_or(crate::memory::MemoryCounts { synergies: 0, embed_cache: 0, history: 0, feedback: 0 });
+            let counts = crate::memory::counts().unwrap_or(crate::memory::MemoryCounts {
+                synergies: 0,
+                embed_cache: 0,
+                history: 0,
+                feedback: 0,
+            });
             let opt = crate::memory::load_optimizer().ok();
             let payload = json!({
                 "counts": counts,
@@ -194,15 +238,22 @@ async fn call_tool(name: &str, args: serde_json::Value, agent: &Arc<Agent>) -> s
             });
             json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&payload).unwrap_or_default()}]})
         }
-        _ => json!({"content": [{"type": "text", "text": format!("méthode inconnue : {}", name)}], "isError": true}),
+        _ => {
+            json!({"content": [{"type": "text", "text": format!("méthode inconnue : {}", name)}], "isError": true})
+        }
     }
 }
 
 fn mark(_name: &str, args: serde_json::Value, status: SynergyStatus) -> serde_json::Value {
     let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("");
-    let note = args.get("note").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let note = args
+        .get("note")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     match crate::memory::record_feedback(id, status, note) {
-        Ok(s) => json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&s).unwrap_or_default()}]}),
+        Ok(s) => {
+            json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&s).unwrap_or_default()}]})
+        }
         Err(e) => json!({"content": [{"type": "text", "text": e.to_string()}], "isError": true}),
     }
 }

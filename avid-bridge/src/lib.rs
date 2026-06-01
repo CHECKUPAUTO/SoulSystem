@@ -1,6 +1,5 @@
 /// Pont AVID ↔ SoulSystem — connexion réelle via HTTP à l'API AVID
 /// Les types Scout et Vision sont de vrais clients HTTP qui parlent à avid-server
-
 use anyhow::Result;
 
 pub fn init() -> Result<()> {
@@ -25,7 +24,8 @@ impl Default for Scout {
 
 impl Scout {
     pub async fn crawl(&self, url: &str) -> Result<()> {
-        let resp = self.client
+        let resp = self
+            .client
             .post(format!("{}/api/scout/crawl", self.base_url))
             .json(&serde_json::json!({"url": url}))
             .send()

@@ -112,9 +112,7 @@ impl RolloutBuffer {
                 0.0
             };
 
-            let delta = self.transitions[t].reward
-                + gamma * next_value
-                - self.transitions[t].value;
+            let delta = self.transitions[t].reward + gamma * next_value - self.transitions[t].value;
 
             gae = delta + gamma * lambda * if self.transitions[t].done { 0.0 } else { gae };
             self.advantages[t] = gae;
@@ -123,7 +121,12 @@ impl RolloutBuffer {
 
         // Normaliser les avantages
         let mean: f32 = self.advantages.iter().sum::<f32>() / n as f32;
-        let var: f32 = self.advantages.iter().map(|a| (a - mean).powi(2)).sum::<f32>() / n as f32;
+        let var: f32 = self
+            .advantages
+            .iter()
+            .map(|a| (a - mean).powi(2))
+            .sum::<f32>()
+            / n as f32;
         let std = var.sqrt().max(1e-8);
         for a in &mut self.advantages {
             *a = (*a - mean) / std;
@@ -163,10 +166,16 @@ impl LinearPolicy {
 
         Self {
             policy_weights: (0..state_dim)
-                .map(|_| (0..n_actions).map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale).collect())
+                .map(|_| {
+                    (0..n_actions)
+                        .map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale)
+                        .collect()
+                })
                 .collect(),
             policy_bias: vec![0.0; n_actions],
-            value_weights: (0..state_dim).map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale).collect(),
+            value_weights: (0..state_dim)
+                .map(|_| (rng.gen::<f32>() * 2.0 - 1.0) * scale)
+                .collect(),
             value_bias: 0.0,
         }
     }
@@ -189,17 +198,21 @@ impl LinearPolicy {
         let log_probs: Vec<f32> = logits.iter().map(|x| x - log_sum_exp).collect();
 
         // Entropie = -Σ p log p
-        let entropy: f32 = -log_probs.iter()
-            .map(|lp| lp.exp() * lp)
-            .sum::<f32>();
+        let entropy: f32 = -log_probs.iter().map(|lp| lp.exp() * lp).sum::<f32>();
 
         // Value = state @ value_weights + bias
-        let value = self.value_bias + state.iter()
-            .zip(self.value_weights.iter())
-            .map(|(s, w)| s * w)
-            .sum::<f32>();
+        let value = self.value_bias
+            + state
+                .iter()
+                .zip(self.value_weights.iter())
+                .map(|(s, w)| s * w)
+                .sum::<f32>();
 
-        PolicyOutput { log_probs, value, entropy }
+        PolicyOutput {
+            log_probs,
+            value,
+            entropy,
+        }
     }
 
     /// Collecte les paramètres en un vecteur plat (pour l'optimiseur)
@@ -245,11 +258,7 @@ use rand::Rng;
 /// L = -E[min(r_t A_t, clip(r_t, 1-ε, 1+ε) A_t)]
 ///     + c₁ (V - V_target)²
 ///     - c₂ H(π)
-pub fn ppo_loss(
-    buffer: &RolloutBuffer,
-    policy: &LinearPolicy,
-    config: &PPOConfig,
-) -> f32 {
+pub fn ppo_loss(buffer: &RolloutBuffer, policy: &LinearPolicy, config: &PPOConfig) -> f32 {
     let n = buffer.len();
     if n == 0 {
         return 0.0;
@@ -282,8 +291,7 @@ pub fn ppo_loss(
     }
 
     let n_f = n as f32;
-    (total_policy_loss / n_f)
-        + config.value_coeff * (total_value_loss / n_f)
+    (total_policy_loss / n_f) + config.value_coeff * (total_value_loss / n_f)
         - config.entropy_coeff * (total_entropy / n_f)
 }
 

@@ -8,40 +8,82 @@ use anyhow::Result;
 use std::collections::HashMap;
 
 const PRODUCERS: &[&str] = &[
-    "encode", "serialize", "build", "create", "generate", "make", "compile",
-    "embed", "store", "save", "produce", "emit", "render", "compress",
-    "publish", "send", "push",
+    "encode",
+    "serialize",
+    "build",
+    "create",
+    "generate",
+    "make",
+    "compile",
+    "embed",
+    "store",
+    "save",
+    "produce",
+    "emit",
+    "render",
+    "compress",
+    "publish",
+    "send",
+    "push",
 ];
 const CONSUMERS: &[&str] = &[
-    "decode", "deserialize", "parse", "apply", "run", "execute", "load",
-    "consume", "subscribe", "receive", "fetch", "pull", "decompress",
-    "interpret", "evaluate", "process",
+    "decode",
+    "deserialize",
+    "parse",
+    "apply",
+    "run",
+    "execute",
+    "load",
+    "consume",
+    "subscribe",
+    "receive",
+    "fetch",
+    "pull",
+    "decompress",
+    "interpret",
+    "evaluate",
+    "process",
 ];
 const TRANSFORMERS: &[&str] = &[
-    "transform", "convert", "translate", "map", "filter", "normalize",
-    "validate", "sanitize", "enrich", "aggregate",
+    "transform",
+    "convert",
+    "translate",
+    "map",
+    "filter",
+    "normalize",
+    "validate",
+    "sanitize",
+    "enrich",
+    "aggregate",
 ];
 
 #[derive(Default)]
 pub struct ApiSurfaceDetector;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Role { Producer, Consumer, Transformer }
+enum Role {
+    Producer,
+    Consumer,
+    Transformer,
+}
 
 fn classify(name: &str) -> Option<(Role, String)> {
     let lower = name.to_ascii_lowercase();
     for verb in PRODUCERS {
-        if lower.starts_with(verb) || lower.contains(&format!("_{}", verb)) || lower.ends_with(verb) {
+        if lower.starts_with(verb) || lower.contains(&format!("_{}", verb)) || lower.ends_with(verb)
+        {
             return Some((Role::Producer, stem_of(&lower, verb)));
         }
     }
     for verb in CONSUMERS {
-        if lower.starts_with(verb) || lower.contains(&format!("_{}", verb)) || lower.ends_with(verb) {
+        if lower.starts_with(verb) || lower.contains(&format!("_{}", verb)) || lower.ends_with(verb)
+        {
             return Some((Role::Consumer, stem_of(&lower, verb)));
         }
     }
     for verb in TRANSFORMERS {
-        if lower.starts_with(verb) || lower.contains(&format!("_{}", verb)) || lower.ends_with(verb) {
+        if lower.starts_with(verb) || lower.contains(&format!("_{}", verb)) || lower.ends_with(verb)
+        {
             return Some((Role::Transformer, stem_of(&lower, verb)));
         }
     }
@@ -54,7 +96,9 @@ fn stem_of(name: &str, verb: &str) -> String {
 }
 
 impl Detector for ApiSurfaceDetector {
-    fn name(&self) -> &'static str { "api_surface" }
+    fn name(&self) -> &'static str {
+        "api_surface"
+    }
 
     fn detect(&self, ctx: &DetectContext) -> Result<Vec<Synergy>> {
         struct Slot {
@@ -66,10 +110,19 @@ impl Detector for ApiSurfaceDetector {
         let mut slots: Vec<Slot> = Vec::new();
         for (proj, items) in ctx.public_items.iter() {
             for (idx, it) in items.iter().enumerate() {
-                if !it.kind.is_callable() { continue; }
+                if !it.kind.is_callable() {
+                    continue;
+                }
                 if let Some((role, stem)) = classify(&it.name) {
-                    if stem.len() < 3 { continue; }
-                    slots.push(Slot { project: proj.clone(), role, stem, item_idx: idx });
+                    if stem.len() < 3 {
+                        continue;
+                    }
+                    slots.push(Slot {
+                        project: proj.clone(),
+                        role,
+                        stem,
+                        item_idx: idx,
+                    });
                 }
             }
         }
@@ -81,28 +134,40 @@ impl Detector for ApiSurfaceDetector {
 
         let mut out = Vec::new();
         for (stem, group) in by_stem {
-            if group.len() < 2 { continue; }
+            if group.len() < 2 {
+                continue;
+            }
             // Pour chaque paire de slots (i, j) inter-projets et rôles complémentaires.
             for i in 0..group.len() {
                 for j in (i + 1)..group.len() {
                     let a = &slots[group[i]];
                     let b = &slots[group[j]];
-                    if a.project == b.project { continue; }
+                    if a.project == b.project {
+                        continue;
+                    }
                     let (ty, eff) = match (a.role, b.role) {
-                        (Role::Producer, Role::Consumer) | (Role::Consumer, Role::Producer)
-                            => ("ApiComplementarity", "easy"),
-                        (Role::Producer, Role::Transformer) | (Role::Transformer, Role::Producer)
-                        | (Role::Transformer, Role::Consumer) | (Role::Consumer, Role::Transformer)
-                            => ("DataPipeline", "medium"),
+                        (Role::Producer, Role::Consumer) | (Role::Consumer, Role::Producer) => {
+                            ("ApiComplementarity", "easy")
+                        }
+                        (Role::Producer, Role::Transformer)
+                        | (Role::Transformer, Role::Producer)
+                        | (Role::Transformer, Role::Consumer)
+                        | (Role::Consumer, Role::Transformer) => ("DataPipeline", "medium"),
                         _ => continue,
                     };
                     let id = Synergy::stable_id(ty, &a.project, &b.project, &stem);
                     let auto = auto_score_from(2, 0.85, type_floor(ty));
                     let (item_a, item_b) = (
-                        ctx.public_items.get(&a.project).and_then(|v| v.get(a.item_idx)),
-                        ctx.public_items.get(&b.project).and_then(|v| v.get(b.item_idx)),
+                        ctx.public_items
+                            .get(&a.project)
+                            .and_then(|v| v.get(a.item_idx)),
+                        ctx.public_items
+                            .get(&b.project)
+                            .and_then(|v| v.get(b.item_idx)),
                     );
-                    let (Some(ia), Some(ib)) = (item_a, item_b) else { continue };
+                    let (Some(ia), Some(ib)) = (item_a, item_b) else {
+                        continue;
+                    };
 
                     out.push(Synergy {
                         id: id.clone(),
@@ -145,7 +210,11 @@ impl Detector for ApiSurfaceDetector {
             }
         }
 
-        out.sort_by(|x, y| y.auto_score.partial_cmp(&x.auto_score).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|x, y| {
+            y.auto_score
+                .partial_cmp(&x.auto_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         out.truncate(80);
         Ok(out)
     }
