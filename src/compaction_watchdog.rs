@@ -409,6 +409,6 @@ mod tests {
         assert!(text.contains("Décisions récentes"));
         assert!(text.contains("Erreurs corrigées"));
         assert!(text.contains("Prochaines étapes"));
-        assert!(text.contains("Reprenez votre travail"));
+        assert!(text.contains("Reprends ton travail"));
     }
 }
