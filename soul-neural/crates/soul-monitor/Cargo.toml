@@ -1,0 +1,12 @@
+[package]
+name = "soul-monitor"
+version.workspace = true
+edition.workspace = true
+description = "HTTP/WebSocket monitoring interface for SoulNeural agent"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full", "sync"] }
+soul-core = { path = "../soul-core" }
+anyhow = "1"
