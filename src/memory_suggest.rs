@@ -79,14 +79,16 @@ impl MemorySuggest {
         let mut facts = Vec::new();
         for line in content.lines() {
             // Format: "N. [ ] texte du fait"
-            if let Some(text) = line.strip_prefix(|c: char| c.is_ascii_digit())
+            if let Some(text) = line
+                .strip_prefix(|c: char| c.is_ascii_digit())
                 .and_then(|s| s.strip_prefix(". [ ] "))
             {
                 facts.push(PendingFact {
                     text: text.to_string(),
                     accepted: false,
                 });
-            } else if let Some(text) = line.strip_prefix(|c: char| c.is_ascii_digit())
+            } else if let Some(text) = line
+                .strip_prefix(|c: char| c.is_ascii_digit())
                 .and_then(|s| s.strip_prefix(". [x] "))
             {
                 facts.push(PendingFact {
@@ -111,7 +113,11 @@ impl MemorySuggest {
         content.push_str("Valide avec `!memory accept <index>` ou `!memory accept all`.\n\n");
 
         for (i, fact) in facts.iter().enumerate() {
-            let checked = if i == index || fact.accepted { "x" } else { " " };
+            let checked = if i == index || fact.accepted {
+                "x"
+            } else {
+                " "
+            };
             content.push_str(&format!("{}. [{}] {}\n", i + 1, checked, fact.text));
         }
 
@@ -175,7 +181,10 @@ impl MemorySuggest {
         // Nettoyer pending_facts.md
         tokio::fs::write(self.pending_facts_path(), "").await?;
 
-        info!("MemorySuggest: {} faits intégrés dans MEMORY.md", accepted.len());
+        info!(
+            "MemorySuggest: {} faits intégrés dans MEMORY.md",
+            accepted.len()
+        );
         Ok(accepted.len())
     }
 
@@ -285,7 +294,9 @@ mod tests {
         let memory_path = dir.path().join("MEMORY.md");
 
         // Créer MEMORY.md existant
-        tokio::fs::write(&memory_path, "# MEMORY.md\n\n## Projets\n\n- Projet A\n").await.unwrap();
+        tokio::fs::write(&memory_path, "# MEMORY.md\n\n## Projets\n\n- Projet A\n")
+            .await
+            .unwrap();
 
         // Créer faits acceptés
         let content = "# Faits en attente\n\n1. [x] Fait important #1\n2. [x] Fait important #2\n3. [ ] Fait non accepté\n";

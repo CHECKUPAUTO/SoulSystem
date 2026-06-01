@@ -109,7 +109,11 @@ mod tests {
     fn test_embed_returns_128_dims() {
         let mut engine = EmbeddingEngine::new(&["hello world test"]);
         let vec = engine.embed("hello");
-        assert_eq!(vec.len(), 128, "embedding dimension should be 128 (default d_model)");
+        assert_eq!(
+            vec.len(),
+            128,
+            "embedding dimension should be 128 (default d_model)"
+        );
         // Vérifie que ce n'est pas NaN
         for &v in &vec {
             assert!(!v.is_nan(), "NaN in embedding vector");
@@ -144,7 +148,11 @@ mod tests {
     fn test_embed_empty_string() {
         let mut engine = EmbeddingEngine::new(&["hello"]);
         let vec = engine.embed("");
-        assert_eq!(vec.len(), 128, "empty string should still return 128-dim vector");
+        assert_eq!(
+            vec.len(),
+            128,
+            "empty string should still return 128-dim vector"
+        );
         for &v in &vec {
             assert!(!v.is_nan(), "NaN in empty-string embedding");
             assert!(v.is_finite(), "non-finite in empty-string embedding");
@@ -156,7 +164,10 @@ mod tests {
         let a = vec![1.0, 0.0, 0.0];
         let b = vec![1.0, 0.0, 0.0];
         let sim = EmbeddingEngine::cosine_similarity(&a, &b);
-        assert!((sim - 1.0).abs() < 1e-6, "identical vectors should have similarity 1.0");
+        assert!(
+            (sim - 1.0).abs() < 1e-6,
+            "identical vectors should have similarity 1.0"
+        );
     }
 
     #[test]

@@ -71,12 +71,18 @@ impl AfferentNerve {
                 match resp.json::<serde_json::Value>().await {
                     Ok(data) => {
                         let mut state = self.cached_state.write();
-                        state.gpu_temp_c = data.get("gpu_temp_c")
-                            .and_then(|v| v.as_f64()).unwrap_or(state.gpu_temp_c);
-                        state.gpu_power_w = data.get("gpu_power_w")
-                            .and_then(|v| v.as_f64()).unwrap_or(state.gpu_power_w);
-                        state.gpu_util_pct = data.get("gpu_util_pct")
-                            .and_then(|v| v.as_f64()).unwrap_or(state.gpu_util_pct);
+                        state.gpu_temp_c = data
+                            .get("gpu_temp_c")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(state.gpu_temp_c);
+                        state.gpu_power_w = data
+                            .get("gpu_power_w")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(state.gpu_power_w);
+                        state.gpu_util_pct = data
+                            .get("gpu_util_pct")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(state.gpu_util_pct);
                         state.clone()
                     }
                     Err(e) => {
@@ -132,7 +138,8 @@ mod tests {
     #[test]
     fn thermal_noise_cold() {
         let nerve = AfferentNerve::with_state(SensorState {
-            gpu_temp_c: 50.0, ..Default::default()
+            gpu_temp_c: 50.0,
+            ..Default::default()
         });
         // Normal temperature → low noise
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -143,7 +150,8 @@ mod tests {
     #[test]
     fn thermal_noise_hot() {
         let nerve = AfferentNerve::with_state(SensorState {
-            gpu_temp_c: 88.0, ..Default::default()
+            gpu_temp_c: 88.0,
+            ..Default::default()
         });
         let rt = tokio::runtime::Runtime::new().unwrap();
         let noise = rt.block_on(nerve.gpu_thermal_noise());
@@ -153,7 +161,8 @@ mod tests {
     #[test]
     fn thermal_stress_detection() {
         let nerve = AfferentNerve::with_state(SensorState {
-            gpu_temp_c: 90.0, ..Default::default()
+            gpu_temp_c: 90.0,
+            ..Default::default()
         });
         let rt = tokio::runtime::Runtime::new().unwrap();
         assert!(rt.block_on(nerve.is_thermal_stress()));
@@ -162,7 +171,8 @@ mod tests {
     #[test]
     fn no_thermal_stress() {
         let nerve = AfferentNerve::with_state(SensorState {
-            gpu_temp_c: 65.0, ..Default::default()
+            gpu_temp_c: 65.0,
+            ..Default::default()
         });
         let rt = tokio::runtime::Runtime::new().unwrap();
         assert!(!rt.block_on(nerve.is_thermal_stress()));

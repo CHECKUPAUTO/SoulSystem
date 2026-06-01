@@ -21,16 +21,28 @@ impl SecretsStore {
         tokio::fs::create_dir_all(&dir).await?;
 
         let crypto = SecretsCrypto::new(master_key)?;
-        let mut store = Self { crypto, dir, cache: HashMap::new() };
+        let mut store = Self {
+            crypto,
+            dir,
+            cache: HashMap::new(),
+        };
 
         // Load existing secrets
         let mut entries = tokio::fs::read_dir(&store.dir).await?;
         while let Some(entry) = entries.next_entry().await? {
-            if entry.path().extension().map(|e| e == "enc").unwrap_or(false) {
+            if entry
+                .path()
+                .extension()
+                .map(|e| e == "enc")
+                .unwrap_or(false)
+            {
                 if let Some(id) = entry.file_name().to_str().unwrap().strip_suffix(".enc") {
                     let data = tokio::fs::read(entry.path()).await?;
-                    if let Ok((encrypted, salt)) = bincode::deserialize::<(Vec<u8>, Vec<u8>)>(&data) {
-                        store.cache.insert(SecretId(id.to_string()), (encrypted, salt));
+                    if let Ok((encrypted, salt)) = bincode::deserialize::<(Vec<u8>, Vec<u8>)>(&data)
+                    {
+                        store
+                            .cache
+                            .insert(SecretId(id.to_string()), (encrypted, salt));
                     }
                 }
             }
@@ -42,17 +54,21 @@ impl SecretsStore {
     /// Store a secret (encrypts and persists).
     pub async fn put(&mut self, id: &SecretId, value: &[u8]) -> Result<(), SecretError> {
         let (encrypted, salt) = self.crypto.encrypt(value)?;
-        self.cache.insert(id.clone(), (encrypted.clone(), salt.clone()));
+        self.cache
+            .insert(id.clone(), (encrypted.clone(), salt.clone()));
 
         let path = self.dir.join(format!("{}.enc", id.0));
-        let data = bincode::serialize(&(encrypted, salt)).map_err(|e| SecretError::Serialization(e.to_string()))?;
+        let data = bincode::serialize(&(encrypted, salt))
+            .map_err(|e| SecretError::Serialization(e.to_string()))?;
         tokio::fs::write(path, data).await?;
         Ok(())
     }
 
     /// Retrieve and decrypt a secret.
     pub fn get(&self, id: &SecretId) -> Result<Vec<u8>, SecretError> {
-        let (encrypted, salt) = self.cache.get(id)
+        let (encrypted, salt) = self
+            .cache
+            .get(id)
             .ok_or_else(|| SecretError::NotFound(id.0.clone()))?;
         self.crypto.decrypt(encrypted, salt)
     }

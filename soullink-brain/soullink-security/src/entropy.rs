@@ -44,7 +44,9 @@ pub fn is_base64_secret(s: &str) -> bool {
         return false;
     }
     // Check if it's valid base64 chars
-    let is_b64 = s.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=');
+    let is_b64 = s
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=');
     is_b64 && is_high_entropy(s, 4.5)
 }
 
@@ -78,14 +80,21 @@ mod tests {
     #[test]
     fn test_is_high_entropy() {
         assert!(!is_high_entropy("hello world", 4.5));
-        assert!(is_high_entropy("dGhpcyBpcyBhIHNlY3JldCB0b2tlbiBmb3IgdGVzdGluZw==", 4.5));
+        assert!(is_high_entropy(
+            "dGhpcyBpcyBhIHNlY3JldCB0b2tlbiBmb3IgdGVzdGluZw==",
+            4.5
+        ));
     }
 
     #[test]
     fn test_base64_secret() {
-        assert!(is_base64_secret("dGhpcyBpcyBhIHNlY3JldCB0b2tlbiBmb3IgdGVzdGluZw=="));
+        assert!(is_base64_secret(
+            "dGhpcyBpcyBhIHNlY3JldCB0b2tlbiBmb3IgdGVzdGluZw=="
+        ));
         assert!(!is_base64_secret("short"));
-        assert!(!is_base64_secret("hello world this is not base64 at all really"));
+        assert!(!is_base64_secret(
+            "hello world this is not base64 at all really"
+        ));
     }
 
     #[test]

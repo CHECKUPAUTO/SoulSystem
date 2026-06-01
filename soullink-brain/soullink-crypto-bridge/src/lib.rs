@@ -90,8 +90,8 @@ impl CryptoBridge {
 
         // Get quote
         let output = self.run_tv_command(&["quote"]).await?;
-        let parsed: serde_json::Value = serde_json::from_str(&output)
-            .map_err(|e| format!("parse quote: {e}"))?;
+        let parsed: serde_json::Value =
+            serde_json::from_str(&output).map_err(|e| format!("parse quote: {e}"))?;
 
         Ok(MarketQuote {
             symbol: symbol.to_string(),
@@ -109,11 +109,16 @@ impl CryptoBridge {
         // Set source then compile
         self.run_tv_command(&["pine", "set", source]).await?;
         let output = self.run_tv_command(&["pine", "compile"]).await?;
-        let parsed: serde_json::Value = serde_json::from_str(&output)
-            .map_err(|e| format!("parse compile: {e}"))?;
+        let parsed: serde_json::Value =
+            serde_json::from_str(&output).map_err(|e| format!("parse compile: {e}"))?;
 
-        let errors = parsed["errors"].as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        let errors = parsed["errors"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
         Ok(errors)
@@ -127,9 +132,7 @@ impl CryptoBridge {
     }
 
     /// Stream quotes — returns a channel of market ticks.
-    pub async fn stream_quotes(
-        &self,
-    ) -> Result<tokio::sync::mpsc::Receiver<MarketQuote>, String> {
+    pub async fn stream_quotes(&self) -> Result<tokio::sync::mpsc::Receiver<MarketQuote>, String> {
         let (tx, rx) = tokio::sync::mpsc::channel(256);
 
         let config = self.config.clone();
@@ -171,7 +174,8 @@ impl CryptoBridge {
     /// Get organ state.
     pub async fn get_organ_state(&self) -> Result<serde_json::Value, String> {
         let url = format!("{}/api/stats", self.config.organ_url);
-        let resp = self.client
+        let resp = self
+            .client
             .get(&url)
             .send()
             .await
@@ -191,7 +195,12 @@ impl CryptoBridge {
         let strength = (price_change.abs() * 100.0).min(1.0);
 
         CryptoSignal {
-            signal_type: if price_change > 0.0 { "bullish" } else { "bearish" }.to_string(),
+            signal_type: if price_change > 0.0 {
+                "bullish"
+            } else {
+                "bearish"
+            }
+            .to_string(),
             symbol: quote.symbol.clone(),
             strength,
             data: serde_json::json!({
@@ -211,10 +220,7 @@ impl CryptoBridge {
         Self::run_tv_static(&self.config, args).await
     }
 
-    async fn run_tv_static(
-        config: &CryptoBridgeConfig,
-        args: &[&str],
-    ) -> Result<String, String> {
+    async fn run_tv_static(config: &CryptoBridgeConfig, args: &[&str]) -> Result<String, String> {
         let output = Command::new("node")
             .arg(&config.tv_cli_path)
             .args(args)

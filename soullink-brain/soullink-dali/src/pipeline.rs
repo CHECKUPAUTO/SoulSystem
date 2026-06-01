@@ -58,9 +58,18 @@ impl DaliPipelineBuilder {
         }
     }
 
-    pub fn batch_size(mut self, size: u32) -> Self { self.batch_size = size; self }
-    pub fn num_threads(mut self, threads: u32) -> Self { self.num_threads = threads; self }
-    pub fn device(mut self, device: Device) -> Self { self.device = device; self }
+    pub fn batch_size(mut self, size: u32) -> Self {
+        self.batch_size = size;
+        self
+    }
+    pub fn num_threads(mut self, threads: u32) -> Self {
+        self.num_threads = threads;
+        self
+    }
+    pub fn device(mut self, device: Device) -> Self {
+        self.device = device;
+        self
+    }
 
     pub fn add_op(mut self, spec: impl Into<String>, name: impl Into<String>) -> Self {
         self.ops.push((spec.into(), name.into()));
@@ -98,7 +107,10 @@ impl DaliPipelineBuilder {
 
             for (spec, name) in &self.ops {
                 if !pipeline.handle.add_operator(spec, name) {
-                    return Err(DaliError::Build(format!("Failed to add operator: {}", name)));
+                    return Err(DaliError::Build(format!(
+                        "Failed to add operator: {}",
+                        name
+                    )));
                 }
             }
 
@@ -113,12 +125,18 @@ impl DaliPipelineBuilder {
 }
 
 impl Default for DaliPipelineBuilder {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DaliPipeline {
-    pub fn builder() -> DaliPipelineBuilder { DaliPipelineBuilder::new() }
-    pub fn batch_size(&self) -> u32 { self.batch_size }
+    pub fn builder() -> DaliPipelineBuilder {
+        DaliPipelineBuilder::new()
+    }
+    pub fn batch_size(&self) -> u32 {
+        self.batch_size
+    }
 
     pub fn run(&self) -> Result<(), DaliError> {
         #[cfg(not(feature = "dali"))]

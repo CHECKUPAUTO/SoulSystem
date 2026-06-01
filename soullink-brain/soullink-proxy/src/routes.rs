@@ -61,24 +61,33 @@ pub async fn health_check(State(state): State<Arc<AppState>>) -> impl IntoRespon
     }
 
     let all_healthy = statuses.iter().all(|s| s["health"].as_u64() == Some(200));
-    let status_code = if all_healthy { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
-    (status_code, axum::Json(serde_json::json!({
-        "healthy": all_healthy,
-        "backends": statuses,
-    }))).into_response()
+    let status_code = if all_healthy {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status_code,
+        axum::Json(serde_json::json!({
+            "healthy": all_healthy,
+            "backends": statuses,
+        })),
+    )
+        .into_response()
 }
 
 /// Proxy handler — forwards requests to the appropriate backend.
-pub async fn proxy_handler(
-    State(state): State<Arc<AppState>>,
-    req: Request<Body>,
-) -> Response {
+pub async fn proxy_handler(State(state): State<Arc<AppState>>, req: Request<Body>) -> Response {
     let path = req.uri().path().to_string();
 
     let (prefix, target_url) = match state.find_backend(&path) {
         Some(result) => result,
         None => {
-            return (StatusCode::NOT_FOUND, format!("No backend for path: {}", path)).into_response();
+            return (
+                StatusCode::NOT_FOUND,
+                format!("No backend for path: {}", path),
+            )
+                .into_response();
         }
     };
 
@@ -122,7 +131,11 @@ pub async fn proxy_handler(
         }
         Err(e) => {
             tracing::warn!(prefix = %prefix, target = %target_url, error = %e, "Proxy request failed");
-            (StatusCode::BAD_GATEWAY, format!("Backend unavailable: {}", e)).into_response()
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Backend unavailable: {}", e),
+            )
+                .into_response()
         }
     }
 }

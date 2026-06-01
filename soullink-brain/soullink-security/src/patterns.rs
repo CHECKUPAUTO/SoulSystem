@@ -154,25 +154,35 @@ mod tests {
 
     #[test]
     fn test_github_token_detection() {
-        let found = SECRET_PATTERNS.iter().any(|p| p.pattern.is_match("ghs_1234567890abcdefghijklmnopqrstuvwxyz"));
+        let found = SECRET_PATTERNS.iter().any(|p| {
+            p.pattern
+                .is_match("ghs_1234567890abcdefghijklmnopqrstuvwxyz")
+        });
         assert!(found);
     }
 
     #[test]
     fn test_telegram_token_detection() {
-        let found = SECRET_PATTERNS.iter().any(|p| p.pattern.is_match("1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
+        let found = SECRET_PATTERNS.iter().any(|p| {
+            p.pattern
+                .is_match("1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+        });
         assert!(found);
     }
 
     #[test]
     fn test_private_key_detection() {
-        let found = SECRET_PATTERNS.iter().any(|p| p.pattern.is_match("-----BEGIN RSA PRIVATE KEY-----"));
+        let found = SECRET_PATTERNS
+            .iter()
+            .any(|p| p.pattern.is_match("-----BEGIN RSA PRIVATE KEY-----"));
         assert!(found);
     }
 
     #[test]
     fn test_password_in_config() {
-        let found = SECRET_PATTERNS.iter().any(|p| p.pattern.is_match("password = mysecretpassword123"));
+        let found = SECRET_PATTERNS
+            .iter()
+            .any(|p| p.pattern.is_match("password = mysecretpassword123"));
         assert!(found);
     }
 }

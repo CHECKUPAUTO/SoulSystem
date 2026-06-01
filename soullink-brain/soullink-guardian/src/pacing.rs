@@ -44,41 +44,41 @@ pub enum PacingAction {
 
 #[derive(Debug, Clone)]
 pub struct PacingConfig {
-    pub enabled:          bool,
-    pub target_c:         f32,
-    pub hard_cap_temp_c:  f32,
-    pub kp:               f32,  // proportional gain (W/°C)
-    pub ki:               f32,  // integral gain (W/°C·s)
-    pub sample_period:    Duration,
+    pub enabled: bool,
+    pub target_c: f32,
+    pub hard_cap_temp_c: f32,
+    pub kp: f32, // proportional gain (W/°C)
+    pub ki: f32, // integral gain (W/°C·s)
+    pub sample_period: Duration,
     pub output_deadband_w: u32,
-    pub power_min_w:      u32,
-    pub power_max_w:      u32,
+    pub power_min_w: u32,
+    pub power_max_w: u32,
     pub integral_clamp_w: f32,
 }
 
 impl Default for PacingConfig {
     fn default() -> Self {
         Self {
-            enabled:          false, // opt-in
-            target_c:         75.0,
-            hard_cap_temp_c:  87.0,
-            kp:               3.0,   // 1 °C over → subtract 3 W
-            ki:               0.5,   // sustained 1 °C over → additional 0.5 W/s
-            sample_period:    Duration::from_secs(2),
+            enabled: false, // opt-in
+            target_c: 75.0,
+            hard_cap_temp_c: 87.0,
+            kp: 3.0, // 1 °C over → subtract 3 W
+            ki: 0.5, // sustained 1 °C over → additional 0.5 W/s
+            sample_period: Duration::from_secs(2),
             output_deadband_w: 3,
-            power_min_w:      70,
-            power_max_w:      115,
+            power_min_w: 70,
+            power_max_w: 115,
             integral_clamp_w: 20.0,
         }
     }
 }
 
 pub struct PiController {
-    cfg:                PacingConfig,
-    integral:           f32,     // accumulated error × time (W)
-    last_sample_at:     Option<Instant>,
-    last_applied_w:     u32,
-    hard_cap_engaged:   bool,
+    cfg: PacingConfig,
+    integral: f32, // accumulated error × time (W)
+    last_sample_at: Option<Instant>,
+    last_applied_w: u32,
+    hard_cap_engaged: bool,
 }
 
 impl PiController {
@@ -142,10 +142,9 @@ impl PiController {
         // Integrate error over time
         self.integral += error * dt;
         // Clamp integral to prevent windup
-        self.integral = self.integral.clamp(
-            -self.cfg.integral_clamp_w,
-            self.cfg.integral_clamp_w,
-        );
+        self.integral = self
+            .integral
+            .clamp(-self.cfg.integral_clamp_w, self.cfg.integral_clamp_w);
 
         // Output: subtract correction from max power
         let correction = self.cfg.kp * error + self.cfg.ki * self.integral;
@@ -168,9 +167,15 @@ impl PiController {
         PacingAction::Apply(clamped)
     }
 
-    pub fn last_applied_w(&self) -> u32 { self.last_applied_w }
-    pub fn integral(&self) -> f32 { self.integral }
-    pub fn hard_cap_engaged(&self) -> bool { self.hard_cap_engaged }
+    pub fn last_applied_w(&self) -> u32 {
+        self.last_applied_w
+    }
+    pub fn integral(&self) -> f32 {
+        self.integral
+    }
+    pub fn hard_cap_engaged(&self) -> bool {
+        self.hard_cap_engaged
+    }
 }
 
 #[cfg(test)]
@@ -178,7 +183,10 @@ mod tests {
     use super::*;
 
     fn enabled_cfg() -> PacingConfig {
-        PacingConfig { enabled: true, ..PacingConfig::default() }
+        PacingConfig {
+            enabled: true,
+            ..PacingConfig::default()
+        }
     }
 
     fn t(base: Instant, secs: f32) -> Instant {
@@ -202,9 +210,9 @@ mod tests {
     fn below_setpoint_no_correction() {
         let mut pi = PiController::new(enabled_cfg());
         let t0 = Instant::now();
-        pi.step(60.0, t0);  // seed
-        // Cool temperature: correction pushes power_limit above max → clamped.
-        // Output stays at max — no change vs initial (115).
+        pi.step(60.0, t0); // seed
+                           // Cool temperature: correction pushes power_limit above max → clamped.
+                           // Output stays at max — no change vs initial (115).
         let out = pi.step(60.0, t(t0, 3.0));
         assert_eq!(out, PacingAction::NoChange);
     }
@@ -213,8 +221,8 @@ mod tests {
     fn above_setpoint_reduces_power() {
         let mut pi = PiController::new(enabled_cfg());
         let t0 = Instant::now();
-        pi.step(75.0, t0);  // seed at setpoint
-        // 80°C → 5°C over → kp*5 = 15 W correction (plus small integral)
+        pi.step(75.0, t0); // seed at setpoint
+                           // 80°C → 5°C over → kp*5 = 15 W correction (plus small integral)
         let out = pi.step(80.0, t(t0, 3.0));
         match out {
             PacingAction::Apply(w) => {
@@ -252,7 +260,10 @@ mod tests {
         assert!(!pi.hard_cap_engaged());
         // Output is either a correction-reducing Apply or NoChange if
         // deadband swallows it (both are valid post-release behaviours)
-        assert!(matches!(out, PacingAction::Apply(_) | PacingAction::NoChange));
+        assert!(matches!(
+            out,
+            PacingAction::Apply(_) | PacingAction::NoChange
+        ));
     }
 
     #[test]
@@ -262,7 +273,7 @@ mod tests {
             ..enabled_cfg()
         });
         let t0 = Instant::now();
-        pi.step(75.0, t0);  // seed at setpoint
+        pi.step(75.0, t0); // seed at setpoint
 
         // Tiny over-temp: correction < deadband → NoChange
         let out = pi.step(75.5, t(t0, 3.0));
@@ -277,7 +288,7 @@ mod tests {
             ..enabled_cfg()
         });
         let t0 = Instant::now();
-        pi.step(80.0, t0);  // seed
+        pi.step(80.0, t0); // seed
 
         // Drive 20 °C over-temp for 10 sample periods (20 s)
         for i in 1..=10 {
@@ -286,7 +297,10 @@ mod tests {
         }
         // Integral must not exceed clamp
         let i = pi.integral();
-        assert!(i.abs() <= 5.0 + 0.001, "integral {i} should be clamped to ±5");
+        assert!(
+            i.abs() <= 5.0 + 0.001,
+            "integral {i} should be clamped to ±5"
+        );
     }
 
     #[test]
@@ -307,8 +321,10 @@ mod tests {
         }
         // The last applied should be higher than the first (recovering)
         if trace.len() >= 2 {
-            assert!(trace.last().unwrap() >= trace.first().unwrap(),
-                    "output should recover as temp drops: {trace:?}");
+            assert!(
+                trace.last().unwrap() >= trace.first().unwrap(),
+                "output should recover as temp drops: {trace:?}"
+            );
         }
     }
 }

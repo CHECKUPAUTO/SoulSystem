@@ -8,7 +8,7 @@
 //! Auto-wiring Knowledge Graph logic.
 
 use crate::extractor::{EntityType, ExtractedEntity};
-use crate::storage::{Database, Entity, Edge};
+use crate::storage::{Database, Edge, Entity};
 use anyhow::Result;
 use chrono::Utc;
 
@@ -22,7 +22,12 @@ impl KnowledgeGraph {
     }
 
     /// Auto-wire entities extracted from a page.
-    pub fn auto_wire(&self, source_page: &str, extracted: &[ExtractedEntity], text: &str) -> Result<()> {
+    pub fn auto_wire(
+        &self,
+        source_page: &str,
+        extracted: &[ExtractedEntity],
+        text: &str,
+    ) -> Result<()> {
         let mut entities = Vec::new();
 
         // 1. Store entities first
@@ -53,7 +58,11 @@ impl KnowledgeGraph {
                     // Extract context between them
                     let start = ext1.offset.min(ext2.offset);
                     let end = ext1.offset.max(ext2.offset) + 10;
-                    let context = if end <= text.len() { &text[start..end] } else { &text[start..] };
+                    let context = if end <= text.len() {
+                        &text[start..end]
+                    } else {
+                        &text[start..]
+                    };
 
                     let relation = self.detect_relation(e1, e2, context);
 
@@ -75,9 +84,17 @@ impl KnowledgeGraph {
     fn detect_relation(&self, e1: &Entity, e2: &Entity, context: &str) -> String {
         let ctx = context.to_lowercase();
 
-        if (e1.entity_type == "Person" && e2.entity_type == "Company") || (e1.entity_type == "Company" && e2.entity_type == "Person") {
-            if ctx.contains("ceo") || ctx.contains("founder") || ctx.contains("works at") || ctx.contains("joined") {
-                if ctx.contains("founder") { return "founded".to_string(); }
+        if (e1.entity_type == "Person" && e2.entity_type == "Company")
+            || (e1.entity_type == "Company" && e2.entity_type == "Person")
+        {
+            if ctx.contains("ceo")
+                || ctx.contains("founder")
+                || ctx.contains("works at")
+                || ctx.contains("joined")
+            {
+                if ctx.contains("founder") {
+                    return "founded".to_string();
+                }
                 return "works_at".to_string();
             }
             if ctx.contains("invested") || ctx.contains("investor") || ctx.contains("backed") {
@@ -88,7 +105,9 @@ impl KnowledgeGraph {
             }
         }
 
-        if (e1.entity_type == "Person" && e2.entity_type == "Event") || (e1.entity_type == "Event" && e2.entity_type == "Person") {
+        if (e1.entity_type == "Person" && e2.entity_type == "Event")
+            || (e1.entity_type == "Event" && e2.entity_type == "Person")
+        {
             if ctx.contains("attended") || ctx.contains("spoke") || ctx.contains("at") {
                 return "attended".to_string();
             }

@@ -124,7 +124,10 @@ mod tests {
     fn dnn_detect_isa() {
         let isa = DnnEngineRust::detect_isa();
         // E5-2699 v3 is Broadwell — AVX2, not AVX-512
-        matches!(isa, DnnEngine::CpuAvx2 | DnnEngine::CpuAvx512 | DnnEngine::Auto);
+        matches!(
+            isa,
+            DnnEngine::CpuAvx2 | DnnEngine::CpuAvx512 | DnnEngine::Auto
+        );
     }
 
     #[test]

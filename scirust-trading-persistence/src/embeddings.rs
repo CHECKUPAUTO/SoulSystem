@@ -8,10 +8,9 @@
 //! Implemente `scirust_trading_news::EmbeddingStore` pour s'intégrer
 //! transparentement avec le `ContextualEnricher`.
 
-use crate::PersistenceResult;
+use crate::{cosine_similarity, EmbeddingStore, NewsError, NewsResult, PersistenceResult};
 use async_trait::async_trait;
 use rusqlite::{params, Connection};
-use scirust_trading_news::{cosine_similarity, EmbeddingStore, NewsError, NewsResult};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -59,11 +58,9 @@ impl SqliteEmbeddingStore {
         let conn = Arc::clone(&self.conn);
         tokio::task::spawn_blocking(move || -> PersistenceResult<i64> {
             let c = conn.blocking_lock();
-            let n: i64 = c.query_row(
-                "SELECT COUNT(*) FROM event_embeddings",
-                [],
-                |row| row.get(0),
-            )?;
+            let n: i64 = c.query_row("SELECT COUNT(*) FROM event_embeddings", [], |row| {
+                row.get(0)
+            })?;
             Ok(n)
         })
         .await?
@@ -88,13 +85,7 @@ impl EmbeddingStore for SqliteEmbeddingStore {
                 "INSERT OR REPLACE INTO event_embeddings
                  (event_id, dim, model, embedding, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    id,
-                    dim,
-                    model,
-                    buf,
-                    chrono::Utc::now().timestamp_millis(),
-                ],
+                params![id, dim, model, buf, chrono::Utc::now().timestamp_millis(),],
             )
             .map_err(|e| NewsError::Http(format!("sqlite: {e}")))?;
             Ok(())
@@ -163,8 +154,8 @@ impl EmbeddingStore for SqliteEmbeddingStore {
 
 // ─── HistoricalProvider impl on QueryApi ──────────────────────────────────
 
-use scirust_trading_core::MarketReaction;
-use scirust_trading_news::HistoricalProvider;
+use crate::HistoricalProvider;
+use crate::MarketReaction;
 
 #[async_trait]
 impl HistoricalProvider for crate::queries::QueryApi {

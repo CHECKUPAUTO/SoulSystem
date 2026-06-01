@@ -106,11 +106,14 @@ impl Bm25Index {
             let mut score = 0.0;
             for term in &query_tokens {
                 let tf = doc.tf.get(term).copied().unwrap_or(0.0);
-                if tf == 0.0 { continue; }
+                if tf == 0.0 {
+                    continue;
+                }
 
                 let idf = self.idf(term);
                 let numerator = tf * (self.k1 + 1.0);
-                let denominator = tf + self.k1 * (1.0 - self.b + self.b * doc.dl as f64 / self.avgdl.max(1.0));
+                let denominator =
+                    tf + self.k1 * (1.0 - self.b + self.b * doc.dl as f64 / self.avgdl.max(1.0));
                 score += idf * numerator / denominator;
             }
             if score > 0.0 {
@@ -175,7 +178,10 @@ mod tests {
             index.add(format!("cat-{}", i), "cats are fluffy animals that purr");
         }
         // Add 1 doc about quantum
-        index.add("quantum-1", "quantum mechanics describes subatomic particles");
+        index.add(
+            "quantum-1",
+            "quantum mechanics describes subatomic particles",
+        );
 
         let results = index.search("quantum", 5);
         assert!(!results.is_empty());

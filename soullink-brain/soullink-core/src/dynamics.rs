@@ -26,7 +26,10 @@ pub fn integrate_hamiltonian(organ: &mut OrganMesh, dt: f32) {
 }
 
 pub fn calculate_energy(organ: &OrganMesh) -> f32 {
-    organ.q.iter().zip(organ.p.iter()).map(|(&q, &p)| {
-        0.5 * (p * p + q * q)
-    }).sum()
+    organ
+        .q
+        .iter()
+        .zip(organ.p.iter())
+        .map(|(&q, &p)| 0.5 * (p * p + q * q))
+        .sum()
 }

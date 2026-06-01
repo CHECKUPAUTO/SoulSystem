@@ -36,10 +36,10 @@ static SHARED: OnceLock<Client> = OnceLock::new();
 /// Tuning constants — conservative defaults appropriate for an internal mesh.
 /// Adjust only with measurements.
 const POOL_MAX_IDLE_PER_HOST: usize = 32;
-const POOL_IDLE_TIMEOUT:      Duration = Duration::from_secs(90);
-const TCP_KEEPALIVE:          Duration = Duration::from_secs(60);
-const REQUEST_TIMEOUT:        Duration = Duration::from_secs(10);
-const CONNECT_TIMEOUT:        Duration = Duration::from_secs(3);
+const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+const TCP_KEEPALIVE: Duration = Duration::from_secs(60);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Get the shared client, building it on first call.
 ///

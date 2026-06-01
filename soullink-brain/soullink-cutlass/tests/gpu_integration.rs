@@ -3,7 +3,7 @@
 
 #[cfg(feature = "cutlass")]
 mod gpu_tests {
-    use soullink_cutlass::{GpuTensor, CudaStream, cosine_sim_batch, topk};
+    use soullink_cutlass::{cosine_sim_batch, topk, CudaStream, GpuTensor};
     use std::time::Instant;
 
     #[test]
@@ -38,7 +38,10 @@ mod gpu_tests {
         let top_vals = values.to_vec_f32().unwrap();
         println!("✅ Top-1 Score: {:.4}", top_vals[0]);
         println!("⏱️  Warm Sim + TopK: {:?}", duration);
-        println!("📊 Throughput: {:.0} queries/sec", 1.0 / duration.as_secs_f64());
+        println!(
+            "📊 Throughput: {:.0} queries/sec",
+            1.0 / duration.as_secs_f64()
+        );
         assert!(top_vals[0] > 0.0);
     }
 
@@ -60,7 +63,8 @@ mod gpu_tests {
 
         // Warm-up
         for _ in 0..10 {
-            soullink_cutlass::hnn_verlet_step(&mut q, &mut p, &m, 0.1, 0.01, 0.01, &stream).expect("warmup");
+            soullink_cutlass::hnn_verlet_step(&mut q, &mut p, &m, 0.1, 0.01, 0.01, &stream)
+                .expect("warmup");
         }
         stream.synchronize().expect("warmup sync");
 
@@ -68,7 +72,8 @@ mod gpu_tests {
         let start = Instant::now();
 
         for _ in 0..1000 {
-            soullink_cutlass::hnn_verlet_step(&mut q, &mut p, &m, 0.1, 0.01, 0.01, &stream).expect("verlet");
+            soullink_cutlass::hnn_verlet_step(&mut q, &mut p, &m, 0.1, 0.01, 0.01, &stream)
+                .expect("verlet");
         }
         stream.synchronize().expect("sync");
         let duration = start.elapsed();
@@ -89,7 +94,8 @@ mod gpu_tests {
         let query_data = vec![0.5f32; num_queries * dim];
         let db_data = vec![0.2f32; num_docs * dim];
 
-        let q_gpu = GpuTensor::from_slice_f32(&query_data, &[num_queries, dim]).expect("query alloc");
+        let q_gpu =
+            GpuTensor::from_slice_f32(&query_data, &[num_queries, dim]).expect("query alloc");
         let db_gpu = GpuTensor::from_slice_f32(&db_data, &[num_docs, dim]).expect("db alloc");
         let stream = CudaStream::new().expect("stream");
 
@@ -99,7 +105,10 @@ mod gpu_tests {
         }
         stream.synchronize().expect("warmup sync");
 
-        println!("🔥 Bench RAG Large: {} queries × {} docs (dim={})", num_queries, num_docs, dim);
+        println!(
+            "🔥 Bench RAG Large: {} queries × {} docs (dim={})",
+            num_queries, num_docs, dim
+        );
         let start = Instant::now();
 
         let similarities = cosine_sim_batch(&q_gpu, &db_gpu, &stream).expect("sim");
@@ -109,8 +118,14 @@ mod gpu_tests {
 
         let top_vals = values.to_vec_f32().unwrap();
         println!("✅ Top-1 Score: {:.4}", top_vals[0]);
-        println!("⏱️  {} queries × {} docs: {:?}", num_queries, num_docs, duration);
-        println!("📊 Throughput: {:.0} queries/sec", num_queries as f64 / duration.as_secs_f64());
+        println!(
+            "⏱️  {} queries × {} docs: {:?}",
+            num_queries, num_docs, duration
+        );
+        println!(
+            "📊 Throughput: {:.0} queries/sec",
+            num_queries as f64 / duration.as_secs_f64()
+        );
         assert!(top_vals[0] > 0.0);
     }
 }

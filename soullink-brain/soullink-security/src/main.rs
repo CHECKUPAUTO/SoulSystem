@@ -9,9 +9,7 @@ use tracing::info;
 
 #[tokio::main(worker_threads = 4)]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     let path = std::env::args()
         .nth(1)
@@ -37,9 +35,21 @@ async fn main() {
         println!("⚠️  Found {} potential secrets:", result.findings.len());
         println!();
 
-        let critical: Vec<_> = result.findings.iter().filter(|f| f.severity == Severity::Critical).collect();
-        let high: Vec<_> = result.findings.iter().filter(|f| f.severity == Severity::High).collect();
-        let medium: Vec<_> = result.findings.iter().filter(|f| f.severity == Severity::Medium).collect();
+        let critical: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Critical)
+            .collect();
+        let high: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::High)
+            .collect();
+        let medium: Vec<_> = result
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Medium)
+            .collect();
 
         if !critical.is_empty() {
             println!("🔴 CRITICAL ({}):", critical.len());
@@ -75,6 +85,9 @@ async fn main() {
     }
 
     // Exit code: 1 if critical findings, 0 otherwise
-    let has_critical = result.findings.iter().any(|f| f.severity == Severity::Critical);
+    let has_critical = result
+        .findings
+        .iter()
+        .any(|f| f.severity == Severity::Critical);
     std::process::exit(if has_critical { 1 } else { 0 });
 }

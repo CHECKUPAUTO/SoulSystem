@@ -157,9 +157,7 @@ impl WorkflowConfig {
                             })
                         })
                         .collect();
-                    NodeType::Parallel(ParallelNode {
-                        nodes: sub_nodes?,
-                    })
+                    NodeType::Parallel(ParallelNode { nodes: sub_nodes? })
                 } else {
                     return Err(ConfigError::NoType(def.id.clone()));
                 };

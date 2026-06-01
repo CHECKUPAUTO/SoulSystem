@@ -103,24 +103,26 @@ impl CheckpointLoader {
     /// Charge un checkpoint depuis un fichier.
     pub fn load(&self, path: &Path) -> Option<Checkpoint> {
         match std::fs::read_to_string(path) {
-            Ok(json) => {
-                match serde_json::from_str::<Checkpoint>(&json) {
-                    Ok(cp) => {
-                        info!(
-                            "CheckpointLoader: checkpoint époque {} chargé ({} métriques)",
-                            cp.epoch,
-                            cp.metrics.len()
-                        );
-                        Some(cp)
-                    }
-                    Err(e) => {
-                        warn!("CheckpointLoader: erreur de désérialisation: {}", e);
-                        None
-                    }
+            Ok(json) => match serde_json::from_str::<Checkpoint>(&json) {
+                Ok(cp) => {
+                    info!(
+                        "CheckpointLoader: checkpoint époque {} chargé ({} métriques)",
+                        cp.epoch,
+                        cp.metrics.len()
+                    );
+                    Some(cp)
                 }
-            }
+                Err(e) => {
+                    warn!("CheckpointLoader: erreur de désérialisation: {}", e);
+                    None
+                }
+            },
             Err(e) => {
-                warn!("CheckpointLoader: erreur de lecture {}: {}", path.display(), e);
+                warn!(
+                    "CheckpointLoader: erreur de lecture {}: {}",
+                    path.display(),
+                    e
+                );
                 None
             }
         }
@@ -129,10 +131,15 @@ impl CheckpointLoader {
     /// Sauvegarde un checkpoint.
     pub fn save(&self, checkpoint: &Checkpoint) -> anyhow::Result<PathBuf> {
         std::fs::create_dir_all(&self.checkpoint_dir)?;
-        let path = self.checkpoint_dir.join(format!("checkpoint_epoch_{}.json", checkpoint.epoch));
+        let path = self
+            .checkpoint_dir
+            .join(format!("checkpoint_epoch_{}.json", checkpoint.epoch));
         let json = serde_json::to_string_pretty(checkpoint)?;
         std::fs::write(&path, &json)?;
-        info!("CheckpointLoader: checkpoint époque {} sauvegardé", checkpoint.epoch);
+        info!(
+            "CheckpointLoader: checkpoint époque {} sauvegardé",
+            checkpoint.epoch
+        );
         Ok(path)
     }
 
@@ -143,11 +150,15 @@ impl CheckpointLoader {
             return 0;
         }
         let to_remove = all.len() - keep_last;
-        let removed = all.drain(..to_remove).filter(|(_, path)| {
-            std::fs::remove_file(path).is_ok()
-        }).count();
+        let removed = all
+            .drain(..to_remove)
+            .filter(|(_, path)| std::fs::remove_file(path).is_ok())
+            .count();
         if removed > 0 {
-            info!("CheckpointLoader: {} anciens checkpoints supprimés", removed);
+            info!(
+                "CheckpointLoader: {} anciens checkpoints supprimés",
+                removed
+            );
         }
         removed
     }

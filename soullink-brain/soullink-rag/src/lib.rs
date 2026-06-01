@@ -9,6 +9,8 @@ pub mod pipeline;
 pub mod provider;
 pub mod store;
 
-pub use pipeline::{PipelineConfig, IngestResult, IngestStatus, SearchHit, DocumentId, DocumentMeta, TextChunker};
-pub use store::PageAwareStore;
 pub use embedding::{EmbedBridge, EmbedConfig};
+pub use pipeline::{
+    DocumentId, DocumentMeta, IngestResult, IngestStatus, PipelineConfig, SearchHit, TextChunker,
+};
+pub use store::PageAwareStore;

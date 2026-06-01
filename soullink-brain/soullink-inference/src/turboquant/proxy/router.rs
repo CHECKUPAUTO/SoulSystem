@@ -7,6 +7,7 @@
 //!   GET  /stats                 → compression + usage stats
 //!   GET  /v1/models             → proxy to llama-server
 
+use crate::turboquant::proxy::server::{ProxyConfig, ProxyStats, TurboQuantProxy};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -16,7 +17,6 @@ use axum::{
 };
 use serde::Serialize;
 use std::sync::Arc;
-use crate::turboquant::proxy::server::{ProxyConfig, TurboQuantProxy, ProxyStats};
 
 /// Shared application state.
 pub struct AppState {
@@ -78,7 +78,10 @@ async fn proxy_chat_completions(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> impl IntoResponse {
-    let url = format!("{}/v1/chat/completions", state.proxy.config().llama_server_url);
+    let url = format!(
+        "{}/v1/chat/completions",
+        state.proxy.config().llama_server_url
+    );
     proxy_request(&state.proxy, url, headers, body).await
 }
 
@@ -93,9 +96,7 @@ async fn proxy_completions(
 }
 
 /// GET /v1/models — proxy to llama-server.
-async fn proxy_models(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn proxy_models(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let url = format!("{}/v1/models", state.proxy.config().llama_server_url);
     match state.proxy.http_client().get(&url).send().await {
         Ok(resp) => {
@@ -108,21 +109,21 @@ async fn proxy_models(
 }
 
 /// GET /health — combined health check.
-async fn health_handler(
-    State(state): State<Arc<AppState>>,
-) -> Json<HealthResponse> {
+async fn health_handler(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     let backend_healthy = state.proxy.health_check().await;
     Json(HealthResponse {
-        status: if backend_healthy { "ok".into() } else { "degraded".into() },
+        status: if backend_healthy {
+            "ok".into()
+        } else {
+            "degraded".into()
+        },
         backend_healthy,
         effective_compression: "6x vs FP16 (Q4_0 4x + TurboQuant 3-bit offload)".into(),
     })
 }
 
 /// GET /stats — compression and usage statistics.
-async fn stats_handler(
-    State(state): State<Arc<AppState>>,
-) -> Json<StatsResponse> {
+async fn stats_handler(State(state): State<Arc<AppState>>) -> Json<StatsResponse> {
     let stats = state.proxy.stats().await;
     Json(stats.into())
 }
@@ -134,7 +135,8 @@ async fn proxy_request(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> (StatusCode, String) {
-    let mut req = proxy.http_client()
+    let mut req = proxy
+        .http_client()
         .post(&url)
         .header("Content-Type", "application/json");
 
@@ -146,7 +148,10 @@ async fn proxy_request(
         Ok(resp) => {
             let status = resp.status().as_u16();
             let resp_body = resp.text().await.unwrap_or_default();
-            (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), resp_body)
+            (
+                StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
+                resp_body,
+            )
         }
         Err(_) => (StatusCode::BAD_GATEWAY, "Backend unavailable".into()),
     }

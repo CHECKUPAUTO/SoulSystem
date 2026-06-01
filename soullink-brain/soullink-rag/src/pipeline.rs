@@ -135,7 +135,11 @@ impl TextChunker {
                 chunks.push(trimmed);
             }
 
-            start = if actual_end == end { end } else { actual_end + 1 };
+            start = if actual_end == end {
+                end
+            } else {
+                actual_end + 1
+            };
 
             // Apply overlap
             if start >= self.chunk_overlap && start < chars.len() {

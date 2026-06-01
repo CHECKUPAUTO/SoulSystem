@@ -49,7 +49,13 @@ pub struct PageChunk {
 
 impl PageChunk {
     /// Create a new chunk with auto-generated ID.
-    pub fn new(doc_id: &str, start_page: usize, end_page: usize, text: String, chunk_type: ChunkType) -> Self {
+    pub fn new(
+        doc_id: &str,
+        start_page: usize,
+        end_page: usize,
+        text: String,
+        chunk_type: ChunkType,
+    ) -> Self {
         let id = format!("{}:p{}-{}", doc_id, start_page, end_page);
         let text_preview: String = text.chars().take(200).collect();
         Self {

@@ -43,7 +43,10 @@ impl HttpBlackboard {
             .timeout(Duration::from_secs(300))
             .build()
             .expect("reqwest client build");
-        Self { base_url: base_url.into(), http }
+        Self {
+            base_url: base_url.into(),
+            http,
+        }
     }
 }
 
@@ -66,7 +69,8 @@ impl Blackboard for HttpBlackboard {
         BlackboardError,
     > {
         let url = format!("{}/subscribe?topic={topic}", self.base_url);
-        let resp = self.http
+        let resp = self
+            .http
             .get(&url)
             .header(reqwest::header::ACCEPT, "text/event-stream")
             .send()

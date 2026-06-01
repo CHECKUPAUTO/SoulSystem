@@ -71,19 +71,29 @@ pub struct TelegramConfig {
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
-            orchestrator_url:     default_orchestrator_url(),
-            telegram:             None,
+            orchestrator_url: default_orchestrator_url(),
+            telegram: None,
             orchestrator_timeout: default_orch_timeout(),
-            metrics_port:         default_metrics_port(),
+            metrics_port: default_metrics_port(),
         }
     }
 }
 
-fn default_orchestrator_url() -> String { DEFAULT_ORCHESTRATOR_URL.into() }
-fn default_telegram_base_url() -> String { TELEGRAM_DEFAULT_BASE_URL.into() }
-fn default_long_poll_timeout_s() -> u32 { 25 }
-fn default_orch_timeout() -> Duration { Duration::from_secs(60) }
-fn default_metrics_port() -> u16 { 9092 }
+fn default_orchestrator_url() -> String {
+    DEFAULT_ORCHESTRATOR_URL.into()
+}
+fn default_telegram_base_url() -> String {
+    TELEGRAM_DEFAULT_BASE_URL.into()
+}
+fn default_long_poll_timeout_s() -> u32 {
+    25
+}
+fn default_orch_timeout() -> Duration {
+    Duration::from_secs(60)
+}
+fn default_metrics_port() -> u16 {
+    9092
+}
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -125,13 +135,21 @@ mod humantime_ms {
     pub fn parse(s: &str) -> Result<Duration, String> {
         let s = s.trim();
         if let Some(rest) = s.strip_suffix("ms") {
-            let n: u64 = rest.trim().parse().map_err(|e: std::num::ParseIntError| e.to_string())?;
+            let n: u64 = rest
+                .trim()
+                .parse()
+                .map_err(|e: std::num::ParseIntError| e.to_string())?;
             Ok(Duration::from_millis(n))
         } else if let Some(rest) = s.strip_suffix('s') {
-            let n: u64 = rest.trim().parse().map_err(|e: std::num::ParseIntError| e.to_string())?;
+            let n: u64 = rest
+                .trim()
+                .parse()
+                .map_err(|e: std::num::ParseIntError| e.to_string())?;
             Ok(Duration::from_secs(n))
         } else {
-            Err(format!("expected duration like '500ms' or '30s', got {s:?}"))
+            Err(format!(
+                "expected duration like '500ms' or '30s', got {s:?}"
+            ))
         }
     }
 }
@@ -215,7 +233,10 @@ mod tests {
         "#;
         let cfg: GatewayConfig = toml::from_str(raw).unwrap();
         assert_eq!(cfg.orchestrator_timeout, Duration::from_millis(500));
-        assert_eq!(cfg.telegram.unwrap().typing_pre_reply, Some(Duration::from_secs(3)));
+        assert_eq!(
+            cfg.telegram.unwrap().typing_pre_reply,
+            Some(Duration::from_secs(3))
+        );
     }
 
     #[test]

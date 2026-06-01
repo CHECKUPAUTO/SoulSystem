@@ -13,7 +13,7 @@ use axum::{extract::State, routing::get, Router};
 use soullink_core::SystemSnapshot;
 
 pub struct MetricsServer {
-    port:  u16,
+    port: u16,
     state: Arc<ArcSwap<SystemSnapshot>>,
 }
 
@@ -65,6 +65,8 @@ async fn metrics_handler(State(state): State<Arc<ArcSwap<SystemSnapshot>>>) -> S
     )
 }
 
-async fn state_handler(State(state): State<Arc<ArcSwap<SystemSnapshot>>>) -> axum::Json<SystemSnapshot> {
+async fn state_handler(
+    State(state): State<Arc<ArcSwap<SystemSnapshot>>>,
+) -> axum::Json<SystemSnapshot> {
     axum::Json(state.load().as_ref().clone())
 }

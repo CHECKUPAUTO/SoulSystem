@@ -7,11 +7,11 @@
 
 //! Hybrid Search implementation (BM25 + Vector + Graph Boost).
 
-use std::collections::{HashMap, HashSet};
-use serde::{Deserialize, Serialize};
-use anyhow::Result;
 use crate::storage::Database;
+use anyhow::Result;
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 /// BM25 index for entity context search.
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,7 +46,8 @@ impl Bm25Index {
     }
 
     pub fn add(&mut self, id: &str, text: &str) {
-        let tokens: Vec<String> = text.to_lowercase()
+        let tokens: Vec<String> = text
+            .to_lowercase()
             .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
@@ -62,7 +63,9 @@ impl Bm25Index {
             self.total_dl -= old_doc.dl;
             for t in old_doc.tf.keys() {
                 if let Some(count) = self.df.get_mut(t) {
-                    if *count > 0 { *count -= 1; }
+                    if *count > 0 {
+                        *count -= 1;
+                    }
                 }
                 if let Some(entries) = self.inverted_index.get_mut(t) {
                     entries.retain(|doc_id| doc_id != id);
@@ -77,7 +80,14 @@ impl Bm25Index {
         }
 
         self.total_dl += dl;
-        self.docs.insert(id.to_string(), Bm25Doc { id: id.to_string(), tf, dl });
+        self.docs.insert(
+            id.to_string(),
+            Bm25Doc {
+                id: id.to_string(),
+                tf,
+                dl,
+            },
+        );
 
         self.avgdl = if !self.docs.is_empty() {
             self.total_dl as f64 / self.docs.len() as f64
@@ -87,21 +97,28 @@ impl Bm25Index {
     }
 
     pub fn search(&self, query: &str, top_k: usize) -> Vec<(String, f64)> {
-        if self.docs.is_empty() { return Vec::new(); }
-        let query_tokens: Vec<String> = query.to_lowercase()
+        if self.docs.is_empty() {
+            return Vec::new();
+        }
+        let query_tokens: Vec<String> = query
+            .to_lowercase()
             .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
 
-        if query_tokens.is_empty() { return Vec::new(); }
+        if query_tokens.is_empty() {
+            return Vec::new();
+        }
 
         let n = self.docs.len() as f64;
         let mut idfs = HashMap::new();
         let mut target_doc_ids = HashSet::new();
 
         for t in &query_tokens {
-            if idfs.contains_key(t) { continue; }
+            if idfs.contains_key(t) {
+                continue;
+            }
             let df = *self.df.get(t).unwrap_or(&0) as f64;
             let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
             idfs.insert(t.clone(), idf);
@@ -186,7 +203,10 @@ impl HybridSearcher {
     }
 
     pub async fn search(&self, query: &str, top_k: usize) -> Result<Vec<SearchHit>> {
-        let vector_results = self.fetch_vector_results(query, top_k).await.unwrap_or_default();
+        let vector_results = self
+            .fetch_vector_results(query, top_k)
+            .await
+            .unwrap_or_default();
         let bm25_results = self.bm25.search(query, top_k);
         let mut combined: HashMap<String, f64> = HashMap::new();
 
@@ -216,13 +236,21 @@ impl HybridSearcher {
             });
         }
 
-        final_hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        final_hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         final_hits.truncate(top_k);
 
         Ok(final_hits)
     }
 
-    async fn fetch_vector_results(&self, query: &str, top_k: usize) -> Result<Vec<MemorySearchResponse>> {
+    async fn fetch_vector_results(
+        &self,
+        query: &str,
+        top_k: usize,
+    ) -> Result<Vec<MemorySearchResponse>> {
         let url = format!("{}/api/search?q={}&top_k={}", self.memory_url, query, top_k);
         let resp = self.client.get(url).send().await?;
         let results: Vec<MemorySearchResponse> = resp.json().await?;

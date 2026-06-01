@@ -6,8 +6,8 @@
 //! 4. Returns evaluation metrics
 
 use crate::loss::{LossResult, SemanticLoss};
-use soullink_memory::graph::MemoryGraph;
 use soullink_memory::concept::{Concept, ConceptKind};
+use soullink_memory::graph::MemoryGraph;
 use soullink_vector::hnsw_index::SearchResult;
 use tracing::{info, instrument};
 
@@ -100,7 +100,9 @@ impl BrainEvaluator {
                 if result.score > self.config.relatedness_threshold {
                     match memory_graph.update_importance(&result.label, adjustment) {
                         Ok(updated) => {
-                            if updated { concepts_updated += 1; }
+                            if updated {
+                                concepts_updated += 1;
+                            }
                         }
                         Err(e) => {
                             info!("update_importance failed for {}: {:?}", result.label, e);
@@ -184,6 +186,10 @@ mod tests {
         let eval = BrainEvaluator::new(EvalConfig::default());
         let v: Vec<f32> = (0..128).map(|i| (i as f32 * 0.01 + 1.0)).collect();
         let result = eval.compute_loss(&v, &v);
-        assert!(result.loss < 0.01, "expected near-zero loss for identical vectors, got {}", result.loss);
+        assert!(
+            result.loss < 0.01,
+            "expected near-zero loss for identical vectors, got {}",
+            result.loss
+        );
     }
 }

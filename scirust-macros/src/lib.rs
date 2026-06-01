@@ -20,7 +20,11 @@ impl VisitMut for ArgReplacer {
             }
         }
         // Replace float literals with Dual::primal(literal)
-        if let Expr::Lit(ExprLit { lit: Lit::Float(lit_float), .. }) = expr {
+        if let Expr::Lit(ExprLit {
+            lit: Lit::Float(lit_float),
+            ..
+        }) = expr
+        {
             if let Ok(val) = lit_float.base10_parse::<f64>() {
                 *expr = syn::parse_quote! {
                     scirust_autodiff::Dual::primal(#val)
@@ -37,7 +41,9 @@ pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input_fn = parse_macro_input!(item as ItemFn);
 
     // Remove #[autodiff] from the input function to avoid infinite recursion
-    input_fn.attrs.retain(|attr| !attr.path().is_ident("autodiff"));
+    input_fn
+        .attrs
+        .retain(|attr| !attr.path().is_ident("autodiff"));
 
     let sig = &input_fn.sig;
     let fn_name = &sig.ident;
@@ -54,15 +60,21 @@ pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
                         false
                     };
                     if !is_f64 {
-                        return syn::Error::new_spanned(ty, "autodiff currently only supports f64 arguments")
-                            .to_compile_error()
-                            .into();
+                        return syn::Error::new_spanned(
+                            ty,
+                            "autodiff currently only supports f64 arguments",
+                        )
+                        .to_compile_error()
+                        .into();
                     }
                     arg_names.push(pat_ident.ident.clone());
                 } else {
-                    return syn::Error::new_spanned(pat, "autodiff only supports simple identifier arguments")
-                        .to_compile_error()
-                        .into();
+                    return syn::Error::new_spanned(
+                        pat,
+                        "autodiff only supports simple identifier arguments",
+                    )
+                    .to_compile_error()
+                    .into();
                 }
             }
             FnArg::Receiver(_) => {
@@ -81,7 +93,10 @@ pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let vis = &input_fn.vis;
     let grad_fn_name = format_ident!("{}_grad", fn_name);
-    let dual_names: Vec<_> = arg_names.iter().map(|name| format_ident!("{}_dual", name)).collect();
+    let dual_names: Vec<_> = arg_names
+        .iter()
+        .map(|name| format_ident!("{}_dual", name))
+        .collect();
 
     let mut arg_map = std::collections::HashMap::new();
     for (name, dual) in arg_names.iter().zip(dual_names.iter()) {
@@ -90,7 +105,9 @@ pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let mut transformed_bodies = Vec::new();
     for i in 0..arg_names.len() {
-        let mut replacer = ArgReplacer { arg_map: arg_map.clone() };
+        let mut replacer = ArgReplacer {
+            arg_map: arg_map.clone(),
+        };
         let mut body = input_fn.block.clone();
         replacer.visit_block_mut(&mut body);
 

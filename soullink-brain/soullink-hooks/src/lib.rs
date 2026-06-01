@@ -47,7 +47,9 @@ pub struct HookContext {
 #[async_trait]
 pub trait Hook: Send + Sync {
     fn name(&self) -> &str;
-    fn priority(&self) -> u32 { 100 }
+    fn priority(&self) -> u32 {
+        100
+    }
     fn points(&self) -> Vec<HookPoint>;
     async fn evaluate(&self, ctx: &HookContext) -> HookOutcome;
 }
@@ -59,7 +61,9 @@ pub struct HookRegistry {
 
 impl HookRegistry {
     pub fn new() -> Self {
-        Self { hooks: Arc::new(RwLock::new(Vec::new())) }
+        Self {
+            hooks: Arc::new(RwLock::new(Vec::new())),
+        }
     }
 
     pub async fn register(&self, hook: Arc<dyn Hook>) {
@@ -71,13 +75,19 @@ impl HookRegistry {
     pub async fn run(&self, point: HookPoint, mut ctx: HookContext) -> HookOutcome {
         let hooks = self.hooks.read().await;
         for hook in hooks.iter() {
-            if !hook.points().contains(&point) { continue; }
+            if !hook.points().contains(&point) {
+                continue;
+            }
             match hook.evaluate(&ctx).await {
                 HookOutcome::Pass(modified) => {
-                    if let Some(m) = modified { ctx.content = m; }
+                    if let Some(m) = modified {
+                        ctx.content = m;
+                    }
                 }
                 HookOutcome::Skip(modified) => {
-                    if let Some(m) = modified { ctx.content = m; }
+                    if let Some(m) = modified {
+                        ctx.content = m;
+                    }
                     return HookOutcome::Pass(Some(ctx.content));
                 }
                 HookOutcome::Reject(reason) => return HookOutcome::Reject(reason),
@@ -88,7 +98,9 @@ impl HookRegistry {
 }
 
 impl Default for HookRegistry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Simple logging hook for debugging.
@@ -96,9 +108,15 @@ pub struct LoggingHook;
 
 #[async_trait]
 impl Hook for LoggingHook {
-    fn name(&self) -> &str { "logging" }
-    fn priority(&self) -> u32 { 0 }
-    fn points(&self) -> Vec<HookPoint> { vec![HookPoint::BeforeInbound, HookPoint::BeforeOutbound] }
+    fn name(&self) -> &str {
+        "logging"
+    }
+    fn priority(&self) -> u32 {
+        0
+    }
+    fn points(&self) -> Vec<HookPoint> {
+        vec![HookPoint::BeforeInbound, HookPoint::BeforeOutbound]
+    }
     async fn evaluate(&self, ctx: &HookContext) -> HookOutcome {
         tracing::info!(hook = self.name(), point = ?ctx.point, content_len = ctx.content.len(), "hook triggered");
         HookOutcome::Pass(None)
@@ -112,9 +130,15 @@ mod tests {
     struct UppercaseHook;
     #[async_trait]
     impl Hook for UppercaseHook {
-        fn name(&self) -> &str { "uppercase" }
-        fn priority(&self) -> u32 { 50 }
-        fn points(&self) -> Vec<HookPoint> { vec![HookPoint::TransformResponse] }
+        fn name(&self) -> &str {
+            "uppercase"
+        }
+        fn priority(&self) -> u32 {
+            50
+        }
+        fn points(&self) -> Vec<HookPoint> {
+            vec![HookPoint::TransformResponse]
+        }
         async fn evaluate(&self, ctx: &HookContext) -> HookOutcome {
             HookOutcome::Pass(Some(ctx.content.to_uppercase()))
         }
@@ -123,9 +147,15 @@ mod tests {
     struct RejectHook;
     #[async_trait]
     impl Hook for RejectHook {
-        fn name(&self) -> &str { "reject" }
-        fn priority(&self) -> u32 { 10 }
-        fn points(&self) -> Vec<HookPoint> { vec![HookPoint::BeforeToolCall] }
+        fn name(&self) -> &str {
+            "reject"
+        }
+        fn priority(&self) -> u32 {
+            10
+        }
+        fn points(&self) -> Vec<HookPoint> {
+            vec![HookPoint::BeforeToolCall]
+        }
         async fn evaluate(&self, _ctx: &HookContext) -> HookOutcome {
             HookOutcome::Reject("blocked".into())
         }
@@ -135,7 +165,13 @@ mod tests {
     async fn transform_hook() {
         let reg = HookRegistry::new();
         reg.register(Arc::new(UppercaseHook)).await;
-        let ctx = HookContext { point: HookPoint::TransformResponse, content: "hello".into(), tool_name: None, session_id: "s1".into(), metadata: Default::default() };
+        let ctx = HookContext {
+            point: HookPoint::TransformResponse,
+            content: "hello".into(),
+            tool_name: None,
+            session_id: "s1".into(),
+            metadata: Default::default(),
+        };
         let result = reg.run(HookPoint::TransformResponse, ctx).await;
         match result {
             HookOutcome::Pass(Some(c)) => assert_eq!(c, "HELLO"),
@@ -147,7 +183,13 @@ mod tests {
     async fn reject_hook() {
         let reg = HookRegistry::new();
         reg.register(Arc::new(RejectHook)).await;
-        let ctx = HookContext { point: HookPoint::BeforeToolCall, content: "rm -rf /".into(), tool_name: Some("shell".into()), session_id: "s1".into(), metadata: Default::default() };
+        let ctx = HookContext {
+            point: HookPoint::BeforeToolCall,
+            content: "rm -rf /".into(),
+            tool_name: Some("shell".into()),
+            session_id: "s1".into(),
+            metadata: Default::default(),
+        };
         let result = reg.run(HookPoint::BeforeToolCall, ctx).await;
         assert!(matches!(result, HookOutcome::Reject(_)));
     }
@@ -156,8 +198,17 @@ mod tests {
     async fn no_hooks_for_point() {
         let reg = HookRegistry::new();
         reg.register(Arc::new(UppercaseHook)).await;
-        let ctx = HookContext { point: HookPoint::BeforeInbound, content: "test".into(), tool_name: None, session_id: "s1".into(), metadata: Default::default() };
+        let ctx = HookContext {
+            point: HookPoint::BeforeInbound,
+            content: "test".into(),
+            tool_name: None,
+            session_id: "s1".into(),
+            metadata: Default::default(),
+        };
         let result = reg.run(HookPoint::BeforeInbound, ctx).await;
-        match result { HookOutcome::Pass(Some(c)) => assert_eq!(c, "test"), _ => panic!("expected pass"), }
+        match result {
+            HookOutcome::Pass(Some(c)) => assert_eq!(c, "test"),
+            _ => panic!("expected pass"),
+        }
     }
 }

@@ -7,7 +7,7 @@
 use crate::types::{GpuStatus, HardwareSnapshot, NumaNodeStatus};
 use anyhow::Result;
 use std::path::Path;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 /// Probe the hardware topology for routing decisions.
 pub struct HardwareProbe;
@@ -60,8 +60,10 @@ impl HardwareProbe {
             if let Some(node_id) = name_str.strip_prefix("node") {
                 if let Ok(id) = node_id.parse::<u32>() {
                     let cpu_cores = Self::read_cpu_list(&entry.path().join("cpulist"));
-                    let memory_total_gb = Self::read_meminfo_kb(&entry.path().join("meminfo"), "MemTotal");
-                    let memory_free_gb = Self::read_meminfo_kb(&entry.path().join("meminfo"), "MemFree");
+                    let memory_total_gb =
+                        Self::read_meminfo_kb(&entry.path().join("meminfo"), "MemTotal");
+                    let memory_free_gb =
+                        Self::read_meminfo_kb(&entry.path().join("meminfo"), "MemFree");
                     let l3_cache_kb = Self::detect_l3_cache_kb(id);
 
                     info!(
@@ -232,7 +234,11 @@ pub fn pin_thread_to_numa_node(node_id: u32, cpu_cores: &[u32]) -> Result<()> {
             ));
         }
     }
-    debug!("Thread pinned to NUMA node {} ({} cores)", node_id, cpu_cores.len());
+    debug!(
+        "Thread pinned to NUMA node {} ({} cores)",
+        node_id,
+        cpu_cores.len()
+    );
     Ok(())
 }
 
@@ -296,10 +302,17 @@ mod tests {
         // This test actually reads /sys — will work on Linux only
         if Path::new("/sys/devices/system/node").exists() {
             let snap = HardwareProbe::snapshot().unwrap();
-            assert!(!snap.numa_nodes.is_empty(), "should detect at least one NUMA node");
+            assert!(
+                !snap.numa_nodes.is_empty(),
+                "should detect at least one NUMA node"
+            );
             for node in &snap.numa_nodes {
                 // cpu_cores may be empty if cpulist format differs
-                assert!(node.memory_total_gb > 0.0, "node {} should have memory", node.node_id);
+                assert!(
+                    node.memory_total_gb > 0.0,
+                    "node {} should have memory",
+                    node.node_id
+                );
             }
         }
     }

@@ -7,12 +7,12 @@
 //! 4. Return metrics (non-blocking)
 
 use crate::evaluator::{BrainEvaluator, EvalConfig, EvalResult};
-use soullink_memory::graph::MemoryGraph;
-use soullink_memory::concept::{Concept, ConceptKind};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use soullink_memory::concept::{Concept, ConceptKind};
+use soullink_memory::graph::MemoryGraph;
 use std::sync::Arc;
-use tracing::{info, warn, instrument};
+use tracing::{info, instrument, warn};
 
 /// Ollama embedding request/response structures.
 #[derive(Debug, Serialize)]
@@ -76,7 +76,11 @@ impl FeedbackLoop {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("failed to build HTTP client");
-        Self { evaluator, config, client }
+        Self {
+            evaluator,
+            config,
+            client,
+        }
     }
 
     /// Run a full feedback cycle with Ollama embeddings.
@@ -97,7 +101,10 @@ impl FeedbackLoop {
         let (query_emb, response_emb) = match self.get_embeddings(query, response).await {
             Ok((q, r)) => (q, r),
             Err(e) => {
-                warn!("Ollama embeddings failed: {}, using local hash-based vectors", e);
+                warn!(
+                    "Ollama embeddings failed: {}, using local hash-based vectors",
+                    e
+                );
                 // Fallback: simple deterministic vectors from text
                 let q = Self::text_to_vector(query);
                 let r = Self::text_to_vector(response);
@@ -105,7 +112,9 @@ impl FeedbackLoop {
             }
         };
 
-        let eval_result = self.evaluator.evaluate(&query_emb, &response_emb, memory_graph);
+        let eval_result = self
+            .evaluator
+            .evaluate(&query_emb, &response_emb, memory_graph);
 
         Ok(FeedbackMetrics {
             loss: eval_result.loss.loss,
@@ -123,7 +132,8 @@ impl FeedbackLoop {
         response_emb: &[f32],
         memory_graph: &MemoryGraph,
     ) -> EvalResult {
-        self.evaluator.evaluate(query_emb, response_emb, memory_graph)
+        self.evaluator
+            .evaluate(query_emb, response_emb, memory_graph)
     }
 
     /// Compute loss locally (no Ollama, no MemoryGraph update).
@@ -140,10 +150,7 @@ impl FeedbackLoop {
             prompt: query.to_string(),
         };
 
-        let resp = self.client.post(&url)
-            .json(&query_req)
-            .send()
-            .await?;
+        let resp = self.client.post(&url).json(&query_req).send().await?;
 
         if !resp.status().is_success() {
             anyhow::bail!("Ollama embedding request failed: {}", resp.status());
@@ -156,10 +163,7 @@ impl FeedbackLoop {
             prompt: response.to_string(),
         };
 
-        let resp = self.client.post(&url)
-            .json(&response_req)
-            .send()
-            .await?;
+        let resp = self.client.post(&url).json(&response_req).send().await?;
 
         let response_emb: EmbeddingResponse = resp.json().await?;
 
@@ -222,7 +226,11 @@ mod tests {
     fn text_to_vector_normalized() {
         let v = FeedbackLoop::text_to_vector("test normalization");
         let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!((norm - 1.0).abs() < 0.01, "vector should be approximately normalized, norm={}", norm);
+        assert!(
+            (norm - 1.0).abs() < 0.01,
+            "vector should be approximately normalized, norm={}",
+            norm
+        );
     }
 
     #[test]
@@ -244,8 +252,11 @@ mod tests {
         }
 
         let reinforced_loss = feedback.compute_loss_only(&base, &response);
-        assert!(reinforced_loss < initial_loss,
+        assert!(
+            reinforced_loss < initial_loss,
             "reinforced loss ({}) should be < initial loss ({})",
-            reinforced_loss, initial_loss);
+            reinforced_loss,
+            initial_loss
+        );
     }
 }

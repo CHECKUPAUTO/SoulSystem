@@ -24,7 +24,7 @@ impl Finding {
         if secret.len() <= 12 {
             return "*".repeat(secret.len());
         }
-        format!("{}...{}", &secret[..4], &secret[secret.len()-4..])
+        format!("{}...{}", &secret[..4], &secret[secret.len() - 4..])
     }
 }
 
@@ -77,13 +77,10 @@ pub fn scan_line(line: &str, file: &str, line_num: usize) -> Vec<Finding> {
 /// Should we skip this file? (binary, images, etc.)
 pub fn should_skip_file(path: &Path) -> bool {
     let skip_extensions = [
-        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg",
-        ".woff", ".woff2", ".ttf", ".eot",
-        ".zip", ".tar", ".gz", ".bz2", ".xz", ".zst",
-        ".mp3", ".mp4", ".wav", ".avi", ".mkv",
-        ".pdf", ".doc", ".docx", ".xls", ".xlsx",
-        ".class", ".jar", ".war", ".so", ".o", ".a",
-        ".bin", ".exe", ".dll", ".dylib",
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg", ".woff", ".woff2", ".ttf",
+        ".eot", ".zip", ".tar", ".gz", ".bz2", ".xz", ".zst", ".mp3", ".mp4", ".wav", ".avi",
+        ".mkv", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".class", ".jar", ".war", ".so", ".o",
+        ".a", ".bin", ".exe", ".dll", ".dylib",
     ];
 
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -98,22 +95,14 @@ mod tests {
 
     #[test]
     fn test_aws_key_in_line() {
-        let findings = scan_line(
-            "aws_key = AKIAIOSFODNN7EXAMPLE",
-            "config.rs",
-            1,
-        );
+        let findings = scan_line("aws_key = AKIAIOSFODNN7EXAMPLE", "config.rs", 1);
         assert!(!findings.is_empty());
         assert_eq!(findings[0].rule_name, "AWS Access Key ID");
     }
 
     #[test]
     fn test_password_in_line() {
-        let findings = scan_line(
-            "password = \"mysecretpassword123\"",
-            "config.toml",
-            5,
-        );
+        let findings = scan_line("password = \"mysecretpassword123\"", "config.toml", 5);
         assert!(!findings.is_empty());
     }
 

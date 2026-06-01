@@ -1,10 +1,10 @@
 //! Discovery module - integrated with AVID for web and document exploration.
 
+use crate::bus::{Bus, Message};
 #[cfg(feature = "avid")]
 use avid_scout::Scout;
 #[cfg(feature = "avid")]
 use avid_vision::Vision;
-use crate::bus::{Bus, Message};
 use std::sync::Arc;
 use tracing::info;
 

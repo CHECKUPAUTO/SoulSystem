@@ -16,7 +16,8 @@ impl SelfModEngine {
     }
 
     /// Analyse l'état actuel et suggère une modification
-    pub fn analyze(&self,
+    pub fn analyze(
+        &self,
         history: &[crate::HistoryEntry],
         resilience: &crate::resilience::ResilienceEngine,
         _q_table: &crate::learning::QTable,
@@ -24,9 +25,12 @@ impl SelfModEngine {
     ) -> Option<ConfigPatch> {
         let recent = history.iter().rev().take(20).collect::<Vec<_>>();
         let total = recent.len() as f32;
-        if total == 0.0 { return None; }
+        if total == 0.0 {
+            return None;
+        }
 
-        let successes = recent.iter()
+        let successes = recent
+            .iter()
             .filter(|h| h.outcome.contains("OK") || h.outcome.contains("SUCCESS"))
             .count() as f32;
         let action_rate = successes / total;
@@ -102,9 +106,7 @@ impl SelfModEngine {
                 st.evolution_count += 1;
                 true
             }
-            None => {
-                false
-            }
+            None => false,
         }
     }
 }

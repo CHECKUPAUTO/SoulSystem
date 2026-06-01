@@ -13,12 +13,16 @@ pub struct ProxyMetrics {
 
 impl ProxyMetrics {
     pub fn success_rate(&self) -> f64 {
-        if self.total_requests == 0 { return 0.0; }
+        if self.total_requests == 0 {
+            return 0.0;
+        }
         self.successful_requests as f64 / self.total_requests as f64
     }
 
     pub fn avg_tokens_per_request(&self) -> f64 {
-        if self.total_requests == 0 { return 0.0; }
+        if self.total_requests == 0 {
+            return 0.0;
+        }
         (self.total_tokens_in + self.total_tokens_out) as f64 / self.total_requests as f64
     }
 }

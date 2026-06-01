@@ -7,8 +7,8 @@
 
 use chrono::{Duration, Utc};
 use scirust_trading_core::{
-    Category, CodifiedEvent, EnrichmentLevel, EventBus, EventTiming, Exchange,
-    MarketState, Polarity, Side, SourceId, Symbol, Target,
+    Category, CodifiedEvent, EnrichmentLevel, EventBus, EventTiming, Exchange, MarketState,
+    Polarity, Side, SourceId, Symbol, Target,
 };
 use scirust_trading_engine::decision::{
     BiasOutcome, Decision, DecisionAction, GateOutcome, Reasoning,
@@ -75,18 +75,55 @@ async fn main() {
             ("rss:x:saylor", 0.55, Category::Narrative),
         ];
         let texts: Vec<(&str, Vec<&str>, f64, f64)> = vec![
-            ("SEC approves spot Ethereum ETF from BlackRock", vec!["etf", "sec", "regulatory", "high_impact"], 0.7, 0.85),
-            ("FOMC raises rates by 25bp, signals hawkish bias", vec!["fomc", "rate_decision", "hawkish"], -0.5, 0.8),
-            ("Whale moves 8500 BTC ($560M) to unknown wallet", vec!["whale", "on_chain", "btc"], -0.3, 0.6),
-            ("Binance announces new BTC futures product", vec!["binance", "futures", "listing"], 0.3, 0.5),
-            ("CFTC investigates major DEX over compliance", vec!["cftc", "regulatory", "dex"], -0.4, 0.7),
-            ("Saylor: 'Bitcoin is the apex property of the human race'", vec!["narrative", "btc"], 0.2, 0.4),
-            ("Spread blow-up detected on Bybit BTC perp", vec!["microstructure", "warning"], 0.0, 0.6),
+            (
+                "SEC approves spot Ethereum ETF from BlackRock",
+                vec!["etf", "sec", "regulatory", "high_impact"],
+                0.7,
+                0.85,
+            ),
+            (
+                "FOMC raises rates by 25bp, signals hawkish bias",
+                vec!["fomc", "rate_decision", "hawkish"],
+                -0.5,
+                0.8,
+            ),
+            (
+                "Whale moves 8500 BTC ($560M) to unknown wallet",
+                vec!["whale", "on_chain", "btc"],
+                -0.3,
+                0.6,
+            ),
+            (
+                "Binance announces new BTC futures product",
+                vec!["binance", "futures", "listing"],
+                0.3,
+                0.5,
+            ),
+            (
+                "CFTC investigates major DEX over compliance",
+                vec!["cftc", "regulatory", "dex"],
+                -0.4,
+                0.7,
+            ),
+            (
+                "Saylor: 'Bitcoin is the apex property of the human race'",
+                vec!["narrative", "btc"],
+                0.2,
+                0.4,
+            ),
+            (
+                "Spread blow-up detected on Bybit BTC perp",
+                vec!["microstructure", "warning"],
+                0.0,
+                0.6,
+            ),
         ];
         let mut idx = 0;
         loop {
-            tokio::time::sleep(StdDuration::from_millis(2500 + (rand_jitter() * 3000.0) as u64))
-                .await;
+            tokio::time::sleep(StdDuration::from_millis(
+                2500 + (rand_jitter() * 3000.0) as u64,
+            ))
+            .await;
             let (text, tags, pol, mag) = &texts[idx % texts.len()];
             let (src, rel, cat) = sources[idx % sources.len()];
             idx += 1;
@@ -120,21 +157,55 @@ async fn main() {
     let dec_tx_clone = dec_tx.clone();
     tokio::spawn(async move {
         let scenarios = [
-            ("hold", vec![], vec![], None, "signal trop faible (0.02 < 0.05)"),
-            ("open_buy", vec![], vec!["regulatory_neutral"], Some((Side::Buy, 0.005)),
-             "signal Buy (score=+0.42, conf=0.75), notional=335.00"),
-            ("no_trade", vec!["spread_blowup"], vec![], None,
-             "gate `spread_blowup` veto: spread > 8 bps"),
-            ("open_sell", vec![], vec!["regulatory_negative"], Some((Side::Sell, 0.003)),
-             "signal Sell (score=-0.38, conf=0.72), notional=201.00"),
-            ("no_trade", vec!["fomc_window"], vec![], None,
-             "gate `fomc_window` veto: FOMC dans 30 min"),
-            ("hold", vec![], vec![], None, "signal trop faible (-0.01 < 0.05)"),
+            (
+                "hold",
+                vec![],
+                vec![],
+                None,
+                "signal trop faible (0.02 < 0.05)",
+            ),
+            (
+                "open_buy",
+                vec![],
+                vec!["regulatory_neutral"],
+                Some((Side::Buy, 0.005)),
+                "signal Buy (score=+0.42, conf=0.75), notional=335.00",
+            ),
+            (
+                "no_trade",
+                vec!["spread_blowup"],
+                vec![],
+                None,
+                "gate `spread_blowup` veto: spread > 8 bps",
+            ),
+            (
+                "open_sell",
+                vec![],
+                vec!["regulatory_negative"],
+                Some((Side::Sell, 0.003)),
+                "signal Sell (score=-0.38, conf=0.72), notional=201.00",
+            ),
+            (
+                "no_trade",
+                vec!["fomc_window"],
+                vec![],
+                None,
+                "gate `fomc_window` veto: FOMC dans 30 min",
+            ),
+            (
+                "hold",
+                vec![],
+                vec![],
+                None,
+                "signal trop faible (-0.01 < 0.05)",
+            ),
         ];
         let mut i = 0;
         loop {
-            tokio::time::sleep(StdDuration::from_millis(3500 + (rand_jitter() * 2000.0) as u64))
-                .await;
+            tokio::time::sleep(StdDuration::from_millis(
+                3500 + (rand_jitter() * 2000.0) as u64,
+            ))
+            .await;
             let (kind, gates, biases, action_data, expl) = &scenarios[i % scenarios.len()];
             i += 1;
             let mut r = Reasoning::empty(expl.to_string());
@@ -206,9 +277,16 @@ async fn main() {
 
 fn rand_jitter() -> f64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     // Simple LCG for portability
-    ((now.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407) >> 32) & 0xffffff) as f64
+    ((now
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407)
+        >> 32)
+        & 0xffffff) as f64
         / (0xffffff as f64)
 }
 

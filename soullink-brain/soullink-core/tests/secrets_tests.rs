@@ -17,21 +17,42 @@ fn token_hex_roundtrip() {
 
 #[test]
 fn token_hex_rejects_bad_length() {
-    assert!(matches!(InternalToken::from_hex(""),          Err(SecretsError::InvalidToken)));
-    assert!(matches!(InternalToken::from_hex("abcd"),      Err(SecretsError::InvalidToken)));
-    assert!(matches!(InternalToken::from_hex(&"a".repeat(63)), Err(SecretsError::InvalidToken)));
-    assert!(matches!(InternalToken::from_hex(&"a".repeat(65)), Err(SecretsError::InvalidToken)));
+    assert!(matches!(
+        InternalToken::from_hex(""),
+        Err(SecretsError::InvalidToken)
+    ));
+    assert!(matches!(
+        InternalToken::from_hex("abcd"),
+        Err(SecretsError::InvalidToken)
+    ));
+    assert!(matches!(
+        InternalToken::from_hex(&"a".repeat(63)),
+        Err(SecretsError::InvalidToken)
+    ));
+    assert!(matches!(
+        InternalToken::from_hex(&"a".repeat(65)),
+        Err(SecretsError::InvalidToken)
+    ));
 }
 
 #[test]
 fn token_hex_rejects_non_hex() {
-    assert!(matches!(InternalToken::from_hex(&"z".repeat(64)), Err(SecretsError::InvalidToken)));
-    assert!(matches!(InternalToken::from_hex(&"!".repeat(64)), Err(SecretsError::InvalidToken)));
+    assert!(matches!(
+        InternalToken::from_hex(&"z".repeat(64)),
+        Err(SecretsError::InvalidToken)
+    ));
+    assert!(matches!(
+        InternalToken::from_hex(&"!".repeat(64)),
+        Err(SecretsError::InvalidToken)
+    ));
     // Mixed valid + invalid
     let mut s = "a".repeat(62);
     s.push('g');
     s.push('h');
-    assert!(matches!(InternalToken::from_hex(&s), Err(SecretsError::InvalidToken)));
+    assert!(matches!(
+        InternalToken::from_hex(&s),
+        Err(SecretsError::InvalidToken)
+    ));
 }
 
 #[test]
@@ -54,7 +75,10 @@ fn token_debug_redacts() {
 #[test]
 fn load_from_missing_file() {
     let p = std::path::Path::new("/tmp/nonexistent-secrets-soullink-xyz-42");
-    assert!(matches!(secrets::load_from(p), Err(SecretsError::NotFound(_))));
+    assert!(matches!(
+        secrets::load_from(p),
+        Err(SecretsError::NotFound(_))
+    ));
 }
 
 #[cfg(unix)]
@@ -62,12 +86,18 @@ fn load_from_missing_file() {
 fn load_from_insecure_permissions_rejected() {
     use std::os::unix::fs::PermissionsExt;
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    writeln!(tmp.as_file(),
-             "SOULLINK_INTERNAL_TOKEN=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789").unwrap();
+    writeln!(
+        tmp.as_file(),
+        "SOULLINK_INTERNAL_TOKEN=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+    )
+    .unwrap();
     std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o644)).unwrap();
 
     let err = secrets::load_from(tmp.path()).unwrap_err();
-    assert!(matches!(err, SecretsError::InsecurePermissions(_)), "got {err:?}");
+    assert!(
+        matches!(err, SecretsError::InsecurePermissions(_)),
+        "got {err:?}"
+    );
 }
 
 #[cfg(unix)]
@@ -75,8 +105,11 @@ fn load_from_insecure_permissions_rejected() {
 fn load_from_secure_permissions_ok() {
     use std::os::unix::fs::PermissionsExt;
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    writeln!(tmp.as_file(),
-             "SOULLINK_INTERNAL_TOKEN=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789").unwrap();
+    writeln!(
+        tmp.as_file(),
+        "SOULLINK_INTERNAL_TOKEN=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+    )
+    .unwrap();
     std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o600)).unwrap();
 
     // Non-root owner → warn but not fatal

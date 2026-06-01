@@ -3,16 +3,26 @@
 /// Trait unifié pour l'exécution de kernels sur différents backends
 pub trait ComputeBackend {
     fn is_available(&self) -> bool;
-    fn execute_kernel(&self, kernel: &[f32], data: &[f32]) -> Result<Vec<f32>, Box<dyn std::error::Error>>;
+    fn execute_kernel(
+        &self,
+        kernel: &[f32],
+        data: &[f32],
+    ) -> Result<Vec<f32>, Box<dyn std::error::Error>>;
 }
 
 /// Backend CPU — toujours disponible
 pub struct CpuFallback;
 
 impl ComputeBackend for CpuFallback {
-    fn is_available(&self) -> bool { true }
+    fn is_available(&self) -> bool {
+        true
+    }
 
-    fn execute_kernel(&self, kernel: &[f32], data: &[f32]) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    fn execute_kernel(
+        &self,
+        kernel: &[f32],
+        data: &[f32],
+    ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
         // Convolution simplifiée
         let mut out = vec![0.0f32; data.len()];
         let half_k = kernel.len() / 2;
@@ -38,7 +48,11 @@ impl ComputeBackend for CudaBackend {
         std::env::var("CUDA_VISIBLE_DEVICES").is_ok()
     }
 
-    fn execute_kernel(&self, _kernel: &[f32], data: &[f32]) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    fn execute_kernel(
+        &self,
+        _kernel: &[f32],
+        data: &[f32],
+    ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
         // Stub: TODO implémentation CUDA réelle avec cudarc
         Ok(data.to_vec())
     }

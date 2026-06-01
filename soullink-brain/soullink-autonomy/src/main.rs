@@ -14,14 +14,12 @@ use tracing::info;
 
 #[tokio::main(worker_threads = 4)]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     info!("🦞 SoulLink Autonomy v13.5 starting...");
 
-    let orchestrator_url = std::env::var("ORCHESTRATOR_URL")
-        .unwrap_or("http://127.0.0.1:9020".to_string());
+    let orchestrator_url =
+        std::env::var("ORCHESTRATOR_URL").unwrap_or("http://127.0.0.1:9020".to_string());
     let pulse_interval_ms: u64 = std::env::var("PULSE_INTERVAL_MS")
         .unwrap_or("1000".to_string())
         .parse()
@@ -41,8 +39,7 @@ async fn main() {
 
     let dream_config = DreamConfig {
         cycle_interval_secs: dream_interval_secs,
-        db_path: std::env::var("MEMORY_DB_PATH")
-            .unwrap_or("/var/lib/soullink/memory".to_string()),
+        db_path: std::env::var("MEMORY_DB_PATH").unwrap_or("/var/lib/soullink/memory".to_string()),
         ..Default::default()
     };
     let dream = Arc::new(DreamCycle::new(dream_config));
@@ -60,16 +57,19 @@ async fn main() {
 
     // Simple status API
     let pulse_for_api = pulse.clone();
-    let app = axum::Router::new()
-        .route("/api/autonomy/status", axum::routing::get({
+    let app = axum::Router::new().route(
+        "/api/autonomy/status",
+        axum::routing::get({
             let pulse = pulse_for_api.clone();
             move || {
                 let snap = pulse.snapshot();
                 async move { axum::Json(snap) }
             }
-        }));
+        }),
+    );
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:9046").await
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:9046")
+        .await
         .expect("Failed to bind autonomy API on port 9046");
     info!("Autonomy API listening on :9046");
 

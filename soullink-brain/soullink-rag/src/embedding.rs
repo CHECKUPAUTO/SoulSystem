@@ -7,7 +7,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use tracing::{info, warn, instrument};
+use tracing::{info, instrument, warn};
 
 /// Ollama embedding request.
 #[derive(Debug, Serialize)]
@@ -65,7 +65,11 @@ impl EmbedBridge {
 
         let semaphore = Arc::new(Semaphore::new(config.max_concurrency));
 
-        Self { config, client, semaphore }
+        Self {
+            config,
+            client,
+            semaphore,
+        }
     }
 
     /// Get the embedding dimension for the configured model.
@@ -84,10 +88,7 @@ impl EmbedBridge {
             prompt: text.to_string(),
         };
 
-        let resp = self.client.post(&url)
-            .json(&req)
-            .send()
-            .await?;
+        let resp = self.client.post(&url).json(&req).send().await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -101,9 +102,7 @@ impl EmbedBridge {
 
     /// Embed multiple texts in parallel with concurrency control.
     pub async fn embed_batch(&self, texts: &[String]) -> Vec<Result<Vec<f32>>> {
-        let futures: Vec<_> = texts.iter()
-            .map(|text| self.embed(text))
-            .collect();
+        let futures: Vec<_> = texts.iter().map(|text| self.embed(text)).collect();
 
         futures::future::join_all(futures).await
     }

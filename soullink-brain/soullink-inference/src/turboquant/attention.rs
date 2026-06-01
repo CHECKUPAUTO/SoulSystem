@@ -3,10 +3,10 @@
 //! This is the integration point: attention computation + automatic KV compression.
 //! When used inside soullink-inference, replaces raw attention with compressed attention.
 
-use nalgebra::{DMatrix, DVector};
+use crate::turboquant::cache::TurboQuantKVCache;
 use crate::turboquant::polar::PolarQuant;
 use crate::turboquant::qjl::QJLQuantizer;
-use crate::turboquant::cache::TurboQuantKVCache;
+use nalgebra::{DMatrix, DVector};
 
 /// Attention layer with integrated TurboQuant KV cache.
 pub struct TurboQuantAttention {
@@ -31,7 +31,14 @@ impl TurboQuantAttention {
     }
 
     /// Forward pass with automatic KV compression.
-    pub fn forward(&mut self, q: &DMatrix<f32>, k: &DMatrix<f32>, v: &DMatrix<f32>, pos: usize, compress: bool) -> DMatrix<f32> {
+    pub fn forward(
+        &mut self,
+        q: &DMatrix<f32>,
+        k: &DMatrix<f32>,
+        v: &DMatrix<f32>,
+        pos: usize,
+        compress: bool,
+    ) -> DMatrix<f32> {
         // Store K/V in compressed cache if requested
         if compress {
             let k_flat: Vec<f32> = k.iter().copied().collect();
@@ -58,7 +65,9 @@ impl TurboQuantAttention {
     }
 
     /// Get reference to the compressed KV cache.
-    pub fn kv_cache(&self) -> &TurboQuantKVCache { &self.cache }
+    pub fn kv_cache(&self) -> &TurboQuantKVCache {
+        &self.cache
+    }
 }
 
 #[cfg(test)]

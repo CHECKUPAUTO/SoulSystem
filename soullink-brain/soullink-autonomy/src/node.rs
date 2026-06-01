@@ -29,10 +29,17 @@ pub enum NodeId {
 impl NodeId {
     pub fn all() -> Vec<NodeId> {
         vec![
-            NodeId::Reasoning, NodeId::Perception, NodeId::Affect,
-            NodeId::Memory, NodeId::Reflex, NodeId::Integration,
-            NodeId::Foresight, NodeId::Homeostasis, NodeId::Creativity,
-            NodeId::Social, NodeId::Validation,
+            NodeId::Reasoning,
+            NodeId::Perception,
+            NodeId::Affect,
+            NodeId::Memory,
+            NodeId::Reflex,
+            NodeId::Integration,
+            NodeId::Foresight,
+            NodeId::Homeostasis,
+            NodeId::Creativity,
+            NodeId::Social,
+            NodeId::Validation,
         ]
     }
 
@@ -126,7 +133,8 @@ impl BrainNode {
     ///       ∇V(q) = k·(q - target)
     pub fn evolve(&mut self, stimulus: f64, thermal_noise: f64) {
         let gradient_v = self.stiffness * (self.position - self.target) + stimulus;
-        self.momentum = self.damping * self.momentum - self.learning_rate * gradient_v + thermal_noise;
+        self.momentum =
+            self.damping * self.momentum - self.learning_rate * gradient_v + thermal_noise;
         self.position += self.momentum;
         self.tick += 1;
     }
@@ -180,22 +188,34 @@ mod tests {
         for _ in 0..100 {
             node.evolve(0.0, 0.0);
         }
-        assert!(node.position.abs() < 0.1, "should converge near target, got {}", node.position);
+        assert!(
+            node.position.abs() < 0.1,
+            "should converge near target, got {}",
+            node.position
+        );
     }
 
     #[test]
     fn node_evolution_with_stimulus() {
         let mut node = BrainNode::new(NodeId::Reasoning);
         node.evolve(1.0, 0.0); // positive stimulus
-        // After one step, momentum should be non-zero (gradient drives it)
-        assert!(node.momentum.abs() > 0.0, "momentum should be non-zero, got {}", node.momentum);
+                               // After one step, momentum should be non-zero (gradient drives it)
+        assert!(
+            node.momentum.abs() > 0.0,
+            "momentum should be non-zero, got {}",
+            node.momentum
+        );
     }
 
     #[test]
     fn surge_injects_momentum() {
         let mut node = BrainNode::new(NodeId::Affect);
         node.surge(0.5);
-        assert!((node.momentum - 0.5).abs() < 0.01, "momentum should be 0.5, got {}", node.momentum);
+        assert!(
+            (node.momentum - 0.5).abs() < 0.01,
+            "momentum should be 0.5, got {}",
+            node.momentum
+        );
     }
 
     #[test]
@@ -206,7 +226,10 @@ mod tests {
 
         // High momentum → StrangeAttractor
         node.momentum = 0.5;
-        assert!(matches!(node.attractor(), Attractor::StrangeAttractor | Attractor::Transient));
+        assert!(matches!(
+            node.attractor(),
+            Attractor::StrangeAttractor | Attractor::Transient
+        ));
     }
 
     #[test]
@@ -222,7 +245,12 @@ mod tests {
             node.evolve(0.0, 0.0);
         }
         let pos_after = node.position.abs();
-        assert!(pos_after < pos_before, "position should move toward target: {} -> {}", pos_before, pos_after);
+        assert!(
+            pos_after < pos_before,
+            "position should move toward target: {} -> {}",
+            pos_before,
+            pos_after
+        );
     }
 
     #[test]

@@ -16,11 +16,7 @@
 //! * **Backoff on API errors** — on repeated `getUpdates` failures (429 rate
 //!   limit, network drops), exponential backoff capped at 30 s.
 
-use std::{
-    collections::HashSet,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use futures::future::BoxFuture;
 use tokio::{sync::broadcast, time};
@@ -33,32 +29,29 @@ use super::{
 
 /// Pluggable orchestrator call. The real implementation POSTs to the
 /// orchestrator; tests inject a closure that returns canned replies.
-pub type OrchestratorBridge = Arc<
-    dyn Fn(IncomingMessage) -> BoxFuture<'static, Result<String, String>>
-        + Send
-        + Sync,
->;
+pub type OrchestratorBridge =
+    Arc<dyn Fn(IncomingMessage) -> BoxFuture<'static, Result<String, String>> + Send + Sync>;
 
 /// What we pass to the orchestrator. Keeps the bridge trait cheap to swap.
 #[derive(Debug, Clone)]
 pub struct IncomingMessage {
-    pub chat_id:    i64,
-    pub chat_type:  String,
+    pub chat_id: i64,
+    pub chat_type: String,
     pub message_id: i64,
-    pub text:       String,
-    pub user_id:    Option<i64>,
-    pub username:   Option<String>,
+    pub text: String,
+    pub user_id: Option<i64>,
+    pub username: Option<String>,
 }
 
 pub struct LongPollLoop {
-    client:            TelegramClient,
-    bridge:            OrchestratorBridge,
+    client: TelegramClient,
+    bridge: OrchestratorBridge,
     long_poll_timeout_s: u32,
-    allow_list:        Option<HashSet<i64>>,
-    typing_pre_reply:  Option<Duration>,
+    allow_list: Option<HashSet<i64>>,
+    typing_pre_reply: Option<Duration>,
     /// Phase 6b: when `Some`, use SSE streaming instead of blocking bridge.
-    streaming:         Option<Arc<crate::streaming_consumer::StreamingConsumer>>,
-    shutdown:          broadcast::Receiver<()>,
+    streaming: Option<Arc<crate::streaming_consumer::StreamingConsumer>>,
+    shutdown: broadcast::Receiver<()>,
     /// Internal: next `offset` to pass to `getUpdates`.
     next_offset: i64,
 }
@@ -141,7 +134,10 @@ impl LongPollLoop {
         // Allow-list
         if let Some(allow) = &self.allow_list {
             if !allow.contains(&msg.chat.id) {
-                debug!(chat_id = msg.chat.id, "message from chat not in allow-list; ignored");
+                debug!(
+                    chat_id = msg.chat.id,
+                    "message from chat not in allow-list; ignored"
+                );
                 return Ok(());
             }
         }
@@ -149,17 +145,22 @@ impl LongPollLoop {
         // Text-only in 6a
         let text = match msg.text.as_deref() {
             Some(t) if !t.is_empty() => t.to_string(),
-            _ => return Ok(()),  // non-text message (photo, sticker, etc.) — ignored
+            _ => return Ok(()), // non-text message (photo, sticker, etc.) — ignored
         };
 
-        let Message { chat, message_id, from, .. } = msg;
+        let Message {
+            chat,
+            message_id,
+            from,
+            ..
+        } = msg;
         let incoming = IncomingMessage {
-            chat_id:    chat.id,
-            chat_type:  chat.chat_type.clone(),
+            chat_id: chat.id,
+            chat_type: chat.chat_type.clone(),
             message_id,
             text,
-            user_id:    from.as_ref().map(|u| u.id),
-            username:   from.as_ref().and_then(|u| u.username.clone()),
+            user_id: from.as_ref().map(|u| u.id),
+            username: from.as_ref().and_then(|u| u.username.clone()),
         };
 
         info!(
@@ -208,7 +209,10 @@ impl LongPollLoop {
                 // Orchestrator returned success but empty reply — rare but
                 // possible on some edge cases. Don't spam the chat with
                 // an empty message; just acknowledge silently.
-                debug!(chat_id = incoming.chat_id, "empty reply from orchestrator — skipping send");
+                debug!(
+                    chat_id = incoming.chat_id,
+                    "empty reply from orchestrator — skipping send"
+                );
                 return Ok(());
             }
             Ok(text) => text,

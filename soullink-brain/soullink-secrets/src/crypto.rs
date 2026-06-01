@@ -25,7 +25,9 @@ impl SecretsCrypto {
         if master_key.len() < KEY_SIZE {
             return Err(SecretError::InvalidMasterKey);
         }
-        Ok(Self { master_key: master_key.to_vec() })
+        Ok(Self {
+            master_key: master_key.to_vec(),
+        })
     }
 
     /// Generate a random salt.
@@ -73,7 +75,9 @@ impl SecretsCrypto {
             .map_err(|e| SecretError::DecryptionFailed(format!("Cipher init failed: {}", e)))?;
 
         if packed.len() < NONCE_SIZE {
-            return Err(SecretError::DecryptionFailed("Packed data too short".into()));
+            return Err(SecretError::DecryptionFailed(
+                "Packed data too short".into(),
+            ));
         }
 
         let nonce = Nonce::from_slice(&packed[..NONCE_SIZE]);

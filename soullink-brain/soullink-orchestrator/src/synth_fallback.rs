@@ -11,7 +11,7 @@ use crate::mesh_context::MeshContext;
 pub fn build(ctx: &MeshContext, reason: Option<&str>) -> String {
     let note = match reason {
         Some(r) => format!("\n\n(⚠️  Language model unavailable — {r}. Mesh telemetry only.)"),
-        None    => String::new(),
+        None => String::new(),
     };
 
     if ctx.top_concepts.is_empty() {
@@ -26,8 +26,16 @@ pub fn build(ctx: &MeshContext, reason: Option<&str>) -> String {
         );
     }
 
-    let concepts: Vec<String> = ctx.top_concepts.iter().take(5)
-        .map(|c| format!("• {} (score {:.2}, from {})", c.concept, c.score, c.source_brain))
+    let concepts: Vec<String> = ctx
+        .top_concepts
+        .iter()
+        .take(5)
+        .map(|c| {
+            format!(
+                "• {} (score {:.2}, from {})",
+                c.concept, c.score, c.source_brain
+            )
+        })
         .collect();
 
     format!(
@@ -55,9 +63,10 @@ mod tests {
 
     #[test]
     fn fallback_with_no_concepts() {
-        let results = HashMap::from([
-            ("meta".to_string(), json!({"attractor": "Transient", "turbulence": 0.4})),
-        ]);
+        let results = HashMap::from([(
+            "meta".to_string(),
+            json!({"attractor": "Transient", "turbulence": 0.4}),
+        )]);
         let ctx = MeshContext::build("hi", &results, &[]);
         let text = build(&ctx, Some("timeout"));
         assert!(text.contains("No concepts surfaced"));
@@ -67,9 +76,10 @@ mod tests {
 
     #[test]
     fn fallback_with_concepts() {
-        let results = HashMap::from([
-            ("science".to_string(), json!({"attractor": "DeepBasin", "turbulence": 0.2})),
-        ]);
+        let results = HashMap::from([(
+            "science".to_string(),
+            json!({"attractor": "DeepBasin", "turbulence": 0.2}),
+        )]);
         let merged = vec![
             json!({"concept": "entropy",    "score": 0.9, "source_brain": "science"}),
             json!({"concept": "relativity", "score": 0.7, "source_brain": "science"}),

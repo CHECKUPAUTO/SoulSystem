@@ -39,7 +39,10 @@ impl GoalFile {
                 return gf;
             }
         }
-        Self { goal: None, history: vec![] }
+        Self {
+            goal: None,
+            history: vec![],
+        }
     }
 
     pub fn save(&self) {

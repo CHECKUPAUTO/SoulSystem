@@ -24,13 +24,20 @@ async fn dashboard_loads_and_streams_an_event() {
     };
     let server_bus = bus.clone();
     tokio::spawn(async move {
-        MonitorServer::new(cfg, server_bus, api, None).serve().await.ok();
+        MonitorServer::new(cfg, server_bus, api, None)
+            .serve()
+            .await
+            .ok();
     });
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // 1. Dashboard HTML
     let html = reqwest::get(format!("http://127.0.0.1:{port}/"))
-        .await.unwrap().text().await.unwrap();
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
     assert!(html.contains("scirust trading"));
     assert!(html.contains("EventSource"));
 
@@ -47,8 +54,11 @@ async fn dashboard_loads_and_streams_an_event() {
         let _ = bus2.news.send(ev);
     });
 
-    let resp = client.get(format!("http://127.0.0.1:{port}/stream/news"))
-        .send().await.unwrap();
+    let resp = client
+        .get(format!("http://127.0.0.1:{port}/stream/news"))
+        .send()
+        .await
+        .unwrap();
     assert!(resp.status().is_success());
 
     let body = tokio::time::timeout(Duration::from_secs(3), async {
@@ -57,10 +67,16 @@ async fn dashboard_loads_and_streams_an_event() {
         let mut s = resp.bytes_stream();
         while let Some(chunk) = s.next().await {
             buf.extend_from_slice(&chunk.unwrap());
-            if buf.len() > 256 { break; }
+            if buf.len() > 256 {
+                break;
+            }
         }
         String::from_utf8_lossy(&buf).to_string()
-    }).await.unwrap();
-    assert!(body.contains("smoke test news") || body.contains("event: news"),
-        "got: {body:?}");
+    })
+    .await
+    .unwrap();
+    assert!(
+        body.contains("smoke test news") || body.contains("event: news"),
+        "got: {body:?}"
+    );
 }

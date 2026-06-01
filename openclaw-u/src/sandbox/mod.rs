@@ -1,12 +1,12 @@
 //! Sandbox — Test d'évolution en isolation avant application en production
 
+use crate::CoreState;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use tracing::{info, warn};
-use tokio::sync::Mutex;
 use std::sync::Arc;
-use crate::CoreState;
+use tokio::sync::Mutex;
+use tracing::{info, warn};
 
 /// Environnement sandbox isolé
 pub struct Sandbox {
@@ -41,11 +41,18 @@ impl Sandbox {
 
     /// Copie le projet dans le sandbox
     pub fn setup(&self) -> Result<(), String> {
-        info!("📦 SANDBOX setup — copie depuis {}", self.original_dir.display());
+        info!(
+            "📦 SANDBOX setup — copie depuis {}",
+            self.original_dir.display()
+        );
 
         // rsync ou cp -r
         let output = std::process::Command::new("cp")
-            .args(["-r", &self.original_dir.to_string_lossy(), &self.base_dir.to_string_lossy()])
+            .args([
+                "-r",
+                &self.original_dir.to_string_lossy(),
+                &self.base_dir.to_string_lossy(),
+            ])
             .output();
 
         match output {
@@ -59,10 +66,7 @@ impl Sandbox {
     }
 
     /// Applique un patch dans le sandbox
-    pub fn apply_patch(&self,
-        relative_path: &str,
-        new_code: &str,
-    ) -> Result<(), String> {
+    pub fn apply_patch(&self, relative_path: &str, new_code: &str) -> Result<(), String> {
         let target = self.base_dir.join(relative_path);
 
         // Backup
@@ -101,7 +105,9 @@ impl Sandbox {
                     .output()
                     .map_err(|e| format!("Process error: {}", e))
             }
-        }).await.map_err(|e| format!("Spawn: {}", e))?;
+        })
+        .await
+        .map_err(|e| format!("Spawn: {}", e))?;
 
         match output {
             Ok(result) => {
@@ -133,14 +139,19 @@ impl Sandbox {
             let dir = self.base_dir.clone();
             move || -> Result<std::process::Output, String> {
                 let mut command = std::process::Command::new(&cmd);
-                for arg in &args { command.arg(arg); }
-                command.current_dir(&dir)
+                for arg in &args {
+                    command.arg(arg);
+                }
+                command
+                    .current_dir(&dir)
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .output()
                     .map_err(|e| format!("Process error: {}", e))
             }
-        }).await.map_err(|e| format!("Spawn: {}", e))?;
+        })
+        .await
+        .map_err(|e| format!("Spawn: {}", e))?;
 
         match output {
             Ok(result) => {
@@ -172,7 +183,9 @@ impl Sandbox {
                     .output()
                     .map_err(|e| format!("Process error: {}", e))
             }
-        }).await.map_err(|e| format!("Spawn: {}", e))?;
+        })
+        .await
+        .map_err(|e| format!("Spawn: {}", e))?;
 
         match output {
             Ok(result) => {
@@ -190,11 +203,7 @@ impl Sandbox {
     }
 
     /// Pipeline complet : setup → patch → compile → test → clippy
-    pub async fn validate_patch(
-        &self,
-        file_path: &str,
-        new_code: &str,
-    ) -> SandboxResult {
+    pub async fn validate_patch(&self, file_path: &str, new_code: &str) -> SandboxResult {
         let mut result = SandboxResult {
             success: false,
             compilation_ok: false,
@@ -257,10 +266,7 @@ impl Sandbox {
     }
 
     /// Copie le patch validé vers le vrai projet
-    pub fn promote_to_production(
-        &self,
-        file_path: &str,
-    ) -> Result<(), String> {
+    pub fn promote_to_production(&self, file_path: &str) -> Result<(), String> {
         let sandbox_file = self.base_dir.join(file_path);
         let prod_file = self.original_dir.join(file_path);
 
@@ -302,10 +308,18 @@ pub async fn auto_evolve_sandboxed(
 
         let mut st = state.lock().await;
         st.evolution_count += 1;
-        st.log_event("auto_evolve_sandboxed", 0.8, &format!("promoted_{}", file_path));
+        st.log_event(
+            "auto_evolve_sandboxed",
+            0.8,
+            &format!("promoted_{}", file_path),
+        );
     } else {
         let mut st = state.lock().await;
-        st.log_event("auto_evolve_sandboxed", -0.2, &format!("failed_{}", result.output));
+        st.log_event(
+            "auto_evolve_sandboxed",
+            -0.2,
+            &format!("failed_{}", result.output),
+        );
     }
 
     result

@@ -1,20 +1,19 @@
 //! Bi-Bridge HTTP Server — Mini API pour recevoir les commandes de SoulLink
 
 use axum::{
-    Router,
-    routing::{get, post},
     extract::State,
-    Json,
     http::StatusCode,
+    routing::{get, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
-use tracing::{info, warn};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tracing::{info, warn};
 
-use crate::CoreState;
 use crate::bi_bridge::DownlinkMessage;
+use crate::CoreState;
 
 #[derive(Clone)]
 pub struct BridgeState {
@@ -59,10 +58,7 @@ pub struct SimpleResponse {
     pub message: String,
 }
 
-pub async fn start_bridge_server(
-    state: BridgeState,
-    port: u16,
-) {
+pub async fn start_bridge_server(state: BridgeState, port: u16) {
     let app = Router::new()
         .route("/status", get(get_status))
         .route("/command", post(post_command))
@@ -89,9 +85,7 @@ pub async fn start_bridge_server(
     }
 }
 
-async fn get_status(
-    State(state): State<BridgeState>,
-) -> Result<Json<StatusResponse>, StatusCode> {
+async fn get_status(State(state): State<BridgeState>) -> Result<Json<StatusResponse>, StatusCode> {
     let st = state.core_state.lock().await;
     Ok(Json(StatusResponse {
         version: st.version.clone(),
@@ -137,7 +131,11 @@ async fn post_goal(
     };
     match state.downlink_tx.send(msg).await {
         Ok(_) => {
-            info!("📥 GOAL reçu: {} (prio:{})", req.goal, req.priority.unwrap_or(5));
+            info!(
+                "📥 GOAL reçu: {} (prio:{})",
+                req.goal,
+                req.priority.unwrap_or(5)
+            );
             Ok(Json(SimpleResponse {
                 success: true,
                 message: format!("But '{}' enregistré", req.goal),
@@ -150,9 +148,7 @@ async fn post_goal(
     }
 }
 
-async fn post_pause(
-    State(state): State<BridgeState>,
-) -> Result<Json<SimpleResponse>, StatusCode> {
+async fn post_pause(State(state): State<BridgeState>) -> Result<Json<SimpleResponse>, StatusCode> {
     match state.downlink_tx.send(DownlinkMessage::Pause).await {
         Ok(_) => {
             info!("📥 PAUSE reçue");
@@ -168,9 +164,7 @@ async fn post_pause(
     }
 }
 
-async fn post_resume(
-    State(state): State<BridgeState>,
-) -> Result<Json<SimpleResponse>, StatusCode> {
+async fn post_resume(State(state): State<BridgeState>) -> Result<Json<SimpleResponse>, StatusCode> {
     match state.downlink_tx.send(DownlinkMessage::Resume).await {
         Ok(_) => {
             info!("📥 RESUME reçu");

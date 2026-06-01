@@ -33,7 +33,10 @@ struct LruCache {
 
 impl LruCache {
     fn new(capacity: usize) -> Self {
-        Self { capacity, entries: Vec::with_capacity(capacity) }
+        Self {
+            capacity,
+            entries: Vec::with_capacity(capacity),
+        }
     }
 
     fn get(&mut self, query: &str) -> Option<&(String, String, f32)> {
@@ -138,7 +141,8 @@ impl RagMiddleware {
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
                 .build()?;
-            let url = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".into());
+            let url =
+                std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".into());
             let ollama_ok = match client.get(&format!("{}/api/tags", url)).send().await {
                 Ok(_) => true,
                 Err(_) => false,
@@ -223,7 +227,8 @@ impl RagMiddleware {
         all_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         all_results.truncate(self.config.top_k);
 
-        let avg_score: f32 = all_results.iter().map(|(_, s)| s).sum::<f32>() / all_results.len() as f32;
+        let avg_score: f32 =
+            all_results.iter().map(|(_, s)| s).sum::<f32>() / all_results.len() as f32;
 
         let mut prefix = String::from("📚 Contexte mémoire pertinent:\n");
         for (i, (text, score)) in all_results.iter().enumerate() {

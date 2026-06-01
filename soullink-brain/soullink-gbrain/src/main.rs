@@ -7,19 +7,19 @@
 
 //! main entry point for soullink-gbrain service.
 
+use anyhow::Result;
 use axum::{
     extract::{Path, Query, State},
     routing::get,
     Json, Router,
 };
-use std::net::SocketAddr;
-use std::sync::Arc;
 use serde::Deserialize;
-use anyhow::Result;
-use soullink_gbrain::storage::{Database, Entity, Edge};
-use soullink_gbrain::search::{HybridSearcher, SearchHit};
 use soullink_gbrain::migration::Migrator;
+use soullink_gbrain::search::{HybridSearcher, SearchHit};
+use soullink_gbrain::storage::{Database, Edge, Entity};
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 struct AppState {
@@ -46,7 +46,10 @@ async fn main() -> Result<()> {
         tracing::info!("Starting migration from {}...", memory_url);
         let migrator = Migrator::new(memory_url, db.clone());
         match migrator.migrate_all().await {
-            Ok(count) => tracing::info!("Migration complete: {} entities extracted and wired.", count),
+            Ok(count) => tracing::info!(
+                "Migration complete: {} entities extracted and wired.",
+                count
+            ),
             Err(e) => tracing::error!("Migration failed: {}", e),
         }
         return Ok(());
@@ -85,9 +88,7 @@ async fn handle_search(
     Json(results)
 }
 
-async fn handle_entities(
-    State(state): State<Arc<AppState>>,
-) -> Json<Vec<Entity>> {
+async fn handle_entities(State(state): State<Arc<AppState>>) -> Json<Vec<Entity>> {
     let entities = state.db.get_entities().unwrap_or_default();
     Json(entities)
 }

@@ -21,15 +21,8 @@ pub fn dequantize_tensor(int8: &[i8], scale: f32) -> Vec<f32> {
 
 /// Calcule un scale optimal pour quantification symétrique.
 pub fn compute_scale(fp32: &[f32]) -> f32 {
-    let max_abs = fp32
-        .iter()
-        .map(|&x| x.abs())
-        .fold(0.0f32, f32::max);
-    if max_abs == 0.0 {
-        1.0
-    } else {
-        max_abs / 127.0
-    }
+    let max_abs = fp32.iter().map(|&x| x.abs()).fold(0.0f32, f32::max);
+    if max_abs == 0.0 { 1.0 } else { max_abs / 127.0 }
 }
 
 /// Matmul int8 × int8 → i32.

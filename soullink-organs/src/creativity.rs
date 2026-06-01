@@ -1,4 +1,8 @@
-use axum::{Json, Router, extract::State, routing::{get, post}};
+use axum::{
+    extract::State,
+    routing::{get, post},
+    Json, Router,
+};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -49,32 +53,71 @@ fn default_state() -> Arc<AppState> {
     });
     // Seed concepts across domains
     let seeds = [
-        ("neural_pathway", "neuroscience"), ("market_cycle", "economics"), ("harmony", "music"),
-        ("fractal", "mathematics"), ("ecosystem", "biology"), ("algorithm", "computer_science"),
-        ("metaphor", "linguistics"), ("resonance", "physics"), ("evolution", "biology"),
-        ("pattern", "mathematics"), ("rhythm", "music"), ("entropy", "physics"),
+        ("neural_pathway", "neuroscience"),
+        ("market_cycle", "economics"),
+        ("harmony", "music"),
+        ("fractal", "mathematics"),
+        ("ecosystem", "biology"),
+        ("algorithm", "computer_science"),
+        ("metaphor", "linguistics"),
+        ("resonance", "physics"),
+        ("evolution", "biology"),
+        ("pattern", "mathematics"),
+        ("rhythm", "music"),
+        ("entropy", "physics"),
     ];
     for (name, domain) in seeds {
-        let features: Vec<f64> = (0..8).map(|i| ((name.len() + i) as f64 * 0.1).sin()).collect();
-        s.concepts.insert(name.to_string(), Concept { name: name.to_string(), domain: domain.to_string(), features, associations: Vec::new(), salience: 0.5 });
+        let features: Vec<f64> = (0..8)
+            .map(|i| ((name.len() + i) as f64 * 0.1).sin())
+            .collect();
+        s.concepts.insert(
+            name.to_string(),
+            Concept {
+                name: name.to_string(),
+                domain: domain.to_string(),
+                features,
+                associations: Vec::new(),
+                salience: 0.5,
+            },
+        );
     }
     s
 }
 
 fn calc_turbulence(state: &AppState) -> (f64, String, bool) {
-    let activity: f64 = state.spikes.iter().map(|r| *r.value() as f64).sum::<f64>().min(100.0) / 100.0;
+    let activity: f64 = state
+        .spikes
+        .iter()
+        .map(|r| *r.value() as f64)
+        .sum::<f64>()
+        .min(100.0)
+        / 100.0;
     let tv = 1.0 - activity;
     // Creativity organ favors StrangeAttractor
-    let attractor = if tv < 0.05 { "DeepBasin" } else if tv < 0.15 { "StableOrbit" } else if tv < 0.35 { "Transient" } else { "StrangeAttractor" };
+    let attractor = if tv < 0.05 {
+        "DeepBasin"
+    } else if tv < 0.15 {
+        "StableOrbit"
+    } else if tv < 0.35 {
+        "Transient"
+    } else {
+        "StrangeAttractor"
+    };
     (tv.min(1.0), attractor.to_string(), tv > 0.5)
 }
 
 fn cosine_sim(a: &[f64], b: &[f64]) -> f64 {
-    if a.len() != b.len() || a.is_empty() { return 0.0; }
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
     let dot: f64 = a.iter().zip(b).map(|(x, y)| x * y).sum();
     let norm_a: f64 = a.iter().map(|x| x * x).sum::<f64>().sqrt();
     let norm_b: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
-    if norm_a > 0.0 && norm_b > 0.0 { dot / (norm_a * norm_b) } else { 0.0 }
+    if norm_a > 0.0 && norm_b > 0.0 {
+        dot / (norm_a * norm_b)
+    } else {
+        0.0
+    }
 }
 
 async fn api_stats(State(s): State<Arc<AppState>>) -> Json<serde_json::Value> {
@@ -82,7 +125,11 @@ async fn api_stats(State(s): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let sp: usize = s.spikes.iter().map(|r| *r.value()).sum();
     let rw: usize = s.rewards.iter().map(|r| *r.value()).sum();
     let (tv, att, crit) = calc_turbulence(&s);
-    let hz = if s.start_time.elapsed().as_secs() > 0 { sp as f64 / s.start_time.elapsed().as_secs() as f64 } else { 0.0 };
+    let hz = if s.start_time.elapsed().as_secs() > 0 {
+        sp as f64 / s.start_time.elapsed().as_secs() as f64
+    } else {
+        0.0
+    };
     Json(serde_json::json!({
         "N": N, "avg_weight": 0.5, "concepts_count": s.concepts.len(), "hz": hz,
         "n": N, "name": "creativity", "rewards_count": rw, "spikes": sp, "tick_count": tc,
@@ -93,9 +140,16 @@ async fn api_stats(State(s): State<Arc<AppState>>) -> Json<serde_json::Value> {
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
-struct CombineRequest { concept_a: String, concept_b: String, method: Option<String> }
+struct CombineRequest {
+    concept_a: String,
+    concept_b: String,
+    method: Option<String>,
+}
 
-async fn api_combine(State(s): State<Arc<AppState>>, Json(req): Json<CombineRequest>) -> Json<serde_json::Value> {
+async fn api_combine(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<CombineRequest>,
+) -> Json<serde_json::Value> {
     *s.tick_count.entry("combine".to_string()).or_insert(0) += 1;
     *s.spikes.entry("combine".to_string()).or_insert(0) += 1;
     let ca = s.concepts.get(&req.concept_a);
@@ -109,27 +163,49 @@ async fn api_combine(State(s): State<Arc<AppState>>, Json(req): Json<CombineRequ
         }
         _ => (0.5, format!("{}_{}", req.concept_a, req.concept_b)),
     };
-    let output = CreativeOutput { idea: idea.clone(), novelty, coherence: 1.0 - novelty * 0.3, domains: vec![req.concept_a.clone(), req.concept_b.clone()], timestamp: chrono::Utc::now().timestamp_millis() };
+    let output = CreativeOutput {
+        idea: idea.clone(),
+        novelty,
+        coherence: 1.0 - novelty * 0.3,
+        domains: vec![req.concept_a.clone(), req.concept_b.clone()],
+        timestamp: chrono::Utc::now().timestamp_millis(),
+    };
     s.outputs.insert(idea.clone(), output.clone());
-    Json(serde_json::json!({"idea": output.idea, "novelty": output.novelty, "coherence": output.coherence, "domains": output.domains}))
+    Json(
+        serde_json::json!({"idea": output.idea, "novelty": output.novelty, "coherence": output.coherence, "domains": output.domains}),
+    )
 }
 
 #[derive(Deserialize)]
-struct MetaphorRequest { source: String, target: String }
+struct MetaphorRequest {
+    source: String,
+    target: String,
+}
 
-async fn api_metaphor(State(s): State<Arc<AppState>>, Json(req): Json<MetaphorRequest>) -> Json<serde_json::Value> {
+async fn api_metaphor(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<MetaphorRequest>,
+) -> Json<serde_json::Value> {
     *s.tick_count.entry("metaphor".to_string()).or_insert(0) += 1;
     *s.spikes.entry("metaphor".to_string()).or_insert(0) += 1;
     // Generate metaphor by mapping source features to target domain
     let metaphor = format!("{} is the {} of {}", req.source, req.source, req.target);
     let novelty = 0.6 + (req.source.len() as f64 * 0.01).min(0.3);
-    Json(serde_json::json!({"metaphor": metaphor, "novelty": novelty, "source": req.source, "target": req.target}))
+    Json(
+        serde_json::json!({"metaphor": metaphor, "novelty": novelty, "source": req.source, "target": req.target}),
+    )
 }
 
 #[derive(Deserialize)]
-struct DivergeRequest { seed: String, steps: Option<usize> }
+struct DivergeRequest {
+    seed: String,
+    steps: Option<usize>,
+}
 
-async fn api_diverge(State(s): State<Arc<AppState>>, Json(req): Json<DivergeRequest>) -> Json<serde_json::Value> {
+async fn api_diverge(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<DivergeRequest>,
+) -> Json<serde_json::Value> {
     *s.tick_count.entry("diverge".to_string()).or_insert(0) += 1;
     *s.spikes.entry("diverge".to_string()).or_insert(0) += 1;
     let steps = req.steps.unwrap_or(5);
@@ -141,10 +217,15 @@ async fn api_diverge(State(s): State<Arc<AppState>>, Json(req): Json<DivergeRequ
         let mut best_next = current.clone();
         let mut best_dist = 1.0;
         for entry in s.concepts.iter() {
-            if entry.key() == &current { continue; }
+            if entry.key() == &current {
+                continue;
+            }
             if let Some(cc) = &curr_concept {
                 let sim = cosine_sim(&cc.features, &entry.value().features);
-                if sim < best_dist { best_dist = sim; best_next = entry.key().clone(); }
+                if sim < best_dist {
+                    best_dist = sim;
+                    best_next = entry.key().clone();
+                }
             } else {
                 best_next = entry.key().clone();
                 break;
@@ -157,45 +238,84 @@ async fn api_diverge(State(s): State<Arc<AppState>>, Json(req): Json<DivergeRequ
 }
 
 #[derive(Deserialize)]
-struct EvaluateRequest { idea: String }
+struct EvaluateRequest {
+    idea: String,
+}
 
-async fn api_evaluate(State(s): State<Arc<AppState>>, Json(req): Json<EvaluateRequest>) -> Json<serde_json::Value> {
+async fn api_evaluate(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<EvaluateRequest>,
+) -> Json<serde_json::Value> {
     *s.tick_count.entry("evaluate".to_string()).or_insert(0) += 1;
     if let Some(output) = s.outputs.get(&req.idea) {
-        Json(serde_json::json!({"idea": output.idea, "novelty": output.novelty, "coherence": output.coherence, "fitness": output.novelty * 0.6 + output.coherence * 0.4}))
+        Json(
+            serde_json::json!({"idea": output.idea, "novelty": output.novelty, "coherence": output.coherence, "fitness": output.novelty * 0.6 + output.coherence * 0.4}),
+        )
     } else {
-        Json(serde_json::json!({"idea": req.idea, "novelty": 0.5, "coherence": 0.5, "fitness": 0.5}))
+        Json(
+            serde_json::json!({"idea": req.idea, "novelty": 0.5, "coherence": 0.5, "fitness": 0.5}),
+        )
     }
 }
 
 // Standard mesh endpoints
 #[derive(Deserialize)]
 #[allow(dead_code)]
-struct StimulusRequest { content: Option<String>, intensity: Option<f64> }
+struct StimulusRequest {
+    content: Option<String>,
+    intensity: Option<f64>,
+}
 
-async fn api_stimulate(State(s): State<Arc<AppState>>, Json(_req): Json<StimulusRequest>) -> Json<serde_json::Value> {
+async fn api_stimulate(
+    State(s): State<Arc<AppState>>,
+    Json(_req): Json<StimulusRequest>,
+) -> Json<serde_json::Value> {
     *s.spikes.entry("stimulate".to_string()).or_insert(0) += 1;
-    s.last_stimulus.insert("stimulate".to_string(), Instant::now());
+    s.last_stimulus
+        .insert("stimulate".to_string(), Instant::now());
     Json(serde_json::json!({"status": "stimulated", "organ": "creativity"}))
 }
 
-async fn api_reinforce(State(s): State<Arc<AppState>>, Json(_req): Json<serde_json::Value>) -> Json<serde_json::Value> {
+async fn api_reinforce(
+    State(s): State<Arc<AppState>>,
+    Json(_req): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
     *s.rewards.entry("reinforce".to_string()).or_insert(0) += 1;
     *s.spikes.entry("reinforce".to_string()).or_insert(0) += 1;
     Json(serde_json::json!({"status": "reinforced", "organ": "creativity"}))
 }
 
-async fn api_learn(State(s): State<Arc<AppState>>, Json(req): Json<serde_json::Value>) -> Json<serde_json::Value> {
+async fn api_learn(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
     *s.spikes.entry("learn".to_string()).or_insert(0) += 1;
     if let Some(name) = req.get("concept").and_then(|v| v.as_str()) {
-        let domain = req.get("domain").and_then(|v| v.as_str()).unwrap_or("unknown");
-        let features: Vec<f64> = (0..8).map(|i| ((name.len() + i) as f64 * 0.1).sin()).collect();
-        s.concepts.insert(name.to_string(), Concept { name: name.to_string(), domain: domain.to_string(), features, associations: Vec::new(), salience: 0.5 });
+        let domain = req
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let features: Vec<f64> = (0..8)
+            .map(|i| ((name.len() + i) as f64 * 0.1).sin())
+            .collect();
+        s.concepts.insert(
+            name.to_string(),
+            Concept {
+                name: name.to_string(),
+                domain: domain.to_string(),
+                features,
+                associations: Vec::new(),
+                salience: 0.5,
+            },
+        );
     }
     Json(serde_json::json!({"status": "learned", "organ": "creativity"}))
 }
 
-async fn api_query(State(s): State<Arc<AppState>>, Json(req): Json<serde_json::Value>) -> Json<serde_json::Value> {
+async fn api_query(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
     *s.spikes.entry("query".to_string()).or_insert(0) += 1;
     let query = req.get("query").and_then(|v| v.as_str()).unwrap_or("");
     let results: Vec<serde_json::Value> = s.concepts.iter()
@@ -221,7 +341,14 @@ async fn main() {
         .route("/api/learn", post(api_learn))
         .route("/api/query", post(api_query))
         .with_state(state);
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", PORT)).await.unwrap();
-    tracing::info!("soullink-creativity v{} listening on port {} (N={})", VERSION, PORT, N);
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", PORT))
+        .await
+        .unwrap();
+    tracing::info!(
+        "soullink-creativity v{} listening on port {} (N={})",
+        VERSION,
+        PORT,
+        N
+    );
     axum::serve(listener, app).await.unwrap();
 }

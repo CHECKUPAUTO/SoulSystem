@@ -59,7 +59,12 @@ where
         executor: Arc<E>,
         config: SoulLinkConfig,
     ) -> Self {
-        Self { blackboard, archive, executor, config }
+        Self {
+            blackboard,
+            archive,
+            executor,
+            config,
+        }
     }
 
     pub async fn run(self: Arc<Self>) {
@@ -91,7 +96,8 @@ where
         info!(intent_id = %intent.id, kind = ?intent.kind, "handling intent");
         let result = self.executor.execute(&intent).await;
 
-        if let Err(e) = self.archive
+        if let Err(e) = self
+            .archive
             .store(&format!("avid:result:{}", intent.id), &result)
             .await
         {

@@ -10,11 +10,9 @@ use std::{
 };
 
 use futures::future::BoxFuture;
-use soullink_gateway::{
-    telegram::{
-        client::TelegramClient,
-        long_poll::{IncomingMessage, LongPollLoop, OrchestratorBridge},
-    },
+use soullink_gateway::telegram::{
+    client::TelegramClient,
+    long_poll::{IncomingMessage, LongPollLoop, OrchestratorBridge},
 };
 use tokio::sync::broadcast;
 use wiremock::{
@@ -22,18 +20,17 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-fn test_bridge(
-    received: Arc<Mutex<Vec<IncomingMessage>>>,
-    reply: String,
-) -> OrchestratorBridge {
-    Arc::new(move |inc: IncomingMessage| -> BoxFuture<'static, Result<String, String>> {
-        let received = received.clone();
-        let reply = reply.clone();
-        Box::pin(async move {
-            received.lock().unwrap().push(inc);
-            Ok(reply)
-        })
-    })
+fn test_bridge(received: Arc<Mutex<Vec<IncomingMessage>>>, reply: String) -> OrchestratorBridge {
+    Arc::new(
+        move |inc: IncomingMessage| -> BoxFuture<'static, Result<String, String>> {
+            let received = received.clone();
+            let reply = reply.clone();
+            Box::pin(async move {
+                received.lock().unwrap().push(inc);
+                Ok(reply)
+            })
+        },
+    )
 }
 
 #[tokio::test]
@@ -106,14 +103,22 @@ async fn happy_path_incoming_message_triggers_reply() {
     let _ = tokio::time::timeout(Duration::from_secs(2), loop_handle).await;
 
     let bridge_calls = bridge_log.lock().unwrap();
-    assert_eq!(bridge_calls.len(), 1, "bridge should have received one message");
+    assert_eq!(
+        bridge_calls.len(),
+        1,
+        "bridge should have received one message"
+    );
     assert_eq!(bridge_calls[0].text, "what is 2+2");
     assert_eq!(bridge_calls[0].chat_id, 42);
     assert_eq!(bridge_calls[0].username, None);
 
     let sends = send_received.lock().unwrap();
     assert!(!sends.is_empty(), "sendMessage should have been called");
-    assert!(sends[0].contains("The answer is 4"), "reply body: {:?}", sends[0]);
+    assert!(
+        sends[0].contains("The answer is 4"),
+        "reply body: {:?}",
+        sends[0]
+    );
     assert!(sends[0].contains("\"reply_to_message_id\":7"));
 }
 
@@ -159,7 +164,7 @@ async fn allow_list_rejects_non_listed_chat() {
             client,
             bridge,
             1,
-            Some(vec![42, 43]),  // 666 NOT in list
+            Some(vec![42, 43]), // 666 NOT in list
             None,
             shutdown_rx,
         );
@@ -171,8 +176,11 @@ async fn allow_list_rejects_non_listed_chat() {
     let _ = tokio::time::timeout(Duration::from_secs(2), handle).await;
 
     let bridge_calls = bridge_log.lock().unwrap();
-    assert_eq!(bridge_calls.len(), 0,
-               "bridge must not be called for chats outside the allow-list");
+    assert_eq!(
+        bridge_calls.len(),
+        0,
+        "bridge must not be called for chats outside the allow-list"
+    );
 }
 
 #[tokio::test]
@@ -220,8 +228,11 @@ async fn non_text_message_is_ignored() {
     let _ = shutdown_tx.send(());
     let _ = tokio::time::timeout(Duration::from_secs(2), handle).await;
 
-    assert_eq!(bridge_log.lock().unwrap().len(), 0,
-               "non-text messages must not reach the orchestrator bridge");
+    assert_eq!(
+        bridge_log.lock().unwrap().len(),
+        0,
+        "non-text messages must not reach the orchestrator bridge"
+    );
 }
 
 #[tokio::test]
@@ -259,7 +270,10 @@ async fn orchestrator_failure_produces_user_friendly_reply() {
     Mock::given(method("POST"))
         .and(path("/botTEST_TOKEN/sendMessage"))
         .respond_with(move |req: &wiremock::Request| {
-            sc_clone.lock().unwrap().push(String::from_utf8_lossy(&req.body).into());
+            sc_clone
+                .lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&req.body).into());
             ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "ok": true,
                 "result": {"message_id": 1, "chat": {"id": 42, "type": "private"}, "date": 1}
@@ -269,9 +283,10 @@ async fn orchestrator_failure_produces_user_friendly_reply() {
         .await;
 
     // Bridge returns error
-    let bridge: OrchestratorBridge = Arc::new(|_inc| -> BoxFuture<'static, Result<String, String>> {
-        Box::pin(async { Err("orchestrator timeout".to_string()) })
-    });
+    let bridge: OrchestratorBridge =
+        Arc::new(|_inc| -> BoxFuture<'static, Result<String, String>> {
+            Box::pin(async { Err("orchestrator timeout".to_string()) })
+        });
 
     let client = TelegramClient::new(server.uri(), "TEST_TOKEN");
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);

@@ -39,7 +39,9 @@ impl ModelSlot {
             pending_evict: false,
         }
     }
-    pub fn can_evict(&self) -> bool { self.ref_count == 0 }
+    pub fn can_evict(&self) -> bool {
+        self.ref_count == 0
+    }
 }
 
 /// Warm standby manager with dual-strategy swap support.
@@ -66,7 +68,10 @@ impl WarmStandby {
 
     /// Register a model size for VRAM estimation.
     pub async fn register_model(&self, name: &str, params_b: f64) {
-        self.model_sizes.write().await.insert(name.to_string(), params_b);
+        self.model_sizes
+            .write()
+            .await
+            .insert(name.to_string(), params_b);
     }
 
     /// Register a model as loaded.
@@ -77,7 +82,9 @@ impl WarmStandby {
         slots.insert(key.clone(), slot);
         let mut versions = self.model_versions.write().await;
         let vlist = versions.entry(model.to_string()).or_default();
-        if !vlist.contains(&key) { vlist.push(key); }
+        if !vlist.contains(&key) {
+            vlist.push(key);
+        }
         info!(model, quant = ?quant, "Model marked as loaded");
     }
 
@@ -86,12 +93,16 @@ impl WarmStandby {
         let key = Self::slot_key(model, quant);
         let mut slots = self.slots.write().await;
         if let Some(slot) = slots.get_mut(&key) {
-            if slot.pending_evict { return None; }
+            if slot.pending_evict {
+                return None;
+            }
             slot.ref_count += 1;
             slot.times_used += 1;
             slot.last_used = Instant::now();
             Some(slot.clone())
-        } else { None }
+        } else {
+            None
+        }
     }
 
     /// Release a reference. Triggers eviction if pending and ref_count=0.
@@ -100,9 +111,13 @@ impl WarmStandby {
         let should_evict = {
             let mut slots = self.slots.write().await;
             if let Some(slot) = slots.get_mut(&key) {
-                if slot.ref_count > 0 { slot.ref_count -= 1; }
+                if slot.ref_count > 0 {
+                    slot.ref_count -= 1;
+                }
                 slot.pending_evict && slot.ref_count == 0
-            } else { false }
+            } else {
+                false
+            }
         };
         if should_evict {
             self.evict_slot(&key).await;
@@ -112,7 +127,10 @@ impl WarmStandby {
 
     /// Check if a model with specific quantization is loaded.
     pub async fn is_loaded(&self, model: &str, quant: Quantization) -> bool {
-        self.slots.read().await.contains_key(&Self::slot_key(model, quant))
+        self.slots
+            .read()
+            .await
+            .contains_key(&Self::slot_key(model, quant))
     }
 
     /// Check if any version of a model is loaded.
@@ -133,10 +151,18 @@ impl WarmStandby {
         new_target: ExecutionTarget,
         gpu_vram_free_gb: f64,
     ) -> Result<(), String> {
-        if old_quant == new_quant { return Ok(()); }
+        if old_quant == new_quant {
+            return Ok(());
+        }
 
         let old_key = Self::slot_key(model, old_quant);
-        let model_params = self.model_sizes.read().await.get(model).copied().unwrap_or(7.0);
+        let model_params = self
+            .model_sizes
+            .read()
+            .await
+            .get(model)
+            .copied()
+            .unwrap_or(7.0);
         let new_size_gb = new_quant.model_size_gb(model_params);
         let atomic_swap = gpu_vram_free_gb > new_size_gb + 0.5;
 
@@ -166,7 +192,10 @@ impl WarmStandby {
                 self.evict_slot(&old_key).await;
                 info!(model, "Atomic swap complete — evicted immediately");
             } else {
-                info!(model, "Atomic swap — old has active refs, will evict on release");
+                info!(
+                    model,
+                    "Atomic swap — old has active refs, will evict on release"
+                );
             }
         } else {
             // STRATEGY B: Drain & Swap — wait, evict, then load
@@ -179,9 +208,14 @@ impl WarmStandby {
                         let slots = self.slots.read().await;
                         slots.get(&old_key).map(|s| s.ref_count).unwrap_or(0)
                     };
-                    if refs == 0 { break; }
+                    if refs == 0 {
+                        break;
+                    }
                     if start.elapsed() > drain_timeout {
-                        warn!(model, refs, "Drain timeout — forcing eviction with {} active refs", refs);
+                        warn!(
+                            model,
+                            refs, "Drain timeout — forcing eviction with {} active refs", refs
+                        );
                         break;
                     }
                     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -202,7 +236,9 @@ impl WarmStandby {
             let mut versions = self.model_versions.write().await;
             if let Some(vkeys) = versions.get_mut(&slot.model) {
                 vkeys.retain(|k| k != key);
-                if vkeys.is_empty() { versions.remove(&slot.model); }
+                if vkeys.is_empty() {
+                    versions.remove(&slot.model);
+                }
             }
             warn!(key, "Model slot evicted");
         }
@@ -221,25 +257,53 @@ impl WarmStandby {
                 }
             }
         }
-        for key in &to_evict { self.evict_slot(key).await; }
-        if !to_evict.is_empty() { info!(count = to_evict.len(), "Idle eviction complete"); }
+        for key in &to_evict {
+            self.evict_slot(key).await;
+        }
+        if !to_evict.is_empty() {
+            info!(count = to_evict.len(), "Idle eviction complete");
+        }
         to_evict
     }
 
-    pub async fn count(&self) -> usize { self.slots.read().await.len() }
+    pub async fn count(&self) -> usize {
+        self.slots.read().await.len()
+    }
 
     /// Suggest preloading based on autonomy cycle.
-    pub fn suggest_preload(&self, snap: &HardwareSnapshot, priority: Priority) -> Vec<(&str, ExecutionTarget)> {
+    pub fn suggest_preload(
+        &self,
+        snap: &HardwareSnapshot,
+        priority: Priority,
+    ) -> Vec<(&str, ExecutionTarget)> {
         match priority {
-            Priority::Think if snap.gpu.vram_free_gb > 4.0 =>
-                vec![("qwen2.5-coder:3b", ExecutionTarget::Gpu(Quantization::Q4_K_M))],
-            Priority::Dream => snap.numa_nodes.iter()
-                .max_by(|a, b| a.memory_free_gb.partial_cmp(&b.memory_free_gb).unwrap_or(std::cmp::Ordering::Equal))
+            Priority::Think if snap.gpu.vram_free_gb > 4.0 => vec![(
+                "qwen2.5-coder:3b",
+                ExecutionTarget::Gpu(Quantization::Q4_K_M),
+            )],
+            Priority::Dream => snap
+                .numa_nodes
+                .iter()
+                .max_by(|a, b| {
+                    a.memory_free_gb
+                        .partial_cmp(&b.memory_free_gb)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .filter(|n| n.memory_free_gb > 3.0)
-                .map(|n| ("qwen2.5-coder:3b", ExecutionTarget::CpuNuma { node: n.node_id, quant: Quantization::Q2_K }))
-                .into_iter().collect(),
-            Priority::Embed if snap.gpu.vram_free_gb > 0.5 =>
-                vec![("nomic-embed-text", ExecutionTarget::Gpu(Quantization::Q8_0))],
+                .map(|n| {
+                    (
+                        "qwen2.5-coder:3b",
+                        ExecutionTarget::CpuNuma {
+                            node: n.node_id,
+                            quant: Quantization::Q2_K,
+                        },
+                    )
+                })
+                .into_iter()
+                .collect(),
+            Priority::Embed if snap.gpu.vram_free_gb > 0.5 => {
+                vec![("nomic-embed-text", ExecutionTarget::Gpu(Quantization::Q8_0))]
+            }
             _ => vec![],
         }
     }
@@ -252,13 +316,24 @@ mod tests {
 
     fn make_snap(vram_free: f64, numa_free: &[f64]) -> HardwareSnapshot {
         HardwareSnapshot {
-            numa_nodes: numa_free.iter().enumerate().map(|(i, f)| NumaNodeStatus {
-                node_id: i as u32, cpu_cores: vec![], memory_total_gb: 64.0,
-                memory_free_gb: *f, l3_cache_kb: 30720,
-            }).collect(),
+            numa_nodes: numa_free
+                .iter()
+                .enumerate()
+                .map(|(i, f)| NumaNodeStatus {
+                    node_id: i as u32,
+                    cpu_cores: vec![],
+                    memory_total_gb: 64.0,
+                    memory_free_gb: *f,
+                    l3_cache_kb: 30720,
+                })
+                .collect(),
             gpu: GpuStatus {
-                vram_total_gb: 8.0, vram_free_gb: vram_free, gpu_temp_c: 70,
-                sm_clock_mhz: 2100, max_sm_clock_mhz: 2790, throttle_active: false,
+                vram_total_gb: 8.0,
+                vram_free_gb: vram_free,
+                gpu_temp_c: 70,
+                sm_clock_mhz: 2100,
+                max_sm_clock_mhz: 2790,
+                throttle_active: false,
             },
             timestamp_ms: 0,
         }
@@ -267,7 +342,13 @@ mod tests {
     #[tokio::test]
     async fn mark_loaded_and_check() {
         let standby = WarmStandby::new(Duration::from_secs(300));
-        standby.mark_loaded("test-model", Quantization::Q4_K_M, ExecutionTarget::Gpu(Quantization::Q4_K_M)).await;
+        standby
+            .mark_loaded(
+                "test-model",
+                Quantization::Q4_K_M,
+                ExecutionTarget::Gpu(Quantization::Q4_K_M),
+            )
+            .await;
         assert!(standby.is_loaded("test-model", Quantization::Q4_K_M).await);
         assert!(!standby.is_loaded("test-model", Quantization::Q2_K).await);
         assert!(standby.is_any_loaded("test-model").await);
@@ -276,8 +357,17 @@ mod tests {
     #[tokio::test]
     async fn acquire_release_refcount() {
         let standby = WarmStandby::new(Duration::from_secs(300));
-        standby.mark_loaded("test-model", Quantization::Q4_K_M, ExecutionTarget::Gpu(Quantization::Q4_K_M)).await;
-        let slot = standby.acquire("test-model", Quantization::Q4_K_M).await.unwrap();
+        standby
+            .mark_loaded(
+                "test-model",
+                Quantization::Q4_K_M,
+                ExecutionTarget::Gpu(Quantization::Q4_K_M),
+            )
+            .await;
+        let slot = standby
+            .acquire("test-model", Quantization::Q4_K_M)
+            .await
+            .unwrap();
         assert_eq!(slot.ref_count, 1);
         standby.release("test-model", Quantization::Q4_K_M).await;
     }
@@ -285,18 +375,47 @@ mod tests {
     #[tokio::test]
     async fn acquire_rejected_when_evicting() {
         let standby = WarmStandby::new(Duration::from_secs(300));
-        standby.mark_loaded("test-model", Quantization::Q4_K_M, ExecutionTarget::Gpu(Quantization::Q4_K_M)).await;
-        { let mut slots = standby.slots.write().await; slots.get_mut("test-model:Q4_K_M").unwrap().pending_evict = true; }
-        assert!(standby.acquire("test-model", Quantization::Q4_K_M).await.is_none());
+        standby
+            .mark_loaded(
+                "test-model",
+                Quantization::Q4_K_M,
+                ExecutionTarget::Gpu(Quantization::Q4_K_M),
+            )
+            .await;
+        {
+            let mut slots = standby.slots.write().await;
+            slots.get_mut("test-model:Q4_K_M").unwrap().pending_evict = true;
+        }
+        assert!(standby
+            .acquire("test-model", Quantization::Q4_K_M)
+            .await
+            .is_none());
     }
 
     #[tokio::test]
     async fn atomic_swap_immediate_evict() {
         let standby = WarmStandby::new(Duration::from_secs(300));
-        standby.mark_loaded("test-model", Quantization::Q4_K_M, ExecutionTarget::Gpu(Quantization::Q4_K_M)).await;
+        standby
+            .mark_loaded(
+                "test-model",
+                Quantization::Q4_K_M,
+                ExecutionTarget::Gpu(Quantization::Q4_K_M),
+            )
+            .await;
         // Plenty of VRAM → atomic swap
-        standby.swap_quantization("test-model", Quantization::Q4_K_M, Quantization::Q2_K,
-            ExecutionTarget::CpuNuma { node: 0, quant: Quantization::Q2_K }, 6.0).await.unwrap();
+        standby
+            .swap_quantization(
+                "test-model",
+                Quantization::Q4_K_M,
+                Quantization::Q2_K,
+                ExecutionTarget::CpuNuma {
+                    node: 0,
+                    quant: Quantization::Q2_K,
+                },
+                6.0,
+            )
+            .await
+            .unwrap();
         assert!(standby.is_loaded("test-model", Quantization::Q2_K).await);
         assert!(!standby.is_loaded("test-model", Quantization::Q4_K_M).await);
     }
@@ -304,10 +423,27 @@ mod tests {
     #[tokio::test]
     async fn drain_swap_low_vram() {
         let standby = WarmStandby::new(Duration::from_secs(300));
-        standby.mark_loaded("test-model", Quantization::Q4_K_M, ExecutionTarget::Gpu(Quantization::Q4_K_M)).await;
+        standby
+            .mark_loaded(
+                "test-model",
+                Quantization::Q4_K_M,
+                ExecutionTarget::Gpu(Quantization::Q4_K_M),
+            )
+            .await;
         // Very low VRAM → drain & swap (evict first, then load)
-        standby.swap_quantization("test-model", Quantization::Q4_K_M, Quantization::Q2_K,
-            ExecutionTarget::CpuNuma { node: 0, quant: Quantization::Q2_K }, 0.2).await.unwrap();
+        standby
+            .swap_quantization(
+                "test-model",
+                Quantization::Q4_K_M,
+                Quantization::Q2_K,
+                ExecutionTarget::CpuNuma {
+                    node: 0,
+                    quant: Quantization::Q2_K,
+                },
+                0.2,
+            )
+            .await
+            .unwrap();
         assert!(standby.is_loaded("test-model", Quantization::Q2_K).await);
         assert!(!standby.is_loaded("test-model", Quantization::Q4_K_M).await);
     }
@@ -315,11 +451,31 @@ mod tests {
     #[tokio::test]
     async fn swap_with_active_inferences() {
         let standby = WarmStandby::new(Duration::from_secs(300));
-        standby.mark_loaded("test-model", Quantization::Q4_K_M, ExecutionTarget::Gpu(Quantization::Q4_K_M)).await;
-        let _slot = standby.acquire("test-model", Quantization::Q4_K_M).await.unwrap();
+        standby
+            .mark_loaded(
+                "test-model",
+                Quantization::Q4_K_M,
+                ExecutionTarget::Gpu(Quantization::Q4_K_M),
+            )
+            .await;
+        let _slot = standby
+            .acquire("test-model", Quantization::Q4_K_M)
+            .await
+            .unwrap();
         // Atomic swap with active refs — both coexist
-        standby.swap_quantization("test-model", Quantization::Q4_K_M, Quantization::Q2_K,
-            ExecutionTarget::CpuNuma { node: 0, quant: Quantization::Q2_K }, 6.0).await.unwrap();
+        standby
+            .swap_quantization(
+                "test-model",
+                Quantization::Q4_K_M,
+                Quantization::Q2_K,
+                ExecutionTarget::CpuNuma {
+                    node: 0,
+                    quant: Quantization::Q2_K,
+                },
+                6.0,
+            )
+            .await
+            .unwrap();
         assert!(standby.is_loaded("test-model", Quantization::Q4_K_M).await); // Still has ref
         assert!(standby.is_loaded("test-model", Quantization::Q2_K).await);
         standby.release("test-model", Quantization::Q4_K_M).await;
@@ -329,16 +485,39 @@ mod tests {
     #[tokio::test]
     async fn swap_same_quant_noop() {
         let standby = WarmStandby::new(Duration::from_secs(300));
-        standby.mark_loaded("test-model", Quantization::Q4_K_M, ExecutionTarget::Gpu(Quantization::Q4_K_M)).await;
-        standby.swap_quantization("test-model", Quantization::Q4_K_M, Quantization::Q4_K_M,
-            ExecutionTarget::Gpu(Quantization::Q4_K_M), 6.0).await.unwrap();
+        standby
+            .mark_loaded(
+                "test-model",
+                Quantization::Q4_K_M,
+                ExecutionTarget::Gpu(Quantization::Q4_K_M),
+            )
+            .await;
+        standby
+            .swap_quantization(
+                "test-model",
+                Quantization::Q4_K_M,
+                Quantization::Q4_K_M,
+                ExecutionTarget::Gpu(Quantization::Q4_K_M),
+                6.0,
+            )
+            .await
+            .unwrap();
         assert!(standby.is_loaded("test-model", Quantization::Q4_K_M).await);
     }
 
     #[tokio::test]
     async fn evict_idle() {
         let standby = WarmStandby::new(Duration::from_millis(10));
-        standby.mark_loaded("old-model", Quantization::Q2_K, ExecutionTarget::CpuNuma { node: 0, quant: Quantization::Q2_K }).await;
+        standby
+            .mark_loaded(
+                "old-model",
+                Quantization::Q2_K,
+                ExecutionTarget::CpuNuma {
+                    node: 0,
+                    quant: Quantization::Q2_K,
+                },
+            )
+            .await;
         tokio::time::sleep(Duration::from_millis(20)).await;
         let evicted = standby.evict_idle().await;
         assert_eq!(evicted.len(), 1);
@@ -348,8 +527,23 @@ mod tests {
     #[tokio::test]
     async fn model_versions_tracking() {
         let standby = WarmStandby::new(Duration::from_secs(300));
-        standby.mark_loaded("m", Quantization::Q4_K_M, ExecutionTarget::Gpu(Quantization::Q4_K_M)).await;
-        standby.mark_loaded("m", Quantization::Q2_K, ExecutionTarget::CpuNuma { node: 0, quant: Quantization::Q2_K }).await;
+        standby
+            .mark_loaded(
+                "m",
+                Quantization::Q4_K_M,
+                ExecutionTarget::Gpu(Quantization::Q4_K_M),
+            )
+            .await;
+        standby
+            .mark_loaded(
+                "m",
+                Quantization::Q2_K,
+                ExecutionTarget::CpuNuma {
+                    node: 0,
+                    quant: Quantization::Q2_K,
+                },
+            )
+            .await;
         assert_eq!(standby.count().await, 2);
     }
 
@@ -357,7 +551,13 @@ mod tests {
     async fn register_model_size() {
         let standby = WarmStandby::new(Duration::from_secs(300));
         standby.register_model("big-model", 31.0).await;
-        standby.mark_loaded("big-model", Quantization::Q4_K_M, ExecutionTarget::Gpu(Quantization::Q4_K_M)).await;
+        standby
+            .mark_loaded(
+                "big-model",
+                Quantization::Q4_K_M,
+                ExecutionTarget::Gpu(Quantization::Q4_K_M),
+            )
+            .await;
         // 31B * Q4_K_M ≈ 17.4 GB — won't fit in 8GB VRAM
         let new_size = Quantization::Q2_K.model_size_gb(31.0);
         assert!(new_size < 10.0, "31B Q2_K should be <10GB: {}", new_size);

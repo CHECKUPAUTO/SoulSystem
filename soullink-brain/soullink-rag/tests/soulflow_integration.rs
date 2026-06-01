@@ -5,12 +5,9 @@
 //! Run: cargo test -p soullink-rag --test soulflow_integration -- --nocapture
 
 use soullink_rag::{
-    PipelineConfig, TextChunker,
-    store::PageAwareStore,
-    provider::PageProvider,
-    embedding::EmbedConfig,
+    embedding::EmbedConfig, provider::PageProvider, store::PageAwareStore, PipelineConfig,
+    TextChunker,
 };
-
 
 /// Simple page provider that splits text into character-based chunks.
 struct TextPageProvider {
@@ -84,7 +81,8 @@ async fn soulflow_full_ingest_and_search() {
         store_dir.path(),
         768,
         soullink_rag::page::PageConfig::default(),
-    ).expect("store open");
+    )
+    .expect("store open");
 
     // Create a provider from the chunks
     let provider = TextPageProvider::from_text(&text, 512);
@@ -104,10 +102,19 @@ async fn soulflow_full_ingest_and_search() {
 
     println!("📊 Found {} hits:", results.hits.len());
     for (i, hit) in results.hits.iter().enumerate() {
-        println!("  {}. [vec={:.4} kw={:.4}] {}", i + 1, hit.vector_score, hit.keyword_score, hit.id);
+        println!(
+            "  {}. [vec={:.4} kw={:.4}] {}",
+            i + 1,
+            hit.vector_score,
+            hit.keyword_score,
+            hit.id
+        );
     }
 
-    assert!(!results.hits.is_empty(), "Should find results for 'guardian module'");
+    assert!(
+        !results.hits.is_empty(),
+        "Should find results for 'guardian module'"
+    );
 }
 
 #[tokio::test]
@@ -133,10 +140,17 @@ async fn soulflow_chunker_quality() {
 
     // Chunks should have reasonable sizes
     let avg_len: usize = chunks.iter().map(|c| c.len()).sum::<usize>() / chunks.len().max(1);
-    assert!(avg_len > 50, "Average chunk should be meaningful size, got {}", avg_len);
+    assert!(
+        avg_len > 50,
+        "Average chunk should be meaningful size, got {}",
+        avg_len
+    );
 
-    println!("✅ Chunker quality: {} chunks, avg {} chars, min {}, max {}",
-        chunks.len(), avg_len,
+    println!(
+        "✅ Chunker quality: {} chunks, avg {} chars, min {}, max {}",
+        chunks.len(),
+        avg_len,
         chunks.iter().map(|c| c.len()).min().unwrap_or(0),
-        chunks.iter().map(|c| c.len()).max().unwrap_or(0));
+        chunks.iter().map(|c| c.len()).max().unwrap_or(0)
+    );
 }

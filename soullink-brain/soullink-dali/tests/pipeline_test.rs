@@ -8,9 +8,7 @@ fn pipeline_builder_default() {
 
 #[test]
 fn build_without_feature_returns_disabled() {
-    let result = DaliPipeline::builder()
-        .batch_size(4)
-        .build();
+    let result = DaliPipeline::builder().batch_size(4).build();
     assert!(matches!(result, Err(DaliError::FeatureDisabled)));
 }
 

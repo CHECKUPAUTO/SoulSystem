@@ -12,8 +12,8 @@ pub mod engine;
 pub mod git_worktree;
 pub mod node;
 
+pub use conditions::LoopCondition;
 pub use config::WorkflowConfig;
 pub use context::WorkflowContext;
 pub use engine::WorkflowEngine;
 pub use node::{Node, NodeResult, NodeType};
-pub use conditions::LoopCondition;

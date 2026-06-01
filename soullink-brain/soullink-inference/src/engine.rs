@@ -12,7 +12,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// The main inference engine — routes requests, manages warm standby,
 /// and provides a unified async API.
@@ -86,9 +86,13 @@ impl InferenceEngine {
                 self.call_ollama(&req, &quant).await
             }
             ExecutionTarget::FallbackOllama => {
-                self.call_ollama(&req, &req.quantization.unwrap_or(Quantization::Q4_K_M)).await
+                self.call_ollama(&req, &req.quantization.unwrap_or(Quantization::Q4_K_M))
+                    .await
             }
-            ExecutionTarget::DaliGpu | ExecutionTarget::CutlassSearch | ExecutionTarget::CutlassHnn | ExecutionTarget::VramWait => {
+            ExecutionTarget::DaliGpu
+            | ExecutionTarget::CutlassSearch
+            | ExecutionTarget::CutlassHnn
+            | ExecutionTarget::VramWait => {
                 anyhow::bail!("DALI/CUTLASS targets not handled by InferenceEngine");
             }
         };
@@ -122,7 +126,9 @@ impl InferenceEngine {
                 "prompt": text,
             });
 
-            let resp = self.http.post(&url)
+            let resp = self
+                .http
+                .post(&url)
                 .json(&body)
                 .send()
                 .await?
@@ -130,7 +136,8 @@ impl InferenceEngine {
 
             let data: serde_json::Value = resp.json().await?;
             if let Some(embedding) = data.get("embedding").and_then(|v| v.as_array()) {
-                let vec: Vec<f32> = embedding.iter()
+                let vec: Vec<f32> = embedding
+                    .iter()
                     .filter_map(|v| v.as_f64().map(|f| f as f32))
                     .collect();
                 all_embeddings.push(vec);
@@ -170,7 +177,11 @@ impl InferenceEngine {
     }
 
     /// Call Ollama HTTP API for generation.
-    async fn call_ollama(&self, req: &GenerateRequest, quant: &Quantization) -> Result<GenerateResponse> {
+    async fn call_ollama(
+        &self,
+        req: &GenerateRequest,
+        quant: &Quantization,
+    ) -> Result<GenerateResponse> {
         let quant_suffix = match quant {
             Quantization::F16 => ":f16",
             Quantization::Q8_0 => ":q8_0",
@@ -191,14 +202,17 @@ impl InferenceEngine {
             }
         });
 
-        let resp = self.http.post(&url)
+        let resp = self
+            .http
+            .post(&url)
             .json(&body)
             .send()
             .await?
             .error_for_status()?;
 
         let data: serde_json::Value = resp.json().await?;
-        let text = data.get("response")
+        let text = data
+            .get("response")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -254,7 +268,10 @@ mod tests {
             ExecutionTarget::CpuNuma { quant, .. } => assert_eq!(quant, Quantization::Q2_K),
             ExecutionTarget::Gpu(quant) => assert_eq!(quant, Quantization::Q2_K),
             ExecutionTarget::FallbackOllama => {} // Also acceptable if nothing fits
-            ExecutionTarget::DaliGpu | ExecutionTarget::CutlassSearch | ExecutionTarget::CutlassHnn | ExecutionTarget::VramWait => {}
+            ExecutionTarget::DaliGpu
+            | ExecutionTarget::CutlassSearch
+            | ExecutionTarget::CutlassHnn
+            | ExecutionTarget::VramWait => {}
         }
     }
 

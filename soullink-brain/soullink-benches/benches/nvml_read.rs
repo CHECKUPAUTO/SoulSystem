@@ -36,10 +36,10 @@ fn bench_mock(c: &mut Criterion) {
 
     let bridge = NvmlBridge::mock();
 
-    g.bench_function("gpu_temp",       |b| b.iter(|| bridge.gpu_temp()));
-    g.bench_function("gpu_util",       |b| b.iter(|| bridge.gpu_util()));
-    g.bench_function("power_w",        |b| b.iter(|| bridge.power_w()));
-    g.bench_function("clock_sm_mhz",   |b| b.iter(|| bridge.clock_sm_mhz()));
+    g.bench_function("gpu_temp", |b| b.iter(|| bridge.gpu_temp()));
+    g.bench_function("gpu_util", |b| b.iter(|| bridge.gpu_util()));
+    g.bench_function("power_w", |b| b.iter(|| bridge.power_w()));
+    g.bench_function("clock_sm_mhz", |b| b.iter(|| bridge.clock_sm_mhz()));
     g.bench_function("homeosync_tick", |b| b.iter(|| homeo_tick(&bridge)));
 
     g.finish();
@@ -61,10 +61,10 @@ fn bench_real(c: &mut Criterion) {
 
     let mut g = c.benchmark_group("nvml_read/real");
 
-    g.bench_function("gpu_temp",       |b| b.iter(|| bridge.gpu_temp()));
-    g.bench_function("gpu_util",       |b| b.iter(|| bridge.gpu_util()));
-    g.bench_function("power_w",        |b| b.iter(|| bridge.power_w()));
-    g.bench_function("clock_sm_mhz",   |b| b.iter(|| bridge.clock_sm_mhz()));
+    g.bench_function("gpu_temp", |b| b.iter(|| bridge.gpu_temp()));
+    g.bench_function("gpu_util", |b| b.iter(|| bridge.gpu_util()));
+    g.bench_function("power_w", |b| b.iter(|| bridge.power_w()));
+    g.bench_function("clock_sm_mhz", |b| b.iter(|| bridge.clock_sm_mhz()));
     // The full tick is the decision metric for the OnceLock cache
     g.bench_function("homeosync_tick", |b| b.iter(|| homeo_tick(&bridge)));
 

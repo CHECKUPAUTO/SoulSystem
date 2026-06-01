@@ -14,7 +14,7 @@ use soullink_vector::hnsw_index::{HnswIndex, HnswParams, SearchResult};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{info, warn, instrument};
+use tracing::{info, instrument, warn};
 
 /// A search hit combining vector similarity and keyword relevance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,7 +67,12 @@ pub struct PageAwareStore {
 
 impl PageAwareStore {
     /// Open or create a PageAwareStore at the given path.
-    pub fn open(path: &Path, dim: usize, config: PageConfig, embed_config: EmbedConfig) -> Result<Self> {
+    pub fn open(
+        path: &Path,
+        dim: usize,
+        config: PageConfig,
+        embed_config: EmbedConfig,
+    ) -> Result<Self> {
         let vector_index = HnswIndex::new(dim, HnswParams::default(), 10_000);
         let keyword_index = Bm25Index::new();
         let meta_db = sled::open(path.join("metadata"))?;
@@ -103,7 +108,11 @@ impl PageAwareStore {
             return Ok(0);
         }
 
-        let step = self.config.window_size.saturating_sub(self.config.overlap).max(1);
+        let step = self
+            .config
+            .window_size
+            .saturating_sub(self.config.overlap)
+            .max(1);
         let mut chunks_ingested = 0;
 
         // Phase 1: Generate chunks
@@ -126,21 +135,23 @@ impl PageAwareStore {
                 continue;
             }
             if window_text.len() > self.config.max_chunk_chars {
-                window_text = window_text.chars().take(self.config.max_chunk_chars).collect();
+                window_text = window_text
+                    .chars()
+                    .take(self.config.max_chunk_chars)
+                    .collect();
             }
 
             let chunk_type = provider.detect_chunk_type(&window_text);
-            let chunk = PageChunk::new(
-                &provider.document().id,
-                start,
-                end,
-                window_text,
-                chunk_type,
-            );
+            let chunk =
+                PageChunk::new(&provider.document().id, start, end, window_text, chunk_type);
             chunks.push(chunk);
         }
 
-        info!("Ingesting {} chunks from doc '{}'", chunks.len(), provider.document().id);
+        info!(
+            "Ingesting {} chunks from doc '{}'",
+            chunks.len(),
+            provider.document().id
+        );
 
         // Phase 2: Vectorize all chunks in parallel via EmbedBridge
         let texts: Vec<String> = chunks.iter().map(|c| c.text.clone()).collect();
@@ -153,7 +164,10 @@ impl PageAwareStore {
             let vector = match &embeddings[i] {
                 Ok(emb) => emb.clone(),
                 Err(e) => {
-                    warn!("Embedding failed for chunk {}: {}, using placeholder", chunk.id, e);
+                    warn!(
+                        "Embedding failed for chunk {}: {}, using placeholder",
+                        chunk.id, e
+                    );
                     self.placeholder_embedding(&chunk.text)
                 }
             };
@@ -162,7 +176,9 @@ impl PageAwareStore {
             if vector.len() != self.dim {
                 warn!(
                     "Dimension mismatch for chunk {}: expected {}, got {} — skipping",
-                    chunk.id, self.dim, vector.len()
+                    chunk.id,
+                    self.dim,
+                    vector.len()
                 );
                 continue;
             }
@@ -190,7 +206,11 @@ impl PageAwareStore {
         // Seal HNSW for optimized search after bulk ingestion
         self.vector_index.seal_for_search();
 
-        info!("Ingested {} chunks from doc '{}'", chunks_ingested, provider.document().id);
+        info!(
+            "Ingested {} chunks from doc '{}'",
+            chunks_ingested,
+            provider.document().id
+        );
         Ok(chunks_ingested)
     }
 
@@ -211,10 +231,11 @@ impl PageAwareStore {
         };
 
         // Vector search
-        let vector_results: Vec<SearchResult> = match self.vector_index.search(&query_vec, top_k * 2) {
-            Ok(results) => results,
-            Err(_) => Vec::new(),
-        };
+        let vector_results: Vec<SearchResult> =
+            match self.vector_index.search(&query_vec, top_k * 2) {
+                Ok(results) => results,
+                Err(_) => Vec::new(),
+            };
 
         // Keyword search
         let keyword_results = {
@@ -223,22 +244,34 @@ impl PageAwareStore {
         };
 
         // Merge via Reciprocal Rank Fusion (RRF)
-        let mut hits: std::collections::HashMap<String, SearchHit> = std::collections::HashMap::new();
+        let mut hits: std::collections::HashMap<String, SearchHit> =
+            std::collections::HashMap::new();
         let k = 60;
 
         for (rank, result) in vector_results.iter().enumerate() {
             let rrf_score = alpha / (k + rank + 1) as f64;
             let meta = self.get_metadata(&result.label);
-            let entry = hits.entry(result.label.clone()).or_insert_with(|| SearchHit {
-                id: result.label.clone(),
-                doc_id: meta.as_ref().map(|m| m.doc_id.clone()).unwrap_or_default(),
-                page_range: meta.as_ref().map(|m| (m.start_page, m.end_page)).unwrap_or((0, 0)),
-                vector_score: result.score,
-                keyword_score: 0.0,
-                hybrid_score: 0.0,
-                chunk_type: meta.as_ref().map(|m| m.chunk_type).unwrap_or(ChunkType::Body),
-                text_preview: meta.as_ref().map(|m| m.text_preview.clone()).unwrap_or_default(),
-            });
+            let entry = hits
+                .entry(result.label.clone())
+                .or_insert_with(|| SearchHit {
+                    id: result.label.clone(),
+                    doc_id: meta.as_ref().map(|m| m.doc_id.clone()).unwrap_or_default(),
+                    page_range: meta
+                        .as_ref()
+                        .map(|m| (m.start_page, m.end_page))
+                        .unwrap_or((0, 0)),
+                    vector_score: result.score,
+                    keyword_score: 0.0,
+                    hybrid_score: 0.0,
+                    chunk_type: meta
+                        .as_ref()
+                        .map(|m| m.chunk_type)
+                        .unwrap_or(ChunkType::Body),
+                    text_preview: meta
+                        .as_ref()
+                        .map(|m| m.text_preview.clone())
+                        .unwrap_or_default(),
+                });
             entry.vector_score = result.score;
             entry.hybrid_score += rrf_score;
         }
@@ -249,19 +282,32 @@ impl PageAwareStore {
             let entry = hits.entry(id.clone()).or_insert_with(|| SearchHit {
                 id: id.clone(),
                 doc_id: meta.as_ref().map(|m| m.doc_id.clone()).unwrap_or_default(),
-                page_range: meta.as_ref().map(|m| (m.start_page, m.end_page)).unwrap_or((0, 0)),
+                page_range: meta
+                    .as_ref()
+                    .map(|m| (m.start_page, m.end_page))
+                    .unwrap_or((0, 0)),
                 vector_score: 0.0,
                 keyword_score: *score,
                 hybrid_score: 0.0,
-                chunk_type: meta.as_ref().map(|m| m.chunk_type).unwrap_or(ChunkType::Body),
-                text_preview: meta.as_ref().map(|m| m.text_preview.clone()).unwrap_or_default(),
+                chunk_type: meta
+                    .as_ref()
+                    .map(|m| m.chunk_type)
+                    .unwrap_or(ChunkType::Body),
+                text_preview: meta
+                    .as_ref()
+                    .map(|m| m.text_preview.clone())
+                    .unwrap_or_default(),
             });
             entry.keyword_score = *score;
             entry.hybrid_score += rrf_score;
         }
 
         let mut results: Vec<SearchHit> = hits.into_values().collect();
-        results.sort_by(|a, b| b.hybrid_score.partial_cmp(&a.hybrid_score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.hybrid_score
+                .partial_cmp(&a.hybrid_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(top_k);
 
         Ok(HybridResult {
@@ -349,10 +395,19 @@ mod tests {
         // Create multiple pages explicitly with form feed
         let text = "Rust programming language focuses on memory safety and performance without garbage collection. The borrow checker ensures reference safety at compile time.\n\x0cPython is a popular scripting language used for data science, web development, and automation. It has a rich ecosystem of libraries.";
         let provider = TextPageProvider::from_text("doc-1", "Test Doc", text);
-        eprintln!("DEBUG: page_count={}, window={}, overlap={}", provider.get_page_count(), 2, 1);
+        eprintln!(
+            "DEBUG: page_count={}, window={}, overlap={}",
+            provider.get_page_count(),
+            2,
+            1
+        );
         let count = store.ingest(&provider).await.unwrap();
         eprintln!("DEBUG: ingested {} chunks", count);
-        assert!(count >= 1, "should ingest at least one chunk, got {}", count);
+        assert!(
+            count >= 1,
+            "should ingest at least one chunk, got {}",
+            count
+        );
     }
 
     #[tokio::test]
@@ -364,7 +419,10 @@ mod tests {
         store.ingest(&provider).await.unwrap();
 
         let results = store.search("Rust programming", 5, 0.7).await.unwrap();
-        assert!(!results.hits.is_empty(), "should find results for 'Rust programming'");
+        assert!(
+            !results.hits.is_empty(),
+            "should find results for 'Rust programming'"
+        );
     }
 
     #[tokio::test]
@@ -397,8 +455,9 @@ mod tests {
         };
         let store = PageAwareStore::open(dir.path(), 64, PageConfig::default(), config).unwrap();
         let provider = TextPageProvider::from_text(
-            "doc-1", "Fallback Test",
-            "Content about neural networks and machine learning algorithms."
+            "doc-1",
+            "Fallback Test",
+            "Content about neural networks and machine learning algorithms.",
         );
         // Should succeed with placeholder vectors even though Ollama is unreachable
         let count = store.ingest(&provider).await.unwrap();

@@ -5,8 +5,8 @@
 //! with pattern overrides for fast-path routing.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use regex::Regex;
@@ -133,7 +133,10 @@ impl ComplexityScorer {
                 name: "greeting".into(),
             },
             PatternOverride {
-                regex: Regex::new(r"(?i)(security\s+audit|penetration\s+test|vulnerability\s+scan)").unwrap(),
+                regex: Regex::new(
+                    r"(?i)(security\s+audit|penetration\s+test|vulnerability\s+scan)",
+                )
+                .unwrap(),
                 tier: Tier::Frontier,
                 name: "security_audit".into(),
             },
@@ -200,7 +203,9 @@ impl ComplexityScorer {
             self.score_novelty(prompt),
         ];
 
-        let total: u32 = DIMENSION_WEIGHTS.iter().zip(scores.iter())
+        let total: u32 = DIMENSION_WEIGHTS
+            .iter()
+            .zip(scores.iter())
             .map(|((_, w), s)| (*s * *w) / 100)
             .sum();
 
@@ -230,19 +235,35 @@ impl ComplexityScorer {
     fn score_reasoning(&self, prompt: &str) -> u32 {
         let mut score = 10u32;
         let lower = prompt.to_lowercase();
-        if lower.contains("why") || lower.contains("explain") { score += 15; }
-        if lower.contains("analyze") || lower.contains("compare") { score += 20; }
-        if lower.contains("prove") || lower.contains("derive") { score += 25; }
-        if lower.contains("reasoning") || lower.contains("logic") { score += 15; }
+        if lower.contains("why") || lower.contains("explain") {
+            score += 15;
+        }
+        if lower.contains("analyze") || lower.contains("compare") {
+            score += 20;
+        }
+        if lower.contains("prove") || lower.contains("derive") {
+            score += 25;
+        }
+        if lower.contains("reasoning") || lower.contains("logic") {
+            score += 15;
+        }
         score.min(100)
     }
 
     fn score_code_complexity(&self, prompt: &str) -> u32 {
         let mut score = 10u32;
-        if prompt.contains("fn ") || prompt.contains("function") { score += 20; }
-        if prompt.contains("impl ") || prompt.contains("class ") { score += 25; }
-        if prompt.contains("async") || prompt.contains("await") { score += 15; }
-        if prompt.contains("unsafe") || prompt.contains("trait ") { score += 20; }
+        if prompt.contains("fn ") || prompt.contains("function") {
+            score += 20;
+        }
+        if prompt.contains("impl ") || prompt.contains("class ") {
+            score += 25;
+        }
+        if prompt.contains("async") || prompt.contains("await") {
+            score += 15;
+        }
+        if prompt.contains("unsafe") || prompt.contains("trait ") {
+            score += 20;
+        }
         score.min(100)
     }
 
@@ -256,41 +277,78 @@ impl ComplexityScorer {
     fn score_domain_specific(&self, prompt: &str) -> u32 {
         let mut score = 10u32;
         let lower = prompt.to_lowercase();
-        let domains = ["cryptograph", "quantum", "neural", "compil", "gpu", "assembly"];
+        let domains = [
+            "cryptograph",
+            "quantum",
+            "neural",
+            "compil",
+            "gpu",
+            "assembly",
+        ];
         for d in &domains {
-            if lower.contains(d) { score += 30; break; }
+            if lower.contains(d) {
+                score += 30;
+                break;
+            }
         }
         score.min(100)
     }
 
     fn score_creativity(&self, prompt: &str) -> u32 {
         let lower = prompt.to_lowercase();
-        let creative = ["create", "design", "imagine", "invent", "brainstorm", "story"];
+        let creative = [
+            "create",
+            "design",
+            "imagine",
+            "invent",
+            "brainstorm",
+            "story",
+        ];
         let count = creative.iter().filter(|w| lower.contains(*w)).count();
         10 + (count as u32 * 25).min(65)
     }
 
     fn score_precision(&self, prompt: &str) -> u32 {
         let lower = prompt.to_lowercase();
-        let precise = ["exactly", "precise", "specific", "calculate", "compute", "measure"];
+        let precise = [
+            "exactly",
+            "precise",
+            "specific",
+            "calculate",
+            "compute",
+            "measure",
+        ];
         let count = precise.iter().filter(|w| lower.contains(*w)).count();
         10 + (count as u32 * 25).min(65)
     }
 
     fn score_safety_critical(&self, prompt: &str) -> u32 {
         let lower = prompt.to_lowercase();
-        let safety = ["security", "vulnerability", "exploit", "inject", "sanitize", "escape"];
+        let safety = [
+            "security",
+            "vulnerability",
+            "exploit",
+            "inject",
+            "sanitize",
+            "escape",
+        ];
         let count = safety.iter().filter(|w| lower.contains(*w)).count();
         5 + (count as u32 * 30).min(85)
     }
 
     fn score_context_depth(&self, prompt: &str) -> u32 {
         let words = prompt.split_whitespace().count();
-        if words < 20 { 10 }
-        else if words < 50 { 25 }
-        else if words < 100 { 50 }
-        else if words < 200 { 70 }
-        else { 90 }
+        if words < 20 {
+            10
+        } else if words < 50 {
+            25
+        } else if words < 100 {
+            50
+        } else if words < 200 {
+            70
+        } else {
+            90
+        }
     }
 
     fn score_tool_use(&self, prompt: &str) -> u32 {
@@ -302,23 +360,39 @@ impl ComplexityScorer {
 
     fn score_ambiguity(&self, prompt: &str) -> u32 {
         let lower = prompt.to_lowercase();
-        let ambiguous = ["maybe", "might", "perhaps", "could be", "i think", "roughly"];
+        let ambiguous = [
+            "maybe", "might", "perhaps", "could be", "i think", "roughly",
+        ];
         let count = ambiguous.iter().filter(|w| lower.contains(*w)).count();
         5 + (count as u32 * 20).min(60)
     }
 
     fn score_length(&self, prompt: &str) -> u32 {
         let words = prompt.split_whitespace().count() as u32;
-        if words < 10 { 5 }
-        else if words < 30 { 15 }
-        else if words < 60 { 30 }
-        else if words < 120 { 50 }
-        else { 70 }
+        if words < 10 {
+            5
+        } else if words < 30 {
+            15
+        } else if words < 60 {
+            30
+        } else if words < 120 {
+            50
+        } else {
+            70
+        }
     }
 
     fn score_technical_depth(&self, prompt: &str) -> u32 {
         let lower = prompt.to_lowercase();
-        let tech = ["algorithm", "complexity", "big-o", "runtime", "memory", "latency", "throughput"];
+        let tech = [
+            "algorithm",
+            "complexity",
+            "big-o",
+            "runtime",
+            "memory",
+            "latency",
+            "throughput",
+        ];
         let count = tech.iter().filter(|w| lower.contains(*w)).count();
         10 + (count as u32 * 20).min(65)
     }
@@ -550,7 +624,9 @@ mod tests {
     #[tokio::test]
     async fn router_routes_frontier_to_primary() {
         let router = SmartRouter::new("gemma4:31b", "qwen3:4b");
-        let decision = router.route("Perform a security audit and vulnerability scan of the production system").await;
+        let decision = router
+            .route("Perform a security audit and vulnerability scan of the production system")
+            .await;
         assert_eq!(decision.provider, ProviderChoice::Primary);
     }
 
@@ -558,7 +634,9 @@ mod tests {
     async fn router_stats() {
         let router = SmartRouter::new("gemma4:31b", "qwen3:4b");
         router.route("Hello!").await; // Flash → cheap
-        router.route("Perform a security audit of this system").await; // Frontier → primary
+        router
+            .route("Perform a security audit of this system")
+            .await; // Frontier → primary
         let stats = router.stats().await;
         assert_eq!(stats.total_requests, 2);
         assert!(stats.cheap_requests >= 1);

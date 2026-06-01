@@ -62,7 +62,9 @@ impl KVBridge {
     /// Returns the number of positions offloaded.
     pub async fn offload_range(&self, start: usize, end: usize, k: &[f32], v: &[f32]) -> usize {
         let n = end - start;
-        if n == 0 { return 0; }
+        if n == 0 {
+            return 0;
+        }
 
         // Store in TurboQuant compressed cache
         let mut cache = self.cache.write().await;
@@ -89,9 +91,9 @@ impl KVBridge {
         let states = self.slot_states.read().await;
 
         // Check all positions are in TurboQuant
-        let all_offloaded = positions.iter().all(|&p| {
-            p < states.len() && states[p] == KVSlotState::TurboQuant3Bit
-        });
+        let all_offloaded = positions
+            .iter()
+            .all(|&p| p < states.len() && states[p] == KVSlotState::TurboQuant3Bit);
 
         if !all_offloaded {
             return None;
@@ -106,7 +108,10 @@ impl KVBridge {
         let cache = self.cache.read().await;
         let states = self.slot_states.read().await;
         let gpu_count = states.iter().filter(|s| **s == KVSlotState::GpuQ4).count();
-        let tq_count = states.iter().filter(|s| **s == KVSlotState::TurboQuant3Bit).count();
+        let tq_count = states
+            .iter()
+            .filter(|s| **s == KVSlotState::TurboQuant3Bit)
+            .count();
 
         BridgeStats {
             gpu_positions: gpu_count,
@@ -156,9 +161,9 @@ mod tests {
     #[tokio::test]
     async fn should_offload_threshold() {
         let bridge = KVBridge::new(2, 256, 32, 4, 100, "http://localhost:8081".into());
-        assert!(!bridge.should_offload(79).await);  // 79% < 80%
-        assert!(bridge.should_offload(80).await);   // 80% >= 80%
-        assert!(bridge.should_offload(90).await);   // 90% >= 80%
+        assert!(!bridge.should_offload(79).await); // 79% < 80%
+        assert!(bridge.should_offload(80).await); // 80% >= 80%
+        assert!(bridge.should_offload(90).await); // 90% >= 80%
     }
 
     #[tokio::test]

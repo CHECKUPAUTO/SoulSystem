@@ -20,7 +20,12 @@ pub mod ffi {
 
         /// Generate text synchronously.
         /// Returns the generated string.
-        fn generate(runtime: &TllmRuntimeWrapper, prompt: &str, max_tokens: u32, temperature: f32) -> Result<String>;
+        fn generate(
+            runtime: &TllmRuntimeWrapper,
+            prompt: &str,
+            max_tokens: u32,
+            temperature: f32,
+        ) -> Result<String>;
 
         /// Get VRAM usage in MiB.
         fn vram_used_mb(runtime: &TllmRuntimeWrapper) -> u64;

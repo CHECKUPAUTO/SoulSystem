@@ -26,7 +26,7 @@ pub struct CycleMetrics {
 pub struct DecisionQuality {
     pub cycle: u64,
     pub action: String,
-    pub score: f32,           // 0.0-1.0
+    pub score: f32, // 0.0-1.0
     pub category: QualityCategory,
     pub explanation: String,
     pub recommendation: String,
@@ -34,10 +34,10 @@ pub struct DecisionQuality {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum QualityCategory {
-    Excellent,   // Amélioration claire + succès
-    Good,        // Succès mais peu d'impact
-    Neutral,     // Pas de changement notable
-    Poor,        // Échec ou dégradation
+    Excellent,    // Amélioration claire + succès
+    Good,         // Succès mais peu d'impact
+    Neutral,      // Pas de changement notable
+    Poor,         // Échec ou dégradation
     Catastrophic, // Dégradation sévère
 }
 
@@ -98,8 +98,7 @@ impl Metacognition {
     }
 
     /// Évalue la qualité de la dernière décision
-    pub fn evaluate_last(&self,
-    ) -> Option<DecisionQuality> {
+    pub fn evaluate_last(&self) -> Option<DecisionQuality> {
         let last = self.history.last()?;
         let prev = self.history.iter().rev().nth(1);
 
@@ -197,7 +196,8 @@ impl Metacognition {
                 "Pas d'impact mesurable. Changer d'approche ou attendre.".to_string()
             }
             QualityCategory::Poor => {
-                "Action contre-productive. Privilégier une autre stratégie au prochain cycle.".to_string()
+                "Action contre-productive. Privilégier une autre stratégie au prochain cycle."
+                    .to_string()
             }
             QualityCategory::Catastrophic => {
                 "Détérioration sévère. Pause immédiate et analyse approfondie.".to_string()
@@ -228,24 +228,46 @@ impl Metacognition {
             }
             // Score approximatif
             let s = if m.action_success { 0.5f32 } else { 0.0f32 }
-                + if m.energy_after > m.energy_before { 0.2f32 } else { 0.0f32 }
-                + if m.cpu_after < m.cpu_before { 0.2f32 } else { 0.0f32 }
-                + if m.alerts_after < m.alerts_before { 0.1f32 } else { 0.0f32 };
+                + if m.energy_after > m.energy_before {
+                    0.2f32
+                } else {
+                    0.0f32
+                }
+                + if m.cpu_after < m.cpu_before {
+                    0.2f32
+                } else {
+                    0.0f32
+                }
+                + if m.alerts_after < m.alerts_before {
+                    0.1f32
+                } else {
+                    0.0f32
+                };
             total_score += s.clamp(0.0f32, 1.0f32);
         }
 
-        let avg_score = if count > 0 { total_score / count as f32 } else { 0.0 };
-        let success_rate = if count > 0 { successes as f32 / count as f32 } else { 0.0 };
+        let avg_score = if count > 0 {
+            total_score / count as f32
+        } else {
+            0.0
+        };
+        let success_rate = if count > 0 {
+            successes as f32 / count as f32
+        } else {
+            0.0
+        };
 
         format!(
             "Méta-cognition ({} cycles): score_avg={:.2} | succès={:.0}% | actions_testées={}",
-            count, avg_score, success_rate * 100.0, count
+            count,
+            avg_score,
+            success_rate * 100.0,
+            count
         )
     }
 
     /// Ajuste les paramètres selon performance
-    pub fn suggest_adjustments(&self,
-    ) -> Vec<String> {
+    pub fn suggest_adjustments(&self) -> Vec<String> {
         let mut suggestions = Vec::new();
 
         if self.history.len() < 3 {
@@ -253,7 +275,8 @@ impl Metacognition {
         }
 
         let recent = self.history.iter().rev().take(10).collect::<Vec<_>>();
-        let avg_time: u64 = recent.iter().map(|m| m.time_taken_ms).sum::<u64>() / recent.len() as u64;
+        let avg_time: u64 =
+            recent.iter().map(|m| m.time_taken_ms).sum::<u64>() / recent.len() as u64;
 
         if avg_time > 30000 {
             suggestions.push("heartbeat_interval: augmenter à 60s (LLM lent)".to_string());
@@ -261,10 +284,11 @@ impl Metacognition {
             suggestions.push("heartbeat_interval: diminuer à 20s (LLM rapide)".to_string());
         }
 
-        let failure_rate = recent.iter().filter(|m| !m.action_success).count() as f32
-            / recent.len() as f32;
+        let failure_rate =
+            recent.iter().filter(|m| !m.action_success).count() as f32 / recent.len() as f32;
         if failure_rate > 0.5 {
-            suggestions.push("llm_model: passer à kimi-k2.6:cloud (taux d'échec élevé)".to_string());
+            suggestions
+                .push("llm_model: passer à kimi-k2.6:cloud (taux d'échec élevé)".to_string());
         }
 
         let energy_trend = recent.last().map(|m| m.energy_after).unwrap_or(5.0)

@@ -1,11 +1,11 @@
 //! File scanner — walks directories and scans for secrets.
 
 use crate::detectors;
+use crate::detectors::Finding;
 use crate::verify::SecretVerifier;
+use crate::verify::VerificationResult;
 use std::path::Path;
 use std::sync::Arc;
-use crate::detectors::Finding;
-use crate::verify::VerificationResult;
 use tokio::sync::Mutex;
 use tracing::warn;
 use walkdir::WalkDir;
@@ -53,12 +53,12 @@ impl SecurityScanner {
 
             // Skip common non-source directories
             if let Some(path_str) = path.to_str() {
-                if path_str.contains("/.git/") ||
-                   path_str.contains("/target/") ||
-                   path_str.contains("/node_modules/") ||
-                   path_str.contains("/.venv/") ||
-                   path_str.contains("/__pycache__/") ||
-                   path_str.contains(".cargo/registry")
+                if path_str.contains("/.git/")
+                    || path_str.contains("/target/")
+                    || path_str.contains("/node_modules/")
+                    || path_str.contains("/.venv/")
+                    || path_str.contains("/__pycache__/")
+                    || path_str.contains(".cargo/registry")
                 {
                     continue;
                 }
@@ -82,7 +82,8 @@ impl SecurityScanner {
 
         // Deduplicate findings
         all_findings.sort_by(|a, b| {
-            b.severity.cmp(&a.severity)
+            b.severity
+                .cmp(&a.severity)
                 .then_with(|| a.file.cmp(&b.file))
                 .then_with(|| a.line.cmp(&b.line))
         });

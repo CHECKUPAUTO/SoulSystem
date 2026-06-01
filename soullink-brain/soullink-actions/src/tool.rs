@@ -66,7 +66,9 @@ pub struct NoOpTool;
 
 #[async_trait::async_trait]
 impl AsyncTool for NoOpTool {
-    fn name(&self) -> &str { "noop" }
+    fn name(&self) -> &str {
+        "noop"
+    }
 
     fn validate(&self, _input: &str) -> Result<(), ToolError> {
         Ok(())

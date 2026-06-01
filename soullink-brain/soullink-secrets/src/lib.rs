@@ -14,6 +14,6 @@ mod crypto;
 mod store;
 mod types;
 
-pub use types::{DecryptedSecret, SecretError, SecretId, SecretMetadata, SecretValue};
-pub use store::SecretsStore;
 pub use crypto::SecretsCrypto;
+pub use store::SecretsStore;
+pub use types::{DecryptedSecret, SecretError, SecretId, SecretMetadata, SecretValue};

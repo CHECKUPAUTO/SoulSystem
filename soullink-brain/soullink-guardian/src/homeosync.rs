@@ -12,7 +12,10 @@ use std::{sync::Arc, time::Duration};
 
 use arc_swap::ArcSwap;
 use chrono::Utc;
-use tokio::{sync::{broadcast, mpsc}, time};
+use tokio::{
+    sync::{broadcast, mpsc},
+    time,
+};
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -20,9 +23,9 @@ use soullink_core::{http::shared_client, GuardianEvent, SystemSnapshot};
 use soullink_nvml::NvmlBridge;
 
 pub struct HomeoSync {
-    nvml:     Arc<NvmlBridge>,
-    state:    Arc<ArcSwap<SystemSnapshot>>,
-    tx:       mpsc::Sender<GuardianEvent>,
+    nvml: Arc<NvmlBridge>,
+    state: Arc<ArcSwap<SystemSnapshot>>,
+    tx: mpsc::Sender<GuardianEvent>,
     shutdown: broadcast::Receiver<()>,
     interval: Duration,
 }
@@ -35,7 +38,13 @@ impl HomeoSync {
         shutdown: broadcast::Receiver<()>,
         interval: Duration,
     ) -> Self {
-        Self { nvml, state, tx, shutdown, interval }
+        Self {
+            nvml,
+            state,
+            tx,
+            shutdown,
+            interval,
+        }
     }
 
     pub async fn run(mut self) {
@@ -52,12 +61,12 @@ impl HomeoSync {
     }
 
     async fn tick(&self) {
-        let temp_c   = self.nvml.gpu_temp();
+        let temp_c = self.nvml.gpu_temp();
         let util_pct = self.nvml.gpu_util();
         let mem_used = self.nvml.vram_used_mib();
         let mem_total = self.nvml.vram_total_mib();
-        let power_w  = self.nvml.power_w();
-        let fan      = self.nvml.fan_speed();
+        let power_w = self.nvml.power_w();
+        let fan = self.nvml.fan_speed();
         let sm_clock = self.nvml.clock_sm_mhz();
         let mem_clock = self.nvml.clock_mem_mhz();
         let power_limit_w = self.nvml.power_limit_w();
@@ -81,16 +90,31 @@ impl HomeoSync {
 
         // Stress index (0..1)
         let temp_norm = (temp_c as f64 / 100.0).min(1.0);
-        let vram_norm = if mem_total > 0 { mem_used as f64 / mem_total as f64 } else { 0.0 };
+        let vram_norm = if mem_total > 0 {
+            mem_used as f64 / mem_total as f64
+        } else {
+            0.0
+        };
         let util_norm = util_pct as f64 / 100.0;
         let stress = 0.35 * temp_norm + 0.25 * vram_norm + 0.15 * util_norm + 0.25 * 0.5;
 
         self.state.store(Arc::new(snap.clone()));
         debug!(temp_c, util_pct, stress, power_limit_w, "snapshot updated");
 
-        let action = if stress > 0.7 { "throttle" } else if stress > 0.5 { "observe" } else { "normal" };
-        let _ = self.tx.try_send(GuardianEvent::StressUpdate { index: stress, action: action.into() });
-        let _ = self.tx.try_send(GuardianEvent::MetricsBatch { snapshot: Arc::new(snap) });
+        let action = if stress > 0.7 {
+            "throttle"
+        } else if stress > 0.5 {
+            "observe"
+        } else {
+            "normal"
+        };
+        let _ = self.tx.try_send(GuardianEvent::StressUpdate {
+            index: stress,
+            action: action.into(),
+        });
+        let _ = self.tx.try_send(GuardianEvent::MetricsBatch {
+            snapshot: Arc::new(snap),
+        });
 
         // Stimulate Homeostasis organ (9041) — kept for backward compat.
         // V13.5-p2b: uses the shared process-wide reqwest client to preserve

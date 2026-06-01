@@ -1,7 +1,7 @@
 //! HNN Bridge — lecture du blackboard SoulLink (ports V13)
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HnnState {
@@ -21,9 +21,11 @@ impl HnnState {
         // 1. Fetch orchestrator blackboard (port 9020)
         let c = client.clone();
         set.spawn(async move {
-            let res = c.get("http://127.0.0.1:9020/api/stats")
+            let res = c
+                .get("http://127.0.0.1:9020/api/stats")
                 .timeout(std::time::Duration::from_secs(3))
-                .send().await;
+                .send()
+                .await;
             if let Ok(r) = res {
                 if r.status().is_success() {
                     return ("blackboard", r.json::<serde_json::Value>().await.ok());
@@ -34,14 +36,20 @@ impl HnnState {
 
         // 2. Fetch HNN V13 organs (ports 9010-9015)
         for (port, name) in [
-            (9010, "science"), (9011, "mind"), (9012, "engineer"),
-            (9013, "crypto"), (9014, "creative"), (9015, "meta"),
+            (9010, "science"),
+            (9011, "mind"),
+            (9012, "engineer"),
+            (9013, "crypto"),
+            (9014, "creative"),
+            (9015, "meta"),
         ] {
             let c = client.clone();
             set.spawn(async move {
-                let res = c.get(format!("http://127.0.0.1:{}/api/stats", port))
+                let res = c
+                    .get(format!("http://127.0.0.1:{}/api/stats", port))
                     .timeout(std::time::Duration::from_secs(2))
-                    .send().await;
+                    .send()
+                    .await;
                 if let Ok(r) = res {
                     if r.status().is_success() {
                         return (name, r.json::<serde_json::Value>().await.ok());
@@ -53,15 +61,22 @@ impl HnnState {
 
         // 3. Fetch V14 organs (ports 9095, 9786, etc)
         for (port, name) in [
-            (9095, "v14_fusion"), (9786, "chronos"),
-            (9040, "foresight"), (9041, "homeostasis"), (9042, "creativity"),
-            (9043, "social"), (9044, "validation"), (9047, "nla_explain"),
+            (9095, "v14_fusion"),
+            (9786, "chronos"),
+            (9040, "foresight"),
+            (9041, "homeostasis"),
+            (9042, "creativity"),
+            (9043, "social"),
+            (9044, "validation"),
+            (9047, "nla_explain"),
         ] {
             let c = client.clone();
             set.spawn(async move {
-                let res = c.get(format!("http://127.0.0.1:{}/api/stats", port))
+                let res = c
+                    .get(format!("http://127.0.0.1:{}/api/stats", port))
                     .timeout(std::time::Duration::from_secs(2))
-                    .send().await;
+                    .send()
+                    .await;
                 if let Ok(r) = res {
                     if r.status().is_success() {
                         return (name, r.json::<serde_json::Value>().await.ok());
@@ -74,9 +89,11 @@ impl HnnState {
         // 4. Fetch memory (port 9030)
         let c = client.clone();
         set.spawn(async move {
-            let res = c.get("http://127.0.0.1:9030/api/stats")
+            let res = c
+                .get("http://127.0.0.1:9030/api/stats")
                 .timeout(std::time::Duration::from_secs(2))
-                .send().await;
+                .send()
+                .await;
             if let Ok(r) = res {
                 if r.status().is_success() {
                     return ("neural_memory", r.json::<serde_json::Value>().await.ok());
@@ -109,12 +126,14 @@ impl HnnState {
         let organ_count = self.organs.len();
         let mut turbulence = Vec::new();
         for (name, state) in &self.organs {
-            if let Some(t) = state.get("turbulence")
+            if let Some(t) = state
+                .get("turbulence")
                 .and_then(|t| t.get("value"))
                 .and_then(|v| v.as_f64())
             {
                 turbulence.push(format!("{}:{:.2}", name, t));
-            } else if let Some(t) = state.get("hnn_state")
+            } else if let Some(t) = state
+                .get("hnn_state")
                 .and_then(|h| h.get("turbulence"))
                 .and_then(|t| t.get("value"))
                 .and_then(|v| v.as_f64())

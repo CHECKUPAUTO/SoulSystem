@@ -81,12 +81,7 @@ impl QuantizationAwareTrainer {
 
     /// Full training step: quantize forward + apply STE update.
     /// Returns the quantization loss for monitoring.
-    pub fn train_step(
-        &self,
-        weights: &mut [f32],
-        gradient: &[f32],
-        learning_rate: f64,
-    ) -> f64 {
+    pub fn train_step(&self, weights: &mut [f32], gradient: &[f32], learning_rate: f64) -> f64 {
         let loss = self.quantize_forward(weights);
         self.apply_ste_update(weights, gradient, learning_rate);
         loss
@@ -98,7 +93,11 @@ impl QuantizationAwareTrainer {
     ///   [mode:1] [rows:8] [cols:8] [block_size:8]
     ///   [scale_bytes: num_blocks * 4] [zero_bytes: num_blocks * 4]
     ///   [data_len:8] [data_bytes...]
-    pub fn export_quantized(&self, weights: &[f32], path: &str) -> std::result::Result<(), QuantError> {
+    pub fn export_quantized(
+        &self,
+        weights: &[f32],
+        path: &str,
+    ) -> std::result::Result<(), QuantError> {
         let qt = self.quantizer.quantize(weights);
         let mode_byte: u8 = match qt.mode {
             QuantMode::FP32 => 0,
@@ -131,7 +130,9 @@ impl QuantizationAwareTrainer {
 
     /// Load quantized weights from a file, dequantize to `Vec<f32>`.
     /// Returns `(dequantized_weights, mode, block_size)`.
-    pub fn import_quantized(path: &str) -> std::result::Result<(Vec<f32>, QuantMode, usize), QuantError> {
+    pub fn import_quantized(
+        path: &str,
+    ) -> std::result::Result<(Vec<f32>, QuantMode, usize), QuantError> {
         let data = std::fs::read(path).map_err(|e| QuantError::Io(e.to_string()))?;
         if data.len() < 25 {
             return Err(QuantError::InvalidFormat("file too small".into()));
@@ -212,10 +213,12 @@ mod tests {
     use std::path::Path;
 
     fn test_data(n: usize) -> Vec<f32> {
-        (0..n).map(|i| {
-            let x = i as f32;
-            (x * 0.1).sin() * 3.0 + (x * 0.05).cos() * 2.0
-        }).collect()
+        (0..n)
+            .map(|i| {
+                let x = i as f32;
+                (x * 0.1).sin() * 3.0 + (x * 0.05).cos() * 2.0
+            })
+            .collect()
     }
 
     #[test]
@@ -229,7 +232,10 @@ mod tests {
 
         let loss = trainer.train_step(&mut weights, &gradient, 0.01);
         assert!(loss.is_finite(), "STE loss should be finite, got {}", loss);
-        assert!(loss > 0.0, "STE loss should be positive for INT8 quantization");
+        assert!(
+            loss > 0.0,
+            "STE loss should be positive for INT8 quantization"
+        );
 
         let has_changed = weights
             .iter()

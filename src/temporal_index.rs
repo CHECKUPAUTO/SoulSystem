@@ -66,7 +66,7 @@ impl TemporalIndex {
             );
             CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp_ms);
             CREATE INDEX IF NOT EXISTS idx_events_tag ON events(tag);
-            CREATE INDEX IF NOT EXISTS idx_events_timestamp_tag ON events(timestamp_ms, tag);"
+            CREATE INDEX IF NOT EXISTS idx_events_timestamp_tag ON events(timestamp_ms, tag);",
         )?;
 
         info!("TemporalIndex: ouvert à {}", db_path.display());
@@ -107,13 +107,11 @@ impl TemporalIndex {
     pub fn query_range(&self, query: &TimeRangeQuery) -> Result<Vec<TimeIndexEntry>> {
         let mut sql = String::from(
             "SELECT id, timestamp_ms, tag, summary, metadata FROM events
-             WHERE timestamp_ms >= ?1 AND timestamp_ms <= ?2"
+             WHERE timestamp_ms >= ?1 AND timestamp_ms <= ?2",
         );
 
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
-            Box::new(query.start_ms),
-            Box::new(query.end_ms),
-        ];
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
+            vec![Box::new(query.start_ms), Box::new(query.end_ms)];
 
         if let Some(ref tag) = query.tag_filter {
             sql.push_str(" AND tag = ?3");
@@ -124,25 +122,32 @@ impl TemporalIndex {
         sql.push_str(&format!(" LIMIT {} OFFSET {}", query.limit, query.offset));
 
         let mut stmt = self.db.prepare(&sql)?;
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
 
-        let entries = stmt.query_map(param_refs.as_slice(), |row| {
-            Ok(TimeIndexEntry {
-                id: row.get(0)?,
-                timestamp_ms: row.get(1)?,
-                tag: row.get(2)?,
-                summary: row.get(3)?,
-                metadata: row.get(4)?,
-            })
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
+        let entries = stmt
+            .query_map(param_refs.as_slice(), |row| {
+                Ok(TimeIndexEntry {
+                    id: row.get(0)?,
+                    timestamp_ms: row.get(1)?,
+                    tag: row.get(2)?,
+                    summary: row.get(3)?,
+                    metadata: row.get(4)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
 
         Ok(entries)
     }
 
     /// Requête sur une période relative (ex: dernières 24h).
-    pub fn query_recent(&self, hours: i64, tag_filter: Option<&str>, limit: usize) -> Result<Vec<TimeIndexEntry>> {
+    pub fn query_recent(
+        &self,
+        hours: i64,
+        tag_filter: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<TimeIndexEntry>> {
         let now = Utc::now().timestamp_millis();
         let start = now - hours * 3600 * 1000;
         self.query_range(&TimeRangeQuery {
@@ -155,12 +160,15 @@ impl TemporalIndex {
     }
 
     /// Requête sur une date spécifique (YYYY-MM-DD).
-    pub fn query_date(&self, date: &str, tag_filter: Option<&str>, limit: usize) -> Result<Vec<TimeIndexEntry>> {
+    pub fn query_date(
+        &self,
+        date: &str,
+        tag_filter: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<TimeIndexEntry>> {
         // Convertir la date en timestamps
         let start = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
-            .map(|d| d.and_hms_opt(0, 0, 0).unwrap()
-                .and_utc()
-                .timestamp_millis())
+            .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis())
             .unwrap_or(0);
         let end = start + 24 * 3600 * 1000;
 
@@ -175,11 +183,9 @@ impl TemporalIndex {
 
     /// Compte le nombre d'entrées.
     pub fn count(&self) -> Result<usize> {
-        let count: usize = self.db.query_row(
-            "SELECT COUNT(*) FROM events",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: usize = self
+            .db
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
         Ok(count)
     }
 
@@ -190,14 +196,20 @@ impl TemporalIndex {
             "DELETE FROM events WHERE timestamp_ms < ?1",
             rusqlite::params![cutoff],
         )?;
-        info!("TemporalIndex: {} entrées purgées (> {} jours)", deleted, days);
+        info!(
+            "TemporalIndex: {} entrées purgées (> {} jours)",
+            deleted, days
+        );
         Ok(deleted)
     }
 
     /// Récupère les tags distincts.
     pub fn distinct_tags(&self) -> Result<Vec<String>> {
-        let mut stmt = self.db.prepare("SELECT DISTINCT tag FROM events ORDER BY tag")?;
-        let tags = stmt.query_map([], |row| row.get(0))?
+        let mut stmt = self
+            .db
+            .prepare("SELECT DISTINCT tag FROM events ORDER BY tag")?;
+        let tags = stmt
+            .query_map([], |row| row.get(0))?
             .filter_map(|r| r.ok())
             .collect();
         Ok(tags)
@@ -216,8 +228,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let index = TemporalIndex::open(&dir.path().to_path_buf()).unwrap();
 
-        index.insert_simple("mem1", "test", "Premier souvenir").unwrap();
-        index.insert_simple("mem2", "test", "Deuxième souvenir").unwrap();
+        index
+            .insert_simple("mem1", "test", "Premier souvenir")
+            .unwrap();
+        index
+            .insert_simple("mem2", "test", "Deuxième souvenir")
+            .unwrap();
 
         assert_eq!(index.count().unwrap(), 2);
     }
@@ -228,21 +244,25 @@ mod tests {
         let index = TemporalIndex::open(&dir.path().to_path_buf()).unwrap();
 
         let now = Utc::now().timestamp_millis();
-        index.insert(&TimeIndexEntry {
-            id: "old".into(),
-            timestamp_ms: now - 3600_000, // 1h ago
-            tag: "historique".into(),
-            summary: "Vieux souvenir".into(),
-            metadata: "{}".into(),
-        }).unwrap();
+        index
+            .insert(&TimeIndexEntry {
+                id: "old".into(),
+                timestamp_ms: now - 3600_000, // 1h ago
+                tag: "historique".into(),
+                summary: "Vieux souvenir".into(),
+                metadata: "{}".into(),
+            })
+            .unwrap();
 
-        index.insert(&TimeIndexEntry {
-            id: "new".into(),
-            timestamp_ms: now,
-            tag: "recent".into(),
-            summary: "Souvenir récent".into(),
-            metadata: "{}".into(),
-        }).unwrap();
+        index
+            .insert(&TimeIndexEntry {
+                id: "new".into(),
+                timestamp_ms: now,
+                tag: "recent".into(),
+                summary: "Souvenir récent".into(),
+                metadata: "{}".into(),
+            })
+            .unwrap();
 
         // Requête sur la dernière heure
         let results = index.query_recent(1, None, 10).unwrap();
@@ -255,7 +275,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let index = TemporalIndex::open(&dir.path().to_path_buf()).unwrap();
 
-        index.insert_simple("a", "important", "Fait important").unwrap();
+        index
+            .insert_simple("a", "important", "Fait important")
+            .unwrap();
         index.insert_simple("b", "normal", "Fait normal").unwrap();
 
         let results = index.query_recent(24, Some("important"), 10).unwrap();
@@ -284,13 +306,15 @@ mod tests {
         let index = TemporalIndex::open(&dir.path().to_path_buf()).unwrap();
 
         let old_ts = Utc::now().timestamp_millis() - 10 * 24 * 3600_000; // 10 days ago
-        index.insert(&TimeIndexEntry {
-            id: "old".into(),
-            timestamp_ms: old_ts,
-            tag: "old".into(),
-            summary: "Old".into(),
-            metadata: "{}".into(),
-        }).unwrap();
+        index
+            .insert(&TimeIndexEntry {
+                id: "old".into(),
+                timestamp_ms: old_ts,
+                tag: "old".into(),
+                summary: "Old".into(),
+                metadata: "{}".into(),
+            })
+            .unwrap();
 
         index.insert_simple("new", "new", "Recent").unwrap();
 

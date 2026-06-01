@@ -13,7 +13,10 @@ use tracing::{debug, trace};
 
 use soullink_core::http::shared_client;
 
-use super::types::{ApiResponse, SendChatAction, SendMessage, Update};
+use super::types::{
+    ApiResponse, EditMessageText, InlineKeyboardMarkup, ParseMode, SendChatAction, SendDocument,
+    SendMessage, SendPhoto, Update,
+};
 
 /// Telegram Bot API client.
 ///
@@ -21,8 +24,8 @@ use super::types::{ApiResponse, SendChatAction, SendMessage, Update};
 #[derive(Clone)]
 pub struct TelegramClient {
     base_url: String,
-    token:    String,
-    client:   Client,
+    token: String,
+    client: Client,
 }
 
 impl std::fmt::Debug for TelegramClient {
@@ -67,15 +70,15 @@ impl TelegramClient {
     ) -> Result<Vec<Update>, TelegramError> {
         #[derive(Serialize)]
         struct Req {
-            offset:  i64,
+            offset: i64,
             timeout: u32,
-            /// Restrict to "message" updates for 6a — ignore edits, polls, etc.
-            allowed_updates: [&'static str; 1],
+            /// Accept message and callback_query updates.
+            allowed_updates: Vec<&'static str>,
         }
         let body = Req {
             offset,
             timeout: timeout_s,
-            allowed_updates: ["message"],
+            allowed_updates: vec!["message", "callback_query"],
         };
 
         let local_timeout = Duration::from_secs(timeout_s as u64 + 5);
@@ -95,63 +98,154 @@ impl TelegramClient {
             chat_id,
             text,
             reply_to_message_id: reply_to,
+            parse_mode: None,
+            reply_markup: None,
             disable_web_page_preview: true,
         };
         let resp: serde_json::Value = self
             .post_json("sendMessage", &body, Duration::from_secs(10))
             .await?;
-        let message_id = resp.get("message_id")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let message_id = resp.get("message_id").and_then(|v| v.as_i64()).unwrap_or(0);
         debug!(chat_id, text_len = text.len(), message_id, "sendMessage ok");
         Ok(message_id)
     }
 
-    /// Edit a previously-sent message. Used by the streaming consumer to
-    /// update the displayed reply as Ollama emits tokens.
-    ///
-    /// Telegram silently ignores `editMessageText` when the new text is
-    /// **identical** to the existing text; that's fine — we just treat
-    /// "400 Bad Request: message is not modified" as success.
+    /// Send message with HTML parse mode and optional inline keyboard.
+    pub async fn send_message_rich(
+        &self,
+        chat_id: i64,
+        text: &str,
+        parse_mode: Option<ParseMode>,
+        reply_markup: Option<&InlineKeyboardMarkup>,
+    ) -> Result<i64, TelegramError> {
+        let body = SendMessage {
+            chat_id,
+            text,
+            reply_to_message_id: None,
+            parse_mode,
+            reply_markup,
+            disable_web_page_preview: false,
+        };
+        let resp: serde_json::Value = self
+            .post_json("sendMessage", &body, Duration::from_secs(10))
+            .await?;
+        Ok(resp.get("message_id").and_then(|v| v.as_i64()).unwrap_or(0))
+    }
+
+    /// Send a photo by file_id.
+    pub async fn send_photo(
+        &self,
+        chat_id: i64,
+        photo: &str,
+        caption: Option<&str>,
+        reply_markup: Option<&InlineKeyboardMarkup>,
+    ) -> Result<i64, TelegramError> {
+        let body = SendPhoto {
+            chat_id,
+            photo,
+            caption,
+            parse_mode: None,
+            reply_markup,
+        };
+        let resp: serde_json::Value = self
+            .post_json("sendPhoto", &body, Duration::from_secs(30))
+            .await?;
+        Ok(resp.get("message_id").and_then(|v| v.as_i64()).unwrap_or(0))
+    }
+
+    /// Send a document by file_id.
+    pub async fn send_document(
+        &self,
+        chat_id: i64,
+        document: &str,
+        caption: Option<&str>,
+        reply_markup: Option<&InlineKeyboardMarkup>,
+    ) -> Result<i64, TelegramError> {
+        let body = SendDocument {
+            chat_id,
+            document,
+            caption,
+            parse_mode: None,
+            reply_markup,
+        };
+        let resp: serde_json::Value = self
+            .post_json("sendDocument", &body, Duration::from_secs(30))
+            .await?;
+        Ok(resp.get("message_id").and_then(|v| v.as_i64()).unwrap_or(0))
+    }
+
+    /// Edit a previously-sent message with optional keyboard.
     pub async fn edit_message_text(
         &self,
         chat_id: i64,
         message_id: i64,
         text: &str,
     ) -> Result<(), TelegramError> {
-        #[derive(serde::Serialize)]
-        struct Req<'a> {
-            chat_id: i64,
-            message_id: i64,
-            text: &'a str,
-            disable_web_page_preview: bool,
-        }
-        let body = Req {
+        self.edit_message_text_rich(chat_id, message_id, text, None, None)
+            .await
+    }
+
+    /// Edit message text with parse mode and reply markup.
+    pub async fn edit_message_text_rich(
+        &self,
+        chat_id: i64,
+        message_id: i64,
+        text: &str,
+        parse_mode: Option<ParseMode>,
+        reply_markup: Option<&InlineKeyboardMarkup>,
+    ) -> Result<(), TelegramError> {
+        let body = EditMessageText {
             chat_id,
             message_id,
             text,
-            disable_web_page_preview: true,
+            parse_mode,
+            reply_markup,
         };
         let res: Result<serde_json::Value, _> = self
             .post_json("editMessageText", &body, Duration::from_secs(10))
             .await;
         match res {
             Ok(_) => Ok(()),
-            Err(TelegramError::Api { code: 400, description }) if description.contains("not modified") => {
-                // No-op: Telegram rejects edits where text hasn't changed
-                Ok(())
-            }
+            Err(TelegramError::Api {
+                code: 400,
+                description,
+            }) if description.contains("not modified") => Ok(()),
             Err(e) => Err(e),
         }
     }
 
+    /// Answer a callback query (required within 30s of callback receipt).
+    pub async fn answer_callback_query(
+        &self,
+        callback_query_id: &str,
+        text: Option<&str>,
+        show_alert: bool,
+    ) -> Result<(), TelegramError> {
+        #[derive(serde::Serialize)]
+        struct Req<'a> {
+            callback_query_id: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            text: Option<&'a str>,
+            #[serde(default)]
+            show_alert: bool,
+        }
+        let _: serde_json::Value = self
+            .post_json(
+                "answerCallbackQuery",
+                &Req {
+                    callback_query_id,
+                    text,
+                    show_alert,
+                },
+                Duration::from_secs(5),
+            )
+            .await?;
+        Ok(())
+    }
+
     /// "typing…" indicator — keeps the UI alive during slow orchestrator work.
     /// Telegram shows this for ~5 s then clears; repeat if needed.
-    pub async fn send_chat_action(
-        &self,
-        chat_id: i64,
-        action: &str,
-    ) -> Result<(), TelegramError> {
+    pub async fn send_chat_action(&self, chat_id: i64, action: &str) -> Result<(), TelegramError> {
         let body = SendChatAction { chat_id, action };
         let _: serde_json::Value = self
             .post_json("sendChatAction", &body, Duration::from_secs(5))
@@ -269,7 +363,7 @@ mod tests {
             .and(wiremock::matchers::body_json(serde_json::json!({
                 "offset": 42,
                 "timeout": 25,
-                "allowed_updates": ["message"]
+                "allowed_updates": ["message", "callback_query"]
             })))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "ok": true,

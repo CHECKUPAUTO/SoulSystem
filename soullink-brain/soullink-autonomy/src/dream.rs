@@ -4,12 +4,12 @@
 //! computes cosine similarity between connected concepts,
 //! and reinforces edges via Hebbian update using soullink-eval.
 
-use soullink_memory::graph::MemoryGraph;
-use soullink_memory::concept::{Concept, ConceptKind};
-use std::path::Path;
-use soullink_memory::decay::DecayConfig;
-use soullink_memory::random_walk::{random_walk, WalkConfig, WalkResult};
 use soullink_eval::loss::SemanticLoss;
+use soullink_memory::concept::{Concept, ConceptKind};
+use soullink_memory::decay::DecayConfig;
+use soullink_memory::graph::MemoryGraph;
+use soullink_memory::random_walk::{random_walk, WalkConfig, WalkResult};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::interval;
@@ -79,7 +79,10 @@ impl DreamCycle {
             ticker.tick().await;
             match self.dream_once().await {
                 Ok(result) => {
-                    info!("DreamCycle: walk completed — {} reinforced", result.reinforced);
+                    info!(
+                        "DreamCycle: walk completed — {} reinforced",
+                        result.reinforced
+                    );
                 }
                 Err(e) => {
                     tracing::error!("DreamCycle: error: {}", e);

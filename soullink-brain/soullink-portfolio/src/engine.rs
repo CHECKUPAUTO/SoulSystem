@@ -23,7 +23,12 @@ pub struct PortfolioEngine {
 
 impl PortfolioEngine {
     /// Create a new paper trading engine.
-    pub fn new(starting_cash: Decimal, limits: RiskLimits, organ_url: &str, symbols: Vec<String>) -> Self {
+    pub fn new(
+        starting_cash: Decimal,
+        limits: RiskLimits,
+        organ_url: &str,
+        symbols: Vec<String>,
+    ) -> Self {
         let starting_capital = starting_cash;
         Self {
             portfolio: Portfolio::new(starting_cash),
@@ -41,7 +46,11 @@ impl PortfolioEngine {
     /// Run the main trading loop.
     pub async fn run(&mut self) -> Result<(), String> {
         info!("🦞 Portfolio Engine starting — PAPER TRADING");
-        info!("Capital: ${} | Symbols: {:?}", self.portfolio.cash(), self.symbols);
+        info!(
+            "Capital: ${} | Symbols: {:?}",
+            self.portfolio.cash(),
+            self.symbols
+        );
 
         let (tick_tx, mut tick_rx) = mpsc::channel::<Tick>(1024);
 
@@ -97,26 +106,21 @@ impl PortfolioEngine {
     /// Fetch HNN signal from the crypto organ.
     async fn fetch_hnn_signal(&self) -> Result<HnnSignal, String> {
         let url = format!("{}/api/stats", self.organ_url);
-        let resp = self.client
+        let resp = self
+            .client
             .get(&url)
             .send()
             .await
             .map_err(|e| format!("organ fetch: {e}"))?;
 
-        let stats: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| format!("organ parse: {e}"))?;
+        let stats: serde_json::Value =
+            resp.json().await.map_err(|e| format!("organ parse: {e}"))?;
 
         Ok(HnnSignal::from_organ_stats(&stats))
     }
 
     /// Evaluate signal and execute trades if appropriate.
-    async fn evaluate_and_trade(
-        &mut self,
-        signal: &HnnSignal,
-        prices: &HashMap<String, Decimal>,
-    ) {
+    async fn evaluate_and_trade(&mut self, signal: &HnnSignal, prices: &HashMap<String, Decimal>) {
         info!(
             "🧠 HNN: attractor={} turbulence={:.3} action={:.3}",
             signal.attractor, signal.turbulence, signal.action
@@ -155,24 +159,42 @@ impl PortfolioEngine {
             let quantity = max_usd / price;
 
             // Risk check
-            let quantity = match self.risk.check(&self.portfolio, &symbol, side, price, quantity, signal) {
-                RiskVerdict::Allow => quantity,
-                RiskVerdict::Deny(reason) => {
-                    info!("🛑 Trade blocked: {}", reason);
-                    return;
-                }
-                RiskVerdict::ReducePosition { max_quantity, reason } => {
-                    info!("⚠️ Position reduced: {}", reason);
-                    max_quantity
-                }
-            };
+            let quantity =
+                match self
+                    .risk
+                    .check(&self.portfolio, &symbol, side, price, quantity, signal)
+                {
+                    RiskVerdict::Allow => quantity,
+                    RiskVerdict::Deny(reason) => {
+                        info!("🛑 Trade blocked: {}", reason);
+                        return;
+                    }
+                    RiskVerdict::ReducePosition {
+                        max_quantity,
+                        reason,
+                    } => {
+                        info!("⚠️ Position reduced: {}", reason);
+                        max_quantity
+                    }
+                };
 
             // Execute
-            match self.portfolio.execute_trade(symbol.clone(), side, price, quantity, signal.clone()) {
+            match self.portfolio.execute_trade(
+                symbol.clone(),
+                side,
+                price,
+                quantity,
+                signal.clone(),
+            ) {
                 Ok(trade) => {
                     info!(
                         "✅ {} {} {} @ ${} | cost=${} fee=${}",
-                        trade.side, trade.quantity, trade.symbol, trade.price, trade.cost, trade.fee
+                        trade.side,
+                        trade.quantity,
+                        trade.symbol,
+                        trade.price,
+                        trade.cost,
+                        trade.fee
                     );
                 }
                 Err(e) => warn!("Trade failed: {e}"),

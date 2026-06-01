@@ -117,7 +117,10 @@ pub async fn fetch_24h_tickers(
             Ok(resp) => {
                 if let Ok(ticker) = resp.json::<BinanceTicker>().await {
                     if let Ok(pct) = ticker.price_change_percent.parse::<f64>() {
-                        changes.insert(symbol.clone(), Decimal::try_from(pct).unwrap_or(Decimal::ZERO));
+                        changes.insert(
+                            symbol.clone(),
+                            Decimal::try_from(pct).unwrap_or(Decimal::ZERO),
+                        );
                     }
                 }
             }

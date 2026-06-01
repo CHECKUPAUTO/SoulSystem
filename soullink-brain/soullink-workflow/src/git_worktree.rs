@@ -79,10 +79,7 @@ impl WorktreeManager {
 
     /// Create an isolated worktree with a new branch.
     /// Branch naming: `soullink/workflow-{name}-{timestamp}`
-    pub fn create_worktree(
-        &self,
-        name: &str,
-    ) -> Result<WorktreeHandle, WorktreeError> {
+    pub fn create_worktree(&self, name: &str) -> Result<WorktreeHandle, WorktreeError> {
         let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
         let branch = format!("soullink/workflow-{name}-{timestamp}");
 
@@ -124,7 +121,10 @@ impl WorktreeManager {
             )));
         }
 
-        info!("Created worktree at {} on branch {branch}", worktree_dir.display());
+        info!(
+            "Created worktree at {} on branch {branch}",
+            worktree_dir.display()
+        );
 
         Ok(WorktreeHandle {
             path: worktree_dir,
@@ -137,7 +137,7 @@ impl WorktreeManager {
 
 #[cfg(test)]
 mod tests {
-    use super::{WorktreeManager, WorktreeHandle};
+    use super::{WorktreeHandle, WorktreeManager};
 
     #[test]
     fn branch_naming_format() {

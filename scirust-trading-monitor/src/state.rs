@@ -2,7 +2,7 @@
 
 use crate::{MonitorError, MonitorResult};
 use axum::Router;
-use scirust_trading_core::EventBus;
+use scirust_trading_core::bus::EventBus;
 use scirust_trading_engine::ShadowEvaluator;
 use scirust_trading_persistence::QueryApi;
 use std::net::SocketAddr;

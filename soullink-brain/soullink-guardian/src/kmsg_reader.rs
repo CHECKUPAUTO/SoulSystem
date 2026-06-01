@@ -52,7 +52,7 @@ pub use soullink_core::kmsg_parse::parse_xid_line;
 // ─── Actor ───────────────────────────────────────────────────────────────────
 
 pub struct KmsgReader {
-    tx:       mpsc::Sender<GuardianEvent>,
+    tx: mpsc::Sender<GuardianEvent>,
     shutdown: broadcast::Receiver<()>,
     /// Monotonic counter of XIDs seen since startup. Propagated in
     /// `GuardianEvent::XidError { count }`.
@@ -88,9 +88,13 @@ impl KmsgReader {
         };
 
         // Seek to end: skip historical XIDs from before this process started.
-        unsafe { libc_seek_end(f.as_raw_fd()); }
+        unsafe {
+            libc_seek_end(f.as_raw_fd());
+        }
         // Non-blocking: read() returns EAGAIN when no new message is ready.
-        unsafe { libc_set_nonblock(f.as_raw_fd()); }
+        unsafe {
+            libc_set_nonblock(f.as_raw_fd());
+        }
 
         // /dev/kmsg delivers one message per successful read(). Max kernel
         // message size is 8 KiB on Linux — 16 KiB buffer is safely above.
@@ -164,9 +168,9 @@ extern "C" {
 #[cfg(target_os = "linux")]
 const SEEK_END: i32 = 2;
 #[cfg(target_os = "linux")]
-const F_GETFL:  i32 = 3;
+const F_GETFL: i32 = 3;
 #[cfg(target_os = "linux")]
-const F_SETFL:  i32 = 4;
+const F_SETFL: i32 = 4;
 #[cfg(target_os = "linux")]
 const O_NONBLOCK: i32 = 0o4000;
 
@@ -177,7 +181,9 @@ const libc_EPIPE: i32 = 32;
 #[cfg(target_os = "linux")]
 #[allow(non_snake_case)]
 unsafe fn libc_seek_end(fd: i32) {
-    unsafe { lseek(fd, 0, SEEK_END); }
+    unsafe {
+        lseek(fd, 0, SEEK_END);
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -192,7 +198,6 @@ unsafe fn libc_set_nonblock(fd: i32) {
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
-
 
 // Parser tests live in soullink-core::kmsg_parse — we only re-export here,
 // so one smoke-test is enough to guarantee the path works.

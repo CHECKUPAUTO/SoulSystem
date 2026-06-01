@@ -12,7 +12,10 @@
 
 use std::{sync::Arc, time::Duration};
 
-use tokio::{sync::{broadcast, mpsc}, time};
+use tokio::{
+    sync::{broadcast, mpsc},
+    time,
+};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -20,12 +23,12 @@ use soullink_core::GuardianEvent;
 use soullink_nvml::NvmlBridge;
 
 pub struct ThermalGuard {
-    nvml:          Arc<NvmlBridge>,
-    tx:            mpsc::Sender<GuardianEvent>,
-    shutdown:      broadcast::Receiver<()>,
-    threshold_c:   f32,
+    nvml: Arc<NvmlBridge>,
+    tx: mpsc::Sender<GuardianEvent>,
+    shutdown: broadcast::Receiver<()>,
+    threshold_c: f32,
     poll_interval: Duration,
-    alert_on:      bool,
+    alert_on: bool,
 }
 
 impl ThermalGuard {
@@ -36,7 +39,14 @@ impl ThermalGuard {
         threshold_c: f32,
         poll_interval: Duration,
     ) -> Self {
-        Self { nvml, tx, shutdown, threshold_c, poll_interval, alert_on: false }
+        Self {
+            nvml,
+            tx,
+            shutdown,
+            threshold_c,
+            poll_interval,
+            alert_on: false,
+        }
     }
 
     pub async fn run(mut self) {

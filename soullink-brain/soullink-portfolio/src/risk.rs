@@ -13,7 +13,10 @@ use rust_decimal_macros::dec;
 pub enum RiskVerdict {
     Allow,
     Deny(String),
-    ReducePosition { max_quantity: Decimal, reason: String },
+    ReducePosition {
+        max_quantity: Decimal,
+        reason: String,
+    },
 }
 
 /// The risk manager — enforces hard limits.
@@ -94,10 +97,7 @@ impl RiskManager {
 
         // 6. Turbulence override — don't trade in chaos
         if signal.turbulence > 0.8 {
-            return RiskVerdict::Deny(format!(
-                "extreme turbulence: {:.3}",
-                signal.turbulence
-            ));
+            return RiskVerdict::Deny(format!("extreme turbulence: {:.3}", signal.turbulence));
         }
 
         // 7. Cash check

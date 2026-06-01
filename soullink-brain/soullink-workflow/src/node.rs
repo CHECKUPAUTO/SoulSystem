@@ -117,10 +117,7 @@ impl Node {
         if ai.context {
             match ctx.fetch_mesh_snapshot().await {
                 Ok(snapshot) => {
-                    prompt = format!(
-                        "[HNN Mesh Context]\n{}\n\n---\n\n{}",
-                        snapshot, prompt
-                    );
+                    prompt = format!("[HNN Mesh Context]\n{}\n\n---\n\n{}", snapshot, prompt);
                 }
                 Err(e) => {
                     info!("Failed to fetch mesh snapshot, proceeding without: {e}");
@@ -155,7 +152,11 @@ impl Node {
             "You are a {role}.\n\nGoal: {goal}\n\nBackstory: {backstory}",
             role = agent.role,
             goal = agent.goal,
-            backstory = if agent.backstory.is_empty() { "N/A" } else { &agent.backstory },
+            backstory = if agent.backstory.is_empty() {
+                "N/A"
+            } else {
+                &agent.backstory
+            },
         );
 
         let mut prompt = format!(
@@ -199,13 +200,8 @@ impl Node {
         let command = bash.command.clone();
 
         let result = timeout(dur, async {
-            tokio::task::spawn_blocking(move || {
-                Command::new("sh")
-                    .arg("-c")
-                    .arg(&command)
-                    .output()
-            })
-            .await
+            tokio::task::spawn_blocking(move || Command::new("sh").arg("-c").arg(&command).output())
+                .await
         })
         .await;
 

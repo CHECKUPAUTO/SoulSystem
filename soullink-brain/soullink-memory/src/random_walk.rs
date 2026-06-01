@@ -62,10 +62,7 @@ pub struct WalkResult {
 ///    - Reinforces if similarity > current weight
 ///    - Weakens if similarity < current weight (but above threshold)
 #[instrument(skip(graph), fields(steps = config.steps_per_cycle))]
-pub fn random_walk(
-    graph: &MemoryGraph,
-    config: &WalkConfig,
-) -> WalkResult {
+pub fn random_walk(graph: &MemoryGraph, config: &WalkConfig) -> WalkResult {
     let mut reinforced = 0;
     let mut weakened = 0;
     let mut total_sim = 0.0;
@@ -77,8 +74,18 @@ pub fn random_walk(
         // Walk the graph and collect labels
         // Since we don't have a direct iterator, we use neighbors from known concepts
         // This is a simplified approach - in production, we'd iterate all nodes
-        let concepts = ["rust", "memory", "neural", "learning", "graph", "embedding",
-                        "cosine", "vector", "hnsw", "search"];
+        let concepts = [
+            "rust",
+            "memory",
+            "neural",
+            "learning",
+            "graph",
+            "embedding",
+            "cosine",
+            "vector",
+            "hnsw",
+            "search",
+        ];
         concepts.iter().map(|s| s.to_string()).collect::<Vec<_>>()
     };
 
@@ -116,7 +123,11 @@ pub fn random_walk(
         }
     }
 
-    let avg_similarity = if steps > 0 { total_sim / steps as f32 } else { 0.0 };
+    let avg_similarity = if steps > 0 {
+        total_sim / steps as f32
+    } else {
+        0.0
+    };
 
     info!(
         "RandomWalk: {} steps, {} reinforced, {} weakened, avg_sim={:.3}, max_sim={:.3}",
@@ -159,8 +170,12 @@ mod tests {
         let graph = MemoryGraph::open(dir.path(), DecayConfig::default()).unwrap();
 
         // Insert some concepts and link them
-        graph.insert(Concept::new("rust", ConceptKind::Skill), None).unwrap();
-        graph.insert(Concept::new("memory", ConceptKind::Fact), None).unwrap();
+        graph
+            .insert(Concept::new("rust", ConceptKind::Skill), None)
+            .unwrap();
+        graph
+            .insert(Concept::new("memory", ConceptKind::Fact), None)
+            .unwrap();
         graph.link("rust", "memory", 0.5).unwrap();
 
         let result = random_walk(&graph, &WalkConfig::default());

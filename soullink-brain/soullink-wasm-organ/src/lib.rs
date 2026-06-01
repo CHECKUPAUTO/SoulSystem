@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use soullink_circuit::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 
@@ -32,7 +32,10 @@ pub struct OrganId {
 
 impl OrganId {
     pub fn new(name: &str, port: u16) -> Self {
-        Self { name: name.to_string(), port }
+        Self {
+            name: name.to_string(),
+            port,
+        }
     }
 
     pub fn url(&self) -> String {
@@ -106,10 +109,7 @@ impl OrganPolicy {
             max_memory_mb: 512,
             max_cpu_ms: 30000,
             max_concurrent: 16,
-            network_allowlist: vec![
-                "127.0.0.1".into(),
-                "localhost".into(),
-            ],
+            network_allowlist: vec!["127.0.0.1".into(), "localhost".into()],
             capabilities: vec![
                 OrganCapability::HttpOut,
                 OrganCapability::HealthCheck,
@@ -147,9 +147,9 @@ impl OrganPolicy {
 
     /// Check if a network target is allowed.
     pub fn is_network_allowed(&self, target: &str) -> bool {
-        self.network_allowlist.iter().any(|allowed| {
-            target.starts_with(allowed.as_str())
-        })
+        self.network_allowlist
+            .iter()
+            .any(|allowed| target.starts_with(allowed.as_str()))
     }
 
     /// Check if a capability is granted.
@@ -353,7 +353,9 @@ pub struct OrganManager {
 
 impl OrganManager {
     pub fn new() -> Self {
-        Self { organs: HashMap::new() }
+        Self {
+            organs: HashMap::new(),
+        }
     }
 
     /// Register a core organ (trusted policy).
@@ -444,8 +446,16 @@ impl std::fmt::Display for OrganError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OrganError::CircuitOpen(id) => write!(f, "Circuit open for organ {}", id),
-            OrganError::Timeout { organ, elapsed_ms, limit_ms } => {
-                write!(f, "Timeout for organ {} ({}ms > {}ms)", organ, elapsed_ms, limit_ms)
+            OrganError::Timeout {
+                organ,
+                elapsed_ms,
+                limit_ms,
+            } => {
+                write!(
+                    f,
+                    "Timeout for organ {} ({}ms > {}ms)",
+                    organ, elapsed_ms, limit_ms
+                )
             }
             OrganError::NetworkDenied { organ, target } => {
                 write!(f, "Network denied for organ {} → {}", organ, target)
@@ -578,10 +588,16 @@ mod tests {
         let err = OrganError::CircuitOpen(id.clone());
         assert!(err.to_string().contains("Circuit open"));
 
-        let err = OrganError::NetworkDenied { organ: id.clone(), target: "evil.com".into() };
+        let err = OrganError::NetworkDenied {
+            organ: id.clone(),
+            target: "evil.com".into(),
+        };
         assert!(err.to_string().contains("Network denied"));
 
-        let err = OrganError::CapabilityDenied { organ: id, capability: OrganCapability::GpuAccess };
+        let err = OrganError::CapabilityDenied {
+            organ: id,
+            capability: OrganCapability::GpuAccess,
+        };
         assert!(err.to_string().contains("Capability"));
     }
 }

@@ -110,9 +110,17 @@ mod tests {
         let text = "Garry Tan is the CEO of Y Combinator based in San Francisco. He attended Demo Day 2024.";
         let entities = extractor.extract(text);
 
-        assert!(entities.iter().any(|e| e.name == "Garry Tan" && e.entity_type == EntityType::Person));
-        assert!(entities.iter().any(|e| e.name == "CEO" && e.entity_type == EntityType::Role));
-        assert!(entities.iter().any(|e| e.name == "San Francisco" && e.entity_type == EntityType::Location));
-        assert!(entities.iter().any(|e| e.name == "Demo Day 2024" && e.entity_type == EntityType::Event));
+        assert!(entities
+            .iter()
+            .any(|e| e.name == "Garry Tan" && e.entity_type == EntityType::Person));
+        assert!(entities
+            .iter()
+            .any(|e| e.name == "CEO" && e.entity_type == EntityType::Role));
+        assert!(entities
+            .iter()
+            .any(|e| e.name == "San Francisco" && e.entity_type == EntityType::Location));
+        assert!(entities
+            .iter()
+            .any(|e| e.name == "Demo Day 2024" && e.entity_type == EntityType::Event));
     }
 }

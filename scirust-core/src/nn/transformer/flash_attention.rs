@@ -218,8 +218,5 @@ pub fn flash_attention_forward<'t>(
         },
     );
 
-    Var {
-        tape,
-        idx: new_idx,
-    }
+    Var { tape, idx: new_idx }
 }

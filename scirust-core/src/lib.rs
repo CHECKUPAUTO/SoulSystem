@@ -44,5 +44,5 @@ pub mod dispatch {
     }
 }
 pub mod compute_backend;
-pub mod quantization;
 pub mod homomorphic;
+pub mod quantization;

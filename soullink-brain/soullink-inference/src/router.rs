@@ -16,7 +16,7 @@ use tracing::{info, warn};
 
 /// Known model sizes in billions of parameters.
 const MODEL_SIZES: &[(&str, f64)] = &[
-    ("nomic-embed-text", 0.137),   // 137M
+    ("nomic-embed-text", 0.137), // 137M
     ("qwen2.5-coder:3b", 3.0),
     ("gemma4:31b", 31.0),
     ("llama3:8b", 8.0),
@@ -24,10 +24,10 @@ const MODEL_SIZES: &[(&str, f64)] = &[
 ];
 
 /// Minimum free VRAM thresholds for GPU operations.
-const VRAM_MIN_PREPROCESS_GB: f64 = 2.0;  // DALI needs ~2GB
-const VRAM_MIN_SEARCH_GB: f64 = 1.0;      // CUTLASS cosine sim
-const VRAM_MIN_HNN_GB: f64 = 0.1;         // HNN step is tiny
-const VRAM_HEADROOM_GB: f64 = 1.0;        // Safety margin for LLM
+const VRAM_MIN_PREPROCESS_GB: f64 = 2.0; // DALI needs ~2GB
+const VRAM_MIN_SEARCH_GB: f64 = 1.0; // CUTLASS cosine sim
+const VRAM_MIN_HNN_GB: f64 = 0.1; // HNN step is tiny
+const VRAM_HEADROOM_GB: f64 = 1.0; // Safety margin for LLM
 
 pub struct ModelRouter {
     model_sizes: HashMap<String, f64>,
@@ -59,7 +59,9 @@ impl ModelRouter {
 
         // LLM routing
         let model_size = self.model_sizes.get(&req.model).copied().unwrap_or(7.0);
-        let quant = req.quantization.unwrap_or_else(|| Self::default_quant(req.priority));
+        let quant = req
+            .quantization
+            .unwrap_or_else(|| Self::default_quant(req.priority));
         let model_size_gb = quant.model_size_gb(model_size);
 
         info!(
@@ -77,7 +79,10 @@ impl ModelRouter {
                 return ExecutionTarget::Gpu(quant);
             }
             if let Some(node) = Self::best_numa_node(snap, model_size_gb) {
-                warn!("GPU unavailable for Think — falling back to CPU NUMA-{}", node);
+                warn!(
+                    "GPU unavailable for Think — falling back to CPU NUMA-{}",
+                    node
+                );
                 return ExecutionTarget::CpuNuma { node, quant };
             }
             return ExecutionTarget::FallbackOllama;
@@ -88,7 +93,10 @@ impl ModelRouter {
             let dream_quant = Quantization::Q2_K;
             let dream_size_gb = dream_quant.model_size_gb(model_size);
             if let Some(node) = Self::best_numa_node(snap, dream_size_gb) {
-                return ExecutionTarget::CpuNuma { node, quant: dream_quant };
+                return ExecutionTarget::CpuNuma {
+                    node,
+                    quant: dream_quant,
+                };
             }
             if vram_free > dream_size_gb + VRAM_HEADROOM_GB {
                 return ExecutionTarget::Gpu(dream_quant);
@@ -102,7 +110,10 @@ impl ModelRouter {
                 return ExecutionTarget::Gpu(Quantization::Q8_0);
             }
             if let Some(node) = Self::best_numa_node(snap, model_size_gb) {
-                return ExecutionTarget::CpuNuma { node, quant: Quantization::Q8_0 };
+                return ExecutionTarget::CpuNuma {
+                    node,
+                    quant: Quantization::Q8_0,
+                };
             }
             return ExecutionTarget::FallbackOllama;
         }
@@ -116,7 +127,10 @@ impl ModelRouter {
             info!(vram_free_gb = vram_free, "DALI Preprocess → GPU");
             ExecutionTarget::DaliGpu
         } else {
-            warn!(vram_free_gb = vram_free, "VRAM too low for DALI — waiting for Ollama purge");
+            warn!(
+                vram_free_gb = vram_free,
+                "VRAM too low for DALI — waiting for Ollama purge"
+            );
             ExecutionTarget::VramWait
         }
     }
@@ -127,7 +141,10 @@ impl ModelRouter {
             info!(vram_free_gb = vram_free, "CUTLASS VectorSearch → GPU");
             ExecutionTarget::CutlassSearch
         } else {
-            warn!(vram_free_gb = vram_free, "VRAM too low for CUTLASS search — waiting");
+            warn!(
+                vram_free_gb = vram_free,
+                "VRAM too low for CUTLASS search — waiting"
+            );
             ExecutionTarget::VramWait
         }
     }
@@ -147,7 +164,9 @@ impl ModelRouter {
             Priority::Think => Quantization::Q4_K_M,
             Priority::Embed => Quantization::Q8_0,
             Priority::Dream => Quantization::Q2_K,
-            Priority::Preprocess | Priority::VectorSearch | Priority::HnnStep => Quantization::Q4_K_M,
+            Priority::Preprocess | Priority::VectorSearch | Priority::HnnStep => {
+                Quantization::Q4_K_M
+            }
         }
     }
 
@@ -156,7 +175,11 @@ impl ModelRouter {
         snap.numa_nodes
             .iter()
             .filter(|n| n.memory_free_gb > model_size_gb + headroom)
-            .max_by(|a, b| a.memory_free_gb.partial_cmp(&b.memory_free_gb).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.memory_free_gb
+                    .partial_cmp(&b.memory_free_gb)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|n| n.node_id)
     }
 }
@@ -195,8 +218,12 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(6.0, &[20.0, 5.0]);
         let req = GenerateRequest {
-            model: "qwen2.5-coder:3b".to_string(), prompt: "test".into(),
-            max_tokens: 100, temperature: 0.7, priority: Priority::Think, quantization: None,
+            model: "qwen2.5-coder:3b".to_string(),
+            prompt: "test".into(),
+            max_tokens: 100,
+            temperature: 0.7,
+            priority: Priority::Think,
+            quantization: None,
         };
         assert!(matches!(router.route(&req, &snap), ExecutionTarget::Gpu(_)));
     }
@@ -206,8 +233,12 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(0.5, &[30.0, 5.0]);
         let req = GenerateRequest {
-            model: "qwen2.5-coder:3b".to_string(), prompt: "test".into(),
-            max_tokens: 100, temperature: 0.7, priority: Priority::Think, quantization: None,
+            model: "qwen2.5-coder:3b".to_string(),
+            prompt: "test".into(),
+            max_tokens: 100,
+            temperature: 0.7,
+            priority: Priority::Think,
+            quantization: None,
         };
         match router.route(&req, &snap) {
             ExecutionTarget::CpuNuma { node, .. } => assert_eq!(node, 0),
@@ -220,8 +251,12 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(6.0, &[20.0, 5.0]);
         let req = GenerateRequest {
-            model: "qwen2.5-coder:3b".to_string(), prompt: "dream".into(),
-            max_tokens: 50, temperature: 1.0, priority: Priority::Dream, quantization: None,
+            model: "qwen2.5-coder:3b".to_string(),
+            prompt: "dream".into(),
+            max_tokens: 50,
+            temperature: 1.0,
+            priority: Priority::Dream,
+            quantization: None,
         };
         match router.route(&req, &snap) {
             ExecutionTarget::CpuNuma { quant, .. } => assert_eq!(quant, Quantization::Q2_K),
@@ -235,8 +270,12 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(6.0, &[20.0, 5.0]);
         let req = GenerateRequest {
-            model: "nomic-embed-text".to_string(), prompt: "embed".into(),
-            max_tokens: 0, temperature: 0.0, priority: Priority::Embed, quantization: None,
+            model: "nomic-embed-text".to_string(),
+            prompt: "embed".into(),
+            max_tokens: 0,
+            temperature: 0.0,
+            priority: Priority::Embed,
+            quantization: None,
         };
         match router.route(&req, &snap) {
             ExecutionTarget::Gpu(q) => assert_eq!(q, Quantization::Q8_0),
@@ -251,10 +290,17 @@ mod tests {
         snap.gpu.throttle_active = true;
         snap.gpu.gpu_temp_c = 87;
         let req = GenerateRequest {
-            model: "qwen2.5-coder:3b".to_string(), prompt: "test".into(),
-            max_tokens: 100, temperature: 0.7, priority: Priority::Think, quantization: None,
+            model: "qwen2.5-coder:3b".to_string(),
+            prompt: "test".into(),
+            max_tokens: 100,
+            temperature: 0.7,
+            priority: Priority::Think,
+            quantization: None,
         };
-        assert!(matches!(router.route(&req, &snap), ExecutionTarget::CpuNuma { .. }));
+        assert!(matches!(
+            router.route(&req, &snap),
+            ExecutionTarget::CpuNuma { .. }
+        ));
     }
 
     #[test]
@@ -262,11 +308,17 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(0.1, &[0.5, 0.5]);
         let req = GenerateRequest {
-            model: "gemma4:31b".to_string(), prompt: "huge".into(),
-            max_tokens: 100, temperature: 0.7, priority: Priority::Think,
+            model: "gemma4:31b".to_string(),
+            prompt: "huge".into(),
+            max_tokens: 100,
+            temperature: 0.7,
+            priority: Priority::Think,
             quantization: Some(Quantization::F16),
         };
-        assert!(matches!(router.route(&req, &snap), ExecutionTarget::FallbackOllama));
+        assert!(matches!(
+            router.route(&req, &snap),
+            ExecutionTarget::FallbackOllama
+        ));
     }
 
     // ── New DALI/CUTLASS routing tests ──────────────────────────────────────
@@ -276,10 +328,17 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(3.0, &[20.0, 5.0]); // 3GB free > 2GB threshold
         let req = GenerateRequest {
-            model: "dali".to_string(), prompt: "preprocess".into(),
-            max_tokens: 0, temperature: 0.0, priority: Priority::Preprocess, quantization: None,
+            model: "dali".to_string(),
+            prompt: "preprocess".into(),
+            max_tokens: 0,
+            temperature: 0.0,
+            priority: Priority::Preprocess,
+            quantization: None,
         };
-        assert!(matches!(router.route(&req, &snap), ExecutionTarget::DaliGpu));
+        assert!(matches!(
+            router.route(&req, &snap),
+            ExecutionTarget::DaliGpu
+        ));
     }
 
     #[test]
@@ -287,10 +346,17 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(1.0, &[20.0, 5.0]); // Only 1GB free < 2GB threshold
         let req = GenerateRequest {
-            model: "dali".to_string(), prompt: "preprocess".into(),
-            max_tokens: 0, temperature: 0.0, priority: Priority::Preprocess, quantization: None,
+            model: "dali".to_string(),
+            prompt: "preprocess".into(),
+            max_tokens: 0,
+            temperature: 0.0,
+            priority: Priority::Preprocess,
+            quantization: None,
         };
-        assert!(matches!(router.route(&req, &snap), ExecutionTarget::VramWait));
+        assert!(matches!(
+            router.route(&req, &snap),
+            ExecutionTarget::VramWait
+        ));
     }
 
     #[test]
@@ -298,10 +364,17 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(2.0, &[20.0, 5.0]); // 2GB free > 1GB threshold
         let req = GenerateRequest {
-            model: "cutlass".to_string(), prompt: "search".into(),
-            max_tokens: 0, temperature: 0.0, priority: Priority::VectorSearch, quantization: None,
+            model: "cutlass".to_string(),
+            prompt: "search".into(),
+            max_tokens: 0,
+            temperature: 0.0,
+            priority: Priority::VectorSearch,
+            quantization: None,
         };
-        assert!(matches!(router.route(&req, &snap), ExecutionTarget::CutlassSearch));
+        assert!(matches!(
+            router.route(&req, &snap),
+            ExecutionTarget::CutlassSearch
+        ));
     }
 
     #[test]
@@ -309,10 +382,17 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(0.5, &[20.0, 5.0]); // 0.5GB < 1GB threshold
         let req = GenerateRequest {
-            model: "cutlass".to_string(), prompt: "search".into(),
-            max_tokens: 0, temperature: 0.0, priority: Priority::VectorSearch, quantization: None,
+            model: "cutlass".to_string(),
+            prompt: "search".into(),
+            max_tokens: 0,
+            temperature: 0.0,
+            priority: Priority::VectorSearch,
+            quantization: None,
         };
-        assert!(matches!(router.route(&req, &snap), ExecutionTarget::VramWait));
+        assert!(matches!(
+            router.route(&req, &snap),
+            ExecutionTarget::VramWait
+        ));
     }
 
     #[test]
@@ -320,9 +400,16 @@ mod tests {
         let router = ModelRouter::new();
         let snap = make_snap(0.2, &[20.0, 5.0]); // 200MB > 100MB threshold
         let req = GenerateRequest {
-            model: "hnn".to_string(), prompt: "step".into(),
-            max_tokens: 0, temperature: 0.0, priority: Priority::HnnStep, quantization: None,
+            model: "hnn".to_string(),
+            prompt: "step".into(),
+            max_tokens: 0,
+            temperature: 0.0,
+            priority: Priority::HnnStep,
+            quantization: None,
         };
-        assert!(matches!(router.route(&req, &snap), ExecutionTarget::CutlassHnn));
+        assert!(matches!(
+            router.route(&req, &snap),
+            ExecutionTarget::CutlassHnn
+        ));
     }
 }

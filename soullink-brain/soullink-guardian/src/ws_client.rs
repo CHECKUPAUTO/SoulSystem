@@ -26,12 +26,12 @@ enum CircuitState {
 }
 
 pub struct OrchestratorClient {
-    url:       String,
+    url: String,
     http_base: String,
-    state:     Arc<ArcSwap<SystemSnapshot>>,
-    circuit:   Arc<RwLock<CircuitState>>,
-    failures:  Arc<RwLock<u32>>,
-    token:     Option<String>,
+    state: Arc<ArcSwap<SystemSnapshot>>,
+    circuit: Arc<RwLock<CircuitState>>,
+    failures: Arc<RwLock<u32>>,
+    token: Option<String>,
 }
 
 impl OrchestratorClient {
@@ -119,5 +119,7 @@ impl OrchestratorClient {
     }
 
     #[allow(dead_code)]
-    pub fn url(&self) -> &str { &self.url }
+    pub fn url(&self) -> &str {
+        &self.url
+    }
 }

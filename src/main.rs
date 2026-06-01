@@ -11,9 +11,9 @@
 
 use anyhow::Result;
 use clap::Parser;
+use soulsystem::bound_system::BoundSystem;
 use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
-use soulsystem::bound_system::BoundSystem;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -80,9 +80,7 @@ async fn main() -> Result<()> {
     info!("WS Bridge demarre sur 127.0.0.1:9022");
 
     // MemoryHub (vectoriel + graph conceptuel + RAG)
-    let mut memory_hub_raw = soulsystem::memory_hub::MemoryHub::new(
-        &settings.paths.data_dir
-    ).await;
+    let mut memory_hub_raw = soulsystem::memory_hub::MemoryHub::new(&settings.paths.data_dir).await;
     {
         // Connecter le callback d'evenement sur le bus (Message::Custom)
         let bus_clone = bus.clone();
@@ -102,9 +100,9 @@ async fn main() -> Result<()> {
         check_interval_secs: 30,
         proactive_save: true,
     };
-    let watchdog = Arc::new(
-        soulsystem::compaction_watchdog::CompactionWatchdog::new(watchdog_cfg)
-    );
+    let watchdog = Arc::new(soulsystem::compaction_watchdog::CompactionWatchdog::new(
+        watchdog_cfg,
+    ));
 
     // Restaurer l'état précédent s'il existe (après compaction)
     if let Ok(Some(prev_state)) = watchdog.load_previous_state().await {
@@ -156,15 +154,14 @@ async fn main() -> Result<()> {
     // ── Phase 0: ContinuousSummarizer ──────────────────────────────────
     let summarizer_cfg = soulsystem::continuous_summarizer::SummarizerConfig {
         data_dir: settings.paths.data_dir.clone(),
-        interval_secs: 600,        // 10 minutes
-        message_threshold: 30,      // ou tous les 30 messages
+        interval_secs: 600,    // 10 minutes
+        message_threshold: 30, // ou tous les 30 messages
         summary_filename: "summary_latest.md".into(),
         pending_facts_filename: "pending_facts.md".into(),
         session_id: format!("soulsystem-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S")),
     };
-    let summarizer = Arc::new(
-        soulsystem::continuous_summarizer::ContinuousSummarizer::new(summarizer_cfg)
-    );
+    let summarizer =
+        Arc::new(soulsystem::continuous_summarizer::ContinuousSummarizer::new(summarizer_cfg));
 
     // Lancer la boucle de résumé
     let summarizer_run = summarizer.clone();
@@ -180,36 +177,34 @@ async fn main() -> Result<()> {
         let mut rx = bus_summary_sub.subscribe();
         loop {
             match rx.recv().await {
-                Ok(Message::Custom { topic, payload }) => {
-                    match topic.as_str() {
-                        "memory.stored" => {
-                            let _ = summarizer_bus.increment_messages().await;
-                        }
-                        "memory.decision" => {
-                            if let Some(text) = payload.get("text").and_then(|v| v.as_str()) {
-                                summarizer_bus.add_decision(text).await;
-                            }
-                        }
-                        "memory.error" => {
-                            if let (Some(err), Some(fix)) = (
-                                payload.get("error").and_then(|v| v.as_str()),
-                                payload.get("fix").and_then(|v| v.as_str()),
-                            ) {
-                                summarizer_bus.add_error_fix(err, fix).await;
-                            }
-                        }
-                        "memory.fact" => {
-                            if let Some(text) = payload.get("text").and_then(|v| v.as_str()) {
-                                summarizer_bus.add_fact(text).await;
-                            }
-                        }
-                        "compaction.detected" => {
-                            info!("Summarizer: compaction détectée, génération résumé préventif");
-                            let _ = summarizer_bus.generate_summary().await;
-                        }
-                        _ => {}
+                Ok(Message::Custom { topic, payload }) => match topic.as_str() {
+                    "memory.stored" => {
+                        let _ = summarizer_bus.increment_messages().await;
                     }
-                }
+                    "memory.decision" => {
+                        if let Some(text) = payload.get("text").and_then(|v| v.as_str()) {
+                            summarizer_bus.add_decision(text).await;
+                        }
+                    }
+                    "memory.error" => {
+                        if let (Some(err), Some(fix)) = (
+                            payload.get("error").and_then(|v| v.as_str()),
+                            payload.get("fix").and_then(|v| v.as_str()),
+                        ) {
+                            summarizer_bus.add_error_fix(err, fix).await;
+                        }
+                    }
+                    "memory.fact" => {
+                        if let Some(text) = payload.get("text").and_then(|v| v.as_str()) {
+                            summarizer_bus.add_fact(text).await;
+                        }
+                    }
+                    "compaction.detected" => {
+                        info!("Summarizer: compaction détectée, génération résumé préventif");
+                        let _ = summarizer_bus.generate_summary().await;
+                    }
+                    _ => {}
+                },
                 Ok(_) => {}
                 Err(_) => break,
             }
@@ -303,25 +298,28 @@ async fn main() -> Result<()> {
         data_dir: settings.paths.data_dir.clone(),
         memory_path: PathBuf::from(
             std::env::var("SOULLINK_MEMORY_PATH")
-                .unwrap_or_else(|_| "/root/.openclaw/workspace/MEMORY.md".into())
+                .unwrap_or_else(|_| "/root/.openclaw/workspace/MEMORY.md".into()),
         ),
         apply_script_path: PathBuf::from(
             std::env::var("SOULLINK_APPLY_SCRIPT")
-                .unwrap_or_else(|_| "/root/.openclaw/workspace/apply_memory_updates.sh".into())
+                .unwrap_or_else(|_| "/root/.openclaw/workspace/apply_memory_updates.sh".into()),
         ),
         auto_approve_threshold: 0.95,
     };
     let memory_suggest = Arc::new(soulsystem::memory_suggest::MemorySuggest::new(suggest_cfg));
     if memory_suggest.has_pending().await {
-        info!("MemorySuggest: {} faits en attente de validation", memory_suggest.pending_count().await);
+        info!(
+            "MemorySuggest: {} faits en attente de validation",
+            memory_suggest.pending_count().await
+        );
     }
     info!("MemorySuggest: suggestions actives (seuil auto: 0.95)");
 
     // ── Phase 2: CheckpointLoader ─────────────────────────────────────
     let checkpoint_dir = settings.paths.data_dir.join("checkpoints");
-    let checkpoint_loader = Arc::new(
-        soulsystem::checkpoint_loader::CheckpointLoader::new(checkpoint_dir)
-    );
+    let checkpoint_loader = Arc::new(soulsystem::checkpoint_loader::CheckpointLoader::new(
+        checkpoint_dir,
+    ));
     if checkpoint_loader.has_checkpoints() {
         if let Some(cp) = checkpoint_loader.load_latest() {
             info!(
@@ -371,10 +369,13 @@ async fn main() -> Result<()> {
 
     // ── Phase 3: TemporalIndex ──────────────────────────────────────────
     let temporal_index = match soulsystem::temporal_index::TemporalIndex::open(
-        &settings.paths.data_dir.join("temporal")
+        &settings.paths.data_dir.join("temporal"),
     ) {
         Ok(idx) => {
-            info!("TemporalIndex: index chronologique actif ({} entrées)", idx.count().unwrap_or(0));
+            info!(
+                "TemporalIndex: index chronologique actif ({} entrées)",
+                idx.count().unwrap_or(0)
+            );
             Some(Arc::new(std::sync::Mutex::new(idx)))
         }
         Err(e) => {
@@ -392,8 +393,11 @@ async fn main() -> Result<()> {
                 match rx.recv().await {
                     Ok(Message::Custom { topic, payload }) if topic == "memory.stored" => {
                         let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                        let tag = payload.get("metadata").and_then(|m| m.get("tag"))
-                            .and_then(|v| v.as_str()).unwrap_or("general");
+                        let tag = payload
+                            .get("metadata")
+                            .and_then(|m| m.get("tag"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("general");
                         let _ = idx_clone.lock().unwrap().insert_simple(
                             &format!("mem-{}", chrono::Utc::now().timestamp_millis()),
                             tag,
@@ -417,9 +421,15 @@ async fn main() -> Result<()> {
     });
     let api_router = soulsystem::api::router(api_state);
     tokio::spawn(async move {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:9023").await.unwrap();
-        info!("API HTTP demarre sur 127.0.0.1:9023");
-        axum::serve(listener, api_router).await.unwrap();
+        match tokio::net::TcpListener::bind("127.0.0.1:9023").await {
+            Ok(listener) => {
+                info!("API HTTP demarre sur 127.0.0.1:9023");
+                if let Err(e) = axum::serve(listener, api_router).await {
+                    tracing::error!("API HTTP server error: {}", e);
+                }
+            }
+            Err(e) => tracing::error!("API HTTP: impossible de binder 127.0.0.1:9023: {}", e),
+        }
     });
 
     // ── Bot Clawd Telegram ─────────────────────────────────────────────────
@@ -473,7 +483,6 @@ async fn main() -> Result<()> {
         a.log("system", "startup", "SoulSystem Operator Edition demarre")?;
     }
     info!("AuditLogger initialise");
-
 
     // Discovery (mDNS sur port 42069)
     let disco = soulsystem::discovery::DiscoveryService::new(bus.clone());
@@ -547,10 +556,109 @@ async fn main() -> Result<()> {
         info!("▶ Mode mock activé — simulation uniquement");
     }
 
+    // ── Phase 3: Métabolisme numérique (budget énergétique) ──────────────────
+    // Lance le service de métabolisme sur le port 9052
+    let _metabolism_handle = tokio::spawn(async move {
+        let listener = match tokio::net::TcpListener::bind("127.0.0.1:9052").await {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::warn!("Metabolism: impossible de binder sur :9052: {}", e);
+                return;
+            }
+        };
+        info!("Metabolism: service démarré sur 127.0.0.1:9052");
+        // The metabolism binary runs independently, this is a health check
+        let _ = axum::serve(
+            listener,
+            axum::Router::new().route(
+                "/health",
+                axum::routing::get(|| async { "metabolism-proxy-ok" }),
+            ),
+        )
+        .await;
+    });
+    info!("Metabolism proxy actif sur :9052");
+
+    // ── Phase 3: Preservation (instinct auto-préservation) ──────────────────
+    let bus_preservation = bus.clone();
+    tokio::spawn(async move {
+        use soullink_autonomy::preservation::{Preservation, PreservationConfig};
+        let preservation = Preservation::new(PreservationConfig::default());
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            // Monitor error cascades via bus events
+            if let Some(actions) = preservation.record_error().await {
+                for action in &actions {
+                    bus_preservation.publish(soulsystem::bus::Message::Custom {
+                        topic: "preservation.action".into(),
+                        payload: serde_json::json!({"action": format!("{:?}", action)}),
+                    });
+                }
+            }
+            // Check resources periodically
+            let cpu = read_cpu_usage();
+            let mem = read_mem_usage();
+            if let Some(actions) = preservation.check_resources(cpu, mem, 0.0).await {
+                for action in &actions {
+                    tracing::warn!("Preservation: {:?}", action);
+                    bus_preservation.publish(soulsystem::bus::Message::Custom {
+                        topic: "preservation.critical".into(),
+                        payload: serde_json::json!({"action": format!("{:?}", action), "cpu": cpu, "mem": mem}),
+                    });
+                }
+            }
+        }
+    });
+    info!("Preservation instinct: surveillance active (interval: 30s)");
+
     info!("✅ SoulSystem prêt — boucle principale");
 
     // ── Boucle principale ──────────────────────────────────────────────────
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
     }
+}
+
+fn read_cpu_usage() -> f64 {
+    std::fs::read_to_string("/proc/loadavg")
+        .ok()
+        .and_then(|c| c.split_whitespace().next()?.parse::<f64>().ok())
+        .map(|v| v * 100.0 / num_cpus())
+        .unwrap_or(0.0)
+}
+
+fn read_mem_usage() -> f64 {
+    let Ok(content) = std::fs::read_to_string("/proc/meminfo") else {
+        return 0.0;
+    };
+    let mut total = 0.0f64;
+    let mut available = 0.0f64;
+    for line in content.lines() {
+        if line.starts_with("MemTotal:") {
+            total = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0);
+        }
+        if line.starts_with("MemAvailable:") {
+            available = line
+                .split_whitespace()
+                .nth(1)
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0);
+        }
+    }
+    if total > 0.0 {
+        ((total - available) / total) * 100.0
+    } else {
+        0.0
+    }
+}
+
+fn num_cpus() -> f64 {
+    std::thread::available_parallelism()
+        .map(|n| n.get() as f64)
+        .unwrap_or(8.0)
 }

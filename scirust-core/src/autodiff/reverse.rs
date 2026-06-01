@@ -58,7 +58,11 @@ impl Tensor {
         out
     }
     pub fn add_assign(&mut self, other: &Tensor) {
-        assert_eq!(self.shape(), other.shape(), "Tensor::add_assign shape mismatch");
+        assert_eq!(
+            self.shape(),
+            other.shape(),
+            "Tensor::add_assign shape mismatch"
+        );
         for (a, b) in self.data.iter_mut().zip(&other.data) {
             *a += b;
         }
@@ -70,7 +74,11 @@ impl Tensor {
         out
     }
     pub fn sub_assign(&mut self, other: &Tensor) {
-        assert_eq!(self.shape(), other.shape(), "Tensor::sub_assign shape mismatch");
+        assert_eq!(
+            self.shape(),
+            other.shape(),
+            "Tensor::sub_assign shape mismatch"
+        );
         for (a, b) in self.data.iter_mut().zip(&other.data) {
             *a -= b;
         }
@@ -910,8 +918,8 @@ impl Tape {
                         for r in 0..g.rows {
                             let off = r * g.cols;
                             for c in 0..g.cols {
-                                db.data[c] -= g.data[off + c] * av.data[off + c]
-                                    / (bv.data[c] * bv.data[c]);
+                                db.data[c] -=
+                                    g.data[off + c] * av.data[off + c] / (bv.data[c] * bv.data[c]);
                             }
                         }
                         grads[b].add_assign(&db);
@@ -920,8 +928,8 @@ impl Tape {
                         for r in 0..g.rows {
                             let off = r * g.cols;
                             for c in 0..g.cols {
-                                db.data[r] -= g.data[off + c] * av.data[off + c]
-                                    / (bv.data[r] * bv.data[r]);
+                                db.data[r] -=
+                                    g.data[off + c] * av.data[off + c] / (bv.data[r] * bv.data[r]);
                             }
                         }
                         grads[b].add_assign(&db);
@@ -1364,7 +1372,8 @@ impl Tape {
                         g_mean /= cols as f32;
 
                         for c in 0..cols {
-                            grad_x.data[r * cols + c] = g_v.data[c] * (g.data[r * cols + c] - g_mean) / sigma;
+                            grad_x.data[r * cols + c] =
+                                g_v.data[c] * (g.data[r * cols + c] - g_mean) / sigma;
                         }
                     }
                     grads[input_idx] = grads[input_idx].add(&grad_x);
@@ -1423,7 +1432,9 @@ impl Tape {
 
                             for c in 0..cols {
                                 grad_x.data[r * cols + c] = (g_v.data[c] / sigma)
-                                    * (g.data[r * cols + c] - g_mean - norm.data[r * cols + c] * gxnorm_mean);
+                                    * (g.data[r * cols + c]
+                                        - g_mean
+                                        - norm.data[r * cols + c] * gxnorm_mean);
                             }
                         }
                     } else {
@@ -1448,7 +1459,8 @@ impl Tape {
                             }
                             g_mean /= n;
                             for c in 0..cols {
-                                grad_x.data[r * cols + c] = g_v.data[c] * (g.data[r * cols + c] - g_mean) / sigma;
+                                grad_x.data[r * cols + c] =
+                                    g_v.data[c] * (g.data[r * cols + c] - g_mean) / sigma;
                             }
                         }
                     }
@@ -1607,9 +1619,11 @@ impl Tape {
                                                     && ih_signed < h_in as isize
                                                     && iw_signed >= 0
                                                     && iw_signed < w_in as isize
-                                                    && (ih_signed as usize - (oh - kh + pad)) % stride
+                                                    && (ih_signed as usize - (oh - kh + pad))
+                                                        % stride
                                                         == 0
-                                                    && (iw_signed as usize - (ow - kw + pad)) % stride
+                                                    && (iw_signed as usize - (ow - kw + pad))
+                                                        % stride
                                                         == 0
                                                 {
                                                     let ih = ih_signed as usize;
@@ -1648,8 +1662,10 @@ impl Tape {
                         for ci in 0..in_c {
                             for ih in 0..h_in {
                                 for iw in 0..w_in {
-                                    let in_val = input_t.data
-                                        [b_i * in_c * h_in * w_in + ci * h_in * w_in + ih * w_in + iw];
+                                    let in_val = input_t.data[b_i * in_c * h_in * w_in
+                                        + ci * h_in * w_in
+                                        + ih * w_in
+                                        + iw];
                                     for co in 0..out_c {
                                         for kh in 0..kernel {
                                             for kw in 0..kernel {
@@ -1674,8 +1690,7 @@ impl Tape {
                                                         + co * kernel * kernel
                                                         + kh * kernel
                                                         + kw;
-                                                    dw.data[w_idx] +=
-                                                        g.data[out_idx] * in_val;
+                                                    dw.data[w_idx] += g.data[out_idx] * in_val;
                                                 }
                                             }
                                         }
@@ -1819,7 +1834,8 @@ impl Tape {
                                 let mut p_ij_unscaled = vec![0.0f32; br * bc];
                                 for r in 0..br {
                                     for c in 0..bc {
-                                        p_ij_unscaled[r * bc + c] = (s_ij[r * bc + c] - m_new[r]).exp();
+                                        p_ij_unscaled[r * bc + c] =
+                                            (s_ij[r * bc + c] - m_new[r]).exp();
                                     }
                                 }
 
@@ -1843,9 +1859,12 @@ impl Tape {
                                 for r in 0..br {
                                     for d in 0..dv {
                                         let go = g.data[o_base + (qi + r) * dv + d];
-                                        if go == 0.0 { continue; }
+                                        if go == 0.0 {
+                                            continue;
+                                        }
                                         for c in 0..bc {
-                                            dp[r * bc + c] += go * v_t.data[v_base + (kj + c) * dv + d];
+                                            dp[r * bc + c] +=
+                                                go * v_t.data[v_base + (kj + c) * dv + d];
                                         }
                                     }
                                 }
@@ -1859,7 +1878,8 @@ impl Tape {
                                         sum_p_dp += p_ij[r * bc + c] * dp[r * bc + c];
                                     }
                                     for c in 0..bc {
-                                        ds[r * bc + c] = p_ij[r * bc + c] * (dp[r * bc + c] - sum_p_dp);
+                                        ds[r * bc + c] =
+                                            p_ij[r * bc + c] * (dp[r * bc + c] - sum_p_dp);
                                     }
                                 }
 
@@ -1868,7 +1888,8 @@ impl Tape {
                                     for d in 0..d_head {
                                         let mut sum = 0.0f32;
                                         for c in 0..bc {
-                                            sum += ds[r * bc + c] * k_t.data[k_base + (kj + c) * d_head + d];
+                                            sum += ds[r * bc + c]
+                                                * k_t.data[k_base + (kj + c) * d_head + d];
                                         }
                                         dq[q_base + (qi + r) * d_head + d] += sum * scale;
                                     }
@@ -1879,7 +1900,8 @@ impl Tape {
                                     for d in 0..d_head {
                                         let mut sum = 0.0f32;
                                         for r in 0..br {
-                                            sum += ds[r * bc + c] * q_t.data[q_base + (qi + r) * d_head + d];
+                                            sum += ds[r * bc + c]
+                                                * q_t.data[q_base + (qi + r) * d_head + d];
                                         }
                                         dk[k_base + (kj + c) * d_head + d] += sum * scale;
                                     }
@@ -1890,7 +1912,8 @@ impl Tape {
                                     for d in 0..dv {
                                         let mut sum = 0.0f32;
                                         for r in 0..br {
-                                            sum += p_ij[r * bc + c] * g.data[o_base + (qi + r) * dv + d];
+                                            sum += p_ij[r * bc + c]
+                                                * g.data[o_base + (qi + r) * dv + d];
                                         }
                                         dv_[v_base + (kj + c) * dv + d] += sum;
                                     }
@@ -2109,7 +2132,10 @@ impl<'t> Var<'t> {
         let new_idx =
             self.tape
                 .push_with_saved(Op::Sin(self.idx), DeviceTensor::cpu(out), SavedData::None);
-        Var { tape: self.tape, idx: new_idx }
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
     }
 
     pub fn cos(self) -> Var<'t> {
@@ -2118,7 +2144,10 @@ impl<'t> Var<'t> {
         let new_idx =
             self.tape
                 .push_with_saved(Op::Cos(self.idx), DeviceTensor::cpu(out), SavedData::None);
-        Var { tape: self.tape, idx: new_idx }
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
     }
 
     pub fn tan(self) -> Var<'t> {
@@ -2127,7 +2156,10 @@ impl<'t> Var<'t> {
         let new_idx =
             self.tape
                 .push_with_saved(Op::Tan(self.idx), DeviceTensor::cpu(out), SavedData::None);
-        Var { tape: self.tape, idx: new_idx }
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
     }
 
     pub fn sinh(self) -> Var<'t> {
@@ -2136,7 +2168,10 @@ impl<'t> Var<'t> {
         let new_idx =
             self.tape
                 .push_with_saved(Op::Sinh(self.idx), DeviceTensor::cpu(out), SavedData::None);
-        Var { tape: self.tape, idx: new_idx }
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
     }
 
     pub fn cosh(self) -> Var<'t> {
@@ -2145,7 +2180,10 @@ impl<'t> Var<'t> {
         let new_idx =
             self.tape
                 .push_with_saved(Op::Cosh(self.idx), DeviceTensor::cpu(out), SavedData::None);
-        Var { tape: self.tape, idx: new_idx }
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
     }
 
     pub fn log10(self) -> Var<'t> {
@@ -2154,7 +2192,10 @@ impl<'t> Var<'t> {
         let new_idx =
             self.tape
                 .push_with_saved(Op::Log10(self.idx), DeviceTensor::cpu(out), SavedData::None);
-        Var { tape: self.tape, idx: new_idx }
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
     }
 
     pub fn asin(self) -> Var<'t> {
@@ -2163,7 +2204,10 @@ impl<'t> Var<'t> {
         let new_idx =
             self.tape
                 .push_with_saved(Op::Asin(self.idx), DeviceTensor::cpu(out), SavedData::None);
-        Var { tape: self.tape, idx: new_idx }
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
     }
 
     pub fn acos(self) -> Var<'t> {
@@ -2172,7 +2216,10 @@ impl<'t> Var<'t> {
         let new_idx =
             self.tape
                 .push_with_saved(Op::Acos(self.idx), DeviceTensor::cpu(out), SavedData::None);
-        Var { tape: self.tape, idx: new_idx }
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
     }
 
     pub fn atan(self) -> Var<'t> {
@@ -2181,7 +2228,10 @@ impl<'t> Var<'t> {
         let new_idx =
             self.tape
                 .push_with_saved(Op::Atan(self.idx), DeviceTensor::cpu(out), SavedData::None);
-        Var { tape: self.tape, idx: new_idx }
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
     }
 
     pub fn atan2(self, x: Var<'t>) -> Var<'t> {
@@ -2193,7 +2243,10 @@ impl<'t> Var<'t> {
             DeviceTensor::cpu(out),
             SavedData::None,
         );
-        Var { tape: self.tape, idx: new_idx }
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
     }
 
     pub fn exp(self) -> Var<'t> {
@@ -2845,16 +2898,12 @@ impl<'t> Var<'t> {
                                             + co * kernel * kernel
                                             + kh * kernel
                                             + kw;
-                                        let in_idx = b_i * in_c * h * w
-                                            + ci * h * w
-                                            + ih * w
-                                            + iw;
+                                        let in_idx = b_i * in_c * h * w + ci * h * w + ih * w + iw;
                                         let out_idx = b_i * out_c * h_out * w_out
                                             + co * h_out * w_out
                                             + oh * w_out
                                             + ow;
-                                        out.data[out_idx] +=
-                                            a.data[in_idx] * wv.data[w_idx];
+                                        out.data[out_idx] += a.data[in_idx] * wv.data[w_idx];
                                     }
                                 }
                             }
@@ -2871,10 +2920,8 @@ impl<'t> Var<'t> {
                     let b_val = b_data.data[co];
                     for oh in 0..h_out {
                         for ow in 0..w_out {
-                            let out_idx = b_i * out_c * h_out * w_out
-                                + co * h_out * w_out
-                                + oh * w_out
-                                + ow;
+                            let out_idx =
+                                b_i * out_c * h_out * w_out + co * h_out * w_out + oh * w_out + ow;
                             out.data[out_idx] += b_val;
                         }
                     }

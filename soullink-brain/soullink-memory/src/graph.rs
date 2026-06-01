@@ -101,7 +101,9 @@ impl MemoryGraph {
         let label = concept.label.clone();
         let vector = match vector {
             Some(raw) => {
-                let padded_dim = self.dimensions.register_or_check(raw.len())
+                let padded_dim = self
+                    .dimensions
+                    .register_or_check(raw.len())
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
                 Some(align_vector(raw, padded_dim))
             }
@@ -113,7 +115,8 @@ impl MemoryGraph {
         self.index.insert(label.clone(), idx);
 
         if let Some(ref vec) = vector {
-            self.vectors.insert(label.clone(), vec.clone())
+            self.vectors
+                .insert(label.clone(), vec.clone())
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
         }
 
@@ -134,9 +137,15 @@ impl MemoryGraph {
 
     /// Create an undirected edge between two concepts.
     pub fn link(&self, a: &str, b: &str, weight: f32) -> Result<()> {
-        let idx_a = self.index.get(a).map(|i| *i)
+        let idx_a = self
+            .index
+            .get(a)
+            .map(|i| *i)
             .context(format!("concept '{}' not found", a))?;
-        let idx_b = self.index.get(b).map(|i| *i)
+        let idx_b = self
+            .index
+            .get(b)
+            .map(|i| *i)
             .context(format!("concept '{}' not found", b))?;
 
         let mut g = self.graph.write();
@@ -152,7 +161,11 @@ impl MemoryGraph {
 
         // Persist edge
         let db_key = format!("edge:{}:{}", key.0, key.1);
-        let record = EdgeRecord { a: key.0, b: key.1, weight };
+        let record = EdgeRecord {
+            a: key.0,
+            b: key.1,
+            weight,
+        };
         let val = bincode::serialize(&record).context("serializing edge")?;
         self.db.insert(db_key.as_bytes(), val)?;
 
@@ -175,9 +188,7 @@ impl MemoryGraph {
         };
 
         let mut g = self.graph.write();
-        let edge_indices: Vec<_> = g.edges(idx)
-            .map(|e| e.id())
-            .collect();
+        let edge_indices: Vec<_> = g.edges(idx).map(|e| e.id()).collect();
 
         let mut updated = false;
         for eidx in edge_indices {
@@ -238,7 +249,8 @@ impl MemoryGraph {
         };
         let g = self.graph.read();
         let mut result = Vec::new();
-        let edges: Vec<_> = g.edges_directed(idx, petgraph::Direction::Outgoing)
+        let edges: Vec<_> = g
+            .edges_directed(idx, petgraph::Direction::Outgoing)
             .map(|e| (e.target(), *e.weight()))
             .collect();
         for (neighbor_idx, weight) in edges {
@@ -263,7 +275,11 @@ impl MemoryGraph {
             let key = {
                 let ai = a.index();
                 let bi = b.index();
-                if ai < bi { (ai, bi) } else { (bi, ai) }
+                if ai < bi {
+                    (ai, bi)
+                } else {
+                    (bi, ai)
+                }
             };
 
             let age = match self.edge_timestamps.get(&key) {
@@ -341,8 +357,8 @@ impl MemoryGraph {
 mod tests {
     use super::*;
     use crate::{ConceptKind, DecayConfig};
-    use tempfile::TempDir;
     use std::time::Duration;
+    use tempfile::TempDir;
 
     fn make_graph(dir: &Path) -> MemoryGraph {
         MemoryGraph::open(dir, DecayConfig::default()).unwrap()
@@ -363,8 +379,10 @@ mod tests {
     fn link_and_neighbors() {
         let dir = TempDir::new().unwrap();
         let g = make_graph(dir.path());
-        g.insert(Concept::new("a", ConceptKind::Fact), None).unwrap();
-        g.insert(Concept::new("b", ConceptKind::Fact), None).unwrap();
+        g.insert(Concept::new("a", ConceptKind::Fact), None)
+            .unwrap();
+        g.insert(Concept::new("b", ConceptKind::Fact), None)
+            .unwrap();
         g.link("a", "b", 0.8).unwrap();
         let nbrs = g.neighbors("a");
         assert_eq!(nbrs.len(), 1);
@@ -381,9 +399,12 @@ mod tests {
         let v1 = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         let v2 = vec![0.9, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         let v3 = vec![0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        g.insert(Concept::new("cat", ConceptKind::Fact), Some(v1)).unwrap();
-        g.insert(Concept::new("kitten", ConceptKind::Fact), Some(v2)).unwrap();
-        g.insert(Concept::new("car", ConceptKind::Fact), Some(v3)).unwrap();
+        g.insert(Concept::new("cat", ConceptKind::Fact), Some(v1))
+            .unwrap();
+        g.insert(Concept::new("kitten", ConceptKind::Fact), Some(v2))
+            .unwrap();
+        g.insert(Concept::new("car", ConceptKind::Fact), Some(v3))
+            .unwrap();
 
         let query = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         let results = g.search(&query, 2);
@@ -398,8 +419,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let g = MemoryGraph::open(dir.path(), cfg).unwrap();
 
-        g.insert(Concept::new("a", ConceptKind::Fact), None).unwrap();
-        g.insert(Concept::new("b", ConceptKind::Fact), None).unwrap();
+        g.insert(Concept::new("a", ConceptKind::Fact), None)
+            .unwrap();
+        g.insert(Concept::new("b", ConceptKind::Fact), None)
+            .unwrap();
         g.link("a", "b", 1.0).unwrap();
 
         // Wait for decay (500ms with 1s half-life → factor ~0.7)
@@ -418,7 +441,8 @@ mod tests {
         let g = make_graph(dir.path());
 
         let v1 = vec![0.0f32; 8];
-        g.insert(Concept::new("first", ConceptKind::Fact), Some(v1)).unwrap();
+        g.insert(Concept::new("first", ConceptKind::Fact), Some(v1))
+            .unwrap();
 
         // Wrong dimension should fail
         let v_bad = vec![0.0f32; 16];
@@ -433,8 +457,10 @@ mod tests {
         // Create and populate
         {
             let g = MemoryGraph::open(dir.path(), DecayConfig::default()).unwrap();
-            g.insert(Concept::new("rust", ConceptKind::Skill), None).unwrap();
-            g.insert(Concept::new("memory", ConceptKind::Fact), None).unwrap();
+            g.insert(Concept::new("rust", ConceptKind::Skill), None)
+                .unwrap();
+            g.insert(Concept::new("memory", ConceptKind::Fact), None)
+                .unwrap();
             g.link("rust", "memory", 0.75).unwrap();
             g.persist().unwrap();
         }
@@ -468,8 +494,10 @@ mod tests {
     fn update_importance_adjusts_edges() {
         let dir = TempDir::new().unwrap();
         let g = make_graph(dir.path());
-        g.insert(Concept::new("cat", ConceptKind::Fact), None).unwrap();
-        g.insert(Concept::new("kitten", ConceptKind::Fact), None).unwrap();
+        g.insert(Concept::new("cat", ConceptKind::Fact), None)
+            .unwrap();
+        g.insert(Concept::new("kitten", ConceptKind::Fact), None)
+            .unwrap();
         g.link("cat", "kitten", 0.5).unwrap();
 
         let nbrs_before = g.neighbors("cat");
@@ -479,6 +507,11 @@ mod tests {
 
         let nbrs_after = g.neighbors("cat");
         let weight_after = nbrs_after[0].1;
-        assert!(weight_after > weight_before, "weight should increase: {} -> {}", weight_before, weight_after);
+        assert!(
+            weight_after > weight_before,
+            "weight should increase: {} -> {}",
+            weight_before,
+            weight_after
+        );
     }
 }

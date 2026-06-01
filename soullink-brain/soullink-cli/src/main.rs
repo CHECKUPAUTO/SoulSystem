@@ -10,7 +10,11 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "soullink", version, about = "SoulLink V13.5 — Knowledge Pipeline CLI")]
+#[command(
+    name = "soullink",
+    version,
+    about = "SoulLink V13.5 — Knowledge Pipeline CLI"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -56,24 +60,36 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     match cli.command {
-        Commands::Ingest { path, title, chunk_size, overlap } => {
-            ingest_cmd(path, title, chunk_size, overlap).await
-        }
-        Commands::Search { query, top_k, alpha } => {
-            search_cmd(query, top_k, alpha).await
-        }
+        Commands::Ingest {
+            path,
+            title,
+            chunk_size,
+            overlap,
+        } => ingest_cmd(path, title, chunk_size, overlap).await,
+        Commands::Search {
+            query,
+            top_k,
+            alpha,
+        } => search_cmd(query, top_k, alpha).await,
         Commands::Status => status_cmd(),
         Commands::Mesh { url } => mesh_cmd(&url).await,
     }
 }
 
-async fn ingest_cmd(path: PathBuf, title: Option<String>, chunk_size: usize, overlap: usize) -> Result<()> {
-    let text = std::fs::read_to_string(&path)
-        .context(format!("Failed to read {:?}", path))?;
+async fn ingest_cmd(
+    path: PathBuf,
+    title: Option<String>,
+    chunk_size: usize,
+    overlap: usize,
+) -> Result<()> {
+    let text = std::fs::read_to_string(&path).context(format!("Failed to read {:?}", path))?;
     let title = title.unwrap_or_else(|| {
-        path.file_name().unwrap_or_default().to_string_lossy().to_string()
+        path.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
     });
 
     println!("📄 Loading: {} ({} chars)", path.display(), text.len());
@@ -86,7 +102,12 @@ async fn ingest_cmd(path: PathBuf, title: Option<String>, chunk_size: usize, ove
     };
     let chunker = soullink_rag::TextChunker::new(&config);
     let chunks = chunker.chunk(&text);
-    println!("✂️  Chunked: {} chunks (size={}, overlap={})", chunks.len(), chunk_size, overlap);
+    println!(
+        "✂️  Chunked: {} chunks (size={}, overlap={})",
+        chunks.len(),
+        chunk_size,
+        overlap
+    );
 
     // Ingest via PageAwareStore
     let store_path = std::path::Path::new("/var/lib/soullink/rag-store");
@@ -96,17 +117,22 @@ async fn ingest_cmd(path: PathBuf, title: Option<String>, chunk_size: usize, ove
         store_path,
         config.embed_dim,
         soullink_rag::page::PageConfig::default(),
-    ).context("Failed to open RAG store")?;
+    )
+    .context("Failed to open RAG store")?;
 
-    let provider = CliPageProvider { chunks, title: title.clone(), source: path.display().to_string() };
-    
+    let provider = CliPageProvider {
+        chunks,
+        title: title.clone(),
+        source: path.display().to_string(),
+    };
+
     let start = std::time::Instant::now();
     let count = store.ingest(&provider).await.context("Ingestion failed")?;
     let elapsed = start.elapsed();
 
     println!("✅ Ingested {} chunks in {:?}", count, elapsed);
     println!("   Document: {}", title);
-    
+
     Ok(())
 }
 
@@ -114,8 +140,11 @@ async fn mesh_cmd(url: &str) -> Result<()> {
     let client = reqwest::Client::new();
     println!("🕸️  Connecting to Mesh Orchestrator: {}", url);
 
-    let resp = client.get(format!("{}/api/mesh/status", url))
-        .send().await.context("Connecting to orchestrator")?;
+    let resp = client
+        .get(format!("{}/api/mesh/status", url))
+        .send()
+        .await
+        .context("Connecting to orchestrator")?;
 
     if !resp.status().is_success() {
         anyhow::bail!("Orchestrator error: {}", resp.status());
@@ -125,18 +154,31 @@ async fn mesh_cmd(url: &str) -> Result<()> {
     let mesh = data.get("mesh").and_then(|m| m.as_object());
 
     println!("---------------------------------------------------------------");
-    println!("{:<15} | {:<10} | {:<8} | {:<15}", "ORGAN", "STATE", "N", "ATTRACTOR");
+    println!(
+        "{:<15} | {:<10} | {:<8} | {:<15}",
+        "ORGAN", "STATE", "N", "ATTRACTOR"
+    );
     println!("---------------------------------------------------------------");
 
     if let Some(mesh) = mesh {
         for (name, state) in mesh {
             let status = state.get("state").and_then(|v| v.as_str()).unwrap_or("?");
             let n = state.get("N").and_then(|v| v.as_u64()).unwrap_or(0);
-            let attractor = state.get("attractor").and_then(|v| v.as_str()).unwrap_or("?");
+            let attractor = state
+                .get("attractor")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
 
-            let color_status = if status == "online" { "✅ online" } else { "❌ offline" };
+            let color_status = if status == "online" {
+                "✅ online"
+            } else {
+                "❌ offline"
+            };
 
-            println!("{:<15} | {:<10} | {:<8} | {:<15}", name, color_status, n, attractor);
+            println!(
+                "{:<15} | {:<10} | {:<8} | {:<15}",
+                name, color_status, n, attractor
+            );
         }
     }
 
@@ -144,28 +186,40 @@ async fn mesh_cmd(url: &str) -> Result<()> {
     let online = data.get("online").and_then(|v| v.as_u64()).unwrap_or(0);
 
     println!("---------------------------------------------------------------");
-    println!("Summary: {}/{} organs online | Total N: {}", online, data.get("total_brains").unwrap_or(&serde_json::json!(0)), total_n);
+    println!(
+        "Summary: {}/{} organs online | Total N: {}",
+        online,
+        data.get("total_brains").unwrap_or(&serde_json::json!(0)),
+        total_n
+    );
 
     Ok(())
 }
 
 async fn search_cmd(query: String, top_k: usize, alpha: f64) -> Result<()> {
     let store_path = std::path::Path::new("/var/lib/soullink/rag-store");
-    
+
     if !store_path.exists() {
-        anyhow::bail!("RAG store not found at {:?}. Run 'soullink ingest' first.", store_path);
+        anyhow::bail!(
+            "RAG store not found at {:?}. Run 'soullink ingest' first.",
+            store_path
+        );
     }
 
     let store = soullink_rag::store::PageAwareStore::open_default(
         store_path,
         768,
         soullink_rag::page::PageConfig::default(),
-    ).context("Failed to open RAG store")?;
+    )
+    .context("Failed to open RAG store")?;
 
     println!("🔍 Searching: \"{}\" (top-{}, α={})", query, top_k, alpha);
 
     let start = std::time::Instant::now();
-    let results = store.search(&query, top_k, alpha).await.context("Search failed")?;
+    let results = store
+        .search(&query, top_k, alpha)
+        .await
+        .context("Search failed")?;
     let elapsed = start.elapsed();
 
     if results.hits.is_empty() {
@@ -177,7 +231,11 @@ async fn search_cmd(query: String, top_k: usize, alpha: f64) -> Result<()> {
     for (i, hit) in results.hits.iter().enumerate() {
         println!(
             "  {}. [vec={:.3} kw={:.3}] {} ({})",
-            i + 1, hit.vector_score, hit.keyword_score, hit.id, hit.doc_id
+            i + 1,
+            hit.vector_score,
+            hit.keyword_score,
+            hit.id,
+            hit.doc_id
         );
     }
 
@@ -186,7 +244,7 @@ async fn search_cmd(query: String, top_k: usize, alpha: f64) -> Result<()> {
 
 fn status_cmd() -> Result<()> {
     let store_path = std::path::Path::new("/var/lib/soullink/rag-store");
-    
+
     println!("🧠 SoulLink RAG Store Status");
     println!("   Path: {:?}", store_path);
     println!("   Exists: {}", store_path.exists());

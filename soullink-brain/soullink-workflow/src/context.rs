@@ -23,10 +23,10 @@ impl WorkflowContext {
 
     /// Set a node's output in shared state.
     pub async fn set(&self, key: &str, value: &str) {
-        self.state
-            .write()
-            .await
-            .insert(key.to_string(), serde_json::Value::String(value.to_string()));
+        self.state.write().await.insert(
+            key.to_string(),
+            serde_json::Value::String(value.to_string()),
+        );
     }
 
     /// Get a node's output from shared state.

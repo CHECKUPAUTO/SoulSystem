@@ -24,8 +24,8 @@
 // BENCHMARK INCLUS : mesure la différence réelle sur cette machine.
 // =============================================================================
 
+use async_channel::{bounded, Receiver, Sender};
 use std::time::{Duration, Instant};
-use async_channel::{bounded, Sender, Receiver};
 use tracing::instrument;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,8 +46,8 @@ pub struct SseTokenChannel {
 
 #[derive(Debug, Clone)]
 pub struct SseToken {
-    pub data:      String,
-    pub is_final:  bool,  // signal de fin de stream
+    pub data: String,
+    pub is_final: bool, // signal de fin de stream
     pub timestamp: std::time::SystemTime,
 }
 
@@ -91,8 +91,8 @@ pub async fn sse_producer(
                     let block: String = buffer.drain(..pos + 2).collect();
                     if let Some(token) = parse_data_line(&block) {
                         let msg = SseToken {
-                            data:      token,
-                            is_final:  false,
+                            data: token,
+                            is_final: false,
                             timestamp: std::time::SystemTime::now(),
                         };
                         // send() est async : attend si le buffer est plein (backpressure)
@@ -107,11 +107,13 @@ pub async fn sse_producer(
     }
 
     // Signal de fin
-    let _ = tx.send(SseToken {
-        data:      String::new(),
-        is_final:  true,
-        timestamp: std::time::SystemTime::now(),
-    }).await;
+    let _ = tx
+        .send(SseToken {
+            data: String::new(),
+            is_final: true,
+            timestamp: std::time::SystemTime::now(),
+        })
+        .await;
 }
 
 fn parse_data_line(block: &str) -> Option<String> {
@@ -137,19 +139,19 @@ impl TelegramConsumer {
     /// Consomme les tokens et édite Telegram avec throttling.
     pub async fn run(
         &self,
-        chat_id:       i64,
-        throttle_ms:   u64,
-        flush_bytes:   usize,
-        edit_fn:       impl Fn(i64, String) -> tokio::task::JoinHandle<()>,
+        chat_id: i64,
+        throttle_ms: u64,
+        flush_bytes: usize,
+        edit_fn: impl Fn(i64, String) -> tokio::task::JoinHandle<()>,
     ) {
-        let mut buffer       = String::new();
-        let mut last_edit    = Instant::now();
-        let throttle         = Duration::from_millis(throttle_ms);
+        let mut buffer = String::new();
+        let mut last_edit = Instant::now();
+        let throttle = Duration::from_millis(throttle_ms);
 
         loop {
             // recv() est fully async : pas de thread blocking
             match self.rx.recv().await {
-                Err(_) => break,  // channel fermé
+                Err(_) => break, // channel fermé
 
                 Ok(token) if token.is_final => {
                     // Flush final
@@ -162,8 +164,8 @@ impl TelegramConsumer {
                 Ok(token) => {
                     buffer.push_str(&token.data);
 
-                    let should_flush = last_edit.elapsed() >= throttle
-                                    || buffer.len() >= flush_bytes;
+                    let should_flush =
+                        last_edit.elapsed() >= throttle || buffer.len() >= flush_bytes;
                     if should_flush {
                         edit_fn(chat_id, buffer.clone());
                         last_edit = Instant::now();
@@ -189,10 +191,14 @@ mod bench {
         let t = Instant::now();
 
         let producer = tokio::spawn(async move {
-            for i in 0..n as u64 { tx.send(i).await.unwrap(); }
+            for i in 0..n as u64 {
+                tx.send(i).await.unwrap();
+            }
         });
         let consumer = tokio::spawn(async move {
-            for _ in 0..n { rx.recv().await.unwrap(); }
+            for _ in 0..n {
+                rx.recv().await.unwrap();
+            }
         });
         tokio::join!(producer, consumer).0.unwrap();
         t.elapsed()
@@ -203,10 +209,14 @@ mod bench {
         let t = Instant::now();
 
         let producer = tokio::spawn(async move {
-            for i in 0..n as u64 { tx.send(i).await.unwrap(); }
+            for i in 0..n as u64 {
+                tx.send(i).await.unwrap();
+            }
         });
         let consumer = tokio::spawn(async move {
-            for _ in 0..n { rx.recv().await.unwrap(); }
+            for _ in 0..n {
+                rx.recv().await.unwrap();
+            }
         });
         tokio::join!(producer, consumer).0.unwrap();
         t.elapsed()
@@ -220,20 +230,29 @@ mod bench {
         bench_async_channel(N / 10).await;
         bench_tokio_mpsc(N / 10).await;
 
-        let ac_time  = bench_async_channel(N).await;
+        let ac_time = bench_async_channel(N).await;
         let mpsc_time = bench_tokio_mpsc(N).await;
 
-        let ac_ns    = ac_time.as_nanos() as f64 / N as f64;
-        let mpsc_ns  = mpsc_time.as_nanos() as f64 / N as f64;
-        let speedup  = mpsc_ns / ac_ns;
+        let ac_ns = ac_time.as_nanos() as f64 / N as f64;
+        let mpsc_ns = mpsc_time.as_nanos() as f64 / N as f64;
+        let speedup = mpsc_ns / ac_ns;
 
         println!("\n=== CHANNEL BENCHMARK ({} messages) ===", N);
         println!("async-channel : {:.1} ns/msg", ac_ns);
         println!("tokio::mpsc   : {:.1} ns/msg", mpsc_ns);
-        println!("Speedup       : {:.2}× (expected: 1.1–1.3×, NOT 1.3×)", speedup);
-        println!("NOTE: crossbeam::bounded serait ~{:.2}× mais BLOQUE en async", speedup * 1.5);
+        println!(
+            "Speedup       : {:.2}× (expected: 1.1–1.3×, NOT 1.3×)",
+            speedup
+        );
+        println!(
+            "NOTE: crossbeam::bounded serait ~{:.2}× mais BLOQUE en async",
+            speedup * 1.5
+        );
 
         // Le gain est réel mais modéré (pas le ×30% annoncé systématiquement)
-        assert!(speedup > 0.8, "async-channel should not be slower than tokio::mpsc");
+        assert!(
+            speedup > 0.8,
+            "async-channel should not be slower than tokio::mpsc"
+        );
     }
 }

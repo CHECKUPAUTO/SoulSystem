@@ -78,23 +78,30 @@ impl Default for OllamaConfig {
     fn default() -> Self {
         Self {
             base_url: default_base_url(),
-            model:    default_model(),
-            timeout:  default_timeout(),
-            num_ctx:  None,
-            system:   default_system(),
+            model: default_model(),
+            timeout: default_timeout(),
+            num_ctx: None,
+            system: default_system(),
         }
     }
 }
 
-fn default_base_url() -> String { "http://127.0.0.1:11434".into() }
-fn default_model()    -> String { "qwen2.5-coder:3b".into() }
-fn default_timeout()  -> Duration { Duration::from_secs(60) }
-fn default_system()   -> String {
+fn default_base_url() -> String {
+    "http://127.0.0.1:11434".into()
+}
+fn default_model() -> String {
+    "qwen2.5-coder:3b".into()
+}
+fn default_timeout() -> Duration {
+    Duration::from_secs(60)
+}
+fn default_system() -> String {
     "You are SoulLink, an AI interface to a mesh of specialized neural modules (brains). \
      Each user message comes with live telemetry from the mesh (attractor state, \
      turbulence, top concepts). Use this telemetry to ground your reply. Be concise \
      (2-4 short paragraphs, no lists unless asked). Never invent concepts not in the \
-     telemetry.".into()
+     telemetry."
+        .into()
 }
 
 #[derive(Debug, Error)]
@@ -110,7 +117,7 @@ pub enum OllamaError {
 
 #[derive(Debug, Serialize)]
 struct GenerateReq<'a> {
-    model:  &'a str,
+    model: &'a str,
     prompt: &'a str,
     system: &'a str,
     stream: bool,
@@ -146,7 +153,7 @@ pub fn compose_prompt(ctx: &MeshContext) -> String {
 
 #[derive(Debug, Serialize)]
 struct EmbedReq<'a> {
-    model:  &'a str,
+    model: &'a str,
     prompt: &'a str,
 }
 
@@ -159,7 +166,7 @@ struct EmbedResp {
 async fn embed_query(cfg: &OllamaConfig, query: &str) -> Result<Vec<f32>, OllamaError> {
     let url = format!("{}/api/embeddings", cfg.base_url.trim_end_matches('/'));
     let body = EmbedReq {
-        model:  &cfg.model,
+        model: &cfg.model,
         prompt: query,
     };
     let client = ollama_client();
@@ -202,7 +209,10 @@ pub async fn generate_with_memory(
             if !results.is_empty() {
                 let memories: Vec<String> = results
                     .iter()
-                    .filter_map(|r| mg.get(&r.label).map(|c| format!("{}: {:.2}", r.label, r.score)))
+                    .filter_map(|r| {
+                        mg.get(&r.label)
+                            .map(|c| format!("{}: {:.2}", r.label, r.score))
+                    })
                     .collect();
                 if !memories.is_empty() {
                     enriched_ctx.query = format!(
@@ -226,13 +236,16 @@ pub async fn generate(cfg: &OllamaConfig, ctx: &MeshContext) -> Result<String, O
         model = %cfg.model,
         prompt_len = prompt.len(),
         "ollama → generate"
-    );    let body = GenerateReq {
-        model:  &cfg.model,
+    );
+    let body = GenerateReq {
+        model: &cfg.model,
         prompt: &prompt,
         system: &cfg.system,
         stream: false,
         options: if cfg.num_ctx.is_some() {
-            Some(GenerateOptions { num_ctx: cfg.num_ctx })
+            Some(GenerateOptions {
+                num_ctx: cfg.num_ctx,
+            })
         } else {
             None
         },
@@ -299,7 +312,10 @@ pub async fn generate_stream_with_memory(
             if !results.is_empty() {
                 let memories: Vec<String> = results
                     .iter()
-                    .filter_map(|r| mg.get(&r.label).map(|c| format!("{}: {:.2}", r.label, r.score)))
+                    .filter_map(|r| {
+                        mg.get(&r.label)
+                            .map(|c| format!("{}: {:.2}", r.label, r.score))
+                    })
                     .collect();
                 if !memories.is_empty() {
                     enriched_ctx.query = format!(
@@ -325,12 +341,14 @@ pub async fn generate_stream(
     debug!(url = %url, model = %cfg.model, "ollama → generate_stream");
 
     let body = GenerateReq {
-        model:  &cfg.model,
+        model: &cfg.model,
         prompt: &prompt,
         system: &cfg.system,
         stream: true,
         options: if cfg.num_ctx.is_some() {
-            Some(GenerateOptions { num_ctx: cfg.num_ctx })
+            Some(GenerateOptions {
+                num_ctx: cfg.num_ctx,
+            })
         } else {
             None
         },
@@ -356,14 +374,15 @@ pub async fn generate_stream(
     // line across boundaries; the fold below handles both.
     let byte_stream = resp.bytes_stream();
 
-    let line_stream = byte_stream.scan(
-        Vec::<u8>::new(),
-        |buf: &mut Vec<u8>, chunk| {
+    let line_stream = byte_stream
+        .scan(Vec::<u8>::new(), |buf: &mut Vec<u8>, chunk| {
             let chunk = match chunk {
                 Ok(b) => b,
-                Err(e) => return futures::future::ready(Some(vec![Err(
-                    OllamaError::Http(format!("stream read: {e}"))
-                )])),
+                Err(e) => {
+                    return futures::future::ready(Some(vec![Err(OllamaError::Http(format!(
+                        "stream read: {e}"
+                    )))]))
+                }
             };
             buf.extend_from_slice(&chunk);
 
@@ -371,9 +390,11 @@ pub async fn generate_stream(
             let mut lines: Vec<Result<String, OllamaError>> = Vec::new();
             while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
                 let line: Vec<u8> = buf.drain(..=pos).collect();
-                let line_str = String::from_utf8_lossy(&line[..line.len()-1]); // drop \n
+                let line_str = String::from_utf8_lossy(&line[..line.len() - 1]); // drop \n
                 let line_trimmed = line_str.trim();
-                if line_trimmed.is_empty() { continue; }
+                if line_trimmed.is_empty() {
+                    continue;
+                }
 
                 match serde_json::from_str::<GenerateResp>(line_trimmed) {
                     Ok(parsed) => {
@@ -385,16 +406,13 @@ pub async fn generate_stream(
                         // the byte stream closes.
                     }
                     Err(e) => {
-                        lines.push(Err(OllamaError::Http(
-                            format!("NDJSON decode: {e}")
-                        )));
+                        lines.push(Err(OllamaError::Http(format!("NDJSON decode: {e}"))));
                     }
                 }
             }
             futures::future::ready(Some(lines))
-        },
-    )
-    .flat_map(|batch| futures::stream::iter(batch.into_iter()));
+        })
+        .flat_map(|batch| futures::stream::iter(batch.into_iter()));
 
     Ok(line_stream)
 }
@@ -405,12 +423,16 @@ mod tests {
     use crate::mesh_context::MeshContext;
     use serde_json::json;
     use std::collections::HashMap;
-    use wiremock::{matchers::{method, path}, Mock, MockServer, ResponseTemplate};
+    use wiremock::{
+        matchers::{method, path},
+        Mock, MockServer, ResponseTemplate,
+    };
 
     fn test_ctx() -> MeshContext {
-        let results = HashMap::from([
-            ("science".to_string(), json!({"attractor": "DeepBasin", "turbulence": 0.2})),
-        ]);
+        let results = HashMap::from([(
+            "science".to_string(),
+            json!({"attractor": "DeepBasin", "turbulence": 0.2}),
+        )]);
         MeshContext::build("hello", &results, &[])
     }
 

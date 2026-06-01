@@ -6,14 +6,14 @@
 //! - Priority batching: Think > Dream > Embed
 //! - Warm standby for preloaded models
 
+pub mod batch;
+pub mod engine;
 pub mod hardware;
 pub mod router;
-pub mod batch;
 pub mod standby;
-pub mod engine;
-pub mod types;
 pub mod turboquant;
+pub mod types;
 
 pub use engine::InferenceEngine;
-pub use types::*;
 pub use turboquant::TurboQuantKVCache;
+pub use types::*;

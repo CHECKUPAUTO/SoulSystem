@@ -2,10 +2,13 @@
 
 #[test]
 fn test_binary_exists() {
-    let exists = std::path::Path::new("/usr/local/bin/openclaw-u").exists() ||
-                 std::path::Path::new("../target/debug/openclaw-u").exists() ||
-                 std::path::Path::new("target/debug/openclaw-u").exists();
-    assert!(exists, "openclaw-u binary not found in /usr/local/bin or target/debug");
+    let exists = std::path::Path::new("/usr/local/bin/openclaw-u").exists()
+        || std::path::Path::new("../target/debug/openclaw-u").exists()
+        || std::path::Path::new("target/debug/openclaw-u").exists();
+    assert!(
+        exists,
+        "openclaw-u binary not found in /usr/local/bin or target/debug"
+    );
     assert!(std::path::Path::new("/usr/local/bin/openclaw-u").exists());
 }
 
@@ -64,11 +67,11 @@ async fn test_bi_bridge_status() {
 
 #[tokio::test]
 async fn test_self_mod_analysis() {
-    use openclaw_u::selfmod::SelfModEngine;
-    use openclaw_u::resilience::ResilienceEngine;
-    use openclaw_u::learning::QTable;
-    use openclaw_u::HistoryEntry;
     use chrono::Utc;
+    use openclaw_u::learning::QTable;
+    use openclaw_u::resilience::ResilienceEngine;
+    use openclaw_u::selfmod::SelfModEngine;
+    use openclaw_u::HistoryEntry;
 
     let engine = SelfModEngine::new("/tmp");
     let mut resilience = ResilienceEngine::new();

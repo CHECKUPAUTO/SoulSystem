@@ -47,7 +47,9 @@ impl DaliTensor {
         #[cfg(feature = "dali")]
         {
             // FFI call to cudaMemcpy via the C++ bridge
-            Err(DaliError::Run("dali_wrapper::copy_output_to_host not implemented".into()))
+            Err(DaliError::Run(
+                "dali_wrapper::copy_output_to_host not implemented".into(),
+            ))
         }
     }
 }

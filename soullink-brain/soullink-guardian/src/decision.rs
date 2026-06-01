@@ -53,18 +53,20 @@ pub enum Trigger {
 
 /// Pure hysteresis + cooldown logic. No NVML, no async.
 pub struct ThrottlePolicy {
-    pub throttle_active:      bool,
-    pub last_change_at:       Option<Instant>,
+    pub throttle_active: bool,
+    pub last_change_at: Option<Instant>,
     pub throttle_released_at: Option<Instant>,
-    pub throttle_on_temp:     f32,
-    pub throttle_off_temp:    f32,
-    pub stress_threshold:     f64,
+    pub throttle_on_temp: f32,
+    pub throttle_off_temp: f32,
+    pub stress_threshold: f64,
 }
 
 impl ThrottlePolicy {
     pub fn new(on_temp: f32, off_temp: f32, stress_threshold: f64) -> Self {
-        assert!(off_temp < on_temp,
-                "off_temp ({off_temp}) must be below on_temp ({on_temp}) for hysteresis");
+        assert!(
+            off_temp < on_temp,
+            "off_temp ({off_temp}) must be below on_temp ({on_temp}) for hysteresis"
+        );
         Self {
             throttle_active: false,
             last_change_at: None,
@@ -145,16 +147,16 @@ impl ThrottlePolicy {
 }
 
 pub struct DecisionEngine {
-    rx:     mpsc::Receiver<GuardianEvent>,
-    ws:     OrchestratorClient,
-    state:  Arc<ArcSwap<SystemSnapshot>>,
+    rx: mpsc::Receiver<GuardianEvent>,
+    ws: OrchestratorClient,
+    state: Arc<ArcSwap<SystemSnapshot>>,
     config: GuardianConfig,
-    nvml:   Arc<NvmlBridge>,
+    nvml: Arc<NvmlBridge>,
 
-    policy:           ThrottlePolicy,
-    pi:               PiController,
-    xid_accumulator:  u64,
-    decision_count:   u64,
+    policy: ThrottlePolicy,
+    pi: PiController,
+    xid_accumulator: u64,
+    decision_count: u64,
     /// Phase 6b-audit-triage v2: when `set_power_limit_w` fails (e.g.
     /// permission denied on some driver/systemd combinations), we mark
     /// the timestamp here and skip retries for `POWER_LIMIT_RETRY_BACKOFF`
@@ -168,25 +170,29 @@ const POWER_LIMIT_RETRY_BACKOFF: Duration = Duration::from_secs(300);
 
 impl DecisionEngine {
     pub fn new(
-        rx:     mpsc::Receiver<GuardianEvent>,
-        ws:     OrchestratorClient,
-        state:  Arc<ArcSwap<SystemSnapshot>>,
+        rx: mpsc::Receiver<GuardianEvent>,
+        ws: OrchestratorClient,
+        state: Arc<ArcSwap<SystemSnapshot>>,
         config: GuardianConfig,
-        nvml:   Arc<NvmlBridge>,
+        nvml: Arc<NvmlBridge>,
     ) -> Self {
         let policy = ThrottlePolicy::new(85.0, 78.0, config.emergency_stress_threshold);
         let (power_min, power_max) = nvml.power_range_w();
         let pi_cfg = PacingConfig {
-            enabled:         config.pacing_enabled,
-            target_c:        config.pacing_target_c,
+            enabled: config.pacing_enabled,
+            target_c: config.pacing_target_c,
             hard_cap_temp_c: config.pacing_hard_cap_c,
-            power_min_w:     power_min,
-            power_max_w:     power_max,
+            power_min_w: power_min,
+            power_max_w: power_max,
             ..PacingConfig::default()
         };
         let pi = PiController::new(pi_cfg);
         Self {
-            rx, ws, state, config, nvml,
+            rx,
+            ws,
+            state,
+            config,
+            nvml,
             policy,
             pi,
             xid_accumulator: 0,
@@ -202,7 +208,12 @@ impl DecisionEngine {
             self.decision_count += 1;
 
             match event {
-                GuardianEvent::ThermalReading { temp_c, power_w: _, throttle: _, correlation: _ } => {
+                GuardianEvent::ThermalReading {
+                    temp_c,
+                    power_w: _,
+                    throttle: _,
+                    correlation: _,
+                } => {
                     if self.config.pacing_enabled {
                         // Phase 5: PI controller path
                         match self.pi.step(temp_c, Instant::now()) {
@@ -211,26 +222,39 @@ impl DecisionEngine {
                                 let _ = self.apply_exact_power(watts).await;
                             }
                             PacingAction::Apply(watts) => {
-                                info!(temp_c, watts, integral = self.pi.integral(),
-                                      "PI pacing adjust");
+                                info!(
+                                    temp_c,
+                                    watts,
+                                    integral = self.pi.integral(),
+                                    "PI pacing adjust"
+                                );
                                 let _ = self.apply_exact_power(watts).await;
                             }
                             PacingAction::NoChange => {}
                         }
                     } else {
                         // Phase 1 hysteresis path (unchanged)
-                        let (decision, trigger) = self.policy.evaluate_thermal(temp_c, Instant::now());
+                        let (decision, trigger) =
+                            self.policy.evaluate_thermal(temp_c, Instant::now());
                         match decision {
                             ThrottleDecision::Engage => {
-                                warn!(temp_c, ?trigger, threshold = self.policy.throttle_on_temp,
-                                      "THERMAL THROTTLE engaged");
+                                warn!(
+                                    temp_c,
+                                    ?trigger,
+                                    threshold = self.policy.throttle_on_temp,
+                                    "THERMAL THROTTLE engaged"
+                                );
                                 if self.apply_throttle(true).await {
                                     self.policy.mark_applied(decision, Instant::now());
                                 }
                             }
                             ThrottleDecision::Release => {
-                                info!(temp_c, ?trigger, threshold = self.policy.throttle_off_temp,
-                                      "throttle released");
+                                info!(
+                                    temp_c,
+                                    ?trigger,
+                                    threshold = self.policy.throttle_off_temp,
+                                    "throttle released"
+                                );
                                 if self.apply_throttle(false).await {
                                     self.policy.mark_applied(decision, Instant::now());
                                 }
@@ -257,7 +281,10 @@ impl DecisionEngine {
                     error!(duration_ms, "GPU HANG signaled to DecisionEngine");
                 }
 
-                GuardianEvent::ResetCompleted { success, elapsed_ms } => {
+                GuardianEvent::ResetCompleted {
+                    success,
+                    elapsed_ms,
+                } => {
                     if success {
                         info!(elapsed_ms, "PCIe reset completed — state reset");
                         self.xid_accumulator = 0;
@@ -444,10 +471,10 @@ mod tests {
         policy.mark_applied(ThrottleDecision::Engage, t0);
         policy.mark_applied(ThrottleDecision::Release, t(t0, 30));
 
-        assert!(!policy.recovery_elapsed(t(t0, 60)));  // only 30s elapsed
-        assert!(!policy.recovery_elapsed(t(t0, 89)));  // 59s — not yet
-        assert!(policy.recovery_elapsed(t(t0, 91)));   // 61s — recovery done
-        // Subsequent calls don't re-fire
+        assert!(!policy.recovery_elapsed(t(t0, 60))); // only 30s elapsed
+        assert!(!policy.recovery_elapsed(t(t0, 89))); // 59s — not yet
+        assert!(policy.recovery_elapsed(t(t0, 91))); // 61s — recovery done
+                                                     // Subsequent calls don't re-fire
         assert!(!policy.recovery_elapsed(t(t0, 200)));
     }
 

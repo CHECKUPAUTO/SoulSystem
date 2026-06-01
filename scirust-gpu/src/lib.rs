@@ -8,14 +8,22 @@ pub mod dispatch {
 
     impl GpuData for Vec<f32> {
         type Elem = f32;
-        fn as_slice(&self) -> &[f32] { self }
-        fn as_mut_slice(&mut self) -> &mut [f32] { self }
+        fn as_slice(&self) -> &[f32] {
+            self
+        }
+        fn as_mut_slice(&mut self) -> &mut [f32] {
+            self
+        }
     }
 
     impl GpuData for [f32] {
         type Elem = f32;
-        fn as_slice(&self) -> &[f32] { self }
-        fn as_mut_slice(&mut self) -> &mut [f32] { self }
+        fn as_slice(&self) -> &[f32] {
+            self
+        }
+        fn as_mut_slice(&mut self) -> &mut [f32] {
+            self
+        }
     }
 
     #[cfg(feature = "cpu-fallback")]
@@ -58,13 +66,13 @@ pub mod dispatch {
     }
 }
 
-pub mod error;
-pub mod quantize;
-pub mod quant_train;
 pub mod cuda_backend;
-pub mod unified;
 #[cfg(feature = "cuda")]
 pub mod cuda_turboquant;
-pub mod wgpu_backend;
-pub mod gpu_tensor;
+pub mod error;
 pub mod gpu_gemm;
+pub mod gpu_tensor;
+pub mod quant_train;
+pub mod quantize;
+pub mod unified;
+pub mod wgpu_backend;

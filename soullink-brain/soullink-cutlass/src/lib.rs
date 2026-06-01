@@ -2,12 +2,12 @@
 //!
 //! Stub mode by default. Enable `cutlass` feature for real CUDA FFI.
 
-pub mod types;
+pub mod kernel;
 pub mod memory;
 pub mod stream;
-pub mod kernel;
+pub mod types;
 
-pub use types::{CutlassError, KernelConfig};
+pub use kernel::{cosine_sim_batch, hnn_verlet_step, topk};
 pub use memory::GpuTensor;
 pub use stream::CudaStream;
-pub use kernel::{cosine_sim_batch, topk, hnn_verlet_step};
+pub use types::{CutlassError, KernelConfig};

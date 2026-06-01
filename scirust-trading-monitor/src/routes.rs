@@ -84,11 +84,7 @@ async fn recent_events(
 ) -> impl IntoResponse {
     let category = q.category.as_deref().and_then(parse_category);
     let min_enrich = q.min_enrichment.as_deref().and_then(parse_enrichment);
-    match state
-        .api
-        .recent_events(q.limit, category, min_enrich)
-        .await
-    {
+    match state.api.recent_events(q.limit, category, min_enrich).await {
         Ok(events) => Ok(Json(events)),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
@@ -133,7 +129,7 @@ async fn recent_decisions(
     State(state): State<MonitorState>,
     Query(q): Query<RecentDecisionsQuery>,
 ) -> impl IntoResponse {
-    match state.api.recent_decisions(q.limit, q.action.as_deref()).await {
+    match state.api.recent_decisions(q.limit, q.action).await {
         Ok(d) => Ok(Json(d)),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
@@ -224,7 +220,8 @@ async fn performance_stats(
     let stats = state.api.aggregate_stats(&outcomes);
     let by_gate = serde_json::to_value(&serialize_group_map(&stats.by_gate)).unwrap_or_default();
     let by_bias = serde_json::to_value(&serialize_group_map(&stats.by_bias)).unwrap_or_default();
-    let by_symbol = serde_json::to_value(&serialize_group_map(&stats.by_symbol)).unwrap_or_default();
+    let by_symbol =
+        serde_json::to_value(&serialize_group_map(&stats.by_symbol)).unwrap_or_default();
     Ok(Json(PerformanceResponse {
         window_from: from,
         window_to: to,
@@ -292,7 +289,10 @@ async fn portfolio_snapshot(State(state): State<MonitorState>) -> impl IntoRespo
             position_count: p.position_count(),
         }))
     } else {
-        Err((StatusCode::SERVICE_UNAVAILABLE, "no shadow attached".to_string()))
+        Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "no shadow attached".to_string(),
+        ))
     }
 }
 
@@ -305,9 +305,8 @@ mod tests {
 
     fn make_state() -> MonitorState {
         let bus = scirust_trading_core::EventBus::new();
-        let api = std::sync::Arc::new(
-            scirust_trading_persistence::QueryApi::open_in_memory().unwrap(),
-        );
+        let api =
+            std::sync::Arc::new(scirust_trading_persistence::QueryApi::open_in_memory().unwrap());
         MonitorState {
             bus,
             api,

@@ -84,8 +84,8 @@ pub struct GenerateRequest {
 pub struct GenerateResponse {
     pub text: String,
     pub model: String,
-    pub target: String,        // "gpu", "cpu-numa-0", "ollama"
-    pub quantization: String,  // "Q4_K_M", "Q2_K"
+    pub target: String,       // "gpu", "cpu-numa-0", "ollama"
+    pub quantization: String, // "Q4_K_M", "Q2_K"
     pub tokens_generated: usize,
     pub latency_ms: u64,
 }

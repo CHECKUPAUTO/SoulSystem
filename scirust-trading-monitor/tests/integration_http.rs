@@ -2,8 +2,7 @@
 //! HTTP, vérifie le SSE.
 
 use scirust_trading_core::{
-    Bar, BarKind, CodifiedEvent, Exchange, EventBus, EventTiming, SourceId,
-    Symbol,
+    Bar, BarKind, CodifiedEvent, EventBus, EventTiming, Exchange, SourceId, Symbol,
 };
 use scirust_trading_monitor::{MonitorConfig, MonitorServer};
 use scirust_trading_persistence::QueryApi;
@@ -12,7 +11,7 @@ use std::time::Duration;
 
 fn random_port() -> u16 {
     // Pick a port and just trust that no one else is using it during the test
-    use std::net::{TcpListener, SocketAddr};
+    use std::net::{SocketAddr, TcpListener};
     let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).unwrap();
     let port = listener.local_addr().unwrap().port();
     drop(listener);
@@ -147,7 +146,9 @@ async fn sse_bars_delivers_event() {
 
     let resp = tokio::time::timeout(
         Duration::from_secs(3),
-        client.get(format!("http://127.0.0.1:{port}/stream/bars")).send(),
+        client
+            .get(format!("http://127.0.0.1:{port}/stream/bars"))
+            .send(),
     )
     .await
     .unwrap()

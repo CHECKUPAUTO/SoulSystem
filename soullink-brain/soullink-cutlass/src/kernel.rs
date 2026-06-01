@@ -72,7 +72,10 @@ pub fn cosine_sim_batch(
         };
 
         if status != 0 {
-            return Err(CutlassError::Kernel(format!("Cosine similarity GEMM failed (status={})", status)));
+            return Err(CutlassError::Kernel(format!(
+                "Cosine similarity GEMM failed (status={})",
+                status
+            )));
         }
         Ok(output)
     }

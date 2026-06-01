@@ -7,8 +7,8 @@
 //!
 //! This is the bridge that makes the mesh respond to external stimuli.
 
-use crate::pulse::AutonomyPulse;
 use crate::node::NodeId;
+use crate::pulse::AutonomyPulse;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -69,7 +69,10 @@ impl SynapseHook {
         // 3. POST to orchestrator memory ingest endpoint
         let ingest_sent = self.post_ingest(&msg.text, &msg.author).await;
 
-        info!("Synapse: surge={:.2} reinforce={} ingest={}", surge, reinforce_sent, ingest_sent);
+        info!(
+            "Synapse: surge={:.2} reinforce={} ingest={}",
+            surge, reinforce_sent, ingest_sent
+        );
 
         SynapseResult {
             surge,
@@ -91,8 +94,8 @@ impl SynapseHook {
         let question_count = text.matches('?').count() as f64;
         let urgency_bonus = (exclamation_count * 0.05 + question_count * 0.03).min(0.3);
 
-        let caps_ratio = text.chars().filter(|c| c.is_uppercase()).count() as f64
-            / text.len().max(1) as f64;
+        let caps_ratio =
+            text.chars().filter(|c| c.is_uppercase()).count() as f64 / text.len().max(1) as f64;
         let caps_bonus = if caps_ratio > 0.5 { 0.2 } else { 0.0 };
 
         (base + urgency_bonus + caps_bonus).min(1.5)
@@ -139,7 +142,11 @@ mod tests {
         let pulse = Arc::new(AutonomyPulse::new(afferent));
         let hook = SynapseHook::new("http://127.0.0.1:9020", pulse);
         let surge = hook.compute_surge("hello");
-        assert!(surge < 0.1, "short message should have low surge, got {}", surge);
+        assert!(
+            surge < 0.1,
+            "short message should have low surge, got {}",
+            surge
+        );
     }
 
     #[test]
@@ -149,7 +156,11 @@ mod tests {
         let hook = SynapseHook::new("http://127.0.0.1:9020", pulse);
         let long_msg = "a".repeat(200);
         let surge = hook.compute_surge(&long_msg);
-        assert!(surge >= 1.0, "200-char message should have surge >= 1.0, got {}", surge);
+        assert!(
+            surge >= 1.0,
+            "200-char message should have surge >= 1.0, got {}",
+            surge
+        );
     }
 
     #[test]
@@ -158,7 +169,11 @@ mod tests {
         let pulse = Arc::new(AutonomyPulse::new(afferent));
         let hook = SynapseHook::new("http://127.0.0.1:9020", pulse);
         let surge = hook.compute_surge("URGENT!!! Fix this NOW!!!");
-        assert!(surge > 0.5, "urgent message should have high surge, got {}", surge);
+        assert!(
+            surge > 0.5,
+            "urgent message should have high surge, got {}",
+            surge
+        );
     }
 
     #[test]

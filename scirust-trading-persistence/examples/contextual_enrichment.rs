@@ -7,12 +7,11 @@
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use scirust_trading_core::{
-    Category, CodifiedEvent, EnrichmentLevel, EventTiming, Exchange,
-    MarketState, Polarity, SourceId, Symbol, Target,
+    Category, CodifiedEvent, EnrichmentLevel, EventTiming, Exchange, MarketState, Polarity,
+    SourceId, Symbol, Target,
 };
 use scirust_trading_news::{
-    ContextualConfig, ContextualEnricher, EmbeddingStore, HistoricalProvider,
-    NewsResult,
+    ContextualConfig, ContextualEnricher, EmbeddingStore, HistoricalProvider, NewsResult,
 };
 use scirust_trading_persistence::{
     decisions::flush_decisions, writer::flush_events, writer::flush_market, QueryApi,
@@ -29,7 +28,10 @@ impl DeterministicEmbedder {
     fn embed(&self, text: &str) -> Vec<f32> {
         let mut v = vec![0.0_f32; 16];
         for word in text.split_whitespace() {
-            let h = word.to_lowercase().bytes().fold(0u64, |acc, b| acc.wrapping_mul(131).wrapping_add(b as u64));
+            let h = word
+                .to_lowercase()
+                .bytes()
+                .fold(0u64, |acc, b| acc.wrapping_mul(131).wrapping_add(b as u64));
             let idx = (h % 16) as usize;
             v[idx] += 1.0;
         }
@@ -87,11 +89,26 @@ async fn main() {
     // 2. Pré-peuple 5 events historiques avec leurs embeddings
     println!("\n[1] Pré-peuplement de 5 events historiques avec embeddings");
     let historical_events = vec![
-        ("SEC approves spot Bitcoin ETF from BlackRock", vec!["etf", "sec", "approval", "regulatory"]),
-        ("SEC delays ruling on Ethereum ETF application", vec!["etf", "sec", "delay"]),
-        ("FOMC raises interest rates by 25 basis points", vec!["fomc", "rate_decision", "hawkish"]),
-        ("FOMC holds rates steady, signals patience", vec!["fomc", "rate_decision", "dovish"]),
-        ("Whale moves 5000 BTC to Binance hot wallet", vec!["whale", "on_chain"]),
+        (
+            "SEC approves spot Bitcoin ETF from BlackRock",
+            vec!["etf", "sec", "approval", "regulatory"],
+        ),
+        (
+            "SEC delays ruling on Ethereum ETF application",
+            vec!["etf", "sec", "delay"],
+        ),
+        (
+            "FOMC raises interest rates by 25 basis points",
+            vec!["fomc", "rate_decision", "hawkish"],
+        ),
+        (
+            "FOMC holds rates steady, signals patience",
+            vec!["fomc", "rate_decision", "dovish"],
+        ),
+        (
+            "Whale moves 5000 BTC to Binance hot wallet",
+            vec!["whale", "on_chain"],
+        ),
     ];
     let now = Utc::now();
     let mut historical_ids = Vec::new();
@@ -101,7 +118,9 @@ async fn main() {
         for (i, (text, tags)) in historical_events.iter().enumerate() {
             let mut ev = CodifiedEvent::builder(SourceId::new("seed"), *text)
                 .category(Category::Macro)
-                .timing(EventTiming::Observed(now - Duration::days((i as i64 + 1) * 7)))
+                .timing(EventTiming::Observed(
+                    now - Duration::days((i as i64 + 1) * 7),
+                ))
                 .reliability(0.9)
                 .build();
             ev.tags = tags.iter().map(|t| t.to_string()).collect();
@@ -118,7 +137,10 @@ async fn main() {
             println!("    + {}", text);
         }
     }
-    println!("    → {} embeddings stockés", store.backing.count().await.unwrap());
+    println!(
+        "    → {} embeddings stockés",
+        store.backing.count().await.unwrap()
+    );
 
     // 3. Pré-peuple aussi des market_states autour de certains events pour
     //    permettre à historical_response_for_tags de retourner quelque chose
@@ -245,7 +267,10 @@ async fn main() {
 
     // Pré-embed manuellement pour bypasser le TRIBE network call dans la démo
     let new_embedding = store.embedder.embed(new_text);
-    store.put(new_event.id, new_embedding.clone()).await.unwrap();
+    store
+        .put(new_event.id, new_embedding.clone())
+        .await
+        .unwrap();
 
     // Patch : l'enricher a besoin du tribe pour faire l'embed lui-même.
     // En production, le tribe HTTP call ferait ça. Ici on a déjà l'embedding
@@ -272,10 +297,16 @@ async fn main() {
         println!("      sim={:.3} : {}", sim, label);
     }
     if let Some(h) = &enriched.historical_response {
-        println!("    Historical response (sur {} échantillons):", h.n_samples);
+        println!(
+            "    Historical response (sur {} échantillons):",
+            h.n_samples
+        );
         println!("      Δ +5 min  : {:+.2} bps", h.delta_5min_bps);
         println!("      Δ +15 min : {:+.2} bps", h.delta_15min_bps);
-        println!("      Δ +60 min : {:+.2} bps ± {:.2}", h.delta_60min_bps, h.delta_60min_std_bps);
+        println!(
+            "      Δ +60 min : {:+.2} bps ± {:.2}",
+            h.delta_60min_bps, h.delta_60min_std_bps
+        );
         println!("      vol spike : {:.2}×", h.volume_spike_ratio);
         println!("      significant? : {}", h.is_significant());
     } else {
@@ -285,7 +316,8 @@ async fn main() {
     println!("\n══════════════════════════════════════════════════════════════");
     println!("Le score composite de l'event est maintenant calculable :");
     println!("  weighted_score = polarity × magnitude × confidence × reliability × decay");
-    println!("                 = {:.2} × {:.2} × {:.2} × {:.2} × decay(now)",
+    println!(
+        "                 = {:.2} × {:.2} × {:.2} × {:.2} × decay(now)",
         enriched.polarity.unwrap().value(),
         enriched.magnitude.unwrap(),
         enriched.semantic_confidence.unwrap(),

@@ -3,8 +3,8 @@
 //!
 //! Supports exact matches and wildcard patterns like `*.example.com`.
 
-use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// Pattern for matching allowed domains.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,14 +22,19 @@ impl DomainPattern {
         } else {
             pattern.to_lowercase()
         };
-        Self { pattern: pattern.to_string(), is_wildcard, base_domain }
+        Self {
+            pattern: pattern.to_string(),
+            is_wildcard,
+            base_domain,
+        }
     }
 
     /// Check if a host matches this pattern.
     pub fn matches(&self, host: &str) -> bool {
         let host_lower = host.to_lowercase();
         if self.is_wildcard {
-            host_lower == self.base_domain || host_lower.ends_with(&format!(".{}", self.base_domain))
+            host_lower == self.base_domain
+                || host_lower.ends_with(&format!(".{}", self.base_domain))
         } else {
             host_lower == self.base_domain
         }
@@ -61,7 +66,9 @@ impl Default for NetworkAllowlist {
 }
 
 impl NetworkAllowlist {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn allow(mut self, pattern: &str) -> Self {
         self.allowed.push(DomainPattern::new(pattern));
@@ -73,8 +80,14 @@ impl NetworkAllowlist {
         self
     }
 
-    pub fn allow_localhost(mut self, allow: bool) -> Self { self.allow_localhost = allow; self }
-    pub fn allow_private_ips(mut self, allow: bool) -> Self { self.allow_private_ips = allow; self }
+    pub fn allow_localhost(mut self, allow: bool) -> Self {
+        self.allow_localhost = allow;
+        self
+    }
+    pub fn allow_private_ips(mut self, allow: bool) -> Self {
+        self.allow_private_ips = allow;
+        self
+    }
 
     /// Check if a URL is allowed.
     pub fn is_allowed(&self, url: &str) -> Result<bool, AllowlistError> {
@@ -109,7 +122,10 @@ fn is_localhost(host: &str) -> bool {
 }
 
 fn is_private_ip(host: &str) -> bool {
-    host.starts_with("10.") || host.starts_with("172.16.") || host.starts_with("192.168.") || host.starts_with("fd")
+    host.starts_with("10.")
+        || host.starts_with("172.16.")
+        || host.starts_with("192.168.")
+        || host.starts_with("fd")
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -147,7 +163,9 @@ mod tests {
             .allow_localhost(true);
 
         assert!(list.is_allowed("https://api.openai.com/v1/chat").unwrap());
-        assert!(list.is_allowed("https://models.huggingface.co/bert").unwrap());
+        assert!(list
+            .is_allowed("https://models.huggingface.co/bert")
+            .unwrap());
         assert!(!list.is_allowed("https://evil.huggingface.co/x").unwrap());
         assert!(list.is_allowed("http://localhost:11434/api").unwrap());
         assert!(!list.is_allowed("https://random.com/evil").unwrap());

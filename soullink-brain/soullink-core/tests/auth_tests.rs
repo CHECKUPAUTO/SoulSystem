@@ -99,7 +99,11 @@ async fn no_token_localhost_with_cohabitation_passes() {
     let addr = spawn_server(cfg).await;
     let client = reqwest::Client::new();
 
-    let resp = client.get(format!("http://{}/", addr)).send().await.unwrap();
+    let resp = client
+        .get(format!("http://{}/", addr))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 }
 
@@ -109,7 +113,11 @@ async fn no_token_localhost_without_cohabitation_rejected() {
     let addr = spawn_server(cfg).await;
     let client = reqwest::Client::new();
 
-    let resp = client.get(format!("http://{}/", addr)).send().await.unwrap();
+    let resp = client
+        .get(format!("http://{}/", addr))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 401);
 }
 

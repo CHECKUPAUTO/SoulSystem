@@ -94,10 +94,10 @@ impl HnnSignal {
         // - Attractor modulation (StrangeAttractor amplifies, DeepBasin suppresses)
         // - Turbulence discount (high turbulence = uncertain, reduce confidence)
         let attractor_mod = match attractor.as_str() {
-            "StrangeAttractor" => 1.5,  // amplify
-            "StableOrbit" => 1.0,       // neutral
-            "DeepBasin" => 0.2,         // suppress
-            "Transient" => 0.6,         // cautious
+            "StrangeAttractor" => 1.5, // amplify
+            "StableOrbit" => 1.0,      // neutral
+            "DeepBasin" => 0.2,        // suppress
+            "Transient" => 0.6,        // cautious
             _ => 0.5,
         };
 
@@ -123,8 +123,8 @@ pub struct Trade {
     pub side: Side,
     pub price: Decimal,
     pub quantity: Decimal,
-    pub cost: Decimal,  // price * quantity
-    pub fee: Decimal,    // 0.1% Binance default
+    pub cost: Decimal, // price * quantity
+    pub fee: Decimal,  // 0.1% Binance default
     pub timestamp: DateTime<Utc>,
     pub signal: HnnSignal,
     pub is_paper: bool,
@@ -178,11 +178,11 @@ pub struct RiskLimits {
 impl Default for RiskLimits {
     fn default() -> Self {
         Self {
-            max_position_usd: dec!(100),        // $100 max per position
-            max_total_exposure_usd: dec!(500),   // $500 total
-            daily_loss_limit_usd: dec!(50),      // $50 daily loss cap
+            max_position_usd: dec!(100),       // $100 max per position
+            max_total_exposure_usd: dec!(500), // $500 total
+            daily_loss_limit_usd: dec!(50),    // $50 daily loss cap
             max_open_positions: 5,
-            min_signal_confidence: 0.3,          // 30% confidence minimum
+            min_signal_confidence: 0.3, // 30% confidence minimum
         }
     }
 }

@@ -16,8 +16,8 @@
 //! - Alerte de fatigue cognitive si métriques critiques
 //! - Alerte via bus événement si anomalie
 
-use std::time::Instant;
 use std::collections::VecDeque;
+use std::time::Instant;
 use tracing::{info, warn};
 
 use crate::memory_hub::MemoryHub;
@@ -203,13 +203,17 @@ impl MemoryHealth {
 
     /// Calcule la latence moyenne sur la fenêtre.
     pub fn avg_latency(&self) -> f64 {
-        if self.latencies.is_empty() { return 0.0; }
+        if self.latencies.is_empty() {
+            return 0.0;
+        }
         self.latencies.iter().sum::<f64>() / self.latencies.len() as f64
     }
 
     /// Calcule le taux d'échec des recherches.
     pub fn search_failure_rate(&self) -> f64 {
-        if self.search_attempts == 0 { return 0.0; }
+        if self.search_attempts == 0 {
+            return 0.0;
+        }
         self.search_failures as f64 / self.search_attempts as f64
     }
 
@@ -225,17 +229,25 @@ impl MemoryHealth {
 
     /// Calcule la variance d'α_sync.
     pub fn alpha_sync_variance(&self) -> f64 {
-        if self.alpha_sync_samples.len() < 2 { return 0.0; }
-        let mean: f64 = self.alpha_sync_samples.iter().sum::<f64>() / self.alpha_sync_samples.len() as f64;
-        let variance: f64 = self.alpha_sync_samples.iter()
+        if self.alpha_sync_samples.len() < 2 {
+            return 0.0;
+        }
+        let mean: f64 =
+            self.alpha_sync_samples.iter().sum::<f64>() / self.alpha_sync_samples.len() as f64;
+        let variance: f64 = self
+            .alpha_sync_samples
+            .iter()
             .map(|x| (x - mean).powi(2))
-            .sum::<f64>() / self.alpha_sync_samples.len() as f64;
+            .sum::<f64>()
+            / self.alpha_sync_samples.len() as f64;
         variance
     }
 
     /// Calcule le taux d'erreur global.
     pub fn error_rate(&self) -> f64 {
-        if self.total_operations == 0 { return 0.0; }
+        if self.total_operations == 0 {
+            return 0.0;
+        }
         self.error_count as f64 / self.total_operations as f64
     }
 
@@ -267,10 +279,7 @@ impl MemoryHealth {
             ))
         } else if ctx_estimate > self.config.context_size_warn_tokens {
             is_fatigued = true;
-            HealthStatus::Fatigued(format!(
-                "contexte estimé à {}K tokens",
-                ctx_estimate / 1000
-            ))
+            HealthStatus::Fatigued(format!("contexte estimé à {}K tokens", ctx_estimate / 1000))
         } else if avg_lat > self.config.latency_warn_ms {
             HealthStatus::Degraded(format!("latence élevée: {:.1}ms", avg_lat))
         } else if entries > self.config.max_entries_warn {
@@ -399,7 +408,7 @@ mod tests {
         health.record_operation(false);
         health.record_operation(true);
         health.record_operation(false);
-        assert!((health.error_rate() - 1.0/3.0).abs() < 0.01);
+        assert!((health.error_rate() - 1.0 / 3.0).abs() < 0.01);
     }
 
     #[tokio::test]
@@ -417,7 +426,7 @@ mod tests {
         assert!(report.is_fatigued);
         assert_eq!(report.compactions_last_hour, 3);
         match report.status {
-            HealthStatus::Fatigued(_) => {},
+            HealthStatus::Fatigued(_) => {}
             _ => panic!("devrait être Fatigued"),
         }
     }

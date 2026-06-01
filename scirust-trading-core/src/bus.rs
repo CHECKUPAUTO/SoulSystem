@@ -11,6 +11,7 @@ pub enum TradingEvent {
     Bar(Bar),
 }
 
+#[derive(Clone)]
 pub struct EventBus {
     pub market: broadcast::Sender<MarketState>,
     pub news: broadcast::Sender<CodifiedEvent>,

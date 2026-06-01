@@ -46,7 +46,16 @@ impl Migrator {
         let mut count = 0;
         for concept in concepts {
             // 2. Extract entities from label and any metadata
-            let text = format!("{} {}", concept.label, concept.metadata.values().cloned().collect::<Vec<_>>().join(" "));
+            let text = format!(
+                "{} {}",
+                concept.label,
+                concept
+                    .metadata
+                    .values()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
             let extracted = self.extractor.extract(&text);
 
             if !extracted.is_empty() {

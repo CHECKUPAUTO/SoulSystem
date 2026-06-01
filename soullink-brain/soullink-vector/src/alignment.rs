@@ -14,8 +14,8 @@
 //   Padding à l'upsert (une seule allocation, pas à chaque recherche).
 // =============================================================================
 
+use crate::error::{Result, VectorError};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use crate::error::{VectorError, Result};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DIMENSION REGISTRY
@@ -25,7 +25,7 @@ use crate::error::{VectorError, Result};
 /// Initialisé au premier upsert, immuable ensuite.
 pub struct DimensionRegistry {
     /// 0 = non initialisé
-    dim:        AtomicUsize,
+    dim: AtomicUsize,
     /// Dimension padded (multiple de 8), dérivée de `dim`
     dim_padded: AtomicUsize,
 }
@@ -33,7 +33,7 @@ pub struct DimensionRegistry {
 impl DimensionRegistry {
     pub const fn new() -> Self {
         Self {
-            dim:        AtomicUsize::new(0),
+            dim: AtomicUsize::new(0),
             dim_padded: AtomicUsize::new(0),
         }
     }
@@ -47,12 +47,16 @@ impl DimensionRegistry {
             // Première insertion : fixer la dimension
             let padded = pad_dim(incoming_dim);
             // Compare-and-swap : thread-safe
-            match self.dim.compare_exchange(0, incoming_dim, Ordering::Release, Ordering::Acquire) {
+            match self
+                .dim
+                .compare_exchange(0, incoming_dim, Ordering::Release, Ordering::Acquire)
+            {
                 Ok(_) => {
                     self.dim_padded.store(padded, Ordering::Release);
                     tracing::info!(
                         "DimensionRegistry: locked at dim={} padded={}",
-                        incoming_dim, padded
+                        incoming_dim,
+                        padded
                     );
                     Ok(padded)
                 }
@@ -79,12 +83,20 @@ impl DimensionRegistry {
 
     pub fn padded_dim(&self) -> Option<usize> {
         let d = self.dim_padded.load(Ordering::Acquire);
-        if d == 0 { None } else { Some(d) }
+        if d == 0 {
+            None
+        } else {
+            Some(d)
+        }
     }
 
     pub fn raw_dim(&self) -> Option<usize> {
         let d = self.dim.load(Ordering::Acquire);
-        if d == 0 { None } else { Some(d) }
+        if d == 0 {
+            None
+        } else {
+            Some(d)
+        }
     }
 }
 
@@ -105,7 +117,7 @@ pub fn align_vector(mut v: Vec<f32>, target_dim: usize) -> Vec<f32> {
     debug_assert_eq!(target_dim % 8, 0, "target_dim must be multiple of 8");
     match v.len().cmp(&target_dim) {
         std::cmp::Ordering::Equal => v,
-        std::cmp::Ordering::Less  => {
+        std::cmp::Ordering::Less => {
             v.resize(target_dim, 0.0);
             v
         }
@@ -113,7 +125,8 @@ pub fn align_vector(mut v: Vec<f32>, target_dim: usize) -> Vec<f32> {
             // Troncature : log un warning, ne pas silencieusement corrompre
             tracing::warn!(
                 "align_vector: truncating {} → {} dims (data loss!)",
-                v.len(), target_dim
+                v.len(),
+                target_dim
             );
             v.truncate(target_dim);
             v
@@ -154,12 +167,12 @@ mod tests {
 
     #[test]
     fn pad_dim_correct() {
-        assert_eq!(pad_dim(384), 384);  // déjà multiple de 8
-        assert_eq!(pad_dim(512), 512);  // idem
-        assert_eq!(pad_dim(383), 384);  // arrondi vers le haut
-        assert_eq!(pad_dim(1),   8);
-        assert_eq!(pad_dim(9),   16);
-        assert_eq!(pad_dim(0),   0);    // cas limite
+        assert_eq!(pad_dim(384), 384); // déjà multiple de 8
+        assert_eq!(pad_dim(512), 512); // idem
+        assert_eq!(pad_dim(383), 384); // arrondi vers le haut
+        assert_eq!(pad_dim(1), 8);
+        assert_eq!(pad_dim(9), 16);
+        assert_eq!(pad_dim(0), 0); // cas limite
     }
 
     #[test]

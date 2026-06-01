@@ -8,13 +8,13 @@
 //!   /health         → proxy health check
 
 use crate::config::ProxyConfig;
-use crate::routes::{AppState, health_check, proxy_handler};
+use crate::routes::{health_check, proxy_handler, AppState};
 use crate::tls;
-use axum::Router;
 use axum::routing::get;
+use axum::Router;
 use std::sync::Arc;
-use tower_http::cors::{CorsLayer, Any};
 use tower_http::compression::CompressionLayer;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
@@ -50,9 +50,15 @@ impl ProxyServer {
         let addr = self.config.bind_addr;
 
         if self.config.tls_enabled {
-            let cert_path = self.config.cert_path.as_deref()
+            let cert_path = self
+                .config
+                .cert_path
+                .as_deref()
                 .unwrap_or("/var/lib/soullink/proxy-cert.pem");
-            let key_path = self.config.key_path.as_deref()
+            let key_path = self
+                .config
+                .key_path
+                .as_deref()
                 .unwrap_or("/var/lib/soullink/proxy-key.pem");
 
             let (cert_pem, key_pem) = tls::load_or_generate_tls(
@@ -61,7 +67,8 @@ impl ProxyServer {
             )?;
 
             info!(addr = %addr, "Starting SoulLink proxy with TLS");
-            let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem(cert_pem, key_pem).await?;
+            let tls_config =
+                axum_server::tls_rustls::RustlsConfig::from_pem(cert_pem, key_pem).await?;
             axum_server::bind_rustls(addr, tls_config)
                 .serve(router.into_make_service())
                 .await?;

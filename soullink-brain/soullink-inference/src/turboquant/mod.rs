@@ -1,5 +1,5 @@
 //! TurboQuant 3-bit KV Cache Compression
-//! 
+//!
 //! Google Research (March 2026) — PolarQuant + QJL algorithm.
 //! Reduces KV cache memory by ~6x vs FP16 while maintaining <0.1% quality loss.
 //!
@@ -13,13 +13,13 @@
 //! Our TurboQuant layer sits on top and compresses the *evicted* KV pages
 //! from 4-bit to 3-bit, achieving effective 6x vs FP16.
 
-pub mod polar;
-pub mod qjl;
-pub mod cache;
 pub mod attention;
+pub mod cache;
+pub mod polar;
 pub mod proxy;
+pub mod qjl;
 
+pub use attention::TurboQuantAttention;
 pub use cache::TurboQuantKVCache;
 pub use polar::PolarQuant;
 pub use qjl::QJLQuantizer;
-pub use attention::TurboQuantAttention;

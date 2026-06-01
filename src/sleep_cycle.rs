@@ -169,7 +169,10 @@ impl SleepCycle {
             let _summary = combined.join(". ");
             count += 1;
         }
-        info!("SleepCycle: {} résumés épisodique→sémantique générés", count);
+        info!(
+            "SleepCycle: {} résumés épisodique→sémantique générés",
+            count
+        );
         count
     }
 
@@ -200,9 +203,9 @@ impl SleepCycle {
 
     /// Boucle de surveillance du sommeil.
     pub async fn run(&self, hub: Arc<MemoryHub>, bus: Arc<crate::bus::Bus>) {
-        let mut interval = tokio::time::interval(
-            tokio::time::Duration::from_secs(self.config.check_interval_secs)
-        );
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(
+            self.config.check_interval_secs,
+        ));
         loop {
             interval.tick().await;
 

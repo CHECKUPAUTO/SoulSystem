@@ -4,9 +4,9 @@
 //! des commandes en direct dans un message qui se met a jour.
 
 use ansi_converter::ansi_to_telegram;
+use anyhow::Result;
 use bound_system::{BoundSystem, StreamMessage};
 use spinner::Spinner;
-use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use teloxide::prelude::*;

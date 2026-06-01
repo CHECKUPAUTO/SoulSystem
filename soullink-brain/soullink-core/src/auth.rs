@@ -101,7 +101,10 @@ fn is_loopback(ip: IpAddr) -> bool {
 fn unauthorized() -> Response {
     (
         StatusCode::UNAUTHORIZED,
-        [(axum::http::header::WWW_AUTHENTICATE, "Bearer realm=\"soullink\"")],
+        [(
+            axum::http::header::WWW_AUTHENTICATE,
+            "Bearer realm=\"soullink\"",
+        )],
         "unauthorized",
     )
         .into_response()

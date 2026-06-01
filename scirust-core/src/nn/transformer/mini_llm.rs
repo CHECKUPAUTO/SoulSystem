@@ -21,22 +21,38 @@ pub struct CharTokenizer {
 impl CharTokenizer {
     pub fn new(texts: &[&str]) -> Self {
         let mut chars = BTreeMap::new();
-        for t in texts { for c in t.chars() { *chars.entry(c).or_insert(0) += 1; } }
+        for t in texts {
+            for c in t.chars() {
+                *chars.entry(c).or_insert(0) += 1;
+            }
+        }
         let mut vocab = HashMap::new();
         let mut rev = HashMap::new();
-        vocab.insert('\0', 0); rev.insert(0, '\0');
-        vocab.insert('�', 1); rev.insert(1, '�');
+        vocab.insert('\0', 0);
+        rev.insert(0, '\0');
+        vocab.insert('�', 1);
+        rev.insert(1, '�');
         for (i, c) in chars.keys().enumerate() {
-            let id = i + 2; vocab.insert(*c, id); rev.insert(id, *c);
+            let id = i + 2;
+            vocab.insert(*c, id);
+            rev.insert(id, *c);
         }
         let vs = vocab.len();
-        Self { vocab, rev_vocab: rev, vocab_size: vs }
+        Self {
+            vocab,
+            rev_vocab: rev,
+            vocab_size: vs,
+        }
     }
     pub fn encode(&self, text: &str) -> Vec<usize> {
-        text.chars().map(|c| *self.vocab.get(&c).unwrap_or(&1)).collect()
+        text.chars()
+            .map(|c| *self.vocab.get(&c).unwrap_or(&1))
+            .collect()
     }
     pub fn decode(&self, ids: &[usize]) -> String {
-        ids.iter().map(|i| self.rev_vocab.get(i).copied().unwrap_or('�')).collect()
+        ids.iter()
+            .map(|i| self.rev_vocab.get(i).copied().unwrap_or('�'))
+            .collect()
     }
 }
 
@@ -52,7 +68,14 @@ pub struct MiniLLMConfig {
 
 impl Default for MiniLLMConfig {
     fn default() -> Self {
-        Self { vocab_size: 256, d_model: 128, n_heads: 4, n_layers: 4, d_ff: 512, max_seq_len: 125_000 }
+        Self {
+            vocab_size: 256,
+            d_model: 128,
+            n_heads: 4,
+            n_layers: 4,
+            d_ff: 512,
+            max_seq_len: 125_000,
+        }
     }
 }
 
@@ -72,14 +95,39 @@ impl MiniLLM {
         let w_init = KaimingNormal;
         let b_init = Zeros;
         let embed = crate::nn::embedding::Embedding::new(
-            config.vocab_size, config.d_model, &w_init, &mut rng);
+            config.vocab_size,
+            config.d_model,
+            &w_init,
+            &mut rng,
+        );
         let pos_enc = PositionalEncoding::new(config.d_model, config.max_seq_len);
         let encoder = TransformerEncoder::new(
-            config.n_layers, config.d_model, config.n_heads, config.d_ff,
-            false, &w_init, &b_init, &mut rng);
+            config.n_layers,
+            config.d_model,
+            config.n_heads,
+            config.d_ff,
+            false,
+            &w_init,
+            &b_init,
+            &mut rng,
+        );
         let ln_f = LayerNorm::new(config.d_model, 1e-5, &w_init, &mut rng);
-        let lm_head = Linear::new(config.d_model, config.vocab_size, &w_init, &b_init, &mut rng);
-        Self { config, tokenizer, embed, pos_enc, encoder, ln_f, lm_head }
+        let lm_head = Linear::new(
+            config.d_model,
+            config.vocab_size,
+            &w_init,
+            &b_init,
+            &mut rng,
+        );
+        Self {
+            config,
+            tokenizer,
+            embed,
+            pos_enc,
+            encoder,
+            ln_f,
+            lm_head,
+        }
     }
 
     /// Forward [seq_len] → logits [seq_len, vocab_size]
@@ -118,7 +166,11 @@ impl MiniLLM {
         for i in 0..nrows {
             for j in 0..self.config.vocab_size.min(c) {
                 let idx = i * c + j;
-                let v = if idx < vals.data.len() { vals.data[idx] } else { 0.0 };
+                let v = if idx < vals.data.len() {
+                    vals.data[idx]
+                } else {
+                    0.0
+                };
                 out.data[i * self.config.vocab_size + j] = if v.is_finite() { v } else { 0.0 };
             }
         }
@@ -151,7 +203,11 @@ impl MiniLLM {
         for i in 0..nrows {
             for j in 0..self.config.d_model.min(c) {
                 let idx = i * c + j;
-                let v = if idx < vals.data.len() { vals.data[idx] } else { 0.0 };
+                let v = if idx < vals.data.len() {
+                    vals.data[idx]
+                } else {
+                    0.0
+                };
                 out.data[i * self.config.d_model + j] = if v.is_finite() { v } else { 0.0 };
             }
         }
@@ -163,20 +219,29 @@ impl MiniLLM {
         let mut ids = self.tokenizer.encode(prompt);
         let half = self.config.max_seq_len / 2;
         for _ in 0..max_tokens {
-            if ids.len() >= self.config.max_seq_len { break; }
+            if ids.len() >= self.config.max_seq_len {
+                break;
+            }
             let ctx: Vec<usize> = if ids.len() > half {
                 ids[ids.len() - half..].to_vec()
-            } else { ids.clone() };
+            } else {
+                ids.clone()
+            };
             let logits = self.forward(&ctx);
-            if logits.nrows() == 0 { break; }
+            if logits.nrows() == 0 {
+                break;
+            }
             let last = logits.nrows() - 1;
             let base = last * self.config.vocab_size;
             let next = (0..self.config.vocab_size)
                 .map(|j| (j, logits.data.get(base + j).copied().unwrap_or(-1e9)))
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(i, _)| i).unwrap_or(0);
+                .map(|(i, _)| i)
+                .unwrap_or(0);
             ids.push(next);
-            if next == 0 { break; }
+            if next == 0 {
+                break;
+            }
         }
         self.tokenizer.decode(&ids)
     }
@@ -195,7 +260,14 @@ mod tests {
     #[test]
     fn test_forward_shape() {
         let tok = CharTokenizer::new(&["abc"]);
-        let cfg = MiniLLMConfig { vocab_size: tok.vocab_size, d_model: 8, n_heads: 2, n_layers: 1, d_ff: 16, max_seq_len: 8 };
+        let cfg = MiniLLMConfig {
+            vocab_size: tok.vocab_size,
+            d_model: 8,
+            n_heads: 2,
+            n_layers: 1,
+            d_ff: 16,
+            max_seq_len: 8,
+        };
         let mut m = MiniLLM::new(cfg, tok);
         let logits = m.forward(&[2, 3]);
         assert_eq!(logits.nrows(), 2);
@@ -205,16 +277,32 @@ mod tests {
     #[test]
     fn test_logits_not_nan() {
         let tok = CharTokenizer::new(&["abc"]);
-        let cfg = MiniLLMConfig { vocab_size: tok.vocab_size, d_model: 8, n_heads: 2, n_layers: 1, d_ff: 16, max_seq_len: 8 };
+        let cfg = MiniLLMConfig {
+            vocab_size: tok.vocab_size,
+            d_model: 8,
+            n_heads: 2,
+            n_layers: 1,
+            d_ff: 16,
+            max_seq_len: 8,
+        };
         let mut m = MiniLLM::new(cfg, tok);
         let logits = m.forward(&[2, 3, 4]);
-        for &v in &logits.data { assert!(!v.is_nan(), "NaN in logits"); }
+        for &v in &logits.data {
+            assert!(!v.is_nan(), "NaN in logits");
+        }
     }
 
     #[test]
     fn test_generate_nonempty() {
         let tok = CharTokenizer::new(&["hello test world"]);
-        let cfg = MiniLLMConfig { vocab_size: tok.vocab_size, d_model: 8, n_heads: 2, n_layers: 1, d_ff: 16, max_seq_len: 8 };
+        let cfg = MiniLLMConfig {
+            vocab_size: tok.vocab_size,
+            d_model: 8,
+            n_heads: 2,
+            n_layers: 1,
+            d_ff: 16,
+            max_seq_len: 8,
+        };
         let mut m = MiniLLM::new(cfg, tok);
         assert!(!m.generate("hello", 5).is_empty());
     }

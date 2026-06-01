@@ -4,11 +4,11 @@
 // (Transpose2D, Concat, SliceCols) ajoutees en v11.
 
 use crate::autodiff::reverse::{Tape, Tensor, Var, concat_rows};
-use crate::nn::rope::rope_apply;
 use crate::nn::init::Initializer;
 use crate::nn::linear::Linear;
 use crate::nn::module::Module;
 use crate::nn::rng::PcgEngine;
+use crate::nn::rope::rope_apply;
 use crate::tensor::tensor3d::Var3D;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -49,7 +49,11 @@ impl MultiHeadAttention {
             d_model,
             n_heads,
             d_head,
-            num_kv_heads: if num_kv_heads > 0 { num_kv_heads } else { n_heads },
+            num_kv_heads: if num_kv_heads > 0 {
+                num_kv_heads
+            } else {
+                n_heads
+            },
             use_rope: false,
             rope_theta: 10000.0,
             w_q: Linear::new(d_model, d_model, w_init, b_init, rng),
@@ -244,8 +248,10 @@ impl MultiHeadAttention {
                 Some((ck, cv)) => {
                     let kd = tape.value(k.idx());
                     let vd = tape.value(v.idx());
-                    let mut nk = ck.data.clone(); nk.extend(&kd.data);
-                    let mut nv = cv.data.clone(); nv.extend(&vd.data);
+                    let mut nk = ck.data.clone();
+                    nk.extend(&kd.data);
+                    let mut nv = cv.data.clone();
+                    nv.extend(&vd.data);
                     *ck = Tensor::from_vec(nk, ck.rows + 1, ck.cols);
                     *cv = Tensor::from_vec(nv, cv.rows + 1, cv.cols);
                     (tape.input(ck.clone()), tape.input(cv.clone()))
@@ -258,19 +264,28 @@ impl MultiHeadAttention {
                 }
             }
         };
-        let h_n = self.n_heads; let d_h = self.d_head;
+        let h_n = self.n_heads;
+        let d_h = self.d_head;
         let scale = 1.0 / (d_h as f32).sqrt();
         let mut heads = Vec::with_capacity(h_n);
         for h in 0..h_n {
             let qh = q.clone().slice_cols(h * d_h, d_h);
             let kh = k_cached.clone().slice_cols(h * d_h, d_h);
             let vh = v_cached.clone().slice_cols(h * d_h, d_h);
-            heads.push(qh.matmul(kh.transpose_2d()).scale(scale).softmax(1).matmul(vh));
+            heads.push(
+                qh.matmul(kh.transpose_2d())
+                    .scale(scale)
+                    .softmax(1)
+                    .matmul(vh),
+            );
         }
         let mut acc: Option<Var> = None;
         for (h, hd) in heads.iter().enumerate() {
             let pd = hd.matmul(build_pad_matrix(tape, h, d_h, self.d_model));
-            acc = Some(match acc { None => pd, Some(a) => a.add(pd) });
+            acc = Some(match acc {
+                None => pd,
+                Some(a) => a.add(pd),
+            });
         }
         self.w_o.forward(tape, acc.unwrap())
     }

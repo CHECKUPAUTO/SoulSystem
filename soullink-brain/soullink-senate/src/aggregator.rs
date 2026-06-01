@@ -48,9 +48,10 @@ impl AggregationStrategy {
                 (responses[0].response.clone(), "FirstWins".to_string())
             }
             AggregationStrategy::Concat => {
-                let parts: Vec<String> = responses.iter().map(|r| {
-                    format!("### {} ({})\n{}", r.role, r.model, r.response)
-                }).collect();
+                let parts: Vec<String> = responses
+                    .iter()
+                    .map(|r| format!("### {} ({})\n{}", r.role, r.model, r.response))
+                    .collect();
                 (parts.join("\n\n---\n\n"), "Concat".to_string())
             }
             AggregationStrategy::WeightedVote => {
@@ -60,14 +61,16 @@ impl AggregationStrategy {
                     (responses[0].response.clone(), "WeightedVote".to_string())
                 } else {
                     // Pick the longest response as primary, include others as alternatives
-                    let longest = responses.iter()
-                        .max_by_key(|r| r.response.len())
-                        .unwrap();
+                    let longest = responses.iter().max_by_key(|r| r.response.len()).unwrap();
                     let mut result = longest.response.clone();
                     if responses.len() > 1 {
                         result.push_str("\n\n---\nAlternatives:\n");
                         for r in responses.iter().filter(|r| r.model != longest.model) {
-                            result.push_str(&format!("- {} ({} chars)\n", r.role, r.response.len()));
+                            result.push_str(&format!(
+                                "- {} ({} chars)\n",
+                                r.role,
+                                r.response.len()
+                            ));
                         }
                     }
                     (result, "WeightedVote".to_string())
@@ -103,7 +106,9 @@ mod tests {
             fake_response("model-a", "expert", "answer A"),
             fake_response("model-b", "critic", "answer B"),
         ];
-        let result = AggregationStrategy::FirstWins.aggregate(&responses, "test").unwrap();
+        let result = AggregationStrategy::FirstWins
+            .aggregate(&responses, "test")
+            .unwrap();
         assert_eq!(result.response, "answer A");
         assert_eq!(result.expert_count, 2);
     }
@@ -114,7 +119,9 @@ mod tests {
             fake_response("model-a", "expert", "A"),
             fake_response("model-b", "critic", "B"),
         ];
-        let result = AggregationStrategy::Concat.aggregate(&responses, "test").unwrap();
+        let result = AggregationStrategy::Concat
+            .aggregate(&responses, "test")
+            .unwrap();
         assert!(result.response.contains("A"));
         assert!(result.response.contains("B"));
     }
@@ -123,15 +130,23 @@ mod tests {
     fn weighted_vote_picks_longest() {
         let responses = vec![
             fake_response("model-a", "expert", "short"),
-            fake_response("model-b", "critic", "this is a much longer and more detailed response"),
+            fake_response(
+                "model-b",
+                "critic",
+                "this is a much longer and more detailed response",
+            ),
         ];
-        let result = AggregationStrategy::WeightedVote.aggregate(&responses, "test").unwrap();
+        let result = AggregationStrategy::WeightedVote
+            .aggregate(&responses, "test")
+            .unwrap();
         assert!(result.response.contains("much longer"));
     }
 
     #[test]
     fn empty_responses_returns_empty() {
-        let result = AggregationStrategy::FirstWins.aggregate(&[], "test").unwrap();
+        let result = AggregationStrategy::FirstWins
+            .aggregate(&[], "test")
+            .unwrap();
         assert!(result.response.is_empty());
         assert_eq!(result.expert_count, 0);
     }

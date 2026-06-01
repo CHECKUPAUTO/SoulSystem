@@ -21,8 +21,12 @@ pub struct MemoryConfig {
     pub search_top_k: usize,
 }
 
-fn default_sled_cache_mb() -> usize { 10240 }
-fn default_search_top_k() -> usize { 5 }
+fn default_sled_cache_mb() -> usize {
+    10240
+}
+fn default_search_top_k() -> usize {
+    5
+}
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct OrchestratorConfig {

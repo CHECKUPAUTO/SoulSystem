@@ -12,11 +12,11 @@
 //!
 //! Effective compression: Q4_0 (4x) + TurboQuant 3-bit offload = 6x total vs FP16.
 
-pub mod server;
 pub mod kv_bridge;
 pub mod metrics;
 pub mod router;
+pub mod server;
 
-pub use server::TurboQuantProxy;
 pub use kv_bridge::KVBridge;
 pub use metrics::ProxyMetrics;
+pub use server::TurboQuantProxy;

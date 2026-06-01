@@ -8,10 +8,10 @@
 //! SQLite storage for entities and edges.
 
 use anyhow::Result;
-use rusqlite::{params, Connection, OptionalExtension};
-use std::path::Path;
 use chrono::{DateTime, Utc};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,7 +41,9 @@ pub struct Database {
 impl Database {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
-        let db = Self { conn: Arc::new(Mutex::new(conn)) };
+        let db = Self {
+            conn: Arc::new(Mutex::new(conn)),
+        };
         db.init()?;
         Ok(db)
     }
@@ -118,7 +120,8 @@ impl Database {
 
     pub fn get_entities(&self) -> Result<Vec<Entity>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id, type, name, source_page, confidence, created_at FROM entities")?;
+        let mut stmt = conn
+            .prepare("SELECT id, type, name, source_page, confidence, created_at FROM entities")?;
         let rows = stmt.query_map([], |row| {
             let created_at_str: String = row.get(5)?;
             Ok(Entity {
@@ -144,19 +147,21 @@ impl Database {
     pub fn get_entity_by_id(&self, id: &str) -> Result<Option<Entity>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT id, type, name, source_page, confidence, created_at FROM entities WHERE id = ?1")?;
-        let entity = stmt.query_row(params![id], |row| {
-            let created_at_str: String = row.get(5)?;
-            Ok(Entity {
-                id: row.get(0)?,
-                entity_type: row.get(1)?,
-                name: row.get(2)?,
-                source_page: row.get(3)?,
-                confidence: row.get(4)?,
-                created_at: DateTime::parse_from_rfc3339(&created_at_str)
-                    .unwrap_or_else(|_| Utc::now().into())
-                    .with_timezone(&Utc),
+        let entity = stmt
+            .query_row(params![id], |row| {
+                let created_at_str: String = row.get(5)?;
+                Ok(Entity {
+                    id: row.get(0)?,
+                    entity_type: row.get(1)?,
+                    name: row.get(2)?,
+                    source_page: row.get(3)?,
+                    confidence: row.get(4)?,
+                    created_at: DateTime::parse_from_rfc3339(&created_at_str)
+                        .unwrap_or_else(|_| Utc::now().into())
+                        .with_timezone(&Utc),
+                })
             })
-        }).optional()?;
+            .optional()?;
         Ok(entity)
     }
 
@@ -164,7 +169,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT source_id, target_id, relation_type, weight, created_at
-             FROM edges WHERE source_id = ?1 OR target_id = ?1"
+             FROM edges WHERE source_id = ?1 OR target_id = ?1",
         )?;
         let rows = stmt.query_map(params![entity_id], |row| {
             let created_at_str: String = row.get(4)?;
@@ -189,13 +194,16 @@ impl Database {
     // Bolt ⚡: Faster edge counting without loading all data.
     pub fn get_edge_count_for_entity(&self, id: &str) -> Result<usize> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT COUNT(*) FROM edges WHERE source_id = ?1 OR target_id = ?1")?;
+        let mut stmt =
+            conn.prepare("SELECT COUNT(*) FROM edges WHERE source_id = ?1 OR target_id = ?1")?;
         let count: usize = stmt.query_row(params![id], |row| row.get(0))?;
         Ok(count)
     }
 
     pub fn get_entities_with_edge_counts(&self, ids: &[String]) -> Result<Vec<(Entity, usize)>> {
-        if ids.is_empty() { return Ok(Vec::new()); }
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let conn = self.conn.lock().unwrap();
         let mut results = Vec::new();
         for chunk in ids.chunks(100) {

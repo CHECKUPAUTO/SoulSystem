@@ -8,8 +8,8 @@ use std::collections::HashSet;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 
 /// Ligne de sortie streamée.
 #[derive(Debug, Clone)]
@@ -555,8 +555,11 @@ mod tests {
             match msg {
                 StreamMessage::End(end) => {
                     // Tué par signal = exit code != 0
-                    assert!(end.exit_code != 0 || end.timed_out,
-                        "Process killed by SIGTERM should have non-zero exit or be timed out, got exit_code={}", end.exit_code);
+                    assert!(
+                        end.exit_code != 0 || end.timed_out,
+                        "Process killed by SIGTERM should have non-zero exit or be timed out, got exit_code={}",
+                        end.exit_code
+                    );
                     got_end = true;
                     break;
                 }

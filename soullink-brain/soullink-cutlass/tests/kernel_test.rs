@@ -1,4 +1,4 @@
-use soullink_cutlass::{CutlassError, GpuTensor, CudaStream, KernelConfig};
+use soullink_cutlass::{CudaStream, CutlassError, GpuTensor, KernelConfig};
 
 #[test]
 fn kernel_config_default() {

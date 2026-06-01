@@ -12,14 +12,14 @@
 //   hnsw.set_searching_mode(&mut self, flag: bool)
 //   Neighbour { d_id: DataId, distance: f32, p_id: PointId }
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::collections::HashMap;
 use parking_lot::Mutex;
-use tracing::{info, warn, instrument};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+use tracing::{info, instrument, warn};
 
-use hnsw_rs::prelude::{Hnsw, DistCosine, Neighbour};
+use hnsw_rs::prelude::{DistCosine, Hnsw, Neighbour};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ERREURS
@@ -59,24 +59,34 @@ impl Default for HnswParams {
     fn default() -> Self {
         Self {
             max_nb_connection: 16,
-            ef_construction:   200,
-            ef_search:         64,
-            nb_layer:          16,
+            ef_construction: 200,
+            ef_search: 64,
+            nb_layer: 16,
         }
     }
 }
 
 impl HnswParams {
     pub fn high_recall() -> Self {
-        Self { max_nb_connection: 32, ef_construction: 400, ef_search: 200, nb_layer: 16 }
+        Self {
+            max_nb_connection: 32,
+            ef_construction: 400,
+            ef_search: 200,
+            nb_layer: 16,
+        }
     }
     pub fn low_latency() -> Self {
-        Self { max_nb_connection: 8, ef_construction: 100, ef_search: 32, nb_layer: 16 }
+        Self {
+            max_nb_connection: 8,
+            ef_construction: 100,
+            ef_search: 32,
+            nb_layer: 16,
+        }
     }
 
     pub fn estimated_ram_gb(&self, n: usize, dim: usize) -> f64 {
         let vectors = n * dim * 4;
-        let graph   = n * self.max_nb_connection * 8 * 2;
+        let graph = n * self.max_nb_connection * 8 * 2;
         (vectors + graph) as f64 / 1e9
     }
 }
@@ -87,11 +97,11 @@ impl HnswParams {
 
 #[derive(Debug, Clone)]
 pub struct SearchResult {
-    pub label:    String,
+    pub label: String,
     /// Distance cosine hnsw_rs ∈ [0.0, 2.0]
     pub distance: f32,
     /// Similarité [0.0, 1.0] = 1 − distance/2
-    pub score:    f32,
+    pub score: f32,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -101,16 +111,16 @@ pub struct SearchResult {
 pub struct HnswIndex {
     /// Hnsw<'static, f32, DistCosine> sous Mutex.
     /// 'static est valide car hnsw_rs copie les données à l'insertion.
-    inner:        Mutex<Hnsw<'static, f32, DistCosine>>,
+    inner: Mutex<Hnsw<'static, f32, DistCosine>>,
     /// DataId → label (résolution des résultats de search)
-    id_to_label:  Mutex<Vec<String>>,
+    id_to_label: Mutex<Vec<String>>,
     /// label → DataId (dédup à l'insert)
-    label_to_id:  Mutex<HashMap<String, usize>>,
-    params:       HnswParams,
-    dim:          usize,
-    count:        AtomicUsize,
+    label_to_id: Mutex<HashMap<String, usize>>,
+    params: HnswParams,
+    dim: usize,
+    count: AtomicUsize,
     /// true une fois set_searching_mode(true) appelé
-    search_mode:  AtomicBool,
+    search_mode: AtomicBool,
 }
 
 impl HnswIndex {
@@ -124,17 +134,20 @@ impl HnswIndex {
         );
         info!(
             "HnswIndex: dim={} M={} ef_c={} ef_s={} cap={} ram_est={:.2}GB",
-            dim, params.max_nb_connection, params.ef_construction,
-            params.ef_search, initial_capacity,
+            dim,
+            params.max_nb_connection,
+            params.ef_construction,
+            params.ef_search,
+            initial_capacity,
             params.estimated_ram_gb(initial_capacity, dim)
         );
         Arc::new(Self {
-            inner:       Mutex::new(hnsw),
+            inner: Mutex::new(hnsw),
             id_to_label: Mutex::new(Vec::with_capacity(initial_capacity)),
             label_to_id: Mutex::new(HashMap::with_capacity(initial_capacity)),
             params,
             dim,
-            count:       AtomicUsize::new(0),
+            count: AtomicUsize::new(0),
             search_mode: AtomicBool::new(false),
         })
     }
@@ -143,7 +156,8 @@ impl HnswIndex {
     pub fn insert(&self, label: String, vector: &[f32]) -> Result<usize> {
         if vector.len() != self.dim {
             return Err(VectorError::DimensionMismatch {
-                expected: self.dim, got: vector.len(),
+                expected: self.dim,
+                got: vector.len(),
             });
         }
 
@@ -170,7 +184,7 @@ impl HnswIndex {
         // Mise à jour des maps
         {
             let mut labels = self.id_to_label.lock();
-            let mut index  = self.label_to_id.lock();
+            let mut index = self.label_to_id.lock();
             if labels.len() <= id {
                 labels.resize(id + 1, String::new());
             }
@@ -189,27 +203,30 @@ impl HnswIndex {
             for (label, vec) in items {
                 if vec.len() != self.dim {
                     return Err(VectorError::DimensionMismatch {
-                        expected: self.dim, got: vec.len(),
+                        expected: self.dim,
+                        got: vec.len(),
                     });
                 }
-                if idx.contains_key(&label) { continue; }
+                if idx.contains_key(&label) {
+                    continue;
+                }
                 let id = self.count.fetch_add(1, Ordering::Relaxed);
                 idx.insert(label.clone(), id);
                 to_insert.push((id, label, vec));
             }
         }
 
-        if to_insert.is_empty() { return Ok(0); }
+        if to_insert.is_empty() {
+            return Ok(0);
+        }
 
         // hnsw_rs parallel_insert attend &[(&Vec<f32>, DataId)]
         let data_refs: Vec<(Vec<f32>, usize)> = to_insert
             .iter()
             .map(|(id, _, vec)| (vec.clone(), *id))
             .collect();
-        let data_refs_ref: Vec<(&Vec<f32>, usize)> = data_refs
-            .iter()
-            .map(|(v, id)| (v, *id))
-            .collect();
+        let data_refs_ref: Vec<(&Vec<f32>, usize)> =
+            data_refs.iter().map(|(v, id)| (v, *id)).collect();
 
         {
             let mut hnsw = self.inner.lock();
@@ -232,7 +249,11 @@ impl HnswIndex {
         }
 
         let n = to_insert.len();
-        info!("insert_batch: {} vectors indexed (total: {})", n, self.count.load(Ordering::Relaxed));
+        info!(
+            "insert_batch: {} vectors indexed (total: {})",
+            n,
+            self.count.load(Ordering::Relaxed)
+        );
         Ok(n)
     }
 
@@ -255,7 +276,8 @@ impl HnswIndex {
         }
         if query.len() != self.dim {
             return Err(VectorError::DimensionMismatch {
-                expected: self.dim, got: query.len(),
+                expected: self.dim,
+                got: query.len(),
             });
         }
 
@@ -263,12 +285,17 @@ impl HnswIndex {
         let neighbours: Vec<Neighbour> = self.inner.lock().search(query, top_k, ef);
 
         let labels = self.id_to_label.lock();
-        let results = neighbours.iter()
+        let results = neighbours
+            .iter()
             .filter_map(|n| {
                 labels.get(n.d_id).filter(|l| !l.is_empty()).map(|label| {
-                    let dist  = n.distance;
+                    let dist = n.distance;
                     let score = (1.0 - dist / 2.0).clamp(0.0, 1.0);
-                    SearchResult { label: label.clone(), distance: dist, score }
+                    SearchResult {
+                        label: label.clone(),
+                        distance: dist,
+                        score,
+                    }
                 })
             })
             .collect();
@@ -280,33 +307,47 @@ impl HnswIndex {
     pub fn parallel_search(
         &self,
         queries: &[Vec<f32>],
-        top_k:   usize,
+        top_k: usize,
     ) -> Result<Vec<Vec<SearchResult>>> {
         if self.count.load(Ordering::Relaxed) == 0 {
             return Err(VectorError::EmptyIndex);
         }
         let ef = self.params.ef_search.max(top_k);
         let results = self.inner.lock().parallel_search(queries, top_k, ef);
-        let labels  = self.id_to_label.lock();
+        let labels = self.id_to_label.lock();
 
-        Ok(results.iter().map(|neighbours| {
-            neighbours.iter()
-                .filter_map(|n| {
-                    labels.get(n.d_id).filter(|l| !l.is_empty()).map(|label| {
-                        let dist  = n.distance;
-                        let score = (1.0 - dist / 2.0).clamp(0.0, 1.0);
-                        SearchResult { label: label.clone(), distance: dist, score }
+        Ok(results
+            .iter()
+            .map(|neighbours| {
+                neighbours
+                    .iter()
+                    .filter_map(|n| {
+                        labels.get(n.d_id).filter(|l| !l.is_empty()).map(|label| {
+                            let dist = n.distance;
+                            let score = (1.0 - dist / 2.0).clamp(0.0, 1.0);
+                            SearchResult {
+                                label: label.clone(),
+                                distance: dist,
+                                score,
+                            }
+                        })
                     })
-                })
-                .collect()
-        }).collect())
+                    .collect()
+            })
+            .collect())
     }
 
     // ── Métriques ──────────────────────────────────────────────────────────────
 
-    pub fn len(&self)      -> usize { self.count.load(Ordering::Relaxed) }
-    pub fn is_empty(&self) -> bool  { self.len() == 0 }
-    pub fn dim(&self) -> usize { self.dim }
+    pub fn len(&self) -> usize {
+        self.count.load(Ordering::Relaxed)
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
 
     pub fn status(&self) -> serde_json::Value {
         serde_json::json!({
@@ -326,9 +367,9 @@ impl HnswIndex {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub struct HybridSearch {
-    threshold:   usize,
-    bf_store:    Mutex<Vec<(String, Vec<f32>)>>,
-    hnsw:        Arc<HnswIndex>,
+    threshold: usize,
+    bf_store: Mutex<Vec<(String, Vec<f32>)>>,
+    hnsw: Arc<HnswIndex>,
     hnsw_active: AtomicBool,
 }
 
@@ -336,9 +377,9 @@ impl HybridSearch {
     pub fn new(dim: usize, params: HnswParams) -> Arc<Self> {
         let cap = 10_000 * 2;
         Arc::new(Self {
-            threshold:   10_000,
-            bf_store:    Mutex::new(Vec::new()),
-            hnsw:        HnswIndex::new(dim, params, cap),
+            threshold: 10_000,
+            bf_store: Mutex::new(Vec::new()),
+            hnsw: HnswIndex::new(dim, params, cap),
             hnsw_active: AtomicBool::new(false),
         })
     }
@@ -362,9 +403,11 @@ impl HybridSearch {
     }
 
     fn migrate(&self) -> Result<()> {
-        if self.hnsw_active.compare_exchange(
-            false, true, Ordering::AcqRel, Ordering::Acquire
-        ).is_err() {
+        if self
+            .hnsw_active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             return Ok(());
         }
 
@@ -382,19 +425,25 @@ impl HybridSearch {
             return self.hnsw.search(query, top_k);
         }
         let store = self.bf_store.lock();
-        if store.is_empty() { return Err(VectorError::EmptyIndex); }
+        if store.is_empty() {
+            return Err(VectorError::EmptyIndex);
+        }
 
-        let mut scores: Vec<(String, f32)> = store.iter()
+        let mut scores: Vec<(String, f32)> = store
+            .iter()
             .map(|(label, vec)| (label.clone(), cosine(query, vec)))
             .collect();
         scores.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         scores.truncate(top_k);
 
-        Ok(scores.into_iter().map(|(label, score)| SearchResult {
-            label,
-            distance: (1.0 - score) * 2.0,
-            score,
-        }).collect())
+        Ok(scores
+            .into_iter()
+            .map(|(label, score)| SearchResult {
+                label,
+                distance: (1.0 - score) * 2.0,
+                score,
+            })
+            .collect())
     }
 
     pub fn len(&self) -> usize {
@@ -413,11 +462,17 @@ impl HybridSearch {
 /// Cosine scalaire — LLVM vectorise en AVX2 avec -C target-cpu=broadwell.
 #[inline(always)]
 fn cosine(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() { return 0.0; }
+    if a.len() != b.len() {
+        return 0.0;
+    }
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let na:  f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let nb:  f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if na * nb == 0.0 { 0.0 } else { dot / (na * nb) }
+    let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if na * nb == 0.0 {
+        0.0
+    } else {
+        dot / (na * nb)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -433,7 +488,10 @@ pub struct VectorStore {
 impl VectorStore {
     pub fn new(params: HnswParams) -> Self {
         let dim = 384;
-        Self { inner: HybridSearch::new(dim, params), dim }
+        Self {
+            inner: HybridSearch::new(dim, params),
+            dim,
+        }
     }
 
     pub fn new_default() -> Self {
@@ -468,20 +526,26 @@ mod tests {
 
     fn pvec(dim: usize, seed: u64) -> Vec<f32> {
         let mut s = seed;
-        let mut v: Vec<f32> = (0..dim).map(|_| {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            (s >> 33) as f32 / u32::MAX as f32 * 2.0 - 1.0
-        }).collect();
+        let mut v: Vec<f32> = (0..dim)
+            .map(|_| {
+                s = s
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                (s >> 33) as f32 / u32::MAX as f32 * 2.0 - 1.0
+            })
+            .collect();
         let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm > 0.0 { v.iter_mut().for_each(|x| *x /= norm); }
+        if norm > 0.0 {
+            v.iter_mut().for_each(|x| *x /= norm);
+        }
         v
     }
 
     #[test]
     fn insert_and_retrieve() {
         let idx = HnswIndex::new(16, HnswParams::default(), 100);
-        let v   = pvec(16, 1);
-        let id  = idx.insert("alpha".into(), &v).unwrap();
+        let v = pvec(16, 1);
+        let id = idx.insert("alpha".into(), &v).unwrap();
         assert_eq!(id, 0);
         assert_eq!(idx.len(), 1);
     }
@@ -489,30 +553,40 @@ mod tests {
     #[test]
     fn search_returns_self_as_nearest() {
         let idx = HnswIndex::new(16, HnswParams::default(), 100);
-        let v1  = pvec(16, 1);
-        let v2  = pvec(16, 2);
-        let v3  = pvec(16, 3);
+        let v1 = pvec(16, 1);
+        let v2 = pvec(16, 2);
+        let v3 = pvec(16, 3);
         idx.insert("alpha".into(), &v1).unwrap();
-        idx.insert("beta".into(),  &v2).unwrap();
+        idx.insert("beta".into(), &v2).unwrap();
         idx.insert("gamma".into(), &v3).unwrap();
 
         let results = idx.search(&v1, 1).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].label, "alpha");
-        assert!(results[0].score > 0.99, "expected score≈1.0, got {}", results[0].score);
+        assert!(
+            results[0].score > 0.99,
+            "expected score≈1.0, got {}",
+            results[0].score
+        );
     }
 
     #[test]
     fn dimension_mismatch_is_rejected() {
         let idx = HnswIndex::new(16, HnswParams::default(), 100);
         let err = idx.insert("x".into(), &pvec(32, 1)).unwrap_err();
-        assert!(matches!(err, VectorError::DimensionMismatch { expected: 16, got: 32 }));
+        assert!(matches!(
+            err,
+            VectorError::DimensionMismatch {
+                expected: 16,
+                got: 32
+            }
+        ));
     }
 
     #[test]
     fn duplicate_label_is_idempotent() {
         let idx = HnswIndex::new(16, HnswParams::default(), 100);
-        let v   = pvec(16, 7);
+        let v = pvec(16, 7);
         idx.insert("dup".into(), &v).unwrap();
         idx.insert("dup".into(), &v).unwrap();
         assert_eq!(idx.len(), 1);
@@ -537,7 +611,7 @@ mod tests {
 
     #[test]
     fn batch_insert_correct_count() {
-        let idx   = HnswIndex::new(16, HnswParams::default(), 200);
+        let idx = HnswIndex::new(16, HnswParams::default(), 200);
         let items: Vec<(String, Vec<f32>)> = (0..50u64)
             .map(|i| (format!("v{}", i), pvec(16, i)))
             .collect();
@@ -577,14 +651,16 @@ mod tests {
 
     #[test]
     fn cosine_orthogonal_is_zero() {
-        let mut a = vec![0.0f32; 8]; a[0] = 1.0;
-        let mut b = vec![0.0f32; 8]; b[1] =1.0;
+        let mut a = vec![0.0f32; 8];
+        a[0] = 1.0;
+        let mut b = vec![0.0f32; 8];
+        b[1] = 1.0;
         assert!((cosine(&a, &b)).abs() < 1e-6);
     }
 
     #[test]
     fn ram_estimate_10m_sane() {
-        let p   = HnswParams::default();
+        let p = HnswParams::default();
         let ram = p.estimated_ram_gb(10_000_000, 384);
         assert!(ram > 10.0 && ram < 128.0, "ram={:.2}GB", ram);
     }

@@ -2,8 +2,8 @@
 //!
 //! Stub mode by default. Enable `dali` feature for real FFI.
 
-mod types;
 mod pipeline;
+mod types;
 
-pub use types::{DaliError, Device, DaliTensor};
 pub use pipeline::{DaliPipeline, DaliPipelineBuilder};
+pub use types::{DaliError, DaliTensor, Device};

@@ -6,7 +6,7 @@ pub mod patterns;
 pub mod scanner;
 pub mod verify;
 
-pub use scanner::SecurityScanner;
-pub use scanner::ScanResult;
 pub use detectors::Finding;
 pub use patterns::Severity;
+pub use scanner::ScanResult;
+pub use scanner::SecurityScanner;

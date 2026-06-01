@@ -10,8 +10,8 @@ impl Fp4Tensor {
     pub fn pack(vals: [f32; 8]) -> Self {
         let mut data = [0u8; 4];
         for i in 0..4 {
-            let low = (vals[i*2] as u8) & 0x0F;
-            let high = (vals[i*2+1] as u8) & 0x0F;
+            let low = (vals[i * 2] as u8) & 0x0F;
+            let high = (vals[i * 2 + 1] as u8) & 0x0F;
             data[i] = low | (high << 4);
         }
         Self { data }

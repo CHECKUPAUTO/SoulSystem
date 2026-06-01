@@ -44,14 +44,10 @@ impl Conv2dTranspose {
         rng: &mut PcgEngine,
     ) -> crate::error::Result<Self> {
         if in_c == 0 || out_c == 0 {
-            crate::bail!(
-                "Conv2dTranspose: in_c={in_c} out_c={out_c}, doivent être > 0"
-            );
+            crate::bail!("Conv2dTranspose: in_c={in_c} out_c={out_c}, doivent être > 0");
         }
         if kernel == 0 || stride == 0 {
-            crate::bail!(
-                "Conv2dTranspose: kernel={kernel} stride={stride}, doivent être > 0"
-            );
+            crate::bail!("Conv2dTranspose: kernel={kernel} stride={stride}, doivent être > 0");
         }
 
         // Poids stockés (in_c, out_c * K*K) — ce sont les poids de la

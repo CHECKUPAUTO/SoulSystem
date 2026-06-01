@@ -24,8 +24,6 @@ pub enum EngineError {
     NeedsApproval(String),
 }
 
-
-
 /// Result of running an entire workflow.
 #[derive(Debug)]
 pub struct WorkflowResult {
@@ -114,7 +112,11 @@ impl WorkflowEngine {
     }
 
     /// Run a workflow by name with the given input.
-    pub async fn run(&self, workflow_name: &str, input: &str) -> Result<WorkflowResult, EngineError> {
+    pub async fn run(
+        &self,
+        workflow_name: &str,
+        input: &str,
+    ) -> Result<WorkflowResult, EngineError> {
         let config = self
             .configs
             .get(workflow_name)
@@ -133,7 +135,8 @@ impl WorkflowEngine {
             let query_vec = vec![input.as_bytes().to_vec()]; // placeholder embedding
             if let Ok(results) = memory.search(&query_vec, 5) {
                 if !results.is_empty() {
-                    let mem_str: Vec<String> = results.iter()
+                    let mem_str: Vec<String> = results
+                        .iter()
                         .map(|r| format!("{} (score: {:.3})", r.id, r.score))
                         .collect();
                     ctx.set("memory_context", &mem_str.join("\n")).await;

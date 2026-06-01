@@ -143,12 +143,21 @@ pub struct CircuitBreaker {
 
 impl CircuitBreaker {
     pub fn new(name: impl Into<String>, config: CircuitBreakerConfig) -> Self {
-        let config = CircuitBreakerConfig { service_name: name.into(), ..config };
-        Self { config, state: Arc::new(Mutex::new(BreakerState::new())) }
+        let config = CircuitBreakerConfig {
+            service_name: name.into(),
+            ..config
+        };
+        Self {
+            config,
+            state: Arc::new(Mutex::new(BreakerState::new())),
+        }
     }
 
     pub fn with_config(config: CircuitBreakerConfig) -> Self {
-        Self { config: config.clone(), state: Arc::new(Mutex::new(BreakerState::new())) }
+        Self {
+            config: config.clone(),
+            state: Arc::new(Mutex::new(BreakerState::new())),
+        }
     }
 
     /// Current state of the circuit.
@@ -333,7 +342,9 @@ impl std::fmt::Display for CircuitBreakerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Open { service, .. } => write!(f, "Circuit open for {}", service),
-            Self::Timeout { service, timeout } => write!(f, "Timeout ({:?}) calling {}", timeout, service),
+            Self::Timeout { service, timeout } => {
+                write!(f, "Timeout ({:?}) calling {}", timeout, service)
+            }
             Self::Call { service, source } => write!(f, "Call to {} failed: {}", service, source),
         }
     }

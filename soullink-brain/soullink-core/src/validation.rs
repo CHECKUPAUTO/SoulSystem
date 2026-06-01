@@ -99,7 +99,10 @@ mod once_cell_poor_man {
     }
     impl<T, F: Fn() -> T> Lazy<T, F> {
         pub const fn new(init: F) -> Self {
-            Self { cell: OnceLock::new(), init }
+            Self {
+                cell: OnceLock::new(),
+                init,
+            }
         }
     }
     impl<T, F: Fn() -> T> std::ops::Deref for Lazy<T, F> {
@@ -119,8 +122,13 @@ mod tests {
     #[test]
     fn domain_accepts_valid() {
         for s in [
-            "science", "mind_v2", "x1", "ab",
-            "engineer_42", "crypto_beta", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", // 32 ok
+            "science",
+            "mind_v2",
+            "x1",
+            "ab",
+            "engineer_42",
+            "crypto_beta",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", // 32 ok
         ] {
             assert!(valid_brain_domain(s), "should accept: {s}");
         }
@@ -129,25 +137,25 @@ mod tests {
     #[test]
     fn domain_rejects_injections() {
         for s in [
-            "",                              // empty
-            "a",                             // too short (< 2)
-            "1mind",                         // starts digit
-            "Mind",                          // uppercase
-            "mind-v2",                       // dash
-            "mind v2",                       // space
-            "mind;ls",                       // shell meta
-            "mind|cat",                      // pipe
-            "mind`id`",                      // backtick
-            "mind$(whoami)",                 // command subst
-            "mind&&rm",                      // logical AND
-            "../etc/passwd",                 // path traversal
-            "/absolute",                     // absolute path
-            "mind\n",                        // newline
-            "mind\0null",                    // NUL byte
-            "mind\u{200B}",                  // zero-width space
-            "münd",                          // unicode
-            &"a".repeat(33),                 // 33 chars — 1 past limit
-            &"a".repeat(64),                 // very long
+            "",              // empty
+            "a",             // too short (< 2)
+            "1mind",         // starts digit
+            "Mind",          // uppercase
+            "mind-v2",       // dash
+            "mind v2",       // space
+            "mind;ls",       // shell meta
+            "mind|cat",      // pipe
+            "mind`id`",      // backtick
+            "mind$(whoami)", // command subst
+            "mind&&rm",      // logical AND
+            "../etc/passwd", // path traversal
+            "/absolute",     // absolute path
+            "mind\n",        // newline
+            "mind\0null",    // NUL byte
+            "mind\u{200B}",  // zero-width space
+            "münd",          // unicode
+            &"a".repeat(33), // 33 chars — 1 past limit
+            &"a".repeat(64), // very long
         ] {
             assert!(!valid_brain_domain(s), "should reject: {s:?}");
         }
@@ -190,10 +198,12 @@ mod tests {
         //   * Writable     — file is root-owned AND SCRIPT_ROOT absent (clean dev env)
         // What we're asserting is "the hardening function refused this file".
         assert!(
-            matches!(err,
+            matches!(
+                err,
                 ScriptError::OutsideRoot(_)
-                | ScriptError::NotRootOwned(_)
-                | ScriptError::Writable(_)),
+                    | ScriptError::NotRootOwned(_)
+                    | ScriptError::Writable(_)
+            ),
             "unexpected error variant: {err:?}"
         );
         let _ = std::fs::remove_file(&p);
@@ -210,10 +220,12 @@ mod tests {
 
         let err = canonicalize_and_verify_script(&p).unwrap_err();
         assert!(
-            matches!(err,
+            matches!(
+                err,
                 ScriptError::OutsideRoot(_)
-                | ScriptError::NotRootOwned(_)
-                | ScriptError::Writable(_)),
+                    | ScriptError::NotRootOwned(_)
+                    | ScriptError::Writable(_)
+            ),
             "unexpected error variant: {err:?}"
         );
         let _ = std::fs::remove_file(&p);
@@ -237,8 +249,11 @@ mod tests {
             let md = std::fs::metadata(&p).unwrap();
             let actual_mode = md.mode() & 0o7777;
             // Pure predicate check, independent of SCRIPT_ROOT
-            assert_ne!(actual_mode & 0o022, 0,
-                       "mode {mode:o} should have group/world-write bits, got {actual_mode:o}");
+            assert_ne!(
+                actual_mode & 0o022,
+                0,
+                "mode {mode:o} should have group/world-write bits, got {actual_mode:o}"
+            );
             let _ = std::fs::remove_file(&p);
         }
     }

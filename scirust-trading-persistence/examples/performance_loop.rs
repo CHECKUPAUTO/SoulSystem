@@ -81,18 +81,78 @@ async fn main() {
     let base = Utc::now() - Duration::hours(2);
     let scenarios: Vec<(&str, Vec<&str>, Vec<&str>, Side, f64)> = vec![
         // (label, gates, biases, side, exit_price_delta_bps)
-        ("etf bullish 1",       vec![],                     vec!["regulatory_neutral"], Side::Buy,  60.0),
-        ("etf bullish 2",       vec![],                     vec!["regulatory_neutral"], Side::Buy,  45.0),
-        ("etf bullish 3",       vec![],                     vec!["regulatory_neutral"], Side::Buy,  72.0),
-        ("etf bullish 4",       vec![],                     vec!["regulatory_neutral"], Side::Buy,  -8.0),
-        ("vol blowup 1",        vec!["high_volatility"],    vec![],                     Side::Buy,  -45.0),
-        ("vol blowup 2",        vec!["high_volatility"],    vec![],                     Side::Buy,  -32.0),
-        ("vol blowup 3",        vec!["high_volatility"],    vec![],                     Side::Sell, -28.0),
-        ("sec bearish 1",       vec![],                     vec!["regulatory_negative"], Side::Sell, 38.0),
-        ("sec bearish 2",       vec![],                     vec!["regulatory_negative"], Side::Sell, 55.0),
-        ("sec bearish 3",       vec![],                     vec!["regulatory_negative"], Side::Sell, 12.0),
-        ("stop hit 1",          vec![],                     vec![],                     Side::Buy,  -35.0),
-        ("stop hit 2",          vec![],                     vec![],                     Side::Buy,  -42.0),
+        (
+            "etf bullish 1",
+            vec![],
+            vec!["regulatory_neutral"],
+            Side::Buy,
+            60.0,
+        ),
+        (
+            "etf bullish 2",
+            vec![],
+            vec!["regulatory_neutral"],
+            Side::Buy,
+            45.0,
+        ),
+        (
+            "etf bullish 3",
+            vec![],
+            vec!["regulatory_neutral"],
+            Side::Buy,
+            72.0,
+        ),
+        (
+            "etf bullish 4",
+            vec![],
+            vec!["regulatory_neutral"],
+            Side::Buy,
+            -8.0,
+        ),
+        (
+            "vol blowup 1",
+            vec!["high_volatility"],
+            vec![],
+            Side::Buy,
+            -45.0,
+        ),
+        (
+            "vol blowup 2",
+            vec!["high_volatility"],
+            vec![],
+            Side::Buy,
+            -32.0,
+        ),
+        (
+            "vol blowup 3",
+            vec!["high_volatility"],
+            vec![],
+            Side::Sell,
+            -28.0,
+        ),
+        (
+            "sec bearish 1",
+            vec![],
+            vec!["regulatory_negative"],
+            Side::Sell,
+            38.0,
+        ),
+        (
+            "sec bearish 2",
+            vec![],
+            vec!["regulatory_negative"],
+            Side::Sell,
+            55.0,
+        ),
+        (
+            "sec bearish 3",
+            vec![],
+            vec!["regulatory_negative"],
+            Side::Sell,
+            12.0,
+        ),
+        ("stop hit 1", vec![], vec![], Side::Buy, -35.0),
+        ("stop hit 2", vec![], vec![], Side::Buy, -42.0),
     ];
 
     {
@@ -154,11 +214,7 @@ async fn main() {
     );
     println!("    {}", "─".repeat(80));
     for o in &outcomes {
-        let label = format!(
-            "{:?}+{:?}",
-            o.triggered_gates,
-            o.applied_biases
-        );
+        let label = format!("{:?}+{:?}", o.triggered_gates, o.applied_biases);
         println!(
             "    {:<22} {:>10?} {:>+12.1} {:>8} {:>+10.1} {:>+10.1}",
             label,
@@ -174,10 +230,22 @@ async fn main() {
     let stats = api.aggregate_stats(&outcomes);
     println!("\n[3] Stats globales");
     println!("    n              : {}", stats.overall.n);
-    println!("    win rate       : {:.1}%", stats.overall.win_rate * 100.0);
-    println!("    mean return    : {:+.2} bps", stats.overall.mean_return_bps);
-    println!("    median         : {:+.2} bps", stats.overall.median_return_bps);
-    println!("    std            : {:.2} bps", stats.overall.std_return_bps);
+    println!(
+        "    win rate       : {:.1}%",
+        stats.overall.win_rate * 100.0
+    );
+    println!(
+        "    mean return    : {:+.2} bps",
+        stats.overall.mean_return_bps
+    );
+    println!(
+        "    median         : {:+.2} bps",
+        stats.overall.median_return_bps
+    );
+    println!(
+        "    std            : {:.2} bps",
+        stats.overall.std_return_bps
+    );
     println!(
         "    stop-hit rate  : {:.1}%",
         stats.overall.stop_loss_hit_rate * 100.0

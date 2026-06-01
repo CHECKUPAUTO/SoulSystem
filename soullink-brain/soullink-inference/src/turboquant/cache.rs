@@ -52,12 +52,7 @@ pub struct TurboQuantKVCache {
 
 impl TurboQuantKVCache {
     /// Create a new TurboQuant KV cache.
-    pub fn new(
-        num_layers: usize,
-        max_seq_len: usize,
-        head_dim: usize,
-        num_heads: usize,
-    ) -> Self {
+    pub fn new(num_layers: usize, max_seq_len: usize, head_dim: usize, num_heads: usize) -> Self {
         let rot_dim = head_dim * num_heads;
         let rotations: Vec<PolarQuant> = (0..num_layers)
             .map(|i| PolarQuant::new(rot_dim, i as u64 + 42))
@@ -85,26 +80,18 @@ impl TurboQuantKVCache {
     }
 
     /// Compress and store K/V tensors for a range of positions.
-    pub fn store_range(
-        &mut self,
-        layer_idx: usize,
-        start_pos: usize,
-        k: &[f32],
-        v: &[f32],
-    ) {
+    pub fn store_range(&mut self, layer_idx: usize, start_pos: usize, k: &[f32], v: &[f32]) {
         let rot_dim = self.head_dim * self.num_heads;
         let n_rows = k.len() / rot_dim;
         assert!(layer_idx < self.num_layers);
 
         // Compress K
         let k_compressed = self.compress_tensor(k, layer_idx);
-        self.cache_k[layer_idx][..k_compressed.packed.len()]
-            .copy_from_slice(&k_compressed.packed);
-        
+        self.cache_k[layer_idx][..k_compressed.packed.len()].copy_from_slice(&k_compressed.packed);
+
         // Compress V
         let v_compressed = self.compress_tensor(v, layer_idx);
-        self.cache_v[layer_idx][..v_compressed.packed.len()]
-            .copy_from_slice(&v_compressed.packed);
+        self.cache_v[layer_idx][..v_compressed.packed.len()].copy_from_slice(&v_compressed.packed);
 
         // Store scales
         for i in 0..n_rows {
@@ -119,29 +106,29 @@ impl TurboQuantKVCache {
     }
 
     /// Retrieve and decompress K/V for a range of positions.
-    pub fn retrieve_range(
-        &self,
-        layer_idx: usize,
-        positions: &[usize],
-    ) -> (Vec<f32>, Vec<f32>) {
+    pub fn retrieve_range(&self, layer_idx: usize, positions: &[usize]) -> (Vec<f32>, Vec<f32>) {
         let rot_dim = self.head_dim * self.num_heads;
         let n_rows = positions.len();
 
         // Get average scale
-        let k_scale: f32 = positions.iter()
+        let k_scale: f32 = positions
+            .iter()
             .filter(|&&p| p < self.max_seq_len)
             .map(|&p| self.scales_k[layer_idx][p])
             .sum::<f32>()
             / n_rows.max(1) as f32;
-        let v_scale: f32 = positions.iter()
+        let v_scale: f32 = positions
+            .iter()
             .filter(|&&p| p < self.max_seq_len)
             .map(|&p| self.scales_v[layer_idx][p])
             .sum::<f32>()
             / n_rows.max(1) as f32;
 
         // Unpack and decompress
-        let k_values = QJLQuantizer::unpack_3bit(&self.cache_k[layer_idx], n_rows * rot_dim, k_scale);
-        let v_values = QJLQuantizer::unpack_3bit(&self.cache_v[layer_idx], n_rows * rot_dim, v_scale);
+        let k_values =
+            QJLQuantizer::unpack_3bit(&self.cache_k[layer_idx], n_rows * rot_dim, k_scale);
+        let v_values =
+            QJLQuantizer::unpack_3bit(&self.cache_v[layer_idx], n_rows * rot_dim, v_scale);
 
         // Inverse PolarQuant rotation
         let k_original = self.rotations[layer_idx].inverse_rotate_vec(&k_values);
@@ -153,7 +140,7 @@ impl TurboQuantKVCache {
     /// Compress a flat tensor using PolarQuant + QJL + 3-bit packing.
     fn compress_tensor(&self, x: &[f32], layer_idx: usize) -> CompressedTensor {
         let rot_dim = self.head_dim * self.num_heads;
-        
+
         // Phase 1: PolarQuant rotation (for single vector, use vec method)
         let rotated = if x.len() == rot_dim {
             self.rotations[layer_idx].rotate_vec(x)
@@ -188,7 +175,8 @@ impl TurboQuantKVCache {
 
     /// Compression ratio vs FP16 baseline.
     pub fn compression_ratio(&self) -> f64 {
-        let fp16_bytes = self.max_seq_len * self.head_dim * self.num_heads * self.num_layers * 2 * 2; // K+V
+        let fp16_bytes =
+            self.max_seq_len * self.head_dim * self.num_heads * self.num_layers * 2 * 2; // K+V
         let turbo_bytes = self.cache_k[0].len() as u64 * self.num_layers as u64 * 2;
         fp16_bytes as f64 / turbo_bytes as f64
     }
@@ -196,8 +184,13 @@ impl TurboQuantKVCache {
     /// Estimate VRAM savings when used alongside llama.cpp Q4_0 KV.
     /// Q4_0 gives 4x, TurboQuant on evicted pages pushes to effective 6x.
     pub fn effective_vram_savings_mib(&self) -> f64 {
-        let fp16_kv = self.max_seq_len as f64 * self.head_dim as f64 
-            * self.num_heads as f64 * self.num_layers as f64 * 2.0 * 2.0 / (1024.0 * 1024.0);
+        let fp16_kv = self.max_seq_len as f64
+            * self.head_dim as f64
+            * self.num_heads as f64
+            * self.num_layers as f64
+            * 2.0
+            * 2.0
+            / (1024.0 * 1024.0);
         fp16_kv * (1.0 - 1.0 / self.compression_ratio())
     }
 }
@@ -219,10 +212,10 @@ mod tests {
         let rot_dim = 32 * 4;
         let k: Vec<f32> = (0..rot_dim).map(|i| (i as f32) * 0.01).collect();
         let v: Vec<f32> = (0..rot_dim).map(|i| (i as f32) * 0.02).collect();
-        
+
         cache.store_range(0, 0, &k, &v);
         let (k_out, v_out) = cache.retrieve_range(0, &[0]);
-        
+
         assert_eq!(k_out.len(), rot_dim);
         assert_eq!(v_out.len(), rot_dim);
     }
@@ -238,7 +231,10 @@ mod tests {
     fn memory_usage_reasonable() {
         let cache = TurboQuantKVCache::new(4, 1024, 64, 8);
         let mem = cache.memory_usage_mib();
-        assert!(mem > 0.0 && mem < 100.0, "Memory usage out of range: {mem} MiB");
+        assert!(
+            mem > 0.0 && mem < 100.0,
+            "Memory usage out of range: {mem} MiB"
+        );
     }
 
     #[test]

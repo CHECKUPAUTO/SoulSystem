@@ -16,13 +16,13 @@ impl OnaeuBridge {
         }
     }
 
-    pub async fn mutate(&self,
-        action: &str,
-    ) -> Result<String, String> {
-        let resp = self.client
+    pub async fn mutate(&self, action: &str) -> Result<String, String> {
+        let resp = self
+            .client
             .post(format!("{}/mutate", self.url))
             .json(&json!({"action": action, "params": {}}))
-            .send().await
+            .send()
+            .await
             .map_err(|e| format!("HTTP error: {}", e))?;
 
         if resp.status().is_success() {
@@ -35,11 +35,12 @@ impl OnaeuBridge {
     }
 
     #[allow(dead_code)]
-    pub async fn state(&self,
-    ) -> Result<serde_json::Value, String> {
-        let resp = self.client
+    pub async fn state(&self) -> Result<serde_json::Value, String> {
+        let resp = self
+            .client
             .get(format!("{}/state", self.url))
-            .send().await
+            .send()
+            .await
             .map_err(|e| format!("HTTP error: {}", e))?;
 
         if resp.status().is_success() {

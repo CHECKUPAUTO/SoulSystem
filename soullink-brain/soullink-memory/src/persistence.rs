@@ -32,7 +32,11 @@ pub fn persist_graph(
     // Write edges
     for (a, b, weight) in edges {
         let key = format!("{}{}:{}", EDGE_PREFIX, a.index(), b.index());
-        let record = EdgeRecord { a: a.index(), b: b.index(), weight: *weight };
+        let record = EdgeRecord {
+            a: a.index(),
+            b: b.index(),
+            weight: *weight,
+        };
         let val = bincode::serialize(&record).context("serializing edge")?;
         db.insert(key.as_bytes(), val)?;
     }
@@ -67,7 +71,8 @@ pub fn load_from_db(db: &Db) -> Result<(Vec<(usize, Concept)>, Vec<EdgeRecord>)>
 }
 
 fn clear_prefix(db: &Db, prefix: &str) -> Result<()> {
-    let keys: Vec<Vec<u8>> = db.scan_prefix(prefix.as_bytes())
+    let keys: Vec<Vec<u8>> = db
+        .scan_prefix(prefix.as_bytes())
         .filter_map(|item| item.ok())
         .map(|(k, _)| k.to_vec())
         .collect();

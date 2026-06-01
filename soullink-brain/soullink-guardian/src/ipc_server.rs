@@ -39,8 +39,8 @@ use soullink_core::{ipc::write_frame, SystemSnapshot};
 
 pub struct IpcServer {
     socket_path: PathBuf,
-    state:       Arc<ArcSwap<SystemSnapshot>>,
-    shutdown:    broadcast::Receiver<()>,
+    state: Arc<ArcSwap<SystemSnapshot>>,
+    shutdown: broadcast::Receiver<()>,
 }
 
 impl IpcServer {
@@ -78,10 +78,8 @@ impl IpcServer {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(
-                &self.socket_path,
-                std::fs::Permissions::from_mode(0o600),
-            );
+            let _ =
+                std::fs::set_permissions(&self.socket_path, std::fs::Permissions::from_mode(0o600));
         }
 
         info!(path = %self.socket_path.display(), "IpcServer listening (UDS, MsgPack frames)");

@@ -154,8 +154,11 @@ mod tests {
         let y = ln.forward(&tape, x).hadamard(w).sum();
         y.backward();
         let g = tape.grad(x_idx);
-        assert!(g.data.iter().any(|&v| v.abs() > 1e-6),
-            "gradient should be non-zero: got {:?}", g.data);
+        assert!(
+            g.data.iter().any(|&v| v.abs() > 1e-6),
+            "gradient should be non-zero: got {:?}",
+            g.data
+        );
     }
 
     #[test]

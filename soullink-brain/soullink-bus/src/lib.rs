@@ -3,8 +3,8 @@
 //! Each module subscribes to relevant event types and processes them
 //! in its own tokio task. The bus decouples producers from consumers.
 
-pub mod event;
 pub mod bus;
+pub mod event;
 
 pub use bus::EventBus;
 pub use event::{BusEvent, BusEventKind};

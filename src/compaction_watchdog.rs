@@ -63,9 +63,12 @@ impl ContextState {
     /// Formate l'état en texte injectable dans le contexte.
     pub fn format_for_context(&self) -> String {
         let mut buf = String::from("## État précédent (récupéré après compaction)\n\n");
-        buf.push_str(&format!("**Sauvegardé le**: {}\n\n", chrono::DateTime::from_timestamp_millis(self.saved_at_ms)
-            .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
-            .unwrap_or_else(|| "inconnu".into())));
+        buf.push_str(&format!(
+            "**Sauvegardé le**: {}\n\n",
+            chrono::DateTime::from_timestamp_millis(self.saved_at_ms)
+                .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_else(|| "inconnu".into())
+        ));
 
         if !self.session_goal.is_empty() {
             buf.push_str(&format!("**Objectif**: {}\n\n", self.session_goal));
@@ -211,15 +214,15 @@ impl CompactionWatchdog {
         match tokio::fs::read_to_string(&self.state_path).await {
             Ok(json) => {
                 let state: ContextState = serde_json::from_str(&json)?;
-                info!("CompactionWatchdog: état précédent restauré (sauvé le {})",
+                info!(
+                    "CompactionWatchdog: état précédent restauré (sauvé le {})",
                     chrono::DateTime::from_timestamp_millis(state.saved_at_ms)
                         .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
-                        .unwrap_or_else(|| "inconnu".into()));
+                        .unwrap_or_else(|| "inconnu".into())
+                );
                 Ok(Some(state))
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Ok(None)
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }
     }
@@ -304,9 +307,9 @@ impl CompactionWatchdog {
 
     /// Boucle de surveillance principale.
     pub async fn run(&self) {
-        let mut interval = tokio::time::interval(
-            tokio::time::Duration::from_secs(self.config.check_interval_secs)
-        );
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(
+            self.config.check_interval_secs,
+        ));
         loop {
             interval.tick().await;
 

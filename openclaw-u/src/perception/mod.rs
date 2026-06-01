@@ -1,7 +1,7 @@
 //! Perception — lecture de l'état réel du système (mise à jour V13)
 
-use tokio::process::Command;
 use serde::{Deserialize, Serialize};
+use tokio::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemSnapshot {
@@ -62,10 +62,18 @@ impl SystemSnapshot {
         let hnn_healthy = hnn_online >= 10;
 
         let mut pending = Vec::new();
-        if cpu > 80.0 { pending.push(format!("CPU: {:.0}%", cpu)); }
-        if mem > 90.0 { pending.push(format!("MEM: {:.0}%", mem)); }
-        if disk > 85.0 { pending.push(format!("DISK: {:.0}%", disk)); }
-        if hnn_online < 6 { pending.push(format!("HNN: {}/9 organs", hnn_online)); }
+        if cpu > 80.0 {
+            pending.push(format!("CPU: {:.0}%", cpu));
+        }
+        if mem > 90.0 {
+            pending.push(format!("MEM: {:.0}%", mem));
+        }
+        if disk > 85.0 {
+            pending.push(format!("DISK: {:.0}%", disk));
+        }
+        if hnn_online < 6 {
+            pending.push(format!("HNN: {}/9 organs", hnn_online));
+        }
 
         Self {
             timestamp: chrono::Utc::now().to_rfc3339(),
@@ -110,7 +118,9 @@ impl SystemSnapshot {
 
         match tokio::fs::read_to_string("/proc/loadavg").await {
             Ok(content) => {
-                let load = content.split_whitespace().next()
+                let load = content
+                    .split_whitespace()
+                    .next()
                     .and_then(|v| v.parse::<f32>().ok())
                     .unwrap_or(0.0);
                 (load * 100.0 / n_cores).min(100.0)
@@ -126,12 +136,16 @@ impl SystemSnapshot {
                 let mut available = 0.0;
                 for line in content.lines() {
                     if line.starts_with("MemTotal:") {
-                        total = line.split_whitespace().nth(1)
+                        total = line
+                            .split_whitespace()
+                            .nth(1)
                             .and_then(|v| v.parse::<f32>().ok())
                             .unwrap_or(0.0);
                     }
                     if line.starts_with("MemAvailable:") {
-                        available = line.split_whitespace().nth(1)
+                        available = line
+                            .split_whitespace()
+                            .nth(1)
                             .and_then(|v| v.parse::<f32>().ok())
                             .unwrap_or(0.0);
                     }
@@ -147,10 +161,15 @@ impl SystemSnapshot {
     }
 
     async fn read_disk() -> f32 {
-        match Command::new("df").args(["--output=pcent", "/"]).output().await {
+        match Command::new("df")
+            .args(["--output=pcent", "/"])
+            .output()
+            .await
+        {
             Ok(o) if o.status.success() => {
                 let s = String::from_utf8_lossy(&o.stdout);
-                s.lines().nth(1)
+                s.lines()
+                    .nth(1)
                     .map(|l| l.trim_end_matches('%').trim().parse::<f32>().unwrap_or(0.0))
                     .unwrap_or(0.0)
             }
@@ -160,13 +179,27 @@ impl SystemSnapshot {
 
     async fn count_services() -> (u32, u32) {
         let services = [
-            "onaeu", "clawd-daemon", "soullink-sleep", "soullink-memory",
-            "soullink-orchestrator", "research-agent", "openclaw-u",
-            "sl13-brain-science", "sl13-brain-mind", "sl13-brain-engineer",
-            "sl13-brain-crypto", "sl13-brain-creative", "sl13-brain-meta",
-            "sl13-mod-decision_engine", "sl13-memory",
-            "soullink-foresight", "soullink-homeostasis", "soullink-creativity",
-            "soullink-social", "soullink-validation", "soullink-autonomy",
+            "onaeu",
+            "clawd-daemon",
+            "soullink-sleep",
+            "soullink-memory",
+            "soullink-orchestrator",
+            "research-agent",
+            "openclaw-u",
+            "sl13-brain-science",
+            "sl13-brain-mind",
+            "sl13-brain-engineer",
+            "sl13-brain-crypto",
+            "sl13-brain-creative",
+            "sl13-brain-meta",
+            "sl13-mod-decision_engine",
+            "sl13-memory",
+            "soullink-foresight",
+            "soullink-homeostasis",
+            "soullink-creativity",
+            "soullink-social",
+            "soullink-validation",
+            "soullink-autonomy",
             "soullink-nla",
         ];
 
@@ -195,11 +228,14 @@ impl SystemSnapshot {
         match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
-            .send().await
+            .send()
+            .await
         {
             Ok(r) => {
                 if let Ok(json) = r.json::<serde_json::Value>().await {
-                    json.get("cycle_count").and_then(|v| v.as_u64()).unwrap_or(0)
+                    json.get("cycle_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0)
                 } else {
                     0
                 }
@@ -212,9 +248,12 @@ impl SystemSnapshot {
         match client
             .get("http://127.0.0.1:7878/state")
             .timeout(std::time::Duration::from_secs(3))
-            .send().await
+            .send()
+            .await
         {
-            Ok(r) => r.json::<serde_json::Value>().await
+            Ok(r) => r
+                .json::<serde_json::Value>()
+                .await
                 .ok()
                 .and_then(|j| j.get("last_entropy")?.as_f64())
                 .unwrap_or(0.0),
@@ -228,7 +267,8 @@ impl SystemSnapshot {
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({"query": "{ Aggregate { Memory { meta { count } } } }" }))
             .timeout(std::time::Duration::from_secs(5))
-            .send().await
+            .send()
+            .await
         {
             Ok(r) => {
                 if let Ok(json) = r.json::<serde_json::Value>().await {
@@ -241,7 +281,9 @@ impl SystemSnapshot {
                         .and_then(|meta| meta.get("count"))
                         .and_then(|c| c.as_u64())
                         .unwrap_or(0)
-                } else { 0 }
+                } else {
+                    0
+                }
             }
             _ => 0,
         }
@@ -251,7 +293,8 @@ impl SystemSnapshot {
         match client
             .get("http://127.0.0.1:11434/api/tags")
             .timeout(std::time::Duration::from_secs(3))
-            .send().await
+            .send()
+            .await
         {
             Ok(r) => r.status().is_success(),
             _ => false,
@@ -262,7 +305,8 @@ impl SystemSnapshot {
         match client
             .get("http://127.0.0.1:9020/api/mesh/status")
             .timeout(std::time::Duration::from_secs(2))
-            .send().await
+            .send()
+            .await
         {
             Ok(r) => r.status().is_success(),
             _ => false,
@@ -273,11 +317,13 @@ impl SystemSnapshot {
         match client
             .get("http://127.0.0.1:9046/api/autonomy/status")
             .timeout(std::time::Duration::from_secs(2))
-            .send().await
+            .send()
+            .await
         {
-            Ok(r) if r.status().is_success() => {
-                r.json::<serde_json::Value>().await.unwrap_or(serde_json::json!({}))
-            }
+            Ok(r) if r.status().is_success() => r
+                .json::<serde_json::Value>()
+                .await
+                .unwrap_or(serde_json::json!({})),
             _ => serde_json::json!({}),
         }
     }
@@ -288,25 +334,27 @@ impl SystemSnapshot {
             .output()
             .await
         {
-            Ok(o) if o.status.success() => {
-                String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().unwrap_or(0)
-            }
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse::<u32>()
+                .unwrap_or(0),
             _ => 0,
         }
     }
 
     async fn read_open_ports() -> Vec<u16> {
         match Command::new("sh")
-            .args(["-c", "ss -tlnp | grep LISTEN | awk '{print $4}' | awk -F: '{print $NF}' | sort -un"])
+            .args([
+                "-c",
+                "ss -tlnp | grep LISTEN | awk '{print $4}' | awk -F: '{print $NF}' | sort -un",
+            ])
             .output()
             .await
         {
-            Ok(o) if o.status.success() => {
-                String::from_utf8_lossy(&o.stdout)
-                    .lines()
-                    .filter_map(|l| l.parse::<u16>().ok())
-                    .collect()
-            }
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter_map(|l| l.parse::<u16>().ok())
+                .collect(),
             _ => Vec::new(),
         }
     }

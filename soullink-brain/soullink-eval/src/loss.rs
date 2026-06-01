@@ -90,18 +90,34 @@ mod tests {
         let loss = SemanticLoss::default();
         let v = embed(1.0, 128);
         let result = loss.compute(&v, &v);
-        assert!(result.loss < 0.01, "loss for identical vectors should be ≈0, got {}", result.loss);
-        assert!(result.similarity > 0.99, "similarity for identical vectors should be ≈1");
+        assert!(
+            result.loss < 0.01,
+            "loss for identical vectors should be ≈0, got {}",
+            result.loss
+        );
+        assert!(
+            result.similarity > 0.99,
+            "similarity for identical vectors should be ≈1"
+        );
     }
 
     #[test]
     fn orthogonal_vectors_high_loss() {
         let loss = SemanticLoss::default();
-        let mut a = vec![0.0f32; 128]; a[0] = 1.0;
-        let mut b = vec![0.0f32; 128]; b[1] = 1.0;
+        let mut a = vec![0.0f32; 128];
+        a[0] = 1.0;
+        let mut b = vec![0.0f32; 128];
+        b[1] = 1.0;
         let result = loss.compute(&a, &b);
-        assert!(result.loss > 0.9, "loss for orthogonal vectors should be ≈1, got {}", result.loss);
-        assert!(result.similarity.abs() < 0.1, "similarity for orthogonal vectors should be ≈0");
+        assert!(
+            result.loss > 0.9,
+            "loss for orthogonal vectors should be ≈1, got {}",
+            result.loss
+        );
+        assert!(
+            result.similarity.abs() < 0.1,
+            "similarity for orthogonal vectors should be ≈0"
+        );
     }
 
     #[test]
@@ -120,7 +136,10 @@ mod tests {
         let b = embed(5.0, 64);
         let result = loss.compute(&a, &b);
         // Different vectors: loss > 0, adjustment > 0
-        assert!(result.loss > 0.0, "loss should be > 0 for different vectors");
+        assert!(
+            result.loss > 0.0,
+            "loss should be > 0 for different vectors"
+        );
         assert!(result.adjustment > 0.0, "adjustment should be > 0");
         // adjustment = loss × 0.05
         assert!((result.adjustment - result.loss * 0.05).abs() < 0.001);
@@ -140,12 +159,15 @@ mod tests {
     fn batch_computation_matches_individual() {
         let loss = SemanticLoss::default();
         let pairs: Vec<(Vec<f32>, Vec<f32>)> = vec![
-            (embed(1.0, 64), embed(1.0, 64)),  // identical
-            (embed(1.0, 64), embed(5.0, 64)),  // different
+            (embed(1.0, 64), embed(1.0, 64)), // identical
+            (embed(1.0, 64), embed(5.0, 64)), // different
         ];
         let batch = loss.compute_batch(&pairs);
         assert_eq!(batch.len(), 2);
-        assert!(batch[0].loss < batch[1].loss, "identical pair should have lower loss");
+        assert!(
+            batch[0].loss < batch[1].loss,
+            "identical pair should have lower loss"
+        );
     }
 
     #[test]
@@ -164,11 +186,17 @@ mod tests {
         }
         let result2 = loss.compute(&base, &reinforced);
 
-        assert!(result2.similarity > result1.similarity,
+        assert!(
+            result2.similarity > result1.similarity,
             "reinforced similarity ({}) should be > original ({})",
-            result2.similarity, result1.similarity);
-        assert!(result2.loss < result1.loss,
+            result2.similarity,
+            result1.similarity
+        );
+        assert!(
+            result2.loss < result1.loss,
             "reinforced loss ({}) should be < original ({})",
-            result2.loss, result1.loss);
+            result2.loss,
+            result1.loss
+        );
     }
 }

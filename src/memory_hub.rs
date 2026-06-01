@@ -13,8 +13,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
 
-use soullink_memory::graph::MemoryGraph;
 use soullink_memory::concept::{Concept, ConceptKind};
+use soullink_memory::graph::MemoryGraph;
 use soullink_memory::DecayConfig;
 use soullink_rag::pipeline::PipelineConfig;
 
@@ -22,19 +22,29 @@ pub type MemoryEventFn = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 
 // ── SimpleEmbedder ────────────────────────────────────────────────────
 
-struct SimpleEmbedder { dim: usize, seeds: [u64; 8] }
+struct SimpleEmbedder {
+    dim: usize,
+    seeds: [u64; 8],
+}
 
 impl SimpleEmbedder {
     fn new(dim: usize) -> Self {
-        Self { dim, seeds: [42, 137, 251, 491, 773, 1021, 1301, 1607] }
+        Self {
+            dim,
+            seeds: [42, 137, 251, 491, 773, 1021, 1301, 1607],
+        }
     }
     fn embed(&self, text: &str) -> Vec<f32> {
-        if text.is_empty() { return vec![0.0; self.dim]; }
+        if text.is_empty() {
+            return vec![0.0; self.dim];
+        }
         use std::hash::{Hash, Hasher};
         let chars: Vec<char> = text.chars().collect();
         let mut vec = vec![0.0f32; self.dim];
         for n in 2..=4usize {
-            if n > chars.len() { continue; }
+            if n > chars.len() {
+                continue;
+            }
             for i in 0..=(chars.len() - n) {
                 let ngram: String = chars[i..i + n].iter().collect();
                 let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -50,7 +60,11 @@ impl SimpleEmbedder {
             }
         }
         let norm: f32 = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm > 0.0 { for x in &mut vec { *x /= norm; } }
+        if norm > 0.0 {
+            for x in &mut vec {
+                *x /= norm;
+            }
+        }
         vec
     }
 }
@@ -78,10 +92,8 @@ impl MemoryHub {
         let vector = SoulMemory::new().expect("SoulMemory doit s'initialiser");
         info!("MemoryHub: soul-memory actif");
 
-        let graph = match MemoryGraph::open(
-            &data_dir.join("concept_graph"),
-            DecayConfig::default(),
-        ) {
+        let graph = match MemoryGraph::open(&data_dir.join("concept_graph"), DecayConfig::default())
+        {
             Ok(g) => {
                 info!("MemoryHub: graphe conceptuel actif (soullink-memory)");
                 Some(Arc::new(RwLock::new(g)))
@@ -93,8 +105,12 @@ impl MemoryHub {
         };
 
         let rag_config = Some(PipelineConfig {
-            embed_model: "nomic-embed-text".into(), embed_dim: 768,
-            dedup_threshold: 0.92, max_chunks: 20, chunk_size: 512, chunk_overlap: 64,
+            embed_model: "nomic-embed-text".into(),
+            embed_dim: 768,
+            dedup_threshold: 0.92,
+            max_chunks: 20,
+            chunk_size: 512,
+            chunk_overlap: 64,
         });
 
         // Ouvrir le journal de versionnement depuis le fichier persistant
@@ -103,12 +119,18 @@ impl MemoryHub {
         if let Ok(content) = std::fs::read_to_string(&journal_path) {
             if let Ok(entries) = serde_json::from_str::<Vec<VersionEntry>>(&content) {
                 *version_journal.blocking_write() = entries;
-                info!("MemoryHub: journal de version chargé ({} entrées)", version_journal.blocking_read().len());
+                info!(
+                    "MemoryHub: journal de version chargé ({} entrées)",
+                    version_journal.blocking_read().len()
+                );
             }
         }
 
         Self {
-            vector, graph, rag_config, on_event: None,
+            vector,
+            graph,
+            rag_config,
+            on_event: None,
             version_journal,
             default_privacy: PrivacyLevel::Private,
         }
@@ -128,7 +150,9 @@ impl MemoryHub {
     }
 
     fn emit(&self, kind: &str, payload: serde_json::Value) {
-        if let Some(ref cb) = self.on_event { cb(kind, payload); }
+        if let Some(ref cb) = self.on_event {
+            cb(kind, payload);
+        }
     }
 
     // ── Versioning (Résil A) ──────────────────────────────────────────
@@ -146,7 +170,8 @@ impl MemoryHub {
             operation: op.to_string(),
             text_preview: text.chars().take(100).collect(),
             metadata_summary: metadata.get("tag").cloned().unwrap_or_default(),
-            privacy: metadata.get("privacy")
+            privacy: metadata
+                .get("privacy")
                 .and_then(|v| v.parse::<PrivacyLevel>().ok())
                 .unwrap_or(self.default_privacy),
         };
@@ -173,17 +198,24 @@ impl MemoryHub {
     }
 
     /// Filtre les résultats de recherche par niveau de confidentialité.
-    pub fn filter_by_privacy(results: Vec<SearchResult>, min_level: PrivacyLevel) -> Vec<SearchResult> {
-        results.into_iter().filter(|r| {
-            // Les résultats du vector store n'ont pas de label de privacy directement
-            // On filtre au niveau des métadonnées lors du store
-            true // Pour l'instant, passe tout (filtrage via métadonnées)
-        }).collect()
+    pub fn filter_by_privacy(
+        results: Vec<SearchResult>,
+        min_level: PrivacyLevel,
+    ) -> Vec<SearchResult> {
+        results
+            .into_iter()
+            .filter(|r| {
+                // Les résultats du vector store n'ont pas de label de privacy directement
+                // On filtre au niveau des métadonnées lors du store
+                true // Pour l'instant, passe tout (filtrage via métadonnées)
+            })
+            .collect()
     }
 
     /// Ajoute le label de privacy aux métadonnées si absent.
     fn ensure_privacy_label(metadata: &mut HashMap<String, String>, default: PrivacyLevel) {
-        metadata.entry("privacy".into())
+        metadata
+            .entry("privacy".into())
             .or_insert_with(|| default.to_string());
     }
 
@@ -200,7 +232,10 @@ impl MemoryHub {
         // Enregistrer la version
         self.record_version("store", text, &metadata).await;
 
-        self.emit("stored", serde_json::json!({"text": text, "metadata": metadata}));
+        self.emit(
+            "stored",
+            serde_json::json!({"text": text, "metadata": metadata}),
+        );
         Ok(())
     }
 
@@ -210,7 +245,11 @@ impl MemoryHub {
         // 1. SoulMemory (vectoriel)
         if let Ok(hits) = self.vector.search(query, top_k).await {
             for (text, score) in hits {
-                results.push(SearchResult { text, score, source: "vector" });
+                results.push(SearchResult {
+                    text,
+                    score,
+                    source: "vector",
+                });
             }
         }
 
@@ -218,7 +257,11 @@ impl MemoryHub {
         if let Some(ref graph) = self.graph {
             let qv = SimpleEmbedder::new(64).embed(query);
             for r in &graph.read().await.search(&qv, top_k) {
-                results.push(SearchResult { text: r.label.clone(), score: r.score, source: "graph" });
+                results.push(SearchResult {
+                    text: r.label.clone(),
+                    score: r.score,
+                    source: "graph",
+                });
             }
         }
 
@@ -230,7 +273,9 @@ impl MemoryHub {
 
     pub async fn get_context(&self, query: &str, limit: usize) -> String {
         let results = self.search(query, limit).await;
-        if results.is_empty() { return String::new(); }
+        if results.is_empty() {
+            return String::new();
+        }
         let mut ctx = String::from("Contexte memoire:\n");
         for (i, r) in results.iter().enumerate() {
             ctx.push_str(&format!("[{}] ({}) {}\n", i, r.source, r.text));
@@ -240,13 +285,22 @@ impl MemoryHub {
 
     pub async fn decay_and_prune(&self, threshold: f32, decay: f32, max: usize) {
         let _ = self.vector.decay_and_prune(threshold, decay, max);
-        if let Some(ref graph) = self.graph { let _ = graph.write().await.decay_all(); }
-        self.emit("decayed", serde_json::json!({"threshold": threshold, "max": max}));
+        if let Some(ref graph) = self.graph {
+            let _ = graph.write().await.decay_all();
+        }
+        self.emit(
+            "decayed",
+            serde_json::json!({"threshold": threshold, "max": max}),
+        );
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct SearchResult { pub text: String, pub score: f32, pub source: &'static str }
+pub struct SearchResult {
+    pub text: String,
+    pub score: f32,
+    pub source: &'static str,
+}
 
 fn classify_text(_text: &str, meta: &HashMap<String, String>) -> ConceptKind {
     if let Some(tag) = meta.get("tag") {
@@ -357,7 +411,9 @@ mod tests {
     async fn test_store_and_search() {
         let dir = tempfile::TempDir::new().unwrap();
         let hub = MemoryHub::new(dir.path()).await;
-        hub.store("Le chat noir dort", HashMap::new()).await.unwrap();
+        hub.store("Le chat noir dort", HashMap::new())
+            .await
+            .unwrap();
         assert!(!hub.search("chat noir", 5).await.is_empty());
     }
     #[tokio::test]
@@ -367,7 +423,9 @@ mod tests {
         let fired = Arc::new(AtomicBool::new(false));
         let f = fired.clone();
         hub.set_event_callback(Arc::new(move |kind, _| {
-            if kind == "stored" { f.store(true, Ordering::SeqCst); }
+            if kind == "stored" {
+                f.store(true, Ordering::SeqCst);
+            }
         }));
         hub.store("test", HashMap::new()).await.unwrap();
         assert!(fired.load(Ordering::SeqCst));

@@ -15,8 +15,8 @@
 
 pub mod config;
 pub mod proxy;
-pub mod tls;
 pub mod routes;
+pub mod tls;
 
 pub use config::ProxyConfig;
 pub use proxy::ProxyServer;

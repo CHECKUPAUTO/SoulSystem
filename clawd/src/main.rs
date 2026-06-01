@@ -1,7 +1,7 @@
-use clawd::{ClawdContext, Settings, run_bot};
-use std::sync::Arc;
 use axum::{routing::get, Router};
+use clawd::{run_bot, ClawdContext, Settings};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -11,8 +11,7 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    let bot_token = std::env::var("TELEGRAM_BOT_TOKEN")
-        .expect("TELEGRAM_BOT_TOKEN must be set");
+    let bot_token = std::env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN must be set");
 
     let bus = Arc::new(bus::Bus::new(256));
     let settings = Settings {

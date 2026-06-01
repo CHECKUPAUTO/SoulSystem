@@ -64,16 +64,19 @@ impl Default for ShellExecutor {
 
 #[async_trait::async_trait]
 impl AsyncTool for ShellExecutor {
-    fn name(&self) -> &str { "shell" }
+    fn name(&self) -> &str {
+        "shell"
+    }
 
     fn validate(&self, input: &str) -> Result<(), ToolError> {
         if input.trim().is_empty() {
             return Err(ToolError::ValidationFailed("empty command".into()));
         }
         if Self::is_dangerous(input) {
-            return Err(ToolError::PermissionDenied(
-                format!("command contains dangerous pattern: {}", input)
-            ));
+            return Err(ToolError::PermissionDenied(format!(
+                "command contains dangerous pattern: {}",
+                input
+            )));
         }
         Ok(())
     }
@@ -89,13 +92,10 @@ impl AsyncTool for ShellExecutor {
             cmd.current_dir(dir);
         }
 
-        let output = tokio::time::timeout(
-            Duration::from_secs(self.timeout_secs),
-            cmd.output(),
-        )
-        .await
-        .map_err(|_| ToolError::Timeout(self.timeout_secs))?
-        .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        let output = tokio::time::timeout(Duration::from_secs(self.timeout_secs), cmd.output())
+            .await
+            .map_err(|_| ToolError::Timeout(self.timeout_secs))?
+            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
@@ -150,7 +150,7 @@ mod tests {
         let result = exec.execute("sleep 10").await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ToolError::Timeout(_) => {}, // expected
+            ToolError::Timeout(_) => {} // expected
             e => panic!("expected Timeout, got {:?}", e),
         }
     }

@@ -21,8 +21,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub async fn execute(&self,
-    ) -> Result<String, String> {
+    pub async fn execute(&self) -> Result<String, String> {
         match self {
             Action::RestartService(svc) => {
                 info!("🔄 Restart service: {}", svc);
@@ -37,7 +36,10 @@ impl Action {
                 let cmds = vec![
                     ("sync && echo 3 > /proc/sys/vm/drop_caches", "drop caches"),
                     ("journalctl --vacuum-time=7d", "vacuum logs"),
-                    ("find /tmp -type f -atime +7 -delete 2>/dev/null || true", "cleanup /tmp"),
+                    (
+                        "find /tmp -type f -atime +7 -delete 2>/dev/null || true",
+                        "cleanup /tmp",
+                    ),
                 ];
                 let mut results = Vec::new();
                 for (cmd, desc) in cmds {
@@ -50,11 +52,19 @@ impl Action {
             }
             Action::CheckpointState => {
                 info!("💾 Checkpoint state");
-                let _ = Command::new("cp").args(["/tmp/openclaw_u_state.json", "/tmp/openclaw_u_state.json.bak"]).output();
+                let _ = Command::new("cp")
+                    .args([
+                        "/tmp/openclaw_u_state.json",
+                        "/tmp/openclaw_u_state.json.bak",
+                    ])
+                    .output();
                 Ok("State backed up".into())
             }
             Action::IndexMemory(content) => {
-                info!("🔬 Indexing memory: {}", content.chars().take(50).collect::<String>());
+                info!(
+                    "🔬 Indexing memory: {}",
+                    content.chars().take(50).collect::<String>()
+                );
                 // Call Weaviate via HTTP
                 match reqwest::Client::new()
                     .post("http://127.0.0.1:8086/v1/objects")
@@ -70,7 +80,8 @@ impl Action {
                         }
                     }))
                     .timeout(std::time::Duration::from_secs(5))
-                    .send().await
+                    .send()
+                    .await
                 {
                     Ok(r) if r.status().is_success() => Ok("Memory indexed in Weaviate".into()),
                     Ok(r) => Err(format!("Weaviate error: {}", r.status())),
@@ -91,9 +102,12 @@ impl Action {
                     .post("http://127.0.0.1:7878/clawd/research")
                     .json(&serde_json::json!({"topic": query, "max_papers": 3}))
                     .timeout(std::time::Duration::from_secs(10))
-                    .send().await
+                    .send()
+                    .await
                 {
-                    Ok(r) if r.status().is_success() => Ok(format!("Research triggered: {}", query)),
+                    Ok(r) if r.status().is_success() => {
+                        Ok(format!("Research triggered: {}", query))
+                    }
                     _ => Ok(format!("Research queued: {}", query)),
                 }
             }
@@ -104,7 +118,11 @@ impl Action {
                         let out = String::from_utf8_lossy(&o.stdout);
                         Ok(out.trim().to_string())
                     }
-                    Ok(o) => Err(format!("Exit {}: {}", o.status, String::from_utf8_lossy(&o.stderr))),
+                    Ok(o) => Err(format!(
+                        "Exit {}: {}",
+                        o.status,
+                        String::from_utf8_lossy(&o.stderr)
+                    )),
                     Err(e) => Err(format!("Error: {}", e)),
                 }
             }
@@ -116,9 +134,15 @@ impl Action {
             Action::BlockIp(ip) => {
                 info!("🛡️  Blocking IP: {}", ip);
                 // Implementation using iptables (requires root)
-                match Command::new("iptables").args(["-A", "INPUT", "-s", ip, "-j", "DROP"]).output() {
+                match Command::new("iptables")
+                    .args(["-A", "INPUT", "-s", ip, "-j", "DROP"])
+                    .output()
+                {
                     Ok(o) if o.status.success() => Ok(format!("IP {} blocked via iptables", ip)),
-                    Ok(o) => Err(format!("iptables failed: {}", String::from_utf8_lossy(&o.stderr))),
+                    Ok(o) => Err(format!(
+                        "iptables failed: {}",
+                        String::from_utf8_lossy(&o.stderr)
+                    )),
                     Err(e) => Err(format!("Error executing iptables: {}", e)),
                 }
             }
@@ -126,9 +150,15 @@ impl Action {
                 info!("⚡ Tuning GPU Power Limit to {}W", watts);
                 // In a real industrial scenario, we would use the NvmlBridge here.
                 // For this research environment, we use nvidia-smi if available.
-                match Command::new("nvidia-smi").args(["-pl", &watts.to_string()]).output() {
+                match Command::new("nvidia-smi")
+                    .args(["-pl", &watts.to_string()])
+                    .output()
+                {
                     Ok(o) if o.status.success() => Ok(format!("GPU Power Limit set to {}W", watts)),
-                    Ok(o) => Err(format!("nvidia-smi failed: {}", String::from_utf8_lossy(&o.stderr))),
+                    Ok(o) => Err(format!(
+                        "nvidia-smi failed: {}",
+                        String::from_utf8_lossy(&o.stderr)
+                    )),
                     Err(e) => Err(format!("Error executing nvidia-smi: {}", e)),
                 }
             }
@@ -140,7 +170,9 @@ impl Action {
 
                 match std::fs::write(&tool_path, script) {
                     Ok(_) => {
-                        let _ = Command::new("chmod").args(["+x", tool_path.to_str().unwrap()]).output();
+                        let _ = Command::new("chmod")
+                            .args(["+x", tool_path.to_str().unwrap()])
+                            .output();
                         Ok(format!("Tool '{}' created and authorized", name))
                     }
                     Err(e) => Err(format!("Failed to write tool: {}", e)),
@@ -152,13 +184,19 @@ impl Action {
                     .post("http://127.0.0.1:9047/api/mesh/explain")
                     .json(&serde_json::json!({"organ": organ}))
                     .timeout(std::time::Duration::from_secs(5))
-                    .send().await
+                    .send()
+                    .await
                 {
                     Ok(r) if r.status().is_success() => {
                         if let Ok(json) = r.json::<serde_json::Value>().await {
-                            let exp = json.get("explanation").and_then(|v| v.as_str()).unwrap_or("?");
+                            let exp = json
+                                .get("explanation")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?");
                             Ok(format!("NLA [{}]: {}", organ, exp))
-                        } else { Ok("NLA parse error".into()) }
+                        } else {
+                            Ok("NLA parse error".into())
+                        }
                     }
                     _ => Err("NLA Bridge unreachable".into()),
                 }
@@ -170,7 +208,10 @@ impl Action {
                         let out = String::from_utf8_lossy(&o.stdout);
                         Ok(format!("Claudex SUCCESS: {}", out.trim()))
                     }
-                    Ok(o) => Err(format!("Claudex FAILED: {}", String::from_utf8_lossy(&o.stderr))),
+                    Ok(o) => Err(format!(
+                        "Claudex FAILED: {}",
+                        String::from_utf8_lossy(&o.stderr)
+                    )),
                     Err(e) => Err(format!("Claudex Error: {}", e)),
                 }
             }

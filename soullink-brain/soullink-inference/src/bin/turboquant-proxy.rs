@@ -13,8 +13,8 @@
 //!   GET  /health               → health check
 //!   GET  /stats                → compression + usage stats
 
+use soullink_inference::turboquant::proxy::router::{build_router, AppState};
 use soullink_inference::turboquant::proxy::server::{ProxyConfig, TurboQuantProxy};
-use soullink_inference::turboquant::proxy::router::{AppState, build_router};
 use tower_http::cors::CorsLayer;
 
 #[tokio::main]
@@ -42,7 +42,10 @@ async fn main() {
     eprintln!("   Listen:        :{}", config.listen_port);
     eprintln!("   Backend:       {}", config.llama_server_url);
     eprintln!("   GPU capacity:  {} positions", config.gpu_kv_capacity);
-    eprintln!("   Offload at:    {}%", (config.offload_threshold * 100.0) as u32);
+    eprintln!(
+        "   Offload at:    {}%",
+        (config.offload_threshold * 100.0) as u32
+    );
     eprintln!("   Compression:   6x vs FP16 (Q4_0 4x + TQ 3-bit)");
 
     let proxy = TurboQuantProxy::new(config);

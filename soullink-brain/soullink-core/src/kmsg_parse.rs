@@ -34,14 +34,18 @@ mod tests {
 
     #[test]
     fn parses_standard_xid_line() {
-        assert_eq!(parse_xid_line("NVRM: Xid (PCI:0000:03:00): 43, pid=1234, Ch 00000008"),
-                   Some(43));
+        assert_eq!(
+            parse_xid_line("NVRM: Xid (PCI:0000:03:00): 43, pid=1234, Ch 00000008"),
+            Some(43)
+        );
     }
 
     #[test]
     fn parses_xid_with_timestamp_prefix() {
-        assert_eq!(parse_xid_line("<6>[12345.678] NVRM: Xid (PCI:0000:03:00): 44, Something"),
-                   Some(44));
+        assert_eq!(
+            parse_xid_line("<6>[12345.678] NVRM: Xid (PCI:0000:03:00): 44, Something"),
+            Some(44)
+        );
     }
 
     #[test]
@@ -82,12 +86,17 @@ mod tests {
 
     #[test]
     fn extracts_only_leading_digits() {
-        assert_eq!(parse_xid_line("NVRM: Xid (PCI:0000:03:00): 43abc, pid=1234"), Some(43));
+        assert_eq!(
+            parse_xid_line("NVRM: Xid (PCI:0000:03:00): 43abc, pid=1234"),
+            Some(43)
+        );
     }
 
     #[test]
     fn handles_large_xid_codes() {
-        assert_eq!(parse_xid_line("NVRM: Xid (PCI:0000:03:00): 2147, new high code"),
-                   Some(2147));
+        assert_eq!(
+            parse_xid_line("NVRM: Xid (PCI:0000:03:00): 2147, new high code"),
+            Some(2147)
+        );
     }
 }

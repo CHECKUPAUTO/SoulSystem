@@ -69,7 +69,11 @@ impl VisionPipeline {
     #[instrument(skip(self, image_bytes), fields(backend = self.config.backend.model_tag()))]
     pub async fn embed_image(&self, image_bytes: &[u8]) -> Result<ImageEmbedding> {
         if image_bytes.len() > self.config.max_image_bytes {
-            anyhow::bail!("Image too large: {} bytes (max: {})", image_bytes.len(), self.config.max_image_bytes);
+            anyhow::bail!(
+                "Image too large: {} bytes (max: {})",
+                image_bytes.len(),
+                self.config.max_image_bytes
+            );
         }
 
         let start = Instant::now();
@@ -82,23 +86,28 @@ impl VisionPipeline {
             input: b64,
         };
 
-        let resp = self.client.post(&url)
-            .json(&req_body)
-            .send()
-            .await?;
+        let resp = self.client.post(&url).json(&req_body).send().await?;
 
         if !resp.status().is_success() {
             anyhow::bail!("Ollama vision embedding failed: {}", resp.status());
         }
 
         let body: OllamaEmbedResponse = resp.json().await?;
-        let vector = body.embeddings.into_iter().next()
+        let vector = body
+            .embeddings
+            .into_iter()
+            .next()
             .ok_or_else(|| anyhow::anyhow!("No embedding returned from Ollama"))?;
 
         let dimension = vector.len();
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        info!("VisionPipeline: embedded image ({} bytes) in {}ms, dim={}", image_bytes.len(), duration_ms, dimension);
+        info!(
+            "VisionPipeline: embedded image ({} bytes) in {}ms, dim={}",
+            image_bytes.len(),
+            duration_ms,
+            dimension
+        );
 
         Ok(ImageEmbedding {
             vector,
@@ -125,9 +134,16 @@ impl VisionPipeline {
 /// Minimal seahash for image hashing (no external dep).
 mod seahash {
     pub fn hash(data: &[u8]) -> u64 {
-        let mut state: [u64; 4] = [0x16f11fe9b0da9bb7, 0x0959134254a2f0c3, 0x16f11fe9b0da9bb7, 0x0959134254a2f0c3];
+        let mut state: [u64; 4] = [
+            0x16f11fe9b0da9bb7,
+            0x0959134254a2f0c3,
+            0x16f11fe9b0da9bb7,
+            0x0959134254a2f0c3,
+        ];
         for &byte in data {
-            state[0] = state[0].wrapping_mul(0x6eed0e9da499af27).wrapping_add(byte as u64);
+            state[0] = state[0]
+                .wrapping_mul(0x6eed0e9da499af27)
+                .wrapping_add(byte as u64);
             state[0] ^= state[0] >> 32;
         }
         state[0] ^ state[1] ^ state[2] ^ state[3]
@@ -151,7 +167,10 @@ mod tests {
         assert_eq!(EmbeddingBackend::ClipVitB32.model_tag(), "clip-vit-b-32");
         assert_eq!(EmbeddingBackend::Moondream2.model_tag(), "moondream2");
         assert_eq!(EmbeddingBackend::Llava.model_tag(), "llava");
-        assert_eq!(EmbeddingBackend::Custom("my-model".into()).model_tag(), "my-model");
+        assert_eq!(
+            EmbeddingBackend::Custom("my-model".into()).model_tag(),
+            "my-model"
+        );
     }
 
     #[test]

@@ -40,7 +40,12 @@ pub struct ThoughtNode {
 }
 
 impl ThoughtNode {
-    pub fn new(id: usize, content: impl Into<String>, parent_id: Option<usize>, depth: usize) -> Self {
+    pub fn new(
+        id: usize,
+        content: impl Into<String>,
+        parent_id: Option<usize>,
+        depth: usize,
+    ) -> Self {
         Self {
             id,
             content: content.into(),

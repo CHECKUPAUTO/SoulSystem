@@ -83,10 +83,22 @@ impl QuantizedTensor {
 /// The values are chosen so that 0 maps to exactly 0.0 and the distribution
 /// of values follows a normal distribution quantile-based spacing.
 const NF4_TABLE: [f32; 16] = [
-    -1.0, -0.6961928009986877, -0.5250730516910553, -0.3949174889960298,
-    -0.28444138169288635, -0.1847734004259119, -0.09105003625154495, 0.0,
-    0.0795802993774414, 0.16093020141124725, 0.24611230194568634, 0.33791524171829224,
-    0.44070982933044434, 0.5626170039176941, 0.7229568362236023, 1.0,
+    -1.0,
+    -0.6961928009986877,
+    -0.5250730516910553,
+    -0.3949174889960298,
+    -0.28444138169288635,
+    -0.1847734004259119,
+    -0.09105003625154495,
+    0.0,
+    0.0795802993774414,
+    0.16093020141124725,
+    0.24611230194568634,
+    0.33791524171829224,
+    0.44070982933044434,
+    0.5626170039176941,
+    0.7229568362236023,
+    1.0,
 ];
 
 /// Reverse NF4 lookup: find the index whose value is closest to `v`.
@@ -149,10 +161,7 @@ impl Quantizer {
         match self.mode {
             QuantMode::FP32 => {
                 // Identity: store f32 bytes directly
-                let data: Vec<u8> = tensor
-                    .iter()
-                    .flat_map(|&v| v.to_le_bytes())
-                    .collect();
+                let data: Vec<u8> = tensor.iter().flat_map(|&v| v.to_le_bytes()).collect();
                 for _ in 0..num_blocks {
                     scale.push(1.0);
                     zero.push(0.0);
@@ -203,11 +212,7 @@ impl Quantizer {
                             abs_max = a;
                         }
                     }
-                    let s = if abs_max == 0.0 {
-                        1.0
-                    } else {
-                        abs_max / 127.0
-                    };
+                    let s = if abs_max == 0.0 { 1.0 } else { abs_max / 127.0 };
                     scale.push(s);
                     zero.push(0.0); // symmetric, no zero-point
 
@@ -457,10 +462,12 @@ mod tests {
 
     // Utility: generate a deterministic non-trivial float vector
     fn test_data(n: usize) -> Vec<f32> {
-        (0..n).map(|i| {
-            let x = i as f32;
-            (x * 0.1).sin() * 3.0 + (x * 0.05).cos() * 2.0
-        }).collect()
+        (0..n)
+            .map(|i| {
+                let x = i as f32;
+                (x * 0.1).sin() * 3.0 + (x * 0.05).cos() * 2.0
+            })
+            .collect()
     }
 
     // ------------------------------------------------------------------ //
@@ -477,12 +484,7 @@ mod tests {
         let recovered = q.dequantize(&qt);
         assert_eq!(data.len(), recovered.len());
         for (a, b) in data.iter().zip(recovered.iter()) {
-            assert!(
-                (a - b).abs() < 1e-6,
-                "FP32 mismatch: {} vs {}",
-                a,
-                b
-            );
+            assert!((a - b).abs() < 1e-6, "FP32 mismatch: {} vs {}", a, b);
         }
         let err = q.quantization_error(&data, &recovered);
         assert!(err < 1e-15, "FP32 MSE too large: {}", err);
@@ -698,7 +700,8 @@ mod tests {
                 zero.push(z);
                 pos += 4;
             }
-            let data_len = u64::from_le_bytes(serialized[pos..pos + 8].try_into().unwrap()) as usize;
+            let data_len =
+                u64::from_le_bytes(serialized[pos..pos + 8].try_into().unwrap()) as usize;
             pos += 8;
             let data = serialized[pos..pos + data_len].to_vec();
 

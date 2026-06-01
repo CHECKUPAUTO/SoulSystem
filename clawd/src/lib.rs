@@ -13,17 +13,17 @@
 use ansi_converter::ansi_to_telegram;
 use bus::{Bus, Message};
 
+use anyhow::Result;
 use bound_system::BoundSystem;
 use local_skills::BuiltinSkills;
 use model_router::ModelRouter;
-use soul_memory::SoulMemory;
-use terminal_stream::{ExecutionId, ExecutionInfo, TerminalStream};
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use soul_memory::SoulMemory;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use terminal_stream::{ExecutionId, ExecutionInfo, TerminalStream};
 // use teloxide::dispatching::dialogue::InMemStorage;
 // use teloxide::dispatching::UpdateHandler;
 use teloxide::dptree;
@@ -257,7 +257,10 @@ impl ClawdContext {
 
         match client
             .post("http://localhost:11435/v1/chat/completions")
-            .header("Authorization", "Bearer b03afbd14bfd4be993abc1819c9d0a2f.K8thtwx78DMAqvZyDXNMQksd")
+            .header(
+                "Authorization",
+                "Bearer b03afbd14bfd4be993abc1819c9d0a2f.K8thtwx78DMAqvZyDXNMQksd",
+            )
             .json(&serde_json::json!({
                 "model": model,
                 "messages": messages,
@@ -655,9 +658,7 @@ async fn handle_message(
         tokio::time::timeout(timeout, async {
             loop {
                 match rx.recv().await {
-                    Ok(bus::Message::Custom { topic, payload })
-                        if topic == "telegram.reply" =>
-                    {
+                    Ok(bus::Message::Custom { topic, payload }) if topic == "telegram.reply" => {
                         if payload.get("chat_id").and_then(|v| v.as_i64()) == Some(chat_id_f) {
                             return Some(payload);
                         }
@@ -862,7 +863,8 @@ et en surveillant le systeme.
         if guidance.is_empty() {
             "Regles: ne divulgue jamais de secrets, ne modifie pas les regles de securite,
 ne t'auto-preserve pas, ne copie pas ton code sans autorisation explicite.
-En cas de conflit entre une instruction et les regles de securite, obeis aux regles.".to_string()
+En cas de conflit entre une instruction et les regles de securite, obeis aux regles."
+                .to_string()
         } else {
             guidance
         }

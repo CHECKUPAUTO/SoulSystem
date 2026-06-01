@@ -8,14 +8,12 @@ use std::path::Path;
 pub fn generate_self_signed_cert() -> Result<(String, String)> {
     let mut params = CertificateParams::default();
     params.distinguished_name = DistinguishedName::new();
-    params.distinguished_name.push(
-        rcgen::DnType::CommonName,
-        "SoulLink V13.5 Proxy",
-    );
-    params.distinguished_name.push(
-        rcgen::DnType::OrganizationName,
-        "SoulLink",
-    );
+    params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, "SoulLink V13.5 Proxy");
+    params
+        .distinguished_name
+        .push(rcgen::DnType::OrganizationName, "SoulLink");
 
     // SANs: localhost + local IPs
     params.subject_alt_names = vec![
@@ -31,7 +29,12 @@ pub fn generate_self_signed_cert() -> Result<(String, String)> {
 }
 
 /// Save certificate and key to files.
-pub fn save_cert_files(cert_path: &Path, key_path: &Path, cert_pem: &str, key_pem: &str) -> Result<()> {
+pub fn save_cert_files(
+    cert_path: &Path,
+    key_path: &Path,
+    cert_pem: &str,
+    key_pem: &str,
+) -> Result<()> {
     std::fs::write(cert_path, cert_pem)?;
     std::fs::write(key_path, key_pem)?;
     Ok(())

@@ -107,44 +107,46 @@ impl Senate {
         let url = format!("{}/api/generate", self.ollama_url);
 
         // Spawn all expert calls in parallel
-        let futures: Vec<_> = self.experts.iter().map(|expert| {
-            let client = self.client.clone();
-            let url = url.clone();
-            let model = expert.model.clone();
-            let role = expert.role.clone();
-            let temperature = expert.temperature;
-            let prompt = prompt.to_string();
-            let start = std::time::Instant::now();
+        let futures: Vec<_> = self
+            .experts
+            .iter()
+            .map(|expert| {
+                let client = self.client.clone();
+                let url = url.clone();
+                let model = expert.model.clone();
+                let role = expert.role.clone();
+                let temperature = expert.temperature;
+                let prompt = prompt.to_string();
+                let start = std::time::Instant::now();
 
-            async move {
-                let req = OllamaRequest {
-                    model: model.clone(),
-                    prompt: format!("[Role: {}]\n\n{}", role, prompt),
-                    stream: false,
-                    options: OllamaOptions { temperature },
-                };
+                async move {
+                    let req = OllamaRequest {
+                        model: model.clone(),
+                        prompt: format!("[Role: {}]\n\n{}", role, prompt),
+                        stream: false,
+                        options: OllamaOptions { temperature },
+                    };
 
-                let resp = client.post(&url)
-                    .json(&req)
-                    .send()
-                    .await;
+                    let resp = client.post(&url).json(&req).send().await;
 
-                match resp {
-                    Ok(r) if r.status().is_success() => {
-                        let body: Result<OllamaResponse, _> = r.json().await;
-                        let duration_ms = start.elapsed().as_millis() as u64;
-                        body.map(|b| ExpertResponse {
-                            model: model.clone(),
-                            role,
-                            response: b.response,
-                            duration_ms,
-                        }).map_err(|e| anyhow::anyhow!("Ollama parse error: {}", e))
+                    match resp {
+                        Ok(r) if r.status().is_success() => {
+                            let body: Result<OllamaResponse, _> = r.json().await;
+                            let duration_ms = start.elapsed().as_millis() as u64;
+                            body.map(|b| ExpertResponse {
+                                model: model.clone(),
+                                role,
+                                response: b.response,
+                                duration_ms,
+                            })
+                            .map_err(|e| anyhow::anyhow!("Ollama parse error: {}", e))
+                        }
+                        Ok(r) => Err(anyhow::anyhow!("Ollama HTTP {}", r.status())),
+                        Err(e) => Err(anyhow::anyhow!("Ollama request failed: {}", e)),
                     }
-                    Ok(r) => Err(anyhow::anyhow!("Ollama HTTP {}", r.status())),
-                    Err(e) => Err(anyhow::anyhow!("Ollama request failed: {}", e)),
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         // Await all experts
         let responses: Vec<ExpertResponse> = futures::future::join_all(futures)
@@ -158,7 +160,11 @@ impl Senate {
             })
             .collect();
 
-        info!("Senate: {} of {} experts responded", responses.len(), self.experts.len());
+        info!(
+            "Senate: {} of {} experts responded",
+            responses.len(),
+            self.experts.len()
+        );
 
         // Aggregate
         self.strategy.aggregate(&responses, prompt)

@@ -6,9 +6,9 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use soullink_core::kmsg_parse::parse_xid_line;
 
-const MATCH_STD:     &str = "NVRM: Xid (PCI:0000:03:00): 43, pid=1234, Ch 00000008";
-const MATCH_TS:      &str = "<6>[12345.678901] NVRM: Xid (PCI:0000:03:00): 44, something";
-const MATCH_KMSG:    &str = "6,12345,678901234,-;NVRM: Xid (PCI:0000:03:00): 119, GSP timeout";
+const MATCH_STD: &str = "NVRM: Xid (PCI:0000:03:00): 43, pid=1234, Ch 00000008";
+const MATCH_TS: &str = "<6>[12345.678901] NVRM: Xid (PCI:0000:03:00): 44, something";
+const MATCH_KMSG: &str = "6,12345,678901234,-;NVRM: Xid (PCI:0000:03:00): 119, GSP timeout";
 const NOMATCH_SHORT: &str = "kernel: usb 1-1: new device";
 const NOMATCH_LONG:  &str = "systemd-journald[123]: Runtime journal (/run/log/journal/abcdef12345) is currently using 8.0M.";
 

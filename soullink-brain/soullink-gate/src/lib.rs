@@ -48,13 +48,25 @@ pub struct ApprovalRequirement {
 
 impl ApprovalRequirement {
     pub fn safe() -> Self {
-        Self { risk: RiskLevel::Safe, reason: String::new(), auto_approve_safe: true }
+        Self {
+            risk: RiskLevel::Safe,
+            reason: String::new(),
+            auto_approve_safe: true,
+        }
     }
     pub fn risky(reason: &str) -> Self {
-        Self { risk: RiskLevel::High, reason: reason.to_string(), auto_approve_safe: false }
+        Self {
+            risk: RiskLevel::High,
+            reason: reason.to_string(),
+            auto_approve_safe: false,
+        }
     }
     pub fn critical(reason: &str) -> Self {
-        Self { risk: RiskLevel::Critical, reason: reason.to_string(), auto_approve_safe: false }
+        Self {
+            risk: RiskLevel::Critical,
+            reason: reason.to_string(),
+            auto_approve_safe: false,
+        }
     }
 }
 
@@ -68,11 +80,18 @@ pub struct PermissionStore {
 }
 
 impl Default for PermissionStore {
-    fn default() -> Self { Self { always_allow: HashSet::new(), always_deny: HashSet::new() } }
+    fn default() -> Self {
+        Self {
+            always_allow: HashSet::new(),
+            always_deny: HashSet::new(),
+        }
+    }
 }
 
 impl PermissionStore {
-    pub fn key(tool: &str, scope: &str) -> String { format!("{}:{}", tool, scope) }
+    pub fn key(tool: &str, scope: &str) -> String {
+        format!("{}:{}", tool, scope)
+    }
 
     pub fn always_allow(&mut self, tool: &str, scope: &str) {
         self.always_allow.insert(Self::key(tool, scope));
@@ -116,12 +135,21 @@ impl ApprovalGate {
     }
 
     /// Evaluate whether a tool call is allowed.
-    pub async fn evaluate(&self, tool: &str, scope: &str, req: &ApprovalRequirement) -> GateDecision {
+    pub async fn evaluate(
+        &self,
+        tool: &str,
+        scope: &str,
+        req: &ApprovalRequirement,
+    ) -> GateDecision {
         let perms = self.permissions.read().await;
 
         // Check persistent permissions first
-        if perms.is_allowed(tool, scope) { return GateDecision::Allow; }
-        if perms.is_denied(tool, scope) { return GateDecision::Deny("Permanently denied".into()); }
+        if perms.is_allowed(tool, scope) {
+            return GateDecision::Allow;
+        }
+        if perms.is_denied(tool, scope) {
+            return GateDecision::Deny("Permanently denied".into());
+        }
 
         drop(perms);
 
@@ -185,7 +213,7 @@ mod tests {
         let gate = ApprovalGate::new(ExecutionMode::Interactive);
         let req = ApprovalRequirement::safe();
         match gate.evaluate("read", "file.txt", &req).await {
-            GateDecision::Allow => {},
+            GateDecision::Allow => {}
             other => panic!("expected Allow, got {:?}", other),
         }
     }
@@ -195,7 +223,7 @@ mod tests {
         let gate = ApprovalGate::new(ExecutionMode::Interactive);
         let req = ApprovalRequirement::risky("Deletes files");
         match gate.evaluate("shell", "rm -rf /", &req).await {
-            GateDecision::Pause(_) => {},
+            GateDecision::Pause(_) => {}
             other => panic!("expected Pause, got {:?}", other),
         }
     }
@@ -205,7 +233,7 @@ mod tests {
         let gate = ApprovalGate::new(ExecutionMode::Autonomous);
         let req = ApprovalRequirement::critical("Factory reset");
         match gate.evaluate("system", "reset", &req).await {
-            GateDecision::Deny(_) => {},
+            GateDecision::Deny(_) => {}
             other => panic!("expected Deny, got {:?}", other),
         }
     }
@@ -216,7 +244,7 @@ mod tests {
         gate.grant_permission("shell", "ls").await;
         let req = ApprovalRequirement::risky("Shell access");
         match gate.evaluate("shell", "ls", &req).await {
-            GateDecision::Allow => {},
+            GateDecision::Allow => {}
             other => panic!("expected Allow with persistent permission, got {:?}", other),
         }
     }
@@ -226,7 +254,7 @@ mod tests {
         let gate = ApprovalGate::new(ExecutionMode::Container);
         let req = ApprovalRequirement::critical("Nuclear launch");
         match gate.evaluate("nuke", "launch", &req).await {
-            GateDecision::Allow => {},
+            GateDecision::Allow => {}
             other => panic!("expected Allow in container mode, got {:?}", other),
         }
     }

@@ -60,7 +60,9 @@ pub trait PageProvider: Send + Sync {
         let trimmed = content.trim();
 
         // Short all-caps lines = likely a header
-        if trimmed.len() < 80 && trimmed.chars().filter(|c| c.is_uppercase()).count() > trimmed.len() / 2 {
+        if trimmed.len() < 80
+            && trimmed.chars().filter(|c| c.is_uppercase()).count() > trimmed.len() / 2
+        {
             return ChunkType::Header;
         }
 
@@ -72,7 +74,10 @@ pub trait PageProvider: Send + Sync {
         }
 
         // Lines starting with common code markers
-        if lines.iter().any(|l| l.starts_with("fn ") || l.starts_with("def ") || l.starts_with("class ")) {
+        if lines
+            .iter()
+            .any(|l| l.starts_with("fn ") || l.starts_with("def ") || l.starts_with("class "))
+        {
             return ChunkType::Code;
         }
 
@@ -159,7 +164,11 @@ pub struct PdfPageProvider {
 
 impl PdfPageProvider {
     /// Create from pre-extracted PDF pages.
-    pub fn from_pages(doc_id: impl Into<String>, title: impl Into<String>, pages: Vec<String>) -> Self {
+    pub fn from_pages(
+        doc_id: impl Into<String>,
+        title: impl Into<String>,
+        pages: Vec<String>,
+    ) -> Self {
         let id = doc_id.into();
         let source = format!("pdf://{}", id);
         Self {
@@ -200,15 +209,22 @@ mod tests {
 
     #[test]
     fn text_provider_auto_split() {
-        let text = (0..100).map(|i| format!("Line {} with some content here", i)).collect::<Vec<_>>().join("\n");
+        let text = (0..100)
+            .map(|i| format!("Line {} with some content here", i))
+            .collect::<Vec<_>>()
+            .join("\n");
         let provider = TextPageProvider::from_text("doc-2", "Long Doc", &text);
-        assert!(provider.get_page_count() > 1, "should split into multiple pages");
+        assert!(
+            provider.get_page_count() > 1,
+            "should split into multiple pages"
+        );
     }
 
     #[test]
     fn clean_content_removes_page_numbers() {
         let provider = TextPageProvider::from_text("doc", "Test", "Real content\n3\nMore content");
-        let cleaned = provider.clean_content("Header repeated\nReal content\n3\nFooter repeated".to_string());
+        let cleaned =
+            provider.clean_content("Header repeated\nReal content\n3\nFooter repeated".to_string());
         // Page number "3" on its own line should be removed
         assert!(!cleaned.contains("\n3\n"));
     }
@@ -216,13 +232,19 @@ mod tests {
     #[test]
     fn detect_chunk_type_header() {
         let provider = TextPageProvider::from_text("doc", "T", "content");
-        assert_eq!(provider.detect_chunk_type("INTRODUCTION"), ChunkType::Header);
+        assert_eq!(
+            provider.detect_chunk_type("INTRODUCTION"),
+            ChunkType::Header
+        );
     }
 
     #[test]
     fn detect_chunk_type_body() {
         let provider = TextPageProvider::from_text("doc", "T", "content");
-        assert_eq!(provider.detect_chunk_type("This is a normal paragraph of text."), ChunkType::Body);
+        assert_eq!(
+            provider.detect_chunk_type("This is a normal paragraph of text."),
+            ChunkType::Body
+        );
     }
 
     #[test]
@@ -234,10 +256,11 @@ mod tests {
 
     #[test]
     fn pdf_provider_from_pages() {
-        let provider = PdfPageProvider::from_pages("pdf-1", "Report", vec![
-            "Page 1".to_string(),
-            "Page 2".to_string(),
-        ]);
+        let provider = PdfPageProvider::from_pages(
+            "pdf-1",
+            "Report",
+            vec!["Page 1".to_string(), "Page 2".to_string()],
+        );
         assert_eq!(provider.get_page_count(), 2);
         assert_eq!(provider.get_page_content(0).unwrap(), "Page 1");
     }

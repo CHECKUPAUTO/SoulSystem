@@ -1,7 +1,7 @@
 //! SoulLink Metabolism — HTTP API server for digital energy management.
 //! Port 9052
 
-use axum::{Json, Router, extract::State, routing::get};
+use axum::{extract::State, routing::get, Json, Router};
 use soullink_metabolism::Metabolism;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -30,10 +30,12 @@ async fn main() {
         .route("/api/metabolism/resources", get(resources))
         .with_state(metabolism);
 
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", PORT)).await
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", PORT))
+        .await
         .unwrap_or_else(|e| panic!("Metabolism bind {}: {}", PORT, e));
     tracing::info!("soullink-metabolism v0.1.0 on :{}", PORT);
-    axum::serve(listener, app).await
+    axum::serve(listener, app)
+        .await
         .unwrap_or_else(|e| panic!("Metabolism server: {}", e));
 }
 

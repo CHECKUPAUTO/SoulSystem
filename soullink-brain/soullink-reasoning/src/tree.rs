@@ -77,7 +77,12 @@ impl ThoughtTree {
     }
 
     /// Evaluate a node using semantic loss against a reference embedding.
-    pub fn evaluate_node(&mut self, node_id: usize, query_emb: &[f32], thought_emb: &[f32]) -> Option<f32> {
+    pub fn evaluate_node(
+        &mut self,
+        node_id: usize,
+        query_emb: &[f32],
+        thought_emb: &[f32],
+    ) -> Option<f32> {
         let result = self.loss.compute(query_emb, thought_emb);
         let node = self.nodes.get_mut(&node_id)?;
 
@@ -101,7 +106,8 @@ impl ThoughtTree {
         for (&id, node) in &self.nodes {
             if node.is_leaf() && node.status == NodeStatus::Accepted {
                 let path = self.path_to_root(id);
-                let score: f32 = path.iter().map(|n| n.score).sum::<f32>() / path.len().max(1) as f32;
+                let score: f32 =
+                    path.iter().map(|n| n.score).sum::<f32>() / path.len().max(1) as f32;
                 if score > best_score {
                     best_score = score;
                     best_path = path;
@@ -132,8 +138,13 @@ impl ThoughtTree {
 
     /// Prune nodes below the accept threshold.
     pub fn prune(&mut self) -> usize {
-        let to_prune: Vec<usize> = self.nodes.iter()
-            .filter(|(_, n)| n.status == NodeStatus::Pending || (n.status == NodeStatus::Accepted && n.score < self.config.accept_threshold))
+        let to_prune: Vec<usize> = self
+            .nodes
+            .iter()
+            .filter(|(_, n)| {
+                n.status == NodeStatus::Pending
+                    || (n.status == NodeStatus::Accepted && n.score < self.config.accept_threshold)
+            })
             .map(|(id, _)| *id)
             .collect();
 
@@ -162,12 +173,18 @@ impl ThoughtTree {
 
     /// Number of accepted nodes.
     pub fn accepted_count(&self) -> usize {
-        self.nodes.values().filter(|n| n.status == NodeStatus::Accepted).count()
+        self.nodes
+            .values()
+            .filter(|n| n.status == NodeStatus::Accepted)
+            .count()
     }
 
     /// Number of pruned nodes.
     pub fn pruned_count(&self) -> usize {
-        self.nodes.values().filter(|n| n.status == NodeStatus::Pruned).count()
+        self.nodes
+            .values()
+            .filter(|n| n.status == NodeStatus::Pruned)
+            .count()
     }
 }
 
@@ -213,14 +230,20 @@ mod tests {
     fn evaluate_accepts_high_score() {
         let mut tree = make_tree();
         let root = tree.add_root("What is Rust?");
-        let child = tree.add_child(root, "A systems programming language").unwrap();
+        let child = tree
+            .add_child(root, "A systems programming language")
+            .unwrap();
 
         // High similarity vectors
         let query: Vec<f32> = vec![1.0; 64];
         let thought: Vec<f32> = vec![1.0; 64]; // identical
 
         let score = tree.evaluate_node(child, &query, &thought).unwrap();
-        assert!(score > 0.9, "identical vectors should have high score, got {}", score);
+        assert!(
+            score > 0.9,
+            "identical vectors should have high score, got {}",
+            score
+        );
         assert_eq!(tree.get(child).unwrap().status, NodeStatus::Accepted);
     }
 
@@ -231,11 +254,17 @@ mod tests {
         let child = tree.add_child(root, "A ferrous metal").unwrap();
 
         // Orthogonal vectors = low similarity
-        let mut query = vec![0.0f32; 64]; query[0] = 1.0;
-        let mut thought = vec![0.0f32; 64]; thought[1] = 1.0;
+        let mut query = vec![0.0f32; 64];
+        query[0] = 1.0;
+        let mut thought = vec![0.0f32; 64];
+        thought[1] = 1.0;
 
         let score = tree.evaluate_node(child, &query, &thought).unwrap();
-        assert!(score < 0.3, "orthogonal vectors should have low score, got {}", score);
+        assert!(
+            score < 0.3,
+            "orthogonal vectors should have low score, got {}",
+            score
+        );
         assert_eq!(tree.get(child).unwrap().status, NodeStatus::Pruned);
     }
 
@@ -248,8 +277,10 @@ mod tests {
 
         let emb: Vec<f32> = vec![1.0; 64];
         tree.evaluate_node(good, &emb, &emb); // perfect match
-        let mut orth_a = vec![0.0f32; 64]; orth_a[0] = 1.0;
-        let mut orth_b = vec![0.0f32; 64]; orth_b[1] = 1.0;
+        let mut orth_a = vec![0.0f32; 64];
+        orth_a[0] = 1.0;
+        let mut orth_b = vec![0.0f32; 64];
+        orth_b[1] = 1.0;
         tree.evaluate_node(bad, &orth_a, &orth_b); // orthogonal
 
         let path = tree.best_path();

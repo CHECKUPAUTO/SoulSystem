@@ -94,7 +94,7 @@ impl SvsEngine {
     }
 
     /// Search for the top-K nearest neighbors.
-    /// 
+    ///
     /// In stub mode (no FFI), returns empty results.
     /// With `svs` feature, calls Intel SVS C++ library.
     pub fn search(&self, _query: &[f32], _top_k: usize) -> Result<SvsSearchResult> {
@@ -114,7 +114,7 @@ impl SvsEngine {
     }
 
     /// Build index from a set of vectors.
-    /// 
+    ///
     /// In stub mode, just records the count.
     pub fn build(&mut self, _vectors: &[f32], count: usize, _dim: usize) -> Result<()> {
         self.count = count;

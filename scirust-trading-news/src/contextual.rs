@@ -25,7 +25,8 @@
 
 use crate::{NewsError, NewsResult};
 use async_trait::async_trait;
-use scirust_trading_core::{CodifiedEvent, EnrichmentLevel, MarketReaction};
+use scirust_trading_core::codified::{CodifiedEvent, EnrichmentLevel};
+use scirust_trading_core::reaction::MarketReaction;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -276,12 +277,12 @@ impl ContextualEnricher {
         // 3. Promotion vers Contextual si au moins un enrichment a réussi
         if embedding_ok || historical_ok {
             event.enrichment = EnrichmentLevel::Contextual;
-            event.explanation = format!(
-                "{}|contextual(neighbors={}, hist={})",
-                event.explanation,
+            let prev = event.explanation.as_deref().unwrap_or("");
+            event.explanation = Some(format!(
+                "{prev}|contextual(neighbors={}, hist={})",
                 event.nearest_neighbors.len(),
                 event.historical_response.is_some()
-            );
+            ));
         }
         Ok(event)
     }
@@ -484,12 +485,7 @@ mod tests {
         assert_eq!(neighbors[2].0, h3);
 
         // Test path historical separately (sans TRIBE)
-        let enricher = ContextualEnricher::new(
-            ContextualConfig::default(),
-            None,
-            None,
-            Some(hist),
-        );
+        let enricher = ContextualEnricher::new(ContextualConfig::default(), None, None, Some(hist));
         let ev = make_event(
             "SEC approves new spot ETF",
             &["etf", "sec", "regulatory"],

@@ -2,8 +2,8 @@
 //!
 //! Defines the `AsyncTool` trait and implements a safe `ShellExecutor`.
 
-pub mod tool;
 pub mod shell;
+pub mod tool;
 
-pub use tool::{AsyncTool, ToolResult, ToolError};
 pub use shell::ShellExecutor;
+pub use tool::{AsyncTool, ToolError, ToolResult};

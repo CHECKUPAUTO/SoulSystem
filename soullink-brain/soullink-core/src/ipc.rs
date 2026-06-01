@@ -36,7 +36,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
 
 pub const DEFAULT_SOCKET_PATH: &str = "/run/soullink/guardian.sock";
-pub const MAX_FRAME_SIZE:     usize = 1 << 20; // 1 MiB — snapshot is < 500 B, wide margin
+pub const MAX_FRAME_SIZE: usize = 1 << 20; // 1 MiB — snapshot is < 500 B, wide margin
 pub const FRAME_HEADER_BYTES: usize = 4;
 
 #[derive(Debug, Error)]
@@ -68,7 +68,10 @@ where
     reader.read_exact(&mut hdr).await?;
     let size = u32::from_le_bytes(hdr) as usize;
     if size > MAX_FRAME_SIZE {
-        return Err(IpcError::FrameTooLarge { size, max: MAX_FRAME_SIZE });
+        return Err(IpcError::FrameTooLarge {
+            size,
+            max: MAX_FRAME_SIZE,
+        });
     }
     let mut buf = vec![0u8; size];
     reader.read_exact(&mut buf).await?;
@@ -84,7 +87,10 @@ where
 {
     let bytes = rmp_serde::to_vec(value).map_err(|e| IpcError::Serde(e.to_string()))?;
     if bytes.len() > MAX_FRAME_SIZE {
-        return Err(IpcError::FrameTooLarge { size: bytes.len(), max: MAX_FRAME_SIZE });
+        return Err(IpcError::FrameTooLarge {
+            size: bytes.len(),
+            max: MAX_FRAME_SIZE,
+        });
     }
     let hdr = (bytes.len() as u32).to_le_bytes();
     writer.write_all(&hdr).await?;
@@ -96,7 +102,10 @@ where
 pub fn encode_frame<T: Serialize>(value: &T) -> Result<Vec<u8>, IpcError> {
     let body = rmp_serde::to_vec(value).map_err(|e| IpcError::Serde(e.to_string()))?;
     if body.len() > MAX_FRAME_SIZE {
-        return Err(IpcError::FrameTooLarge { size: body.len(), max: MAX_FRAME_SIZE });
+        return Err(IpcError::FrameTooLarge {
+            size: body.len(),
+            max: MAX_FRAME_SIZE,
+        });
     }
     let mut out = Vec::with_capacity(FRAME_HEADER_BYTES + body.len());
     out.extend_from_slice(&(body.len() as u32).to_le_bytes());
@@ -115,7 +124,10 @@ pub fn decode_frame<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, IpcError> {
     hdr.copy_from_slice(&bytes[..FRAME_HEADER_BYTES]);
     let size = u32::from_le_bytes(hdr) as usize;
     if size > MAX_FRAME_SIZE {
-        return Err(IpcError::FrameTooLarge { size, max: MAX_FRAME_SIZE });
+        return Err(IpcError::FrameTooLarge {
+            size,
+            max: MAX_FRAME_SIZE,
+        });
     }
     let body_end = FRAME_HEADER_BYTES + size;
     if bytes.len() < body_end {
@@ -174,8 +186,11 @@ mod tests {
         let snap = SystemSnapshot::default();
         let msgpack = rmp_serde::to_vec(&snap).unwrap();
         let json = serde_json::to_vec(&snap).unwrap();
-        assert!(msgpack.len() < json.len(),
-                "msgpack {}B >= json {}B — check config",
-                msgpack.len(), json.len());
+        assert!(
+            msgpack.len() < json.len(),
+            "msgpack {}B >= json {}B — check config",
+            msgpack.len(),
+            json.len()
+        );
     }
 }

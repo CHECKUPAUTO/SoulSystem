@@ -2,8 +2,8 @@
 #![warn(clippy::pedantic, clippy::nursery, unreachable_pub)]
 #![allow(clippy::module_name_repetitions)]
 
-pub mod archive;
 pub mod agent;
+pub mod archive;
 pub mod blackboard;
 pub mod intent;
 

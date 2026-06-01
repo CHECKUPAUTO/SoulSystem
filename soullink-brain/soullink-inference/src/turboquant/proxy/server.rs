@@ -60,12 +60,10 @@ impl TurboQuantProxy {
     }
 
     /// Forward a completion request to llama-server.
-    pub async fn forward_completion(
-        &self,
-        body: &str,
-    ) -> Result<String, anyhow::Error> {
+    pub async fn forward_completion(&self, body: &str) -> Result<String, anyhow::Error> {
         let url = format!("{}/v1/chat/completions", self.config.llama_server_url);
-        let resp = self.http_client
+        let resp = self
+            .http_client
             .post(&url)
             .header("Content-Type", "application/json")
             .body(body.to_string())
@@ -90,7 +88,10 @@ impl TurboQuantProxy {
     /// Check llama-server health.
     pub async fn health_check(&self) -> bool {
         let url = format!("{}/health", self.config.llama_server_url);
-        self.http_client.get(&url).send().await
+        self.http_client
+            .get(&url)
+            .send()
+            .await
             .map(|r| r.status().is_success())
             .unwrap_or(false)
     }
@@ -114,9 +115,15 @@ impl TurboQuantProxy {
         }
     }
 
-    pub fn bridge(&self) -> Arc<KVBridge> { self.bridge.clone() }
-    pub fn config(&self) -> &ProxyConfig { &self.config }
-    pub fn http_client(&self) -> &Client { &self.http_client }
+    pub fn bridge(&self) -> Arc<KVBridge> {
+        self.bridge.clone()
+    }
+    pub fn config(&self) -> &ProxyConfig {
+        &self.config
+    }
+    pub fn http_client(&self) -> &Client {
+        &self.http_client
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

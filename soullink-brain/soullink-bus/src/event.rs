@@ -46,7 +46,10 @@ pub struct BusEvent {
 impl BusEvent {
     pub fn new(kind: BusEventKind, source: impl Into<String>, payload: serde_json::Value) -> Self {
         Self {
-            id: format!("{:x}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            id: format!(
+                "{:x}",
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            ),
             kind,
             source: source.into(),
             payload,

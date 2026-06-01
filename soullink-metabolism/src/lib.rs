@@ -8,7 +8,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -91,9 +91,12 @@ impl Metabolism {
         Arc::new(Self {
             budget: RwLock::new(EnergyBudget::default()),
             stats: RwLock::new(MetabolismStats {
-                total_operations: 0, total_energy_spent: 0.0,
-                total_tokens: 0, avg_cost_per_op: 0.0,
-                throttle_events: 0, sleep_events: 0,
+                total_operations: 0,
+                total_energy_spent: 0.0,
+                total_tokens: 0,
+                avg_cost_per_op: 0.0,
+                throttle_events: 0,
+                sleep_events: 0,
             }),
             operation_count: AtomicU64::new(0),
             throttle_active: AtomicBool::new(false),
@@ -107,8 +110,10 @@ impl Metabolism {
     pub fn resource_snapshot(&self) -> ResourceSnapshot {
         let (cpu, mem, disk) = Self::read_resources();
         ResourceSnapshot {
-            cpu_percent: cpu, mem_percent: mem,
-            gpu_temp_c: None, gpu_vram_percent: None,
+            cpu_percent: cpu,
+            mem_percent: mem,
+            gpu_temp_c: None,
+            gpu_vram_percent: None,
             disk_percent: disk,
             timestamp: Utc::now(),
         }
@@ -121,7 +126,13 @@ impl Metabolism {
     }
 
     /// Spend energy on an operation. Returns false if rejected.
-    pub async fn spend(&self, operation: &str, cost: f64, tokens: Option<u64>, duration_ms: u64) -> bool {
+    pub async fn spend(
+        &self,
+        operation: &str,
+        cost: f64,
+        tokens: Option<u64>,
+        duration_ms: u64,
+    ) -> bool {
         let mut budget = self.budget.write().await;
         if budget.available < cost && !budget.low_power {
             // Auto-throttle: reject expensive ops when low on energy
@@ -152,10 +163,14 @@ impl Metabolism {
         // Store in history
         {
             let mut hist = self.history.write().await;
-            if hist.len() >= 1000 { hist.remove(0); }
+            if hist.len() >= 1000 {
+                hist.remove(0);
+            }
             hist.push(OperationCost {
-                operation: operation.to_string(), energy_cost: cost,
-                tokens_used: tokens, duration_ms,
+                operation: operation.to_string(),
+                energy_cost: cost,
+                tokens_used: tokens,
+                duration_ms,
                 timestamp: Utc::now(),
             });
         }
@@ -169,7 +184,11 @@ impl Metabolism {
         let recharge = budget.recharge_rate * elapsed_secs;
 
         // Faster recharge when idle
-        let idle_bonus = if budget.consumption_rate < 0.1 { 2.0 } else { 1.0 };
+        let idle_bonus = if budget.consumption_rate < 0.1 {
+            2.0
+        } else {
+            1.0
+        };
         budget.available = (budget.available + recharge * idle_bonus).min(budget.capacity);
 
         // Exit sleep mode if energy is back

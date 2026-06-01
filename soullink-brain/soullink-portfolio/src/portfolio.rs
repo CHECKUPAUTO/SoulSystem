@@ -63,10 +63,14 @@ impl Portfolio {
         if self.trade_history.is_empty() {
             return Decimal::ZERO;
         }
-        let wins = self.trade_history.iter()
+        let wins = self
+            .trade_history
+            .iter()
             .filter(|t| t.side == Side::Sell) // sells realize P&L
             .count();
-        let total_sells = self.trade_history.iter()
+        let total_sells = self
+            .trade_history
+            .iter()
             .filter(|t| t.side == Side::Sell)
             .count();
         if total_sells == 0 {
@@ -102,14 +106,17 @@ impl Portfolio {
                 self.cash -= total_cost;
 
                 // Update or create position
-                let pos = self.positions.entry(symbol.as_str().to_string()).or_insert(Position {
-                    symbol: symbol.clone(),
-                    quantity: Decimal::ZERO,
-                    avg_entry_price: Decimal::ZERO,
-                    current_price: price,
-                    unrealized_pnl: Decimal::ZERO,
-                    unrealized_pnl_pct: Decimal::ZERO,
-                });
+                let pos = self
+                    .positions
+                    .entry(symbol.as_str().to_string())
+                    .or_insert(Position {
+                        symbol: symbol.clone(),
+                        quantity: Decimal::ZERO,
+                        avg_entry_price: Decimal::ZERO,
+                        current_price: price,
+                        unrealized_pnl: Decimal::ZERO,
+                        unrealized_pnl_pct: Decimal::ZERO,
+                    });
 
                 // Weighted average entry price
                 let old_total = pos.quantity * pos.avg_entry_price;
@@ -139,7 +146,9 @@ impl Portfolio {
                 Ok(trade)
             }
             Side::Sell => {
-                let pos = self.positions.get_mut(symbol.as_str())
+                let pos = self
+                    .positions
+                    .get_mut(symbol.as_str())
                     .ok_or_else(|| format!("no position in {}", symbol))?;
 
                 if quantity > pos.quantity {
@@ -203,9 +212,14 @@ impl Portfolio {
     pub fn snapshot(&self, prices: &HashMap<String, Decimal>) -> PortfolioSnapshot {
         let mut total_value = self.cash;
         let mut unrealized = Decimal::ZERO;
-        let positions: Vec<Position> = self.positions.values()
+        let positions: Vec<Position> = self
+            .positions
+            .values()
             .map(|p| {
-                let current_price = prices.get(p.symbol.as_str()).copied().unwrap_or(p.current_price);
+                let current_price = prices
+                    .get(p.symbol.as_str())
+                    .copied()
+                    .unwrap_or(p.current_price);
                 let pnl = (current_price - p.avg_entry_price) * p.quantity;
                 let value = current_price * p.quantity;
                 total_value += value;
@@ -265,13 +279,29 @@ mod tests {
         let btc = Symbol::new("BTCUSDT");
 
         // Buy 0.01 BTC at $50,000
-        let trade = p.execute_trade(btc.clone(), Side::Buy, dec!(50000), dec!(0.01), mock_signal(0.5)).unwrap();
+        let trade = p
+            .execute_trade(
+                btc.clone(),
+                Side::Buy,
+                dec!(50000),
+                dec!(0.01),
+                mock_signal(0.5),
+            )
+            .unwrap();
         assert_eq!(trade.side, Side::Buy);
         assert!(p.cash() < dec!(1000)); // cash reduced
         assert_eq!(p.open_position_count(), 1);
 
         // Sell 0.01 BTC at $55,000 (profit!)
-        let trade = p.execute_trade(btc.clone(), Side::Sell, dec!(55000), dec!(0.01), mock_signal(-0.5)).unwrap();
+        let trade = p
+            .execute_trade(
+                btc.clone(),
+                Side::Sell,
+                dec!(55000),
+                dec!(0.01),
+                mock_signal(-0.5),
+            )
+            .unwrap();
         assert_eq!(trade.side, Side::Sell);
         assert_eq!(p.open_position_count(), 0);
 
@@ -294,7 +324,14 @@ mod tests {
         let mut p = Portfolio::new(dec!(1000));
         let btc = Symbol::new("BTCUSDT");
 
-        p.execute_trade(btc.clone(), Side::Buy, dec!(50000), dec!(0.01), mock_signal(0.5)).unwrap();
+        p.execute_trade(
+            btc.clone(),
+            Side::Buy,
+            dec!(50000),
+            dec!(0.01),
+            mock_signal(0.5),
+        )
+        .unwrap();
 
         // Try to sell more than we have
         let result = p.execute_trade(btc, Side::Sell, dec!(55000), dec!(0.02), mock_signal(-0.5));
@@ -305,7 +342,14 @@ mod tests {
     fn snapshot_values() {
         let mut p = Portfolio::new(dec!(1000));
         let btc = Symbol::new("BTCUSDT");
-        p.execute_trade(btc.clone(), Side::Buy, dec!(50000), dec!(0.01), mock_signal(0.5)).unwrap();
+        p.execute_trade(
+            btc.clone(),
+            Side::Buy,
+            dec!(50000),
+            dec!(0.01),
+            mock_signal(0.5),
+        )
+        .unwrap();
 
         let mut prices = HashMap::new();
         prices.insert("BTCUSDT".into(), dec!(55000));

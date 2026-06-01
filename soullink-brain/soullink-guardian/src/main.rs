@@ -16,7 +16,11 @@ use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Context;
 use arc_swap::ArcSwap;
-use tokio::{runtime, signal, sync::{broadcast, mpsc}, time};
+use tokio::{
+    runtime, signal,
+    sync::{broadcast, mpsc},
+    time,
+};
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -24,12 +28,8 @@ use soullink_core::{GuardianEvent, SystemSnapshot};
 use soullink_nvml::NvmlBridge;
 
 use crate::{
-    config::GuardianConfig,
-    decision::DecisionEngine,
-    emergency::EmergencyReflex,
-    homeosync::HomeoSync,
-    metrics_server::MetricsServer,
-    thermal::ThermalGuard,
+    config::GuardianConfig, decision::DecisionEngine, emergency::EmergencyReflex,
+    homeosync::HomeoSync, metrics_server::MetricsServer, thermal::ThermalGuard,
     ws_client::OrchestratorClient,
 };
 
@@ -69,21 +69,31 @@ async fn async_main() -> anyhow::Result<()> {
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
     let thermal = ThermalGuard::new(
-        nvml.clone(), tx.clone(), shutdown_tx.subscribe(),
-        config.thermal_threshold_c, config.thermal_interval,
+        nvml.clone(),
+        tx.clone(),
+        shutdown_tx.subscribe(),
+        config.thermal_threshold_c,
+        config.thermal_interval,
     );
     let homeosync = HomeoSync::new(
-        nvml.clone(), state.clone(), tx.clone(),
-        shutdown_tx.subscribe(), config.homeo_interval,
+        nvml.clone(),
+        state.clone(),
+        tx.clone(),
+        shutdown_tx.subscribe(),
+        config.homeo_interval,
     );
     let emergency = EmergencyReflex::with_options(
-        nvml.clone(), tx.clone(), shutdown_tx.subscribe(),
-        PathBuf::from(&config.reset_script), config.pcie_hang_threshold_ms,
+        nvml.clone(),
+        tx.clone(),
+        shutdown_tx.subscribe(),
+        PathBuf::from(&config.reset_script),
+        config.pcie_hang_threshold_ms,
         config.hang_detector_enabled,
     );
     let ws_client = OrchestratorClient::new(config.orchestrator_url.clone(), state.clone());
     let metrics = MetricsServer::new(config.metrics_port, state.clone());
-    let mut decision = DecisionEngine::new(rx, ws_client, state.clone(), config.clone(), nvml.clone());
+    let mut decision =
+        DecisionEngine::new(rx, ws_client, state.clone(), config.clone(), nvml.clone());
 
     // Phase 2b: dedicated XID reader off /dev/kmsg
     let kmsg = kmsg_reader::KmsgReader::new(tx.clone(), shutdown_tx.subscribe());
@@ -99,8 +109,8 @@ async fn async_main() -> anyhow::Result<()> {
     let t3 = tokio::spawn(async move { emergency.run().await });
     let tk = tokio::spawn(async move { kmsg.run().await });
     let ti = tokio::spawn(async move { ipc.run().await });
-    let m  = tokio::spawn(async move { metrics.run().await });
-    let d  = tokio::spawn(async move { decision.run().await });
+    let m = tokio::spawn(async move { metrics.run().await });
+    let d = tokio::spawn(async move { decision.run().await });
 
     tokio::select! {
         _ = signal::ctrl_c() => info!("SIGINT — graceful shutdown"),

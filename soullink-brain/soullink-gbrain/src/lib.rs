@@ -8,7 +8,7 @@
 //! soullink-gbrain — Knowledge Graph + Hybrid Search inspired by GBrain.
 
 pub mod extractor;
-pub mod storage;
 pub mod graph;
-pub mod search;
 pub mod migration;
+pub mod search;
+pub mod storage;

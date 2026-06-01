@@ -1,9 +1,9 @@
 //! Creativity — Génération de nouveaux types d'actions
 
-use tracing::{info, warn};
-use std::collections::HashMap;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use tracing::{info, warn};
 
 /// Moteur de créativité pour inventer de nouvelles actions
 #[derive(Debug, Clone)]
@@ -68,7 +68,7 @@ impl CreativityEngine {
             "health_check".to_string(),
             "memory_analysis".to_string(),
         ];
-        
+
         Self {
             base_actions: base.clone(),
             invented: HashMap::new(),
@@ -77,19 +77,20 @@ impl CreativityEngine {
     }
 
     /// Invente une nouvelle action
-    pub fn invent(&mut self, cycle: u64, _system_state: &crate::perception::SystemSnapshot) -> Option<CreativeAction> {
+    pub fn invent(
+        &mut self,
+        cycle: u64,
+        _system_state: &crate::perception::SystemSnapshot,
+    ) -> Option<CreativeAction> {
         let methods = vec![
-            InventionMethod::Combine(
-                self.base_actions[0].clone(),
-                self.base_actions[1].clone(),
-            ),
+            InventionMethod::Combine(self.base_actions[0].clone(), self.base_actions[1].clone()),
             InventionMethod::Variate(self.base_actions[2].clone()),
             InventionMethod::PatternInspired("high_cpu".to_string()),
             InventionMethod::GuidedMutation,
         ];
-        
+
         let method = methods.choose(&mut rand::thread_rng())?;
-        
+
         let action = match method {
             InventionMethod::Combine(a, b) => {
                 let name = format!("{}_and_{}", a, b);
@@ -144,16 +145,19 @@ impl CreativityEngine {
                 }
             }
         };
-        
-        info!("🎨 CRÉATIVITÉ: invention '{}' via {:?}", action.name, method);
-        
+
+        info!(
+            "🎨 CRÉATIVITÉ: invention '{}' via {:?}",
+            action.name, method
+        );
+
         self.invention_history.push(InventionRecord {
             cycle,
             action_name: action.name.clone(),
             method: method.clone(),
             result: true,
         });
-        
+
         self.invented.insert(action.name.clone(), action.clone());
         Some(action)
     }
@@ -164,24 +168,24 @@ impl CreativityEngine {
         name: &str,
         _llm: &crate::llm::LlmEngine,
     ) -> Result<bool, String> {
-        let action = self.invented.get(name)
+        let action = self
+            .invented
+            .get(name)
             .ok_or_else(|| "Action inconnue".to_string())?;
-        
+
         info!("🎨 CRÉATIVITÉ: test de '{}'", name);
-        
+
         // Simuler un test basique
         let _test_prompt = format!(
             "Test de l'action '{}' — {}. Description: {}. \
             Cette action est-elle cohérente avec le système ? Réponds par oui/non.",
-            action.name,
-            action.description,
-            action.description
+            action.name, action.description, action.description
         );
-        
+
         // Pour l'instant, simuler le résultat
         // TODO: utiliser le LLM pour valider
         let simulated_success = action.name.len() < 50 && !action.inputs.is_empty();
-        
+
         if simulated_success {
             info!("✅ CRÉATIVITÉ: '{}' validée", name);
             if let Some(a) = self.invented.get_mut(name) {
@@ -195,13 +199,14 @@ impl CreativityEngine {
                 a.avg_reward = -0.3;
             }
         }
-        
+
         Ok(simulated_success)
     }
 
     /// Récupère les actions inventées qui ont réussi
     pub fn get_successful_actions(&self, min_success: u32) -> Vec<&CreativeAction> {
-        self.invented.values()
+        self.invented
+            .values()
             .filter(|a| a.success_count >= min_success)
             .collect()
     }
@@ -221,8 +226,7 @@ impl CreativityEngine {
     pub fn suggest_novel_action(&self, energy: f64) -> Option<String> {
         if energy > 7.0 && !self.invented.is_empty() {
             // Quand l'énergie est haute, explorer
-            let novel = self.invented.values()
-                .max_by_key(|a| a.success_count)?;
+            let novel = self.invented.values().max_by_key(|a| a.success_count)?;
             Some(novel.name.clone())
         } else if energy > 4.0 {
             // Énergie moyenne: combinaison

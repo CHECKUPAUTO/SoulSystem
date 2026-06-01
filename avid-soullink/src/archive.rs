@@ -50,7 +50,8 @@ impl Archive for MemoriArchive {
         let value = serde_json::to_string(result)?;
 
         // Appel réel à l'API Memori /api/archive
-        let resp = self.http
+        let resp = self
+            .http
             .post(format!("{}/api/archive", self.memori_url))
             .json(&serde_json::json!({
                 "key": full_key,

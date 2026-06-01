@@ -19,7 +19,7 @@ use soullink_core::{ipc::read_frame, SystemSnapshot};
 
 pub struct IpcClient {
     socket_path: PathBuf,
-    sink:        Arc<dyn Fn(SystemSnapshot) + Send + Sync>,
+    sink: Arc<dyn Fn(SystemSnapshot) + Send + Sync>,
 }
 
 impl IpcClient {
@@ -87,23 +87,26 @@ pub fn dashmap_sink(
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        guardian.insert("latest".to_string(), json!({
-            "ts": snap.ts.to_rfc3339(),
-            "correlation_id": snap.correlation_id.to_string(),
-            "gpu_temp_c":        snap.gpu_temp_c,
-            "gpu_util_pct":      snap.gpu_util_pct,
-            "gpu_mem_used_mib":  snap.gpu_mem_used_mib,
-            "gpu_mem_total_mib": snap.gpu_mem_total_mib,
-            "gpu_power_w":       snap.gpu_power_w,
-            "power_limit_w":     snap.power_limit_w,
-            "fan_speed_pct":     snap.fan_speed_pct,
-            "sm_clock_mhz":      snap.sm_clock_mhz,
-            "mem_clock_mhz":     snap.mem_clock_mhz,
-            "throttle_active":   snap.throttle_active,
-            "throttle_reasons":  snap.throttle_reasons,
-            "xid_error_count":   snap.xid_error_count,
-            "received_at":       ts,
-            "via":               "uds",
-        }));
+        guardian.insert(
+            "latest".to_string(),
+            json!({
+                "ts": snap.ts.to_rfc3339(),
+                "correlation_id": snap.correlation_id.to_string(),
+                "gpu_temp_c":        snap.gpu_temp_c,
+                "gpu_util_pct":      snap.gpu_util_pct,
+                "gpu_mem_used_mib":  snap.gpu_mem_used_mib,
+                "gpu_mem_total_mib": snap.gpu_mem_total_mib,
+                "gpu_power_w":       snap.gpu_power_w,
+                "power_limit_w":     snap.power_limit_w,
+                "fan_speed_pct":     snap.fan_speed_pct,
+                "sm_clock_mhz":      snap.sm_clock_mhz,
+                "mem_clock_mhz":     snap.mem_clock_mhz,
+                "throttle_active":   snap.throttle_active,
+                "throttle_reasons":  snap.throttle_reasons,
+                "xid_error_count":   snap.xid_error_count,
+                "received_at":       ts,
+                "via":               "uds",
+            }),
+        );
     }
 }

@@ -55,7 +55,8 @@ impl SecretVerifier {
     }
 
     async fn verify_github(&self, token: &str) -> Option<VerificationResult> {
-        let resp = self.client
+        let resp = self
+            .client
             .get("https://api.github.com/user")
             .header("Authorization", format!("Bearer {token}"))
             .header("User-Agent", "soullink-security/1.0")
@@ -67,12 +68,17 @@ impl SecretVerifier {
         Some(VerificationResult {
             rule_name: "GitHub Token".to_string(),
             verified,
-            status: if verified { "VALID — REV IMMEDIATELY".to_string() } else { "INVALID".to_string() },
+            status: if verified {
+                "VALID — REV IMMEDIATELY".to_string()
+            } else {
+                "INVALID".to_string()
+            },
         })
     }
 
     async fn verify_slack(&self, token: &str) -> Option<VerificationResult> {
-        let resp = self.client
+        let resp = self
+            .client
             .post("https://slack.com/api/auth.test")
             .header("Authorization", format!("Bearer {token}"))
             .send()
@@ -84,7 +90,11 @@ impl SecretVerifier {
             Some(VerificationResult {
                 rule_name: "Slack Token".to_string(),
                 verified: ok,
-                status: if ok { "VALID — REV IMMEDIATELY".to_string() } else { "INVALID".to_string() },
+                status: if ok {
+                    "VALID — REV IMMEDIATELY".to_string()
+                } else {
+                    "INVALID".to_string()
+                },
             })
         } else {
             None
@@ -93,7 +103,8 @@ impl SecretVerifier {
 
     async fn verify_stripe(&self, token: &str) -> Option<VerificationResult> {
         // Stripe returns 401 for invalid keys, 200 for valid
-        let resp = self.client
+        let resp = self
+            .client
             .get("https://api.stripe.com/v1/balance")
             .header("Authorization", format!("Bearer {token}"))
             .send()
@@ -103,12 +114,17 @@ impl SecretVerifier {
         Some(VerificationResult {
             rule_name: "Stripe Key".to_string(),
             verified: resp.status().is_success(),
-            status: if resp.status().is_success() { "VALID — REV IMMEDIATELY".to_string() } else { "INVALID".to_string() },
+            status: if resp.status().is_success() {
+                "VALID — REV IMMEDIATELY".to_string()
+            } else {
+                "INVALID".to_string()
+            },
         })
     }
 
     async fn verify_telegram(&self, token: &str) -> Option<VerificationResult> {
-        let resp = self.client
+        let resp = self
+            .client
             .get(format!("https://api.telegram.org/bot{token}/getMe"))
             .send()
             .await
@@ -119,7 +135,11 @@ impl SecretVerifier {
             Some(VerificationResult {
                 rule_name: "Telegram Token".to_string(),
                 verified: ok,
-                status: if ok { "VALID — REV IMMEDIATELY".to_string() } else { "INVALID".to_string() },
+                status: if ok {
+                    "VALID — REV IMMEDIATELY".to_string()
+                } else {
+                    "INVALID".to_string()
+                },
             })
         } else {
             None
@@ -137,7 +157,8 @@ impl SecretVerifier {
     }
 
     async fn verify_gitlab(&self, token: &str) -> Option<VerificationResult> {
-        let resp = self.client
+        let resp = self
+            .client
             .get("https://gitlab.com/api/v4/user")
             .header("PRIVATE-TOKEN", token)
             .send()
@@ -147,7 +168,11 @@ impl SecretVerifier {
         Some(VerificationResult {
             rule_name: "GitLab Token".to_string(),
             verified: resp.status().is_success(),
-            status: if resp.status().is_success() { "VALID — REV IMMEDIATELY".to_string() } else { "INVALID".to_string() },
+            status: if resp.status().is_success() {
+                "VALID — REV IMMEDIATELY".to_string()
+            } else {
+                "INVALID".to_string()
+            },
         })
     }
 

@@ -69,13 +69,15 @@ mod tests {
     #[test]
     fn recall_boosts_access_count() {
         let dir = TempDir::new().unwrap();
-        let g = Arc::new(
-            MemoryGraph::open(dir.path(), DecayConfig::default()).unwrap()
+        let g = Arc::new(MemoryGraph::open(dir.path(), DecayConfig::default()).unwrap());
+        let mgr = MemoryManager::new(
+            g.clone(),
+            OllamaEmbeddingClient::new("http://localhost:11434", "test"),
         );
-        let mgr = MemoryManager::new(g.clone(), OllamaEmbeddingClient::new("http://localhost:11434", "test"));
 
         // Insert directly via graph (no Ollama needed)
-        g.insert(Concept::new("rust", ConceptKind::Skill), None).unwrap();
+        g.insert(Concept::new("rust", ConceptKind::Skill), None)
+            .unwrap();
 
         let c = mgr.recall("rust").unwrap();
         assert_eq!(c.access_count, 1);

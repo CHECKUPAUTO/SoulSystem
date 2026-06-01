@@ -14,11 +14,17 @@ pub struct QJLQuantizer {
 
 impl QJLQuantizer {
     pub fn new(bits: u32, scale: f32) -> Self {
-        Self { bits, levels: (1u32 << bits) as f32, scale }
+        Self {
+            bits,
+            levels: (1u32 << bits) as f32,
+            scale,
+        }
     }
 
     /// Default TurboQuant config: 3-bit, 0.01 correction scale.
-    pub fn turbo3() -> Self { Self::new(3, 0.01) }
+    pub fn turbo3() -> Self {
+        Self::new(3, 0.01)
+    }
 
     /// Quantize a slice of f32 values to 3-bit + QJL correction.
     pub fn quantize(&self, x: &[f32]) -> Vec<f32> {
@@ -26,20 +32,25 @@ impl QJLQuantizer {
         let half_range = (self.levels - 1.0) / 2.0;
         let increment = 1.0 / (self.levels / 2.0);
 
-        x.iter().map(|&val| {
-            let scaled = (val / x_max) * half_range;
-            let mut quant = (scaled / increment).round() * increment;
-            quant = quant.clamp(-half_range, half_range);
-            let residual = scaled - quant;
-            let correction = residual.signum() * self.scale * x_max;
-            quant + correction
-        }).collect()
+        x.iter()
+            .map(|&val| {
+                let scaled = (val / x_max) * half_range;
+                let mut quant = (scaled / increment).round() * increment;
+                quant = quant.clamp(-half_range, half_range);
+                let residual = scaled - quant;
+                let correction = residual.signum() * self.scale * x_max;
+                quant + correction
+            })
+            .collect()
     }
 
     /// Dequantize back to approximate original values.
     pub fn dequantize(&self, x_quant: &[f32], original_scale: f32) -> Vec<f32> {
         let half_range = (self.levels - 1.0) / 2.0;
-        x_quant.iter().map(|&v| (v / half_range) * original_scale).collect()
+        x_quant
+            .iter()
+            .map(|&v| (v / half_range) * original_scale)
+            .collect()
     }
 
     /// Pack quantized f32 values into packed u8 (3 bits per value).
@@ -47,7 +58,7 @@ impl QJLQuantizer {
     pub fn pack_3bit(x: &[f32], x_max: f32) -> Vec<u8> {
         let half_range = 3.5; // (2^3 - 1) / 2
         let increment = 1.0 / 4.0; // 1 / (2^3 / 2)
-        
+
         let n = x.len();
         let packed_len = (n * 3 + 7) / 8; // ceil(n*3/8) bytes
         let mut packed = vec![0u8; packed_len];
@@ -106,13 +117,21 @@ mod tests {
     #[test]
     fn pack_unpack_3bit() {
         let data: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0) * 0.1).collect();
-        let x_max = data.iter().map(|v| v.abs()).fold(f32::NEG_INFINITY, f32::max) + 1e-8;
+        let x_max = data
+            .iter()
+            .map(|v| v.abs())
+            .fold(f32::NEG_INFINITY, f32::max)
+            + 1e-8;
         let packed = QJLQuantizer::pack_3bit(&data, x_max);
         let unpacked = QJLQuantizer::unpack_3bit(&packed, data.len(), x_max);
         assert_eq!(unpacked.len(), data.len());
         // Check reconstruction quality (3-bit should be within ~10%)
-        let avg_err: f32 = unpacked.iter().zip(data.iter())
-            .map(|(a, b)| (a - b).abs()).sum::<f32>() / data.len() as f32;
+        let avg_err: f32 = unpacked
+            .iter()
+            .zip(data.iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum::<f32>()
+            / data.len() as f32;
         assert!(avg_err < 0.5, "Average error too large: {avg_err}");
     }
 

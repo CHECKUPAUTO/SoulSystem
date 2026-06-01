@@ -19,9 +19,14 @@ impl MixedPrecisionTrainer {
         let master_weights = model_params.to_vec();
         let fp16_weights = master_weights.iter().map(|t| cast_to_fp16(t)).collect();
         Self {
-            master_weights, fp16_weights, loss_scale: initial_scale,
-            scale_growth_factor: 2.0, scale_backoff_factor: 0.5,
-            growth_interval: 2000, step_counter: 0, max_scale: 65536.0,
+            master_weights,
+            fp16_weights,
+            loss_scale: initial_scale,
+            scale_growth_factor: 2.0,
+            scale_backoff_factor: 0.5,
+            growth_interval: 2000,
+            step_counter: 0,
+            max_scale: 65536.0,
         }
     }
 
@@ -40,13 +45,19 @@ impl MixedPrecisionTrainer {
 
         for grad in grads {
             let unscaled = unscale_tensor(grad, 1.0 / self.loss_scale);
-            if has_nan_or_inf(&unscaled) { any_overflow = true; break; }
+            if has_nan_or_inf(&unscaled) {
+                any_overflow = true;
+                break;
+            }
             scaled_grads.push(unscaled);
         }
 
         if any_overflow {
             self.loss_scale *= self.scale_backoff_factor;
-            return Err(format!("Overflow detected, loss scale reduced to {}", self.loss_scale));
+            return Err(format!(
+                "Overflow detected, loss scale reduced to {}",
+                self.loss_scale
+            ));
         }
 
         // Appliquer les gradients (à faire par l'optimiseur externe)
@@ -108,7 +119,8 @@ mod tests {
         let mut trainer = MixedPrecisionTrainer::new(&params, 1.0);
         let grads = vec![Tensor {
             data: vec![f32::NAN; 200],
-            rows: 10, cols: 20,
+            rows: 10,
+            cols: 20,
         }];
         let result = trainer.after_backward(&grads);
         assert!(result.is_err(), "Should fail on NaN");

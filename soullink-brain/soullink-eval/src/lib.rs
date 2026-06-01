@@ -9,9 +9,9 @@
 //! AVX2 on Broadwell (64 threads) and falls back to scalar on other CPUs.
 
 pub mod evaluator;
-pub mod loss;
 pub mod feedback;
+pub mod loss;
 
 pub use evaluator::BrainEvaluator;
-pub use loss::SemanticLoss;
 pub use feedback::FeedbackLoop;
+pub use loss::SemanticLoss;

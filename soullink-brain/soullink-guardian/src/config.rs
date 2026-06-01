@@ -75,21 +75,51 @@ pub struct GuardianConfig {
     pub pacing_hard_cap_c: f32,
 }
 
-fn default_orchestrator_url() -> String { "http://127.0.0.1:9020".into() }
-fn default_thermal_threshold_c() -> f32 { 85.0 }
-fn default_thermal_interval() -> Duration { Duration::from_millis(1000) }
-fn default_homeo_interval() -> Duration { Duration::from_millis(5000) }
-fn default_pcie_hang_threshold_ms() -> u64 { 30_000 }
-fn default_hang_detector_enabled() -> bool { true }
-fn default_reset_script() -> PathBuf { PathBuf::from("/opt/soullink/scripts/pcie_reset.sh") }
-fn default_throttle_power_limit_w() -> u32 { 90 }
-fn default_reset_power_limit_w() -> u32 { 115 }
-fn default_metrics_port() -> u16 { 9091 }
-fn default_emergency_stress_threshold() -> f64 { 0.7 }
-fn default_emergency_turbulence_threshold() -> f64 { 0.8 }
-fn default_xid_scan_interval() -> Duration { Duration::from_millis(100) }
-fn default_pacing_target_c() -> f32 { 75.0 }
-fn default_pacing_hard_cap_c() -> f32 { 87.0 }
+fn default_orchestrator_url() -> String {
+    "http://127.0.0.1:9020".into()
+}
+fn default_thermal_threshold_c() -> f32 {
+    85.0
+}
+fn default_thermal_interval() -> Duration {
+    Duration::from_millis(1000)
+}
+fn default_homeo_interval() -> Duration {
+    Duration::from_millis(5000)
+}
+fn default_pcie_hang_threshold_ms() -> u64 {
+    30_000
+}
+fn default_hang_detector_enabled() -> bool {
+    true
+}
+fn default_reset_script() -> PathBuf {
+    PathBuf::from("/opt/soullink/scripts/pcie_reset.sh")
+}
+fn default_throttle_power_limit_w() -> u32 {
+    90
+}
+fn default_reset_power_limit_w() -> u32 {
+    115
+}
+fn default_metrics_port() -> u16 {
+    9091
+}
+fn default_emergency_stress_threshold() -> f64 {
+    0.7
+}
+fn default_emergency_turbulence_threshold() -> f64 {
+    0.8
+}
+fn default_xid_scan_interval() -> Duration {
+    Duration::from_millis(100)
+}
+fn default_pacing_target_c() -> f32 {
+    75.0
+}
+fn default_pacing_hard_cap_c() -> f32 {
+    87.0
+}
 
 impl Default for GuardianConfig {
     fn default() -> Self {
@@ -131,27 +161,52 @@ impl GuardianConfig {
         };
 
         // 2. Env overrides (CG_*)
-        if let Ok(v) = std::env::var("CG_ORCHESTRATOR_URL")        { cfg.orchestrator_url = v; }
-        if let Ok(v) = std::env::var("CG_GPU_DEVICE_INDEX")        { if let Ok(x) = v.parse() { cfg.gpu_device_index = x; } }
-        if let Ok(v) = std::env::var("CG_THERMAL_THRESHOLD_C")     { if let Ok(x) = v.parse() { cfg.thermal_threshold_c = x; } }
-        if let Ok(v) = std::env::var("CG_METRICS_PORT")            { if let Ok(x) = v.parse() { cfg.metrics_port = x; } }
-        if let Ok(v) = std::env::var("CG_PCIE_HANG_THRESHOLD_MS")  { if let Ok(x) = v.parse() { cfg.pcie_hang_threshold_ms = x; } }
-        if let Ok(v) = std::env::var("CG_THROTTLE_POWER_LIMIT_W")  { if let Ok(x) = v.parse() { cfg.throttle_power_limit_w = x; } }
-        if let Ok(v) = std::env::var("CG_RESET_POWER_LIMIT_W")     { if let Ok(x) = v.parse() { cfg.reset_power_limit_w = x; } }
-        if let Ok(v) = std::env::var("CG_RESET_SCRIPT")            { cfg.reset_script = PathBuf::from(v); }
+        if let Ok(v) = std::env::var("CG_ORCHESTRATOR_URL") {
+            cfg.orchestrator_url = v;
+        }
+        if let Ok(v) = std::env::var("CG_GPU_DEVICE_INDEX") {
+            if let Ok(x) = v.parse() {
+                cfg.gpu_device_index = x;
+            }
+        }
+        if let Ok(v) = std::env::var("CG_THERMAL_THRESHOLD_C") {
+            if let Ok(x) = v.parse() {
+                cfg.thermal_threshold_c = x;
+            }
+        }
+        if let Ok(v) = std::env::var("CG_METRICS_PORT") {
+            if let Ok(x) = v.parse() {
+                cfg.metrics_port = x;
+            }
+        }
+        if let Ok(v) = std::env::var("CG_PCIE_HANG_THRESHOLD_MS") {
+            if let Ok(x) = v.parse() {
+                cfg.pcie_hang_threshold_ms = x;
+            }
+        }
+        if let Ok(v) = std::env::var("CG_THROTTLE_POWER_LIMIT_W") {
+            if let Ok(x) = v.parse() {
+                cfg.throttle_power_limit_w = x;
+            }
+        }
+        if let Ok(v) = std::env::var("CG_RESET_POWER_LIMIT_W") {
+            if let Ok(x) = v.parse() {
+                cfg.reset_power_limit_w = x;
+            }
+        }
+        if let Ok(v) = std::env::var("CG_RESET_SCRIPT") {
+            cfg.reset_script = PathBuf::from(v);
+        }
 
-        tracing::info!(
-            ?cfg,
-            "guardian config loaded"
-        );
+        tracing::info!(?cfg, "guardian config loaded");
         Ok(cfg)
     }
 }
 
 // Serde adapter: TOML integer (ms) ↔ Duration
 mod humantime_ms {
-    use std::time::Duration;
     use serde::{Deserialize, Deserializer, Serializer};
+    use std::time::Duration;
 
     pub fn serialize<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_u64(d.as_millis() as u64)

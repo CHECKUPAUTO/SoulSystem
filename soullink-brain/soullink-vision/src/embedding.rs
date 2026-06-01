@@ -48,9 +48,18 @@ impl ImageEmbedding {
         if self.dimension != other.dimension {
             return 0.0;
         }
-        let dot: f32 = self.vector.iter().zip(other.vector.iter()).map(|(a, b)| a * b).sum();
+        let dot: f32 = self
+            .vector
+            .iter()
+            .zip(other.vector.iter())
+            .map(|(a, b)| a * b)
+            .sum();
         let na: f32 = self.vector.iter().map(|x| x * x).sum::<f32>().sqrt();
         let nb: f32 = other.vector.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if na * nb == 0.0 { 0.0 } else { dot / (na * nb) }
+        if na * nb == 0.0 {
+            0.0
+        } else {
+            dot / (na * nb)
+        }
     }
 }

@@ -85,9 +85,9 @@ pub struct BatchItem {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BatchPriority {
-    Think = 0,    // GPU, immediate
-    Embed = 1,    // GPU, batched
-    Dream = 2,    // CPU NUMA, background
+    Think = 0, // GPU, immediate
+    Embed = 1, // GPU, batched
+    Dream = 2, // CPU NUMA, background
 }
 
 #[cfg(test)]

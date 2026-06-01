@@ -13,7 +13,7 @@
 //   - b_hh   : (1, 4 * hidden_size) — broadcast row-wise
 //   - output : (seq_len * batch, hidden_size)
 
-use crate::autodiff::reverse::{concat_rows, Tape, Tensor, Var};
+use crate::autodiff::reverse::{Tape, Tensor, Var, concat_rows};
 use crate::nn::rng::PcgEngine;
 
 pub struct LSTM {
@@ -35,12 +35,7 @@ impl LSTM {
     ///
     /// Les poids sont initialisés avec une distribution uniforme sur
     /// [-scale, scale] où scale = sqrt(2 / (4 * hidden_size)).
-    pub fn new(
-        input_size: usize,
-        hidden_size: usize,
-        bias: bool,
-        rng: &mut PcgEngine,
-    ) -> Self {
+    pub fn new(input_size: usize, hidden_size: usize, bias: bool, rng: &mut PcgEngine) -> Self {
         let scale = (1.0 / hidden_size as f32).sqrt(); // Xavier standard pour LSTM
         let mut w_ih = Tensor::zeros(4 * hidden_size, input_size);
         let mut w_hh = Tensor::zeros(4 * hidden_size, hidden_size);
@@ -202,10 +197,10 @@ mod test_lstm {
     fn lstm_creation_shapes() {
         let mut rng = PcgEngine::new(42);
         let lstm = LSTM::new(10, 16, true, &mut rng);
-        assert_eq!(lstm.w_ih.rows, 64);  // 4 * 16
-        assert_eq!(lstm.w_ih.cols, 10);  // input_size
-        assert_eq!(lstm.w_hh.rows, 64);  // 4 * 16
-        assert_eq!(lstm.w_hh.cols, 16);  // hidden_size
+        assert_eq!(lstm.w_ih.rows, 64); // 4 * 16
+        assert_eq!(lstm.w_ih.cols, 10); // input_size
+        assert_eq!(lstm.w_hh.rows, 64); // 4 * 16
+        assert_eq!(lstm.w_hh.cols, 16); // hidden_size
         assert!(lstm.has_bias);
         assert!(lstm.b_ih.is_some());
         assert!(lstm.b_hh.is_some());
@@ -226,7 +221,7 @@ mod test_lstm {
         let mut rng = PcgEngine::new(42);
         let mut lstm = LSTM::new(5, 8, true, &mut rng);
         let tape = Tape::new();
-        let x = tape.input(Tensor::zeros(6, 5));  // seq_len=3, batch=2
+        let x = tape.input(Tensor::zeros(6, 5)); // seq_len=3, batch=2
         let out = lstm.forward_sequence(&tape, x, 3, 2);
         assert_eq!(out.shape(), (6, 8));
     }
@@ -273,7 +268,11 @@ mod test_lstm {
         let x = tape.input(Tensor::zeros(4, 10));
         let _ = lstm.forward_sequence(&tape, x, 2, 2);
         let idxs = lstm.parameter_indices();
-        assert_eq!(idxs.len(), 4, "bias LSTM should track 4 params: w_ih, w_hh, b_ih, b_hh");
+        assert_eq!(
+            idxs.len(),
+            4,
+            "bias LSTM should track 4 params: w_ih, w_hh, b_ih, b_hh"
+        );
     }
 
     #[test]

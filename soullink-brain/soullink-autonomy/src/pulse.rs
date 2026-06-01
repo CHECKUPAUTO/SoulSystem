@@ -4,15 +4,15 @@
 //! one timestep. The pulse reads GPU temperature via the AfferentNerve
 //! and injects it as thermal noise (turbulence).
 
-use crate::node::{Attractor, BrainNode, NodeId};
 use crate::afferent::AfferentNerve;
+use crate::node::{Attractor, BrainNode, NodeId};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::interval;
-use tracing::{info, warn, instrument};
+use tracing::{info, instrument, warn};
 
 /// Snapshot of the entire mesh state at a point in time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,24 +114,31 @@ impl AutonomyPulse {
         let mut total_turbulence = 0.0;
         let mut attractor_counts: HashMap<Attractor, usize> = HashMap::new();
 
-        let node_snapshots: HashMap<String, NodeSnapshot> = nodes.iter().map(|(id, node)| {
-            let energy = node.energy();
-            total_energy += energy;
-            total_turbulence += node.turbulence;
-            let attractor = node.attractor();
-            *attractor_counts.entry(attractor).or_insert(0) += 1;
+        let node_snapshots: HashMap<String, NodeSnapshot> = nodes
+            .iter()
+            .map(|(id, node)| {
+                let energy = node.energy();
+                total_energy += energy;
+                total_turbulence += node.turbulence;
+                let attractor = node.attractor();
+                *attractor_counts.entry(attractor).or_insert(0) += 1;
 
-            (format!("{:?}", id).to_lowercase(), NodeSnapshot {
-                position: node.position,
-                momentum: node.momentum,
-                energy,
-                attractor,
-                turbulence: node.turbulence,
-                tick: node.tick,
+                (
+                    format!("{:?}", id).to_lowercase(),
+                    NodeSnapshot {
+                        position: node.position,
+                        momentum: node.momentum,
+                        energy,
+                        attractor,
+                        turbulence: node.turbulence,
+                        tick: node.tick,
+                    },
+                )
             })
-        }).collect();
+            .collect();
 
-        let dominant = attractor_counts.into_iter()
+        let dominant = attractor_counts
+            .into_iter()
             .max_by_key(|(_, c)| *c)
             .map(|(a, _)| a)
             .unwrap_or(Attractor::Transient);

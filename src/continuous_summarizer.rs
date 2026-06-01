@@ -105,9 +105,7 @@ impl SessionSummary {
             .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
             .unwrap_or_else(|| "inconnu".into());
 
-        let mut md = format!(
-            "# Résumé de session\n\n"
-        );
+        let mut md = format!("# Résumé de session\n\n");
         md.push_str(&format!("- **Généré le**: {}\n", now));
         md.push_str(&format!("- **Session**: {}\n", self.session_id));
         md.push_str(&format!("- **Messages**: {}\n", self.message_count));
@@ -185,8 +183,8 @@ impl Default for SummarizerConfig {
     fn default() -> Self {
         Self {
             data_dir: PathBuf::from("/var/lib/soulsystem/data"),
-            interval_secs: 600,        // 10 minutes
-            message_threshold: 30,      // ou tous les 30 messages
+            interval_secs: 600,    // 10 minutes
+            message_threshold: 30, // ou tous les 30 messages
             summary_filename: "summary_latest.md".into(),
             pending_facts_filename: "pending_facts.md".into(),
             session_id: "unknown".into(),
@@ -252,7 +250,10 @@ impl ContinuousSummarizer {
 
     /// Ajoute une erreur et sa correction.
     pub async fn add_error_fix(&self, error: &str, fix: &str) {
-        self.summary.write().await.errors_and_fixes
+        self.summary
+            .write()
+            .await
+            .errors_and_fixes
             .push((error.to_string(), fix.to_string()));
         // Garder les 15 dernières
         let mut s = self.summary.write().await;
@@ -275,12 +276,16 @@ impl ContinuousSummarizer {
 
     /// Ajoute un événement à la timeline.
     pub async fn add_event(&self, kind: EventKind, summary: &str, details: &str) {
-        self.summary.write().await.recent_events.push(TimelineEvent {
-            timestamp_ms: Utc::now().timestamp_millis(),
-            kind,
-            summary: summary.to_string(),
-            details: details.to_string(),
-        });
+        self.summary
+            .write()
+            .await
+            .recent_events
+            .push(TimelineEvent {
+                timestamp_ms: Utc::now().timestamp_millis(),
+                kind,
+                summary: summary.to_string(),
+                details: details.to_string(),
+            });
         // Garder les 50 derniers événements
         let mut s = self.summary.write().await;
         if s.recent_events.len() > 50 {
@@ -332,7 +337,10 @@ impl ContinuousSummarizer {
 
         md.push_str("\n---\n*Généré automatiquement par ContinuousSummarizer*\n");
         tokio::fs::write(&self.pending_facts_path, &md).await?;
-        info!("ContinuousSummarizer: {} faits en attente écrits", s.new_facts.len());
+        info!(
+            "ContinuousSummarizer: {} faits en attente écrits",
+            s.new_facts.len()
+        );
         Ok(())
     }
 
@@ -340,9 +348,8 @@ impl ContinuousSummarizer {
 
     /// Boucle asynchrone qui génère les résumés à intervalle régulier.
     pub async fn run(&self) {
-        let mut interval = tokio::time::interval(
-            tokio::time::Duration::from_secs(self.config.interval_secs)
-        );
+        let mut interval =
+            tokio::time::interval(tokio::time::Duration::from_secs(self.config.interval_secs));
         let mut last_msg_count: u64 = 0;
 
         loop {
@@ -381,7 +388,9 @@ mod tests {
         let summarizer = ContinuousSummarizer::new(cfg);
 
         summarizer.set_goal("Tester le résumé").await;
-        summarizer.set_active_task("Écrire des tests unitaires").await;
+        summarizer
+            .set_active_task("Écrire des tests unitaires")
+            .await;
         summarizer.set_progress("50%").await;
         summarizer.add_decision("Utiliser TempDir").await;
         summarizer.add_error_fix("Erreur X", "Fix Y").await;
@@ -428,10 +437,15 @@ mod tests {
         };
         let summarizer = ContinuousSummarizer::new(cfg);
 
-        summarizer.add_event(EventKind::Decision, "Décision test", "Détails").await;
-        summarizer.add_event(EventKind::Error, "Erreur test", "Détails").await;
+        summarizer
+            .add_event(EventKind::Decision, "Décision test", "Détails")
+            .await;
+        summarizer
+            .add_event(EventKind::Error, "Erreur test", "Détails")
+            .await;
 
-        let s = summarizer.summary().read().await;
+        let summary = summarizer.summary();
+        let s = summary.read().await;
         assert_eq!(s.recent_events.len(), 2);
         assert_eq!(s.recent_events[0].kind, EventKind::Decision);
         assert_eq!(s.recent_events[1].kind, EventKind::Error);
@@ -442,7 +456,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cfg = SummarizerConfig {
             data_dir: dir.path().to_path_buf(),
-            interval_secs: 3600, // Long interval, won't trigger
+            interval_secs: 3600,  // Long interval, won't trigger
             message_threshold: 5, // Low threshold
             ..Default::default()
         };

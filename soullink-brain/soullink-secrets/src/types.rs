@@ -32,8 +32,12 @@ pub struct SecretMetadata {
 pub struct SecretValue(Vec<u8>);
 
 impl SecretValue {
-    pub fn new(value: Vec<u8>) -> Self { Self(value) }
-    pub fn expose(&self) -> &[u8] { &self.0 }
+    pub fn new(value: Vec<u8>) -> Self {
+        Self(value)
+    }
+    pub fn expose(&self) -> &[u8] {
+        &self.0
+    }
 }
 
 impl std::fmt::Debug for SecretValue {

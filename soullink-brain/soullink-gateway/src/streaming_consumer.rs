@@ -42,9 +42,9 @@ const TELEGRAM_MAX_BYTES: usize = 4096;
 const INITIAL_PLACEHOLDER: &str = "·";
 
 pub struct StreamingConsumer {
-    tg_client:        TelegramClient,
+    tg_client: TelegramClient,
     orchestrator_url: String,
-    orch_http:        reqwest::Client,
+    orch_http: reqwest::Client,
 }
 
 impl StreamingConsumer {
@@ -57,7 +57,11 @@ impl StreamingConsumer {
             .tcp_keepalive(Duration::from_secs(60))
             .build()
             .expect("reqwest client build for streaming");
-        Self { tg_client, orchestrator_url, orch_http }
+        Self {
+            tg_client,
+            orchestrator_url,
+            orch_http,
+        }
     }
 
     /// Consume the SSE stream for one incoming message. Returns Ok when
@@ -77,7 +81,8 @@ impl StreamingConsumer {
             "user":    incoming.username,
         });
 
-        let resp = self.orch_http
+        let resp = self
+            .orch_http
             .post(&url)
             .json(&body)
             .send()
@@ -89,12 +94,20 @@ impl StreamingConsumer {
         }
 
         // Post the initial placeholder message so we have a message_id to edit
-        let message_id = self.tg_client
-            .send_message(incoming.chat_id, INITIAL_PLACEHOLDER, Some(incoming.message_id))
+        let message_id = self
+            .tg_client
+            .send_message(
+                incoming.chat_id,
+                INITIAL_PLACEHOLDER,
+                Some(incoming.message_id),
+            )
             .await
             .map_err(|e| format!("initial sendMessage failed: {e}"))?;
 
-        debug!(chat_id = incoming.chat_id, message_id, "streaming: initial message posted");
+        debug!(
+            chat_id = incoming.chat_id,
+            message_id, "streaming: initial message posted"
+        );
 
         // Consume SSE and edit progressively
         let byte_stream = resp.bytes_stream();
@@ -118,9 +131,11 @@ impl StreamingConsumer {
 
                     if should_edit_now(last_edit_at) {
                         let to_show = render_progress(&accumulated, /* final */ false);
-                        if let Err(e) = self.tg_client.edit_message_text(
-                            incoming.chat_id, message_id, &to_show,
-                        ).await {
+                        if let Err(e) = self
+                            .tg_client
+                            .edit_message_text(incoming.chat_id, message_id, &to_show)
+                            .await
+                        {
                             warn!(%e, "streaming: edit failed mid-stream (continuing)");
                         } else {
                             last_edit_at = Some(Instant::now());
@@ -144,7 +159,11 @@ impl StreamingConsumer {
         // Final edit: always post the complete accumulated text (or error note)
         let final_text = if let Some(err_msg) = had_error {
             if any_token {
-                format!("{}\n\n⚠️ Stream interrupted: {}", accumulated.trim(), err_msg)
+                format!(
+                    "{}\n\n⚠️ Stream interrupted: {}",
+                    accumulated.trim(),
+                    err_msg
+                )
             } else {
                 format!("⚠️ Error from orchestrator: {}", err_msg)
             }
@@ -165,15 +184,18 @@ impl StreamingConsumer {
             }
         }
 
-        if let Err(e) = self.tg_client.edit_message_text(
-            incoming.chat_id, message_id, &final_truncated,
-        ).await {
+        if let Err(e) = self
+            .tg_client
+            .edit_message_text(incoming.chat_id, message_id, &final_truncated)
+            .await
+        {
             warn!(%e, "streaming: final edit failed");
             return Err(format!("final edit failed: {e}"));
         }
 
         info!(
-            chat_id = incoming.chat_id, message_id,
+            chat_id = incoming.chat_id,
+            message_id,
             total_len = accumulated.len(),
             "streaming: reply delivered"
         );
@@ -203,7 +225,7 @@ fn render_progress(accumulated: &str, is_final: bool) -> String {
 /// SSE event after parsing.
 #[derive(Debug, PartialEq)]
 enum SseEvent {
-    Meta(String),        // raw JSON string
+    Meta(String), // raw JSON string
     Token(String),
     Done(String),
     ErrorFrame(String),
@@ -216,24 +238,25 @@ enum SseEvent {
 fn parse_sse_events(
     byte_stream: impl futures::Stream<Item = Result<impl AsRef<[u8]>, reqwest::Error>> + Send + 'static,
 ) -> impl futures::Stream<Item = SseEvent> + Send {
-    byte_stream.scan(
-        SseParserState::default(),
-        |state: &mut SseParserState, chunk_res| {
-            let events = match chunk_res {
-                Ok(bytes) => state.feed(bytes.as_ref()),
-                Err(_)    => vec![],
-            };
-            futures::future::ready(Some(events))
-        },
-    )
-    .flat_map(|batch| futures::stream::iter(batch.into_iter()))
+    byte_stream
+        .scan(
+            SseParserState::default(),
+            |state: &mut SseParserState, chunk_res| {
+                let events = match chunk_res {
+                    Ok(bytes) => state.feed(bytes.as_ref()),
+                    Err(_) => vec![],
+                };
+                futures::future::ready(Some(events))
+            },
+        )
+        .flat_map(|batch| futures::stream::iter(batch.into_iter()))
 }
 
 #[derive(Default)]
 struct SseParserState {
     buf: Vec<u8>,
     current_event: Option<String>,
-    current_data:  Vec<String>,
+    current_data: Vec<String>,
 }
 
 impl SseParserState {
@@ -242,22 +265,25 @@ impl SseParserState {
         let mut emitted = Vec::new();
         while let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
             let raw_line: Vec<u8> = self.buf.drain(..=pos).collect();
-            let line_str = String::from_utf8_lossy(&raw_line[..raw_line.len()-1]);
+            let line_str = String::from_utf8_lossy(&raw_line[..raw_line.len() - 1]);
             let line = line_str.trim_end_matches('\r');
 
             if line.is_empty() {
                 // Dispatch the pending event
                 if self.current_event.is_some() || !self.current_data.is_empty() {
-                    let event_name = self.current_event.take().unwrap_or_else(|| "message".into());
+                    let event_name = self
+                        .current_event
+                        .take()
+                        .unwrap_or_else(|| "message".into());
                     let data = self.current_data.join("\n");
                     self.current_data.clear();
 
                     let ev = match event_name.as_str() {
-                        "meta"  => SseEvent::Meta(data),
+                        "meta" => SseEvent::Meta(data),
                         "token" => SseEvent::Token(data),
-                        "done"  => SseEvent::Done(data),
+                        "done" => SseEvent::Done(data),
                         "error" => SseEvent::ErrorFrame(data),
-                        other   => SseEvent::Unknown(other.to_string()),
+                        other => SseEvent::Unknown(other.to_string()),
                     };
                     emitted.push(ev);
                 }
@@ -282,9 +308,13 @@ impl SseParserState {
 /// UTF-8-safe byte truncation. Same as long_poll.rs. Duplicated here to
 /// keep streaming_consumer self-contained.
 fn truncate_utf8_bytes(s: &str, max_bytes: usize) -> String {
-    if s.len() <= max_bytes { return s.to_string(); }
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
     let mut end = max_bytes;
-    while end > 0 && !s.is_char_boundary(end) { end -= 1; }
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
     s[..end].to_string()
 }
 

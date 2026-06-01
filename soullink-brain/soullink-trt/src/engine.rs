@@ -3,7 +3,9 @@
 //! Stub mode (default): returns `TrtError::FeatureDisabled` on generate calls.
 //! TRT mode (feature = "trt-llm"): full FFI via cxx bridge.
 
-use crate::types::{BatchPriority, GenerationConfig, GenerationResult, StreamChunk, TrtConfig, TrtError};
+use crate::types::{
+    BatchPriority, GenerationConfig, GenerationResult, StreamChunk, TrtConfig, TrtError,
+};
 use std::path::Path;
 
 /// TensorRT-LLM inference engine.
@@ -71,10 +73,14 @@ impl TrtEngine {
     /// Check if TRT-LLM is available (stub mode always returns false).
     pub fn is_available(&self) -> bool {
         #[cfg(feature = "trt-llm")]
-        { self.loaded }
+        {
+            self.loaded
+        }
 
         #[cfg(not(feature = "trt-llm"))]
-        { false }
+        {
+            false
+        }
     }
 
     /// Get the model path.
@@ -153,7 +159,10 @@ mod tests {
         let engine = TrtEngine::from_onnx_or_engine("/models/test", TrtConfig::default())
             .await
             .unwrap();
-        assert!(!engine.is_available(), "Stub mode should report unavailable");
+        assert!(
+            !engine.is_available(),
+            "Stub mode should report unavailable"
+        );
         assert_eq!(engine.model_path(), "/models/test");
     }
 
@@ -171,7 +180,9 @@ mod tests {
         let engine = TrtEngine::from_onnx_or_engine("/models/test", TrtConfig::default())
             .await
             .unwrap();
-        let result = engine.generate_stream("test", GenerationConfig::default()).await;
+        let result = engine
+            .generate_stream("test", GenerationConfig::default())
+            .await;
         assert!(matches!(result, Err(TrtError::FeatureDisabled)));
     }
 
@@ -183,7 +194,13 @@ mod tests {
             model_path: "/models/test".into(),
             loaded: false,
         };
-        assert_eq!(engine.suggest_priority(BatchPriority::Think), BatchPriority::Think);
-        assert_eq!(engine.suggest_priority(BatchPriority::Dream), BatchPriority::Dream);
+        assert_eq!(
+            engine.suggest_priority(BatchPriority::Think),
+            BatchPriority::Think
+        );
+        assert_eq!(
+            engine.suggest_priority(BatchPriority::Dream),
+            BatchPriority::Dream
+        );
     }
 }

@@ -40,9 +40,9 @@ pub fn cosine_wide(a: &[f32], b: &[f32]) -> f32 {
     debug_assert_eq!(a.len(), b.len(), "dimensions mismatch");
     debug_assert_eq!(a.len() % 8, 0, "length must be multiple of 8");
 
-    let mut dot   = f32x8::ZERO;
-    let mut sq_a  = f32x8::ZERO;
-    let mut sq_b  = f32x8::ZERO;
+    let mut dot = f32x8::ZERO;
+    let mut sq_a = f32x8::ZERO;
+    let mut sq_b = f32x8::ZERO;
 
     // Les chunks de 8 f32 sont traités en une instruction AVX2 chacun.
     for (chunk_a, chunk_b) in a.chunks_exact(8).zip(b.chunks_exact(8)) {
@@ -50,18 +50,22 @@ pub fn cosine_wide(a: &[f32], b: &[f32]) -> f32 {
         let va = f32x8::from(<[f32; 8]>::try_from(chunk_a).unwrap());
         let vb = f32x8::from(<[f32; 8]>::try_from(chunk_b).unwrap());
 
-        dot  += va * vb;
+        dot += va * vb;
         sq_a += va * va;
         sq_b += vb * vb;
     }
 
     // Réduction horizontale : somme des 8 lanes
-    let dot_s  = dot .reduce_add();
+    let dot_s = dot.reduce_add();
     let norm_a = sq_a.reduce_add().sqrt();
     let norm_b = sq_b.reduce_add().sqrt();
 
     let denom = norm_a * norm_b;
-    if denom == 0.0 { 0.0 } else { dot_s / denom }
+    if denom == 0.0 {
+        0.0
+    } else {
+        dot_s / denom
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,13 +87,13 @@ pub mod avx2 {
     pub unsafe fn cosine_avx2_fma(a: &[f32], b: &[f32]) -> f32 {
         debug_assert_eq!(a.len(), b.len());
 
-        let mut dot  = _mm256_setzero_ps();
+        let mut dot = _mm256_setzero_ps();
         let mut sq_a = _mm256_setzero_ps();
         let mut sq_b = _mm256_setzero_ps();
 
         let chunks = a.len() / 8;
-        let a_ptr  = a.as_ptr();
-        let b_ptr  = b.as_ptr();
+        let a_ptr = a.as_ptr();
+        let b_ptr = b.as_ptr();
 
         for i in 0..chunks {
             // Prefetch le chunk suivant (réduit les cache miss)
@@ -102,18 +106,22 @@ pub mod avx2 {
             let vb = _mm256_loadu_ps(b_ptr.add(i * 8));
 
             // FMA : dot = dot + (va * vb)  en une instruction
-            dot  = _mm256_fmadd_ps(va, vb, dot);
+            dot = _mm256_fmadd_ps(va, vb, dot);
             sq_a = _mm256_fmadd_ps(va, va, sq_a);
             sq_b = _mm256_fmadd_ps(vb, vb, sq_b);
         }
 
         // Réduction horizontale AVX2 (hsum256)
-        let dot_s  = hsum256(dot);
+        let dot_s = hsum256(dot);
         let norm_a = hsum256(sq_a).sqrt();
         let norm_b = hsum256(sq_b).sqrt();
 
         let denom = norm_a * norm_b;
-        if denom == 0.0 { 0.0 } else { dot_s / denom }
+        if denom == 0.0 {
+            0.0
+        } else {
+            dot_s / denom
+        }
     }
 
     /// Réduction horizontale d'un registre __m256 → f32.
@@ -121,15 +129,15 @@ pub mod avx2 {
     #[target_feature(enable = "avx2")]
     unsafe fn hsum256(v: __m256) -> f32 {
         // [a0..a7] → [a0+a4, a1+a5, a2+a6, a3+a7, ...]
-        let lo  = _mm256_extractf128_ps(v, 0);
-        let hi  = _mm256_extractf128_ps(v, 1);
+        let lo = _mm256_extractf128_ps(v, 0);
+        let hi = _mm256_extractf128_ps(v, 1);
         let sum = _mm_add_ps(lo, hi);
         // [s0+s2, s1+s3, ...]
         let shuf = _mm_movehdup_ps(sum);
         let sum2 = _mm_add_ps(sum, shuf);
         // [s0+s1+s2+s3, ...]
         let shuf2 = _mm_movehl_ps(shuf, sum2);
-        let sum3  = _mm_add_ss(sum2, shuf2);
+        let sum3 = _mm_add_ss(sum2, shuf2);
         _mm_cvtss_f32(sum3)
     }
 
@@ -180,11 +188,7 @@ pub struct SearchResult {
 ///
 /// `corpus` : vecteurs pré-normalisés (L2 = 1.0) en row-major.
 /// Chaque thread Rayon traite un sous-ensemble du corpus → sommation locale.
-pub fn batch_top_k(
-    query:   &[f32],
-    corpus:  &[Vec<f32>],
-    top_k:   usize,
-) -> Vec<SearchResult> {
+pub fn batch_top_k(query: &[f32], corpus: &[Vec<f32>], top_k: usize) -> Vec<SearchResult> {
     // Padding de la query une seule fois
     let query_padded = pad_to_multiple_of_8(query);
 
@@ -202,13 +206,15 @@ pub fn batch_top_k(
     // Partial sort : on ne trie que top_k (O(n log k) au lieu de O(n log n))
     let k = top_k.min(scores.len()).max(1);
     if k < scores.len() {
-        scores.select_nth_unstable_by(k - 1,
-            |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scores.select_nth_unstable_by(k - 1, |a, b| {
+            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
     scores.truncate(k);
     scores.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    scores.into_iter()
+    scores
+        .into_iter()
         .map(|(index, score)| SearchResult { index, score })
         .collect()
 }
@@ -226,22 +232,32 @@ mod bench {
     fn random_vec(dim: usize) -> Vec<f32> {
         // Pseudo-random déterministe via LCG (pas de rand comme dépendance)
         let mut state: u64 = 0xDEADBEEF_CAFEBABE;
-        (0..dim).map(|_| {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            ((state >> 33) as f32 / u32::MAX as f32) * 2.0 - 1.0
-        }).collect()
+        (0..dim)
+            .map(|_| {
+                state = state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                ((state >> 33) as f32 / u32::MAX as f32) * 2.0 - 1.0
+            })
+            .collect()
     }
 
     fn normalize(v: &mut Vec<f32>) {
         let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm > 0.0 { v.iter_mut().for_each(|x| *x /= norm); }
+        if norm > 0.0 {
+            v.iter_mut().for_each(|x| *x /= norm);
+        }
     }
 
     fn bench_fn(label: &str, iters: usize, mut f: impl FnMut()) {
         // Warmup
-        for _ in 0..iters / 10 { f(); }
+        for _ in 0..iters / 10 {
+            f();
+        }
         let t = Instant::now();
-        for _ in 0..iters { f(); }
+        for _ in 0..iters {
+            f();
+        }
         let elapsed = t.elapsed();
         println!(
             "{:30} : {:>8} iter | {:>8.2} µs/iter | {:>8.2} Mop/s",
@@ -254,11 +270,13 @@ mod bench {
 
     #[test]
     fn bench_cosine_384() {
-        const DIM:   usize = 384;   // all-MiniLM-L6-v2
+        const DIM: usize = 384; // all-MiniLM-L6-v2
         const ITERS: usize = 100_000;
 
-        let mut a = random_vec(DIM); normalize(&mut a);
-        let mut b = random_vec(DIM); normalize(&mut b);
+        let mut a = random_vec(DIM);
+        normalize(&mut a);
+        let mut b = random_vec(DIM);
+        normalize(&mut b);
         let a8 = pad_to_multiple_of_8(&a);
         let b8 = pad_to_multiple_of_8(&b);
 
@@ -266,10 +284,10 @@ mod bench {
 
         bench_fn("scalar (baseline)", ITERS, || {
             // Scalaire sans SIMD (référence)
-            let dot:  f32 = a.iter().zip(b.iter()).map(|(x,y)| x*y).sum();
-            let na:   f32 = a.iter().map(|x| x*x).sum::<f32>().sqrt();
-            let nb:   f32 = b.iter().map(|x| x*x).sum::<f32>().sqrt();
-            let _s = if na*nb == 0.0 { 0.0 } else { dot / (na*nb) };
+            let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+            let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+            let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+            let _s = if na * nb == 0.0 { 0.0 } else { dot / (na * nb) };
         });
 
         bench_fn("cosine_wide (f32x8)", ITERS, || {
@@ -283,24 +301,34 @@ mod bench {
 
     #[test]
     fn bench_batch_search_10k() {
-        const DIM:    usize = 384;
+        const DIM: usize = 384;
         const CORPUS: usize = 10_000;
-        const TOP_K:  usize = 10;
-        const ITERS:  usize = 100;
+        const TOP_K: usize = 10;
+        const ITERS: usize = 100;
 
-        let mut q = random_vec(DIM); normalize(&mut q);
+        let mut q = random_vec(DIM);
+        normalize(&mut q);
         let corpus: Vec<Vec<f32>> = (0..CORPUS)
-            .map(|_| { let mut v = random_vec(DIM); normalize(&mut v); v })
+            .map(|_| {
+                let mut v = random_vec(DIM);
+                normalize(&mut v);
+                v
+            })
             .collect();
 
-        println!("\n=== BENCHMARK batch_top_k corpus={} dim={} ===", CORPUS, DIM);
+        println!(
+            "\n=== BENCHMARK batch_top_k corpus={} dim={} ===",
+            CORPUS, DIM
+        );
         bench_fn("batch_top_k (Rayon × SIMD)", ITERS, || {
             let _ = batch_top_k(&q, &corpus, TOP_K);
         });
 
         // Calcul du throughput réel
         let t = Instant::now();
-        for _ in 0..ITERS { let _ = batch_top_k(&q, &corpus, TOP_K); }
+        for _ in 0..ITERS {
+            let _ = batch_top_k(&q, &corpus, TOP_K);
+        }
         let qps = ITERS as f64 / t.elapsed().as_secs_f64();
         println!("  → {:.1} queries/sec sur {} vecteurs", qps, CORPUS);
         println!("  → {:.2}M cosines/sec", qps * CORPUS as f64 / 1_000_000.0);
@@ -309,23 +337,33 @@ mod bench {
     #[test]
     fn correctness_all_implementations() {
         const DIM: usize = 384;
-        let mut a = random_vec(DIM); normalize(&mut a);
-        let mut b = random_vec(DIM); normalize(&mut b);
+        let mut a = random_vec(DIM);
+        normalize(&mut a);
+        let mut b = random_vec(DIM);
+        normalize(&mut b);
         let a8 = pad_to_multiple_of_8(&a);
         let b8 = pad_to_multiple_of_8(&b);
 
         // Référence scalaire
-        let reference: f32 = a.iter().zip(b.iter()).map(|(x,y)| x*y).sum();
+        let reference: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
 
-        let wide_result     = cosine_wide(&a8, &b8);
+        let wide_result = cosine_wide(&a8, &b8);
         let dispatch_result = cosine_dispatch(&a8, &b8);
 
         // Tolérance : FMA peut donner un résultat légèrement différent
         // (précision supérieure, pas inférieure)
-        assert!((wide_result     - reference).abs() < 1e-5,
-            "wide: {} vs ref: {}", wide_result, reference);
-        assert!((dispatch_result - reference).abs() < 1e-5,
-            "dispatch: {} vs ref: {}", dispatch_result, reference);
+        assert!(
+            (wide_result - reference).abs() < 1e-5,
+            "wide: {} vs ref: {}",
+            wide_result,
+            reference
+        );
+        assert!(
+            (dispatch_result - reference).abs() < 1e-5,
+            "dispatch: {} vs ref: {}",
+            dispatch_result,
+            reference
+        );
 
         println!("✅ All implementations agree (tol=1e-5)");
         println!("   scalar:   {:.8}", reference);

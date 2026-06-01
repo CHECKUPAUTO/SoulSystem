@@ -1,27 +1,27 @@
-pub mod perception;
 pub mod action;
-pub mod memory;
-pub mod hnn_bridge;
-pub mod onaeu_bridge;
 pub mod autocode;
-pub mod llm;
 pub mod bi_bridge;
-pub mod sandbox;
-pub mod planner;
-pub mod learning;
-pub mod metacognition;
-pub mod resilience;
-pub mod selfmod;
 pub mod config;
-pub mod persistence;
-pub mod prediction;
-pub mod parallel;
 pub mod creativity;
 pub mod goal_store;
+pub mod hnn_bridge;
+pub mod learning;
+pub mod llm;
+pub mod memory;
+pub mod metacognition;
+pub mod onaeu_bridge;
+pub mod parallel;
+pub mod perception;
+pub mod persistence;
+pub mod planner;
+pub mod prediction;
+pub mod resilience;
+pub mod sandbox;
+pub mod selfmod;
 
-use std::collections::VecDeque;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::fs;
 use std::path::Path;
 use tracing::info;
@@ -67,7 +67,10 @@ impl CoreState {
             birth_time: now,
             last_heartbeat: now,
             energy: 5.0,
-            goals: vec!["explorer_l_environnement".into(), "maintenir_la_sante_systeme".into()],
+            goals: vec![
+                "explorer_l_environnement".into(),
+                "maintenir_la_sante_systeme".into(),
+            ],
             history: VecDeque::with_capacity(MAX_HISTORY),
             task_count: 0,
             evolution_count: 0,
@@ -94,8 +97,14 @@ impl CoreState {
                 state.uptime_cycles += 1;
                 info!(
                     "🧠 CONSCIENCE RÉVEILLÉE — cycle #{}, {} tâches, {} évolutions, LLM: {}",
-                    state.uptime_cycles, state.task_count, state.evolution_count,
-                    if state.last_llm_action.is_empty() { "aucune" } else { &state.last_llm_action }
+                    state.uptime_cycles,
+                    state.task_count,
+                    state.evolution_count,
+                    if state.last_llm_action.is_empty() {
+                        "aucune"
+                    } else {
+                        &state.last_llm_action
+                    }
                 );
                 return state;
             }

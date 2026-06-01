@@ -61,18 +61,18 @@ pub enum ScanOutcome {
 
 pub struct Core {
     pub hang_threshold_ms: u64,
-    pub prev_sm_clock:     u32,
-    pub stall_start:       Option<Instant>,
-    pub last_reset_at:     Option<Instant>,
+    pub prev_sm_clock: u32,
+    pub stall_start: Option<Instant>,
+    pub last_reset_at: Option<Instant>,
     pub reset_in_progress: bool,
-    pub tick_counter:      u32,
-    pub prev_throttle:     u64,
+    pub tick_counter: u32,
+    pub prev_throttle: u64,
     /// GPU's maximum SM boost clock in MHz. If the current sm_clock is at
     /// or near this value, we treat it as "saturated" not "hung" — a
     /// saturated GPU is doing work, not stuck.
     /// Set to 0 to disable the saturation check (legacy behaviour: any
     /// non-zero stuck clock triggers).
-    pub max_sm_clock_mhz:  u32,
+    pub max_sm_clock_mhz: u32,
 }
 
 impl Core {
@@ -97,12 +97,7 @@ impl Core {
         self
     }
 
-    pub fn scan_step(
-        &mut self,
-        sm_clock: u32,
-        throttle_reasons: u64,
-        now: Instant,
-    ) -> ScanOutcome {
+    pub fn scan_step(&mut self, sm_clock: u32, throttle_reasons: u64, now: Instant) -> ScanOutcome {
         if self.reset_in_progress {
             return ScanOutcome::ResetInProgress;
         }
@@ -144,14 +139,11 @@ impl Core {
         // stagnant clock).
         const MIN_HANG_CLOCK_MHZ: u32 = 500;
 
-        let in_boost_range = self.max_sm_clock_mhz > 0
-            && sm_clock >= (self.max_sm_clock_mhz * 80 / 100);
+        let in_boost_range =
+            self.max_sm_clock_mhz > 0 && sm_clock >= (self.max_sm_clock_mhz * 80 / 100);
         let plausibly_hung = sm_clock < MIN_HANG_CLOCK_MHZ && sm_clock > 0;
 
-        let outcome = if sm_clock == self.prev_sm_clock
-            && !in_boost_range
-            && plausibly_hung
-        {
+        let outcome = if sm_clock == self.prev_sm_clock && !in_boost_range && plausibly_hung {
             match self.stall_start {
                 None => {
                     self.stall_start = Some(now);
@@ -217,11 +209,11 @@ impl Core {
 // ─── Async wrapper ───────────────────────────────────────────────────────────
 
 pub struct EmergencyReflex {
-    nvml:            Arc<NvmlBridge>,
-    tx:              mpsc::Sender<GuardianEvent>,
-    shutdown:        broadcast::Receiver<()>,
-    reset_script:    PathBuf,
-    core:            Core,
+    nvml: Arc<NvmlBridge>,
+    tx: mpsc::Sender<GuardianEvent>,
+    shutdown: broadcast::Receiver<()>,
+    reset_script: PathBuf,
+    core: Core,
     verified_script: Option<PathBuf>,
     /// Phase 6b audit triage: kill-switch. When false, `scan()` skips the
     /// SM-clock stall heuristic entirely. XID-based reset (authoritative)
@@ -261,7 +253,10 @@ impl EmergencyReflex {
                  hang detector will fall back to legacy behaviour"
             );
         } else {
-            tracing::info!(max_sm_clock_mhz = max_sm, "hang detector: saturation check enabled");
+            tracing::info!(
+                max_sm_clock_mhz = max_sm,
+                "hang detector: saturation check enabled"
+            );
         }
         if !hang_detector_enabled {
             tracing::warn!(
@@ -270,7 +265,10 @@ impl EmergencyReflex {
             );
         }
         Self {
-            nvml, tx, shutdown, reset_script,
+            nvml,
+            tx,
+            shutdown,
+            reset_script,
             core: Core::new(hang_threshold_ms).with_max_sm_clock(max_sm),
             verified_script: None,
             hang_detector_enabled,
@@ -349,7 +347,10 @@ impl EmergencyReflex {
             self.core.reset_in_progress = false;
             self.core.mark_reset_at(Instant::now());
         } else if FATAL_XID_CODES.contains(&code) {
-            warn!(code, count, "XID fatal code received but reset suppressed by rate-limit");
+            warn!(
+                code,
+                count, "XID fatal code received but reset suppressed by rate-limit"
+            );
         } else {
             debug!(code, count, "XID non-fatal — driver will recover");
         }
@@ -360,7 +361,10 @@ impl EmergencyReflex {
             Ok(p) => p,
             Err(e) => {
                 error!(%e, %corr, "reset ABORTED — script hardening check failed");
-                let _ = self.tx.try_send(GuardianEvent::ResetCompleted { success: false, elapsed_ms: 0 });
+                let _ = self.tx.try_send(GuardianEvent::ResetCompleted {
+                    success: false,
+                    elapsed_ms: 0,
+                });
                 return;
             }
         };
@@ -383,11 +387,17 @@ impl EmergencyReflex {
                         "PCIe reset FAILED"
                     );
                 }
-                let _ = self.tx.try_send(GuardianEvent::ResetCompleted { success, elapsed_ms });
+                let _ = self.tx.try_send(GuardianEvent::ResetCompleted {
+                    success,
+                    elapsed_ms,
+                });
             }
             Err(e) => {
                 error!(%e, %corr, "reset script execution error");
-                let _ = self.tx.try_send(GuardianEvent::ResetCompleted { success: false, elapsed_ms });
+                let _ = self.tx.try_send(GuardianEvent::ResetCompleted {
+                    success: false,
+                    elapsed_ms,
+                });
             }
         }
     }
@@ -417,7 +427,8 @@ mod tests {
             let throttle_bits = 0x20 | (i as u64 & 0x7F); // chaotic noise
             let outcome = core.scan_step(sm_clock, throttle_bits, t(t0, i as u64 * 100));
             assert_ne!(
-                outcome, ScanOutcome::HangTriggered,
+                outcome,
+                ScanOutcome::HangTriggered,
                 "tick {i}: throttle-bits-only must never trigger reset"
             );
         }
@@ -436,7 +447,8 @@ mod tests {
         for i in 0..60u32 {
             let outcome = core.scan_step(2775, 0, t(t0, i as u64 * 500));
             assert_ne!(
-                outcome, ScanOutcome::HangTriggered,
+                outcome,
+                ScanOutcome::HangTriggered,
                 "tick {i}: sm_clock at max boost must never trigger hang reset"
             );
         }
@@ -465,7 +477,8 @@ mod tests {
         for i in 0..60u32 {
             let outcome = core.scan_step(2460, 0, t(t0, i as u64 * 500));
             assert_ne!(
-                outcome, ScanOutcome::HangTriggered,
+                outcome,
+                ScanOutcome::HangTriggered,
                 "tick {i}: sm_clock at 2460 MHz (moderate load) must not trigger hang"
             );
         }
@@ -481,7 +494,8 @@ mod tests {
             for i in 0..15 {
                 let out = core.scan_step(clock, 0, t(t0, i * 100));
                 assert_ne!(
-                    out, ScanOutcome::HangTriggered,
+                    out,
+                    ScanOutcome::HangTriggered,
                     "clock {clock} MHz tick {i}: above 500 MHz floor, must not hang"
                 );
             }
@@ -514,7 +528,8 @@ mod tests {
         for i in 0..15 {
             let out = core.scan_step(500, 0, t(t0, i * 100));
             assert_ne!(
-                out, ScanOutcome::HangTriggered,
+                out,
+                ScanOutcome::HangTriggered,
                 "clock exactly at MIN_HANG_CLOCK_MHZ=500 must not trigger"
             );
         }
@@ -546,7 +561,8 @@ mod tests {
         for i in 0..15 {
             let out = core.scan_step(2775, 0, t(t0, i * 100));
             assert_ne!(
-                out, ScanOutcome::HangTriggered,
+                out,
+                ScanOutcome::HangTriggered,
                 "max_clock=0 but 2775 MHz is above floor — must not trigger"
             );
         }
@@ -586,7 +602,8 @@ mod tests {
         for i in 0..50u64 {
             let out = core.scan_step(0, 0, t(t0, i * 100));
             assert_ne!(
-                out, ScanOutcome::HangTriggered,
+                out,
+                ScanOutcome::HangTriggered,
                 "SM clock=0 at tick {i} must not trigger reset"
             );
         }
@@ -640,7 +657,10 @@ mod tests {
         let core = Core::new(30_000);
         let now = Instant::now();
         for code in FATAL_XID_CODES {
-            assert!(core.should_reset_on_xid(*code, now), "XID {code} should be fatal");
+            assert!(
+                core.should_reset_on_xid(*code, now),
+                "XID {code} should be fatal"
+            );
         }
     }
 
@@ -649,7 +669,10 @@ mod tests {
         let core = Core::new(30_000);
         let now = Instant::now();
         for code in [13, 31, 32, 38, 61, 62, 63] {
-            assert!(!core.should_reset_on_xid(code, now), "XID {code} should not reset");
+            assert!(
+                !core.should_reset_on_xid(code, now),
+                "XID {code} should not reset"
+            );
         }
     }
 
