@@ -365,6 +365,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "avid-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tracing",
+]
+
+[[package]]
 name = "avid-rstdp"
 version = "0.1.0"
 dependencies = [
@@ -719,6 +727,14 @@ dependencies = [
  "tokio",
  "tracing",
  "which 6.0.3",
+]
+
+[[package]]
+name = "brain-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tracing",
 ]
 
 [[package]]
@@ -4106,6 +4122,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "openevolve-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tracing",
+]
+
+[[package]]
 name = "openssl"
 version = "0.10.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6061,6 +6085,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul-neural-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tracing",
+]
+
+[[package]]
 name = "soullink-actions"
 version = "13.5.0"
 dependencies = [
@@ -6747,8 +6779,10 @@ version = "0.6.0"
 dependencies = [
  "ansi-converter",
  "anyhow",
+ "avid-bridge",
  "axum 0.7.9",
  "bound-system",
+ "brain-bridge",
  "bus",
  "chrono",
  "clap",
@@ -6759,6 +6793,7 @@ dependencies = [
  "libc",
  "local-skills",
  "model-router",
+ "openevolve-bridge",
  "portable-pty",
  "pty-terminal",
  "rand 0.8.6",
@@ -6771,10 +6806,12 @@ dependencies = [
  "sha2",
  "sled",
  "soul-memory",
+ "soul-neural-bridge",
  "soullink-autonomy",
  "soullink-memory",
  "soullink-rag",
  "spinner",
+ "synergie-bridge",
  "sysinfo",
  "tar",
  "teloxide",
@@ -7009,6 +7046,14 @@ dependencies = [
  "twox-hash",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "synergie-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tracing",
 ]
 
 [[package]]

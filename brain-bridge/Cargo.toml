@@ -8,6 +8,8 @@ description = "Pont Brain System ↔ SoulSystem"
 path = "src/lib.rs"
 
 [dependencies]
+anyhow = "1"
+tracing = "0.1"
 brain-system-rs = { path = "/root/SoulSystem/brain-system-rs", optional = true }
 
 [features]

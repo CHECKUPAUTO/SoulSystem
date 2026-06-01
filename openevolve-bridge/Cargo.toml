@@ -8,6 +8,8 @@ description = "Pont OpenEvolve ↔ SoulSystem"
 path = "src/lib.rs"
 
 [dependencies]
+anyhow = "1"
+tracing = "0.1"
 openevolve = { path = "/root/SoulSystem/openevolve", optional = true }
 
 [features]

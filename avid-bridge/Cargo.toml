@@ -8,11 +8,9 @@ description = "Pont d'intégration AVID ↔ SoulSystem"
 path = "src/lib.rs"
 
 [dependencies]
-avid-scout = { path = "/root/SoulSystem/avid/crates/avid-scout", optional = true }
-avid-vision = { path = "/root/SoulSystem/avid/crates/avid-vision", optional = true }
-avid-core = { path = "/root/SoulSystem/avid/crates/avid-core", optional = true }
-avid-cortex = { path = "/root/SoulSystem/avid/crates/avid-cortex", optional = true }
+anyhow = "1"
+tracing = "0.1"
 
 [features]
 default = []
-avid = ["dep:avid-scout", "dep:avid-vision", "dep:avid-core", "dep:avid-cortex"]
+avid = []

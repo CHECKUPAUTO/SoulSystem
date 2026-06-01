@@ -8,6 +8,8 @@ description = "Pont SoulNeural ↔ SoulSystem"
 path = "src/lib.rs"
 
 [dependencies]
+anyhow = "1"
+tracing = "0.1"
 soul-core = { path = "/root/SoulSystem/soul-neural/crates/soul-core", optional = true }
 soul-hnn = { path = "/root/SoulSystem/soul-neural/crates/soul-hnn", optional = true }
 soul-cortex = { path = "/root/SoulSystem/soul-neural/crates/soul-cortex", optional = true }

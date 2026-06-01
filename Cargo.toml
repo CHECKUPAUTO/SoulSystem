@@ -68,12 +68,12 @@ exclude = [
     "soul-neural",
     "avid",
     "soullink-node",
-    "openevolve",
-    "synergie",
-    "openclaw-evolution",
     "turboquant",
-    "brain-system-rs",
-    "soullink-orchestrator-standalone",
+    "avid-bridge",
+    "synergie-bridge",
+    "openevolve-bridge",
+    "brain-bridge",
+    "soul-neural-bridge",
 ]
 
 [workspace.package]
@@ -178,9 +178,12 @@ soullink-memory = { path = "soullink-brain/soullink-memory",  }
 soullink-rag = { path = "soullink-brain/soullink-rag",  }
 soullink-autonomy = { path = "soullink-brain/soullink-autonomy" }
 
-# Ponts d'intégration (feature-gated) — build séparé via soulsystem-mesh
-# avid-bridge, synergie-bridge, openevolve-bridge, brain-bridge, soul-neural-bridge
-# sont gérés par le méta-crate soulsystem-mesh/
+# Ponts d'intégration optionnels
+avid-bridge = { path = "avid-bridge", optional = true }
+synergie-bridge = { path = "synergie-bridge", optional = true }
+openevolve-bridge = { path = "openevolve-bridge", optional = true }
+brain-bridge = { path = "brain-bridge", optional = true }
+soul-neural-bridge = { path = "soul-neural-bridge", optional = true }
 
 portable-pty = "0.8"
 libc = "0.2"
@@ -191,4 +194,9 @@ futures-util = "0.3.32"
 [features]
 dev = []
 gpu = []
+avid = ["avid-bridge"]
+synergie = ["synergie-bridge"]
+openevolve = ["openevolve-bridge"]
+brain_system = ["brain-bridge"]
+soul_neural = ["soul-neural-bridge"]
 default = []
