@@ -13,6 +13,9 @@ half = "2.5"
 scirust-core = { path = "../scirust-core", optional = true }
 libc = "0.2"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cuda-toolkit = { version = "0.12", optional = true }
+
 [features]
 default = ["cpu-fallback"]
 cpu-fallback = ["rayon"]
