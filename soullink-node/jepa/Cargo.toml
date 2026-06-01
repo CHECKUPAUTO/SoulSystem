@@ -6,6 +6,6 @@ description = "Joint Embedding Predictive Architecture — SSM encoder + SciRust
 
 [dependencies]
 soullink-ssm = { path = "../soullink-ssm" }
-scirust-core = { path = "/root/scirust/scirust-core" }
+scirust-core = { path = "../../scirust-core" }
 ndarray = "0.16"
 rand = "0.8"

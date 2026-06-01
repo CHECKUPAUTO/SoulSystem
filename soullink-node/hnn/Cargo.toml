@@ -7,5 +7,5 @@ description = "Hamiltonian Neural Network — symplectic Verlet integration, lea
 [dependencies]
 ndarray = "0.16"
 rand = "0.8"
-scirust-core = { path = "/root/scirust/scirust-core" }
+scirust-core = { path = "../../scirust-core" }
 soullink-ssm = { path = "../soullink-ssm", optional = true }
