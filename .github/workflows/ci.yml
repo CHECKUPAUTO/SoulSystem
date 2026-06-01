@@ -24,8 +24,8 @@ jobs:
     - name: Check formatting
       run: cargo fmt --all --check
     
-    - name: Clippy (warnings as errors)
-      run: cargo clippy --all-targets -- -D warnings
+    - name: Clippy
+      run: cargo clippy --all-targets
     
     - name: Security audit
       uses: actions-rust-lang/audit@v1

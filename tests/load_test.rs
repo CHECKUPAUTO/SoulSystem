@@ -100,7 +100,9 @@ async fn bus_publish_stress() {
     // Publie 200 messages rapidement
     for i in 0..200 {
         bus.publish(Message::HnnStatus {
-            ticks_per_sec: i as u64,
+            organ: "perf".to_string(),
+            status: "running".to_string(),
+            energy: i as f32,
         });
         tokio::task::yield_now().await;
     }

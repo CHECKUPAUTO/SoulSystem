@@ -360,11 +360,11 @@ pub enum PrivacyLevel {
 }
 
 impl PrivacyLevel {
-    pub fn to_string(&self) -> String {
+    pub fn as_str(&self) -> &'static str {
         match self {
-            PrivacyLevel::Private => "private".to_string(),
-            PrivacyLevel::Team => "team".to_string(),
-            PrivacyLevel::Public => "public".to_string(),
+            PrivacyLevel::Private => "private",
+            PrivacyLevel::Team => "team",
+            PrivacyLevel::Public => "public",
         }
     }
 
@@ -391,7 +391,7 @@ impl PrivacyLevel {
 
 impl std::fmt::Display for PrivacyLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", self.as_str())
     }
 }
 

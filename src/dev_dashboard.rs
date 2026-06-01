@@ -75,17 +75,17 @@ async fn sse_handler(
         let event = match result {
             Ok(msg) => {
                 let data = match msg {
-                    Message::HnnStatus { ticks_per_sec } => {
-                        serde_json::json!({"type": "hnn_status", "ticks_per_sec": ticks_per_sec})
+                    Message::HnnStatus { organ: _, status, energy } => {
+                        serde_json::json!({"type": "hnn_status", "status": status, "energy": energy})
                     }
                     Message::SynergyDetection { module, description } => {
                         serde_json::json!({"type": "synergy", "module": module, "description": description})
                     }
-                    Message::AvidDiscovery { source, summary } => {
-                        serde_json::json!({"type": "avid", "source": source, "summary": summary})
+                    Message::AvidDiscovery { topic, summary } => {
+                        serde_json::json!({"type": "avid", "topic": topic, "summary": summary})
                     }
-                    Message::EvolveOptimization { crate_name, score } => {
-                        serde_json::json!({"type": "evolve", "crate": crate_name, "score": score})
+                    Message::EvolveOptimization { generation, best_fitness } => {
+                        serde_json::json!({"type": "evolve", "generation": generation, "best_fitness": best_fitness})
                     }
                     Message::Custom { topic, payload } => {
                         serde_json::json!({"type": "custom", "topic": topic, "payload": payload})
