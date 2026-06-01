@@ -16,6 +16,7 @@ libc = "0.2"
 [features]
 default = ["cpu-fallback"]
 cpu-fallback = ["rayon"]
-gpu-cuda = ["dep:cudarc"]
+cuda = ["dep:cudarc"]
+gpu-cuda = ["cuda"]
 gpu-uma = ["gpu-cuda"] # Jetson Thor UMA
 wgpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck", "dep:scirust-core"]
