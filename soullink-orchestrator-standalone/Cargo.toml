@@ -1,9 +1,9 @@
 [package]
-name = "soullink-orchestrator"
+name = "soullink-orchestrator-v3"
 version = "3.0.0"
 edition = "2021"
 authors = ["SoulLink Team <soullink@example.com>"]
-description = "SoulLink Neural Mesh Orchestrator - Rust Native"
+description = "SoulLink Neural Mesh Orchestrator v3 (standalone)"
 license = "MIT"
 repository = "https://github.com/yourusername/soullink-orchestrator"
 keywords = ["neural", "mesh", "orchestrator", "ai", "soullink"]
@@ -11,7 +11,7 @@ categories = ["network-programming", "web-programming::http-server"]
 rust-version = "1.70"
 
 [[bin]]
-name = "soullink-orchestrator"
+name = "soullink-orchestrator-v3"
 path = "src/main.rs"
 
 [dependencies]
@@ -56,4 +56,3 @@ strip = true
 [profile.dev]
 opt-level = 0
 debug = true
-[workspace]

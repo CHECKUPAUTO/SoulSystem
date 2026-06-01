@@ -57,6 +57,11 @@ members = [
     "scirust-gpu",
     "soullink-metabolism",
     "bound-system",
+    "brain-system-rs",
+    "openclaw-evolution",
+    "synergie",
+    "soullink-orchestrator-standalone",
+    "openevolve",
 ]
 
 exclude = [

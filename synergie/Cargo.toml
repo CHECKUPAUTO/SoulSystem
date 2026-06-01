@@ -7,7 +7,6 @@ description = "Agent autonome de détection de synergies dans l'écosystème Sou
 license = "MIT"
 repository = "https://github.com/CHECKUPAUTO/SYNERGIE"
 
-[workspace]
 
 [dependencies]
 # Existantes — conservées telles quelles
@@ -17,16 +16,16 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 walkdir = "2"
-scirust-symbolic = { path = "/root/scirust/scirust-symbolic" }
+scirust-symbolic = { path = "../scirust-symbolic" }
 regex = "1"
 anyhow = "1"
 reqwest = { version = "0.12", features = ["json"] }
 sled = "0.34"
 bincode = "1"
-scirust-autodiff = { path = "/root/scirust/scirust-autodiff" }
+scirust-autodiff = { path = "../scirust-autodiff" }
 
 # Nouvelles deps v3
-scirust-core = { path = "/root/scirust/scirust-core" }   # EmbeddingEngine local
+scirust-core = { path = "../scirust-core" }
 axum = { version = "0.7", features = ["ws", "macros"] }
 tower-http = { version = "0.6", features = ["cors"] }
 syn = { version = "2", features = ["full", "extra-traits", "visit"] }
