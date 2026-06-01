@@ -1,0 +1,15 @@
+[package]
+name = "openevolve-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Pont OpenEvolve ↔ SoulSystem"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+openevolve = { path = "/root/SoulSystem/openevolve", optional = true }
+
+[features]
+default = []
+openevolve = ["dep:openevolve"]

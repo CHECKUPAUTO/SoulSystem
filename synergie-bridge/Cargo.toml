@@ -1,0 +1,15 @@
+[package]
+name = "synergie-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Pont SYNERGIE ↔ SoulSystem"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+synergie = { path = "/root/SoulSystem/synergie", optional = true }
+
+[features]
+default = []
+synergie = ["dep:synergie"]

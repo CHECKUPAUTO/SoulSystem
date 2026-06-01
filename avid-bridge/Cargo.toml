@@ -1,0 +1,18 @@
+[package]
+name = "avid-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Pont d'intégration AVID ↔ SoulSystem"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+avid-scout = { path = "/root/SoulSystem/avid/crates/avid-scout", optional = true }
+avid-vision = { path = "/root/SoulSystem/avid/crates/avid-vision", optional = true }
+avid-core = { path = "/root/SoulSystem/avid/crates/avid-core", optional = true }
+avid-cortex = { path = "/root/SoulSystem/avid/crates/avid-cortex", optional = true }
+
+[features]
+default = []
+avid = ["dep:avid-scout", "dep:avid-vision", "dep:avid-core", "dep:avid-cortex"]

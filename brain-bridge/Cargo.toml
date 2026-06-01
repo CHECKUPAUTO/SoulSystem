@@ -1,0 +1,15 @@
+[package]
+name = "brain-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Pont Brain System ↔ SoulSystem"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+brain-system-rs = { path = "/root/SoulSystem/brain-system-rs", optional = true }
+
+[features]
+default = []
+brain = ["dep:brain-system-rs"]

@@ -57,6 +57,28 @@ members = [
     "scirust-gpu",
     "soullink-metabolism",
     "bound-system",
+    "avid-bridge",
+    "synergie-bridge",
+    "openevolve-bridge",
+    "brain-bridge",
+    "soul-neural-bridge",
+]
+
+exclude = [
+    "soul-neural",
+    "avid",
+    "soullink-node",
+    "openevolve",
+    "synergie",
+    "openclaw-evolution",
+    "turboquant",
+    "brain-system-rs",
+    "soullink-orchestrator-standalone",
+    "avid-bridge",
+    "synergie-bridge",
+    "openevolve-bridge",
+    "brain-bridge",
+    "soul-neural-bridge",
 ]
 
 [workspace.package]
@@ -160,6 +182,10 @@ axum = "0.7"
 soullink-memory = { path = "soullink-brain/soullink-memory",  }
 soullink-rag = { path = "soullink-brain/soullink-rag",  }
 soullink-autonomy = { path = "soullink-brain/soullink-autonomy" }
+
+# Ponts d'intégration (feature-gated) — build séparé via soulsystem-mesh
+# avid-bridge, synergie-bridge, openevolve-bridge, brain-bridge, soul-neural-bridge
+# sont gérés par le méta-crate soulsystem-mesh/
 
 portable-pty = "0.8"
 libc = "0.2"

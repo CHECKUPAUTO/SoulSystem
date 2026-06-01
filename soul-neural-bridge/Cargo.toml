@@ -1,0 +1,18 @@
+[package]
+name = "soul-neural-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Pont SoulNeural ↔ SoulSystem"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+soul-core = { path = "/root/SoulSystem/soul-neural/crates/soul-core", optional = true }
+soul-hnn = { path = "/root/SoulSystem/soul-neural/crates/soul-hnn", optional = true }
+soul-cortex = { path = "/root/SoulSystem/soul-neural/crates/soul-cortex", optional = true }
+soul-minillm = { path = "/root/SoulSystem/soul-neural/crates/soul-minillm", optional = true }
+
+[features]
+default = []
+soul_neural = ["dep:soul-core", "dep:soul-hnn", "dep:soul-cortex", "dep:soul-minillm"]

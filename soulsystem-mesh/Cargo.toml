@@ -1,0 +1,26 @@
+[package]
+name = "soulsystem-mesh"
+version = "1.0.0"
+edition = "2021"
+description = "SoulSystem Mesh — méta-crate liant tous les composants de l'écosystème"
+
+[workspace]
+
+[dependencies]
+# Cœur SoulSystem
+soulsystem = { path = "../" }
+# Ponts d'intégration
+avid-bridge = { path = "../avid-bridge", optional = true }
+synergie-bridge = { path = "../synergie-bridge", optional = true }
+openevolve-bridge = { path = "../openevolve-bridge", optional = true }
+brain-bridge = { path = "../brain-bridge", optional = true }
+soul-neural-bridge = { path = "../soul-neural-bridge", optional = true }
+
+[features]
+default = []
+avid = ["avid-bridge"]
+synergie = ["synergie-bridge"]
+openevolve = ["openevolve-bridge"]
+brain = ["brain-bridge"]
+soul_neural = ["soul-neural-bridge"]
+all = ["avid", "synergie", "openevolve", "brain", "soul_neural"]
