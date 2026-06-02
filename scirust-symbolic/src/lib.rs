@@ -983,9 +983,6 @@ pub fn parse_natural(input: &str) -> NaturalCommand {
 }
 
 // ── Autodiff macros stub ──
-
-pub mod macros_stub {}
-
 // ── Derivative helpers for prelude ──
 
 pub fn derivative_1d<F: Fn(f64) -> f64>(f: F, x: f64) -> f64 {
