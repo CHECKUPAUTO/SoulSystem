@@ -41,3 +41,4 @@ output.log
 .env
 .env.local
 config/credentials*
+forge_checkpoint.json

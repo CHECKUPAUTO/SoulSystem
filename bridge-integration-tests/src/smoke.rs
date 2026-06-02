@@ -125,6 +125,33 @@ async fn main() -> anyhow::Result<()> {
         all_results.push(("synergie-bridge", msg, start.elapsed(), ok));
     }
 
+    // 9. forge-bridge (le moteur évolutionnaire)
+    {
+        let start = Instant::now();
+        let res = tokio::time::timeout(
+            Duration::from_secs(10),
+            tokio::task::spawn_blocking(|| {
+                use forge_bridge::{ForgeCampaign, ForgeConfig, binpack_demo::BinPacking};
+                let campaign = ForgeCampaign::new(
+                    ForgeConfig { generations: 3, population: 12, survivors: 2, base_seed: 42 },
+                    BinPacking { capacity: 1.0, n_items: 30, n_instances: 10 },
+                );
+                let report = campaign.run();
+                if report.history.is_empty() {
+                    anyhow::bail!("aucun historique")
+                }
+                Ok::<(), anyhow::Error>(())
+            }),
+        ).await;
+        let (msg, ok) = match res {
+            Ok(Ok(Ok(()))) => ("forge-bridge evolution OK".to_string(), true),
+            Ok(Ok(Err(e))) => (format!("forge error: {e}"), false),
+            Ok(Err(e)) => (format!("join error: {e}"), false),
+            Err(_) => ("timeout 10s".to_string(), false),
+        };
+        all_results.push(("forge-bridge", msg, start.elapsed(), ok));
+    }
+
     // ─── Affichage récapitulatif ───
     println!();
     println!(

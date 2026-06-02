@@ -18,6 +18,7 @@ organs-bridge = { path = "../organs-bridge" }
 brain-bridge = { path = "../brain-bridge" }
 soul-neural-bridge = { path = "../soul-neural-bridge" }
 synergie-bridge = { path = "../synergie-bridge" }
+forge-bridge = { path = "../forges/forge-bridge" }
 
 # HTTP
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

@@ -72,7 +72,10 @@ members = [
     "soul-neural-bridge",
     "synergie-bridge",
     "orchestrator-bridge",
-    "forge-bridge",
+    "forges/forge-core",
+    "forges/forge",
+    "forges/forge-bridge",
+    # forge-bridge (now in forges/forge-bridge)
     "agent-registry",
     "bridge-integration-tests",
 ]
