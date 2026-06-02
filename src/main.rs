@@ -502,6 +502,137 @@ async fn main() -> Result<()> {
     });
     info!("MemoryHub: decay task lancee (interval: 5 min)");
 
+    // ── Bridges inter-composants (vraies interconnexions HTTP) ─────────────
+    //
+    // Chaque bridge parle à un service vivant (openevolve, brain, synergie,
+    // orchestrator) dans les deux sens : query local + push remote.
+
+    #[cfg(feature = "avid")]
+    {
+        if let Err(e) = avid_bridge::init() {
+            tracing::warn!("avid-bridge init failed: {}", e);
+        }
+    }
+    #[cfg(feature = "openevolve")]
+    {
+        match openevolve_bridge::init().await {
+            Ok(client) => {
+                let c = client.clone();
+                tokio::spawn(async move {
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(60));
+                    loop {
+                        iv.tick().await;
+                        if let Err(e) = c.probe().await {
+                            tracing::warn!("openevolve-bridge probe failed: {}", e);
+                        }
+                    }
+                });
+            }
+            Err(e) => tracing::warn!("openevolve-bridge init failed: {}", e),
+        }
+    }
+    #[cfg(feature = "synergie")]
+    {
+        match synergie_bridge::init().await {
+            Ok(client) => {
+                let c = client.clone();
+                tokio::spawn(async move {
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(120));
+                    loop {
+                        iv.tick().await;
+                        if let Err(e) = c.probe().await {
+                            tracing::warn!("synergie-bridge probe failed: {}", e);
+                        }
+                    }
+                });
+            }
+            Err(e) => tracing::warn!("synergie-bridge init failed: {}", e),
+        }
+    }
+    #[cfg(feature = "brain_system")]
+    {
+        match brain_bridge::init().await {
+            Ok(client) => {
+                let c = client.clone();
+                tokio::spawn(async move {
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(90));
+                    loop {
+                        iv.tick().await;
+                        let _ = c.probe_all().await;
+                    }
+                });
+            }
+            Err(e) => tracing::warn!("brain-bridge init failed: {}", e),
+        }
+    }
+    #[cfg(feature = "soul_neural")]
+    {
+        match soul_neural_bridge::init().await {
+            Ok(client) => {
+                let c = client.clone();
+                tokio::spawn(async move {
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(150));
+                    loop {
+                        iv.tick().await;
+                        if let Err(e) = c.sync_with_mesh().await {
+                            tracing::warn!("soul-neural-bridge sync failed: {}", e);
+                        }
+                    }
+                });
+            }
+            Err(e) => tracing::warn!("soul-neural-bridge init failed: {}", e),
+        }
+    }
+    #[cfg(feature = "organs")]
+    {
+        match organs_bridge::init().await {
+            Ok(client) => {
+                let c = client.clone();
+                tokio::spawn(async move {
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(120));
+                    loop {
+                        iv.tick().await;
+                        let _ = c.probe_all().await;
+                    }
+                });
+            }
+            Err(e) => tracing::warn!("organs-bridge init failed: {}", e),
+        }
+    }
+    #[cfg(feature = "mesh")]
+    {
+        match mesh_bridge::init().await {
+            Ok(client) => {
+                let c = client.clone();
+                tokio::spawn(async move {
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(90));
+                    loop {
+                        iv.tick().await;
+                        let _ = c.probe_all().await;
+                    }
+                });
+            }
+            Err(e) => tracing::warn!("mesh-bridge init failed: {}", e),
+        }
+    }
+    #[cfg(feature = "services")]
+    {
+        match services_bridge::init().await {
+            Ok(client) => {
+                let c = client.clone();
+                tokio::spawn(async move {
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(75));
+                    loop {
+                        iv.tick().await;
+                        let _ = c.probe_all().await;
+                    }
+                });
+            }
+            Err(e) => tracing::warn!("services-bridge init failed: {}", e),
+        }
+    }
+
+
     // Souscripteur memoire permanent (log des events)
     let mem_bus = bus.clone();
     tokio::spawn(async move {
