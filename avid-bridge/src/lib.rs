@@ -3,7 +3,14 @@
 use anyhow::Result;
 
 pub fn init() -> Result<()> {
-    tracing::info!("🧬 AVID bridge initialized (HTTP client to avid-server)");
+    // Port 8080 = OWNCLOUD (réservé). AVID a migré vers ONAEU :7878 par défaut.
+    // Le port peut être surchargé via AVID_ENDPOINT (utile pour un AVID distant).
+    let endpoint = std::env::var("AVID_ENDPOINT")
+        .unwrap_or_else(|_| "http://127.0.0.1:7878".to_string());
+    tracing::info!(
+        "🧬 AVID bridge initialized (HTTP client to {} — set AVID_ENDPOINT to override)",
+        endpoint
+    );
     Ok(())
 }
 
@@ -16,7 +23,9 @@ pub struct Scout {
 impl Default for Scout {
     fn default() -> Self {
         Self {
-            base_url: "http://127.0.0.1:8080".to_string(),
+            // Port 8080 = OWNCLOUD (réservé). AVID a migré vers ONAEU :7878 par défaut.
+            base_url: std::env::var("AVID_ENDPOINT")
+                .unwrap_or_else(|_| "http://127.0.0.1:7878".to_string()),
             client: reqwest::Client::new(),
         }
     }
@@ -47,7 +56,9 @@ pub struct Vision {
 impl Default for Vision {
     fn default() -> Self {
         Self {
-            base_url: "http://127.0.0.1:8080".to_string(),
+            // Port 8080 = OWNCLOUD (réservé). AVID a migré vers ONAEU :7878 par défaut.
+            base_url: std::env::var("AVID_ENDPOINT")
+                .unwrap_or_else(|_| "http://127.0.0.1:7878".to_string()),
             client: reqwest::Client::new(),
         }
     }
