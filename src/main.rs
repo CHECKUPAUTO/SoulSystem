@@ -414,10 +414,18 @@ async fn main() -> Result<()> {
 
     // ── API HTTP REST (pour agents OpenClaw) ─────────────────────────────
     let bound_system_api = Arc::new(BoundSystem::new(BoundSystem::default_whitelist()));
+    let metrics_registry = soulsystem::metrics::init();
+    let bridge_store = soulsystem::bridge_store::BridgeStore::open(
+        settings.paths.log_dir.join("bridges.db"),
+    )
+    .ok()
+    .map(Arc::new);
     let api_state = Arc::new(soulsystem::api::ApiState {
         bound_system: bound_system_api,
         pty_sessions: Arc::new(Mutex::new(HashMap::new())),
         memory: Some(memory_hub.clone()),
+        metrics: metrics_registry,
+        bridge_store,
     });
     let api_router = soulsystem::api::router(api_state);
     tokio::spawn(async move {
@@ -519,7 +527,7 @@ async fn main() -> Result<()> {
             Ok(client) => {
                 let c = client.clone();
                 tokio::spawn(async move {
-                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(60));
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(600));
                     loop {
                         iv.tick().await;
                         if let Err(e) = c.probe().await {
@@ -537,7 +545,7 @@ async fn main() -> Result<()> {
             Ok(client) => {
                 let c = client.clone();
                 tokio::spawn(async move {
-                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(120));
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(720));
                     loop {
                         iv.tick().await;
                         if let Err(e) = c.probe().await {
@@ -555,7 +563,7 @@ async fn main() -> Result<()> {
             Ok(client) => {
                 let c = client.clone();
                 tokio::spawn(async move {
-                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(90));
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(420));
                     loop {
                         iv.tick().await;
                         let _ = c.probe_all().await;
@@ -571,7 +579,7 @@ async fn main() -> Result<()> {
             Ok(client) => {
                 let c = client.clone();
                 tokio::spawn(async move {
-                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(150));
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(600));
                     loop {
                         iv.tick().await;
                         if let Err(e) = c.sync_with_mesh().await {
@@ -589,7 +597,7 @@ async fn main() -> Result<()> {
             Ok(client) => {
                 let c = client.clone();
                 tokio::spawn(async move {
-                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(120));
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(480));
                     loop {
                         iv.tick().await;
                         let _ = c.probe_all().await;
@@ -605,7 +613,7 @@ async fn main() -> Result<()> {
             Ok(client) => {
                 let c = client.clone();
                 tokio::spawn(async move {
-                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(90));
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(540));
                     loop {
                         iv.tick().await;
                         let _ = c.probe_all().await;
@@ -621,7 +629,7 @@ async fn main() -> Result<()> {
             Ok(client) => {
                 let c = client.clone();
                 tokio::spawn(async move {
-                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(75));
+                    let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(360));
                     loop {
                         iv.tick().await;
                         let _ = c.probe_all().await;
