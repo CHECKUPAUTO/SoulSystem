@@ -232,10 +232,7 @@ impl PageAwareStore {
 
         // Vector search
         let vector_results: Vec<SearchResult> =
-            match self.vector_index.search(&query_vec, top_k * 2) {
-                Ok(results) => results,
-                Err(_) => Vec::new(),
-            };
+            self.vector_index.search(&query_vec, top_k * 2).unwrap_or_default();
 
         // Keyword search
         let keyword_results = {

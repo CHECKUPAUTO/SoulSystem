@@ -47,6 +47,7 @@ pub fn persist_graph(
 
 /// Rebuild graph data from sled entries.
 /// Returns (concepts, edges).
+#[allow(clippy::type_complexity)]
 pub fn load_from_db(db: &Db) -> Result<(Vec<(usize, Concept)>, Vec<EdgeRecord>)> {
     let mut concepts = Vec::new();
     let mut edges = Vec::new();
@@ -55,8 +56,7 @@ pub fn load_from_db(db: &Db) -> Result<(Vec<(usize, Concept)>, Vec<EdgeRecord>)>
         let (key, val) = item.context("reading sled entry")?;
         let key_str = String::from_utf8_lossy(&key);
 
-        if key_str.starts_with(CONCEPT_PREFIX) {
-            let idx_str = &key_str[CONCEPT_PREFIX.len()..];
+        if let Some(idx_str) = key_str.strip_prefix(CONCEPT_PREFIX) {
             let idx: usize = idx_str.parse().context("parsing node index")?;
             let concept: Concept = bincode::deserialize(&val).context("deserializing concept")?;
             concepts.push((idx, concept));

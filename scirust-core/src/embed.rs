@@ -62,8 +62,10 @@ impl EmbeddingEngine {
         let d_model = hidden.ncols();
         let mut mean = vec![0.0f32; d_model];
         let len_f = seq_len as f32;
+        #[allow(clippy::needless_range_loop)]
         for i in 0..seq_len {
             let base = i * d_model;
+            #[allow(clippy::needless_range_loop)]
             for j in 0..d_model {
                 let v = hidden.data[base + j];
                 if v.is_finite() {

@@ -143,10 +143,7 @@ impl RagMiddleware {
                 .build()?;
             let url =
                 std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".into());
-            let ollama_ok = match client.get(&format!("{}/api/tags", url)).send().await {
-                Ok(_) => true,
-                Err(_) => false,
-            };
+            let ollama_ok = client.get(format!("{}/api/tags", url)).send().await.is_ok();
             *self.store_available.write().await = ollama_ok;
             if ollama_ok {
                 info!("RagMiddleware: Ollama disponible sur {}", url);
@@ -202,11 +199,10 @@ impl RagMiddleware {
         if all_results.len() < self.config.top_k {
             let broad_results = hub.search(query, self.config.top_k * 2).await;
             for r in &broad_results {
-                if r.score >= self.config.min_score * 0.85 {
-                    if !all_results.iter().any(|(t, _)| t == &r.text) {
+                if r.score >= self.config.min_score * 0.85
+                    && !all_results.iter().any(|(t, _)| t == &r.text) {
                         all_results.push((r.text.clone(), r.score));
                     }
-                }
             }
         }
 

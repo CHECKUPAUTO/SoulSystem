@@ -11,15 +11,15 @@ impl Fp8Tensor {
         let mut data = [0u8; 8];
         for i in 0..8 {
             // Software emulation: Simple truncation or mapping to E4M3
-            data[i] = (vals[i].abs() as u8) & 0xFF;
+            data[i] = vals[i].abs() as u8;
         }
         Self { data }
     }
 
     pub fn to_f32(&self) -> [f32; 8] {
         let mut res = [0.0f32; 8];
-        for i in 0..8 {
-            res[i] = self.data[i] as f32;
+        for (i, d) in self.data.iter().enumerate() {
+            res[i] = *d as f32;
         }
         res
     }

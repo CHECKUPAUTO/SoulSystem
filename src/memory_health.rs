@@ -318,7 +318,7 @@ impl MemoryHealth {
         }
 
         // Reset périodique des compteurs
-        if self.check_count % 10 == 0 {
+        if self.check_count.is_multiple_of(10) {
             self.search_attempts = 0;
             self.search_failures = 0;
             self.alpha_sync_samples.clear();

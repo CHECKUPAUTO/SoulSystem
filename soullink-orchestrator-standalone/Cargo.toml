@@ -46,13 +46,14 @@ thiserror = "1.0"
 # Utils
 chrono = { version = "0.4", features = ["serde"] }
 
-[profile.release]
-opt-level = 3
-lto = "thin"
-codegen-units = 1
-panic = "abort"
-strip = true
+# Profile géré par workspace root Cargo.toml
+# [profile.release]
+# opt-level = 3
+# lto = "thin"
+# codegen-units = 1
+# panic = "abort"
+# strip = true
 
-[profile.dev]
-opt-level = 0
-debug = true
+# [profile.dev]
+# opt-level = 0
+# debug = true

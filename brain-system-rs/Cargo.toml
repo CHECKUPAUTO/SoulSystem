@@ -20,7 +20,8 @@ thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
+# Profile gere par workspace root Cargo.toml
+#[profile.release]
+#opt-level = 3
+#lto = true
+#codegen-units = 1

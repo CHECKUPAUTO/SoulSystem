@@ -30,6 +30,12 @@ pub struct DimensionRegistry {
     dim_padded: AtomicUsize,
 }
 
+impl Default for DimensionRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DimensionRegistry {
     pub const fn new() -> Self {
         Self {

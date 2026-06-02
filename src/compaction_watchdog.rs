@@ -229,10 +229,9 @@ impl CompactionWatchdog {
 
     /// Retourne le texte de restauration pour injection dans le contexte.
     pub async fn get_restore_text(&self) -> String {
-        match tokio::fs::read_to_string(&self.restore_path).await {
-            Ok(text) => text,
-            Err(_) => String::new(),
-        }
+        tokio::fs::read_to_string(&self.restore_path)
+            .await
+            .unwrap_or_default()
     }
 
     // ── Mise à jour de l'état ───────────────────────────────────────────

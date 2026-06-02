@@ -74,6 +74,9 @@ exclude = [
     "openevolve-bridge",
     "brain-bridge",
     "soul-neural-bridge",
+    "organs-bridge",
+    "mesh-bridge",
+    "services-bridge",
 ]
 
 [workspace.package]
@@ -184,6 +187,9 @@ synergie-bridge = { path = "synergie-bridge", optional = true }
 openevolve-bridge = { path = "openevolve-bridge", optional = true }
 brain-bridge = { path = "brain-bridge", optional = true }
 soul-neural-bridge = { path = "soul-neural-bridge", optional = true }
+organs-bridge = { path = "organs-bridge", optional = true }
+mesh-bridge = { path = "mesh-bridge", optional = true }
+services-bridge = { path = "services-bridge", optional = true }
 
 portable-pty = "0.8"
 libc = "0.2"
@@ -199,4 +205,16 @@ synergie = ["synergie-bridge"]
 openevolve = ["openevolve-bridge"]
 brain_system = ["brain-bridge"]
 soul_neural = ["soul-neural-bridge"]
+organs = ["organs-bridge"]
+mesh = ["mesh-bridge"]
+services = ["services-bridge"]
 default = []
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true

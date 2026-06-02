@@ -26,6 +26,7 @@ impl ComputeBackend for CpuFallback {
         // Convolution simplifiée
         let mut out = vec![0.0f32; data.len()];
         let half_k = kernel.len() / 2;
+        #[allow(clippy::needless_range_loop)]
         for i in 0..data.len() {
             let mut sum = 0.0f32;
             for (j, &k) in kernel.iter().enumerate() {

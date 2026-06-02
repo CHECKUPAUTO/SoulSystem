@@ -737,6 +737,10 @@ name = "brain-bridge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
  "tracing",
 ]
 
@@ -3519,6 +3523,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mesh-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "metal"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4129,6 +4146,11 @@ name = "openevolve-bridge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
  "tracing",
 ]
 
@@ -4190,6 +4212,19 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "organs-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "parking"
@@ -5859,6 +5894,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "services-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "servo_arc"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6092,6 +6140,11 @@ name = "soul-neural-bridge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
  "tracing",
 ]
 
@@ -6795,8 +6848,10 @@ dependencies = [
  "hostname",
  "libc",
  "local-skills",
+ "mesh-bridge",
  "model-router",
  "openevolve-bridge",
+ "organs-bridge",
  "portable-pty",
  "pty-terminal",
  "rand 0.8.6",
@@ -6806,6 +6861,7 @@ dependencies = [
  "seahash",
  "serde",
  "serde_json",
+ "services-bridge",
  "sha2",
  "sled",
  "soul-memory",
@@ -7056,6 +7112,11 @@ name = "synergie-bridge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
  "tracing",
 ]
 

@@ -14,6 +14,12 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DocumentId(pub String);
 
+impl Default for DocumentId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DocumentId {
     pub fn new() -> Self {
         Self(Uuid::new_v4().to_string())

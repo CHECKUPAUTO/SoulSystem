@@ -446,6 +446,10 @@ impl HybridSearch {
             .collect())
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn len(&self) -> usize {
         if self.hnsw_active.load(Ordering::Acquire) {
             self.hnsw.len()

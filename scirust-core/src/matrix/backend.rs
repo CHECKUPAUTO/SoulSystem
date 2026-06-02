@@ -281,9 +281,11 @@ impl SimdBackend for ScalarBackend {
 
     fn cholesky_f64(&self, a: &mut [Vec<f64>]) -> Option<()> {
         let n = a.len();
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             for j in 0..=i {
                 let mut sum = a[i][j];
+                #[allow(clippy::needless_range_loop)]
                 for k in 0..j {
                     sum -= a[i][k] * a[j][k];
                 }
@@ -300,8 +302,8 @@ impl SimdBackend for ScalarBackend {
         }
         // Nettoyage de la partie supérieure
         for i in 0..n {
-            for j in (i + 1)..n {
-                a[i][j] = 0.0;
+            for a_row in a.iter_mut().take(n).skip(i + 1) {
+                a_row[i] = 0.0;
             }
         }
         Some(())

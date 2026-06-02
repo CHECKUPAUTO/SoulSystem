@@ -321,7 +321,7 @@ impl MemoryGraph {
             idx_map.insert(*old_idx, new_idx);
 
             // Re-insert vector if we had one
-            if let Some(_) = self.dimensions.padded_dim() {
+            if self.dimensions.padded_dim().is_some() {
                 // We don't store vectors in sled (they're in VectorStore which is in-memory)
                 // Vectors need to be re-added via insert after load
             }

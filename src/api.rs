@@ -130,6 +130,12 @@ pub fn router(state: Arc<ApiState>) -> Router {
         .route("/api/memory/context", post(memory_context_handler))
         .route("/api/zerobot/chat", post(zerobot_chat_handler))
         .route("/api/zerobot/health", get(zerobot_health_handler))
+        // Bridges inter-composants : statut aller-retour
+        .route("/api/bridges/status", get(bridges_status_handler))
+        .route("/api/bridges/probe", post(bridges_probe_handler))
+        .route("/api/bridges/organs", get(organs_status_handler))
+        .route("/api/bridges/mesh", get(mesh_status_handler))
+        .route("/api/bridges/services", get(services_status_handler))
         .with_state(state)
 }
 
@@ -401,4 +407,164 @@ async fn zerobot_health_handler() -> Result<Json<serde_json::Value>, StatusCode>
             Err(StatusCode::SERVICE_UNAVAILABLE)
         }
     }
+}
+
+// ── Bridges status : expose l'état runtime de chaque bridge ────────────
+
+#[derive(Debug, Serialize)]
+struct BridgesStatus {
+    avid: String,
+    openevolve: String,
+    synergie: String,
+    brain: String,
+    soul_neural: String,
+}
+
+async fn bridges_status_handler() -> Json<BridgesStatus> {
+    let avid = probe_url("http://127.0.0.1:7878", "/health").await;
+    let openevolve = probe_url("http://127.0.0.1:7879", "/v1/health").await;
+    let synergie = probe_url("http://127.0.0.1:7460", "/health").await;
+    let brain = probe_url("http://127.0.0.1:9010", "/api/health").await;
+    let soul_neural = probe_url("http://127.0.0.1:9020", "/api/mesh/status").await;
+    Json(BridgesStatus { avid, openevolve, synergie, brain, soul_neural })
+}
+
+async fn bridges_probe_handler() -> Json<serde_json::Value> {
+    let tasks = vec![
+        ("avid", "http://127.0.0.1:7878", "/health"),
+        ("openevolve", "http://127.0.0.1:7879", "/v1/health"),
+        ("openevolve_status", "http://127.0.0.1:7879", "/v1/status"),
+        ("synergie", "http://127.0.0.1:7460", "/health"),
+        ("synergie_eco", "http://127.0.0.1:7460", "/ecosystem"),
+        ("brain_science", "http://127.0.0.1:9010", "/api/health"),
+        ("brain_mind", "http://127.0.0.1:9011", "/api/health"),
+        ("brain_engineer", "http://127.0.0.1:9012", "/api/health"),
+        ("brain_crypto", "http://127.0.0.1:9013", "/api/health"),
+        ("brain_creative", "http://127.0.0.1:9014", "/api/health"),
+        ("brain_meta", "http://127.0.0.1:9015", "/api/health"),
+        ("orchestrator", "http://127.0.0.1:9020", "/api/mesh/status"),
+        ("memory", "http://127.0.0.1:9030", "/api/stats"),
+    ];
+    let mut results = serde_json::Map::new();
+    for (name, base, path) in tasks {
+        let r = probe_url(base, path).await;
+        results.insert(name.to_string(), serde_json::Value::String(r));
+    }
+    Json(serde_json::Value::Object(results))
+}
+
+async fn probe_url(base: &str, path: &str) -> String {
+    let url = format!("{}{}", base, path);
+    match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+    {
+        Ok(client) => match client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                let body = resp.text().await.unwrap_or_default();
+                let preview = if body.len() > 120 {
+                    format!("{}…", &body[..120])
+                } else {
+                    body
+                };
+                format!("OK: {}", preview)
+            }
+            Ok(resp) => format!("HTTP {}", resp.status()),
+            Err(e) => format!("ERR: {}", e),
+        },
+        Err(e) => format!("CLIENT ERR: {}", e),
+    }
+}
+
+// ── Organs status : 12 organes HNN (V1 + V2) ───────────────────────
+
+async fn organs_status_handler() -> Json<serde_json::Value> {
+    // V1 organs (5031-5036) — /api/stats
+    // V2 organs (9040-9046) — /api/stats
+    let v1 = [("reasoning", 5031),
+        ("integration", 5032),
+        ("perception", 5033),
+        ("affect", 5034),
+        ("reflex", 5035),
+        ("language", 5036)];
+    let v2 = [("foresight", 9040),
+        ("homeostasis", 9041),
+        ("creativity", 9042),
+        ("social", 9043),
+        ("validation", 9044),
+        ("autonomy", 9046)];
+
+    let mut out = serde_json::Map::new();
+    for (name, port) in v1.iter().chain(v2.iter()) {
+        let r = probe_url(&format!("http://127.0.0.1:{}", port), "/").await;
+        out.insert(name.to_string(), serde_json::json!({
+            "port": port,
+            "status": r,
+        }));
+    }
+    Json(serde_json::json!({
+        "v1_count": v1.len(),
+        "v2_count": v2.len(),
+        "organs": out,
+    }))
+}
+
+async fn mesh_status_handler() -> Json<serde_json::Value> {
+    let services: Vec<(&str, u16, &str)> = vec![
+        ("rag_turbo", 9070, "/health"),
+        ("rowboat", 9071, "/health"),
+        ("moe", 9072, "/health"),
+        ("pacemaker", 9073, "/api/status"),
+        ("blackboard", 9074, "/api/status"),
+        ("memori", 9075, "/api/status"),
+        ("v14", 9095, "/"),
+        ("voice", 9050, "/"),
+    ];
+    let mut out = serde_json::Map::new();
+    for (name, port, path) in services.iter() {
+        let url = format!("http://127.0.0.1:{}", port);
+        let r = probe_url(&url, path).await;
+        out.insert(name.to_string(), serde_json::json!({
+            "port": port,
+            "path": path,
+            "status": r,
+        }));
+    }
+    Json(serde_json::json!({
+        "count": services.len(),
+        "services": out,
+    }))
+}
+
+// ── Services status : 12 services tiers (omniclaw, ollama, etc.) ─────────
+
+async fn services_status_handler() -> Json<serde_json::Value> {
+    let services: Vec<(&str, u16, &str)> = vec![
+        ("omniclaw", 9091, "/api/health"),
+        ("onaeu", 7878, "/health"),
+        ("ollama", 11434, "/api/version"),
+        ("turboquant-proxy", 11435, "/api/version"),
+        ("soulbridge", 11436, "/health"),
+        ("nats", 4222, "/varz"),
+        ("crowdsec", 8083, "/v1/usage"),
+        ("mirofish-router", 7470, "/health"),
+        ("super-tool", 8085, "/health"),
+        ("qmd-mcp", 8181, "/"),
+        ("sl13-monolith", 9045, "/health"),
+        ("novnc", 9060, "/"),
+    ];
+    let mut out = serde_json::Map::new();
+    for (name, port, path) in services.iter() {
+        let url = format!("http://127.0.0.1:{}", port);
+        let r = probe_url(&url, path).await;
+        out.insert(name.to_string(), serde_json::json!({
+            "port": port,
+            "path": path,
+            "status": r,
+        }));
+    }
+    Json(serde_json::json!({
+        "count": services.len(),
+        "services": out,
+    }))
 }

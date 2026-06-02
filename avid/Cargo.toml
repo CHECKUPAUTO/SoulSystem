@@ -65,12 +65,13 @@ repository    = "https://github.com/CHECKUPAUTO/AVID"
 documentation = "https://github.com/CHECKUPAUTO/AVID"
 description   = "Autonomous Verification & Intelligent Development — LLM-driven engineering intelligence with plagiarism detection and sandboxed code execution"
 
-[profile.release]
-lto              = "fat"
-codegen-units    = 1
-panic            = "abort"
-strip            = "symbols"
-opt-level        = 3
-debug            = false
-overflow-checks  = false
+# Profile géré par workspace root Cargo.toml
+# [profile.release]
+# lto              = "fat"
+# codegen-units    = 1
+# panic            = "abort"
+# strip            = "symbols"
+# opt-level        = 3
+# debug            = false
+# overflow-checks  = false
 incremental      = false

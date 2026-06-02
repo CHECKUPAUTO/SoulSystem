@@ -108,30 +108,29 @@ impl LSTM {
 
         for t in 0..seq_len {
             let x_t = input
-                .clone()
                 .slice_rows(t * batch_size, (t + 1) * batch_size);
 
             // gates = x_t @ W_ih^T + h @ W_hh^T + b_ih + b_hh
-            let mut gates = x_t.matmul(w_ih_t.clone()).add(h.matmul(w_hh_t.clone()));
+            let mut gates = x_t.matmul(w_ih_t).add(h.matmul(w_hh_t));
             if let Some(ref bi) = b_ih {
-                gates = gates.add_bias(bi.clone());
+                gates = gates.add_bias(*bi);
             }
             if let Some(ref bh) = b_hh {
-                gates = gates.add_bias(bh.clone());
+                gates = gates.add_bias(*bh);
             }
 
             // Split en 4 portes (input, forget, cell, output)
             let d = self.hidden_size;
-            let i_gate = gates.clone().slice_cols(0, d).sigmoid();
-            let f_gate = gates.clone().slice_cols(d, d).sigmoid();
-            let g_gate = gates.clone().slice_cols(2 * d, d).tanh();
+            let i_gate = gates.slice_cols(0, d).sigmoid();
+            let f_gate = gates.slice_cols(d, d).sigmoid();
+            let g_gate = gates.slice_cols(2 * d, d).tanh();
             let o_gate = gates.slice_cols(3 * d, d).sigmoid();
 
             // c = f ⊙ c + i ⊙ g
             c = f_gate.hadamard(c).add(i_gate.hadamard(g_gate));
-            h = o_gate.hadamard(c.clone().tanh());
+            h = o_gate.hadamard(c.tanh());
 
-            outputs.push(h.clone());
+            outputs.push(h);
         }
 
         concat_rows(tape, &outputs)

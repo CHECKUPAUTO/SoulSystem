@@ -225,6 +225,13 @@ impl<'a, T> MatrixViewMut<'a, T> {
         self.col_stride
     }
 
+    /// Crée une vue à partir de composants bruts.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` doit être valide, aligné, et pointer vers un bloc de mémoire
+    ///   d'au moins `rows * row_stride` éléments (ou `cols * col_stride`).
+    /// - L'appelant doit garantir l'absence d'accès concurrent en écriture.
     #[inline]
     pub unsafe fn from_raw_parts(
         ptr: *mut T,

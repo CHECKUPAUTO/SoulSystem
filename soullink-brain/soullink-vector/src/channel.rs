@@ -66,6 +66,12 @@ impl SseTokenChannel {
     }
 }
 
+impl Default for SseTokenChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PRODUCTEUR SSE (async, envoie dans async-channel)
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1619,18 +1619,14 @@ impl Tape {
                                                     && ih_signed < h_in as isize
                                                     && iw_signed >= 0
                                                     && iw_signed < w_in as isize
-                                                    && (ih_signed as usize - (oh - kh + pad))
-                                                        % stride
-                                                        == 0
-                                                    && (iw_signed as usize - (ow - kw + pad))
-                                                        % stride
-                                                        == 0
+                                                    && (ih_signed as usize - (oh - kh + pad)).is_multiple_of(stride)
+                                                    && (iw_signed as usize - (ow - kw + pad)).is_multiple_of(stride)
                                                 {
                                                     let ih = ih_signed as usize;
                                                     let iw = iw_signed as usize;
-                                                    if (oh + pad as usize) >= kh
-                                                        && (oh + pad as usize - kh) % stride == 0
-                                                        && (ow + pad as usize - kw) % stride == 0
+                                                    if (oh + pad) >= kh
+                                                        && (oh + pad - kh) % stride == 0
+                                                        && (ow + pad - kw) % stride == 0
                                                     {
                                                         let w_idx = ci * out_c * kernel * kernel
                                                             + co * kernel * kernel
@@ -1796,9 +1792,7 @@ impl Tape {
                                     l_i[r] = rescale[r] * l_i[r] + row_sum_p[r];
                                 }
 
-                                for r in 0..br {
-                                    m_i[r] = m_new[r];
-                                }
+                                m_i[..br].copy_from_slice(&m_new[..br]);
                             }
 
                             // Now compute gradients for this Q-block
@@ -2863,6 +2857,7 @@ impl<'t> Var<'t> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn conv2d_transpose_forward(
         self,
         weight: Var<'t>,

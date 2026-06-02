@@ -83,8 +83,9 @@ tower_governor = { version = "0.8", features = ["axum"] }
 
 scopeguard = "1"
 
-[profile.release]
-opt-level = 3
-lto       = true
-strip     = true
-codegen-units = 1
+# Profile géré par workspace root Cargo.toml
+# [profile.release]
+# opt-level = 3
+# lto       = true
+# strip     = true
+# codegen-units = 1

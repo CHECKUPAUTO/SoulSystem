@@ -8,7 +8,7 @@ use anyhow::Result;
 use chrono::Utc;
 use soul_memory::SoulMemory;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
@@ -137,7 +137,7 @@ impl MemoryHub {
     }
 
     /// Sauvegarde le journal de version sur disque.
-    pub async fn persist_journal(&self, data_dir: &PathBuf) -> Result<()> {
+    pub async fn persist_journal(&self, data_dir: &Path) -> Result<()> {
         let journal_path = data_dir.join("version_journal.json");
         let entries = self.version_journal.read().await.clone();
         let json = serde_json::to_string_pretty(&entries)?;
@@ -367,16 +367,22 @@ impl PrivacyLevel {
             PrivacyLevel::Public => "public",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for PrivacyLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "private" => Some(PrivacyLevel::Private),
-            "team" => Some(PrivacyLevel::Team),
-            "public" => Some(PrivacyLevel::Public),
-            _ => None,
+            "private" => Ok(PrivacyLevel::Private),
+            "team" => Ok(PrivacyLevel::Team),
+            "public" => Ok(PrivacyLevel::Public),
+            _ => Err(format!("inconnu: {s}")),
         }
     }
+}
 
+impl PrivacyLevel {
     /// Vérifie si ce niveau permet l'accès à un autre niveau.
     pub fn allows_access_to(&self, required: PrivacyLevel) -> bool {
         match (self, required) {
@@ -392,13 +398,6 @@ impl PrivacyLevel {
 impl std::fmt::Display for PrivacyLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
-    }
-}
-
-impl std::str::FromStr for PrivacyLevel {
-    type Err = String;
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        PrivacyLevel::from_str(s).ok_or_else(|| format!("PrivacyLevel invalide: {}", s))
     }
 }
 

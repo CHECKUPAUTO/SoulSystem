@@ -17,7 +17,7 @@ pub struct MixedPrecisionTrainer {
 impl MixedPrecisionTrainer {
     pub fn new(model_params: &[Tensor], initial_scale: f32) -> Self {
         let master_weights = model_params.to_vec();
-        let fp16_weights = master_weights.iter().map(|t| cast_to_fp16(t)).collect();
+        let fp16_weights = master_weights.iter().map(cast_to_fp16).collect();
         Self {
             master_weights,
             fp16_weights,
@@ -66,7 +66,7 @@ impl MixedPrecisionTrainer {
 
     /// Croissance périodique du loss scale
     pub fn maybe_grow_scale(&mut self) {
-        if self.step_counter % self.growth_interval == 0 {
+        if self.step_counter.is_multiple_of(self.growth_interval) {
             self.loss_scale = (self.loss_scale * self.scale_growth_factor).min(self.max_scale);
         }
     }

@@ -105,7 +105,7 @@ impl SessionSummary {
             .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
             .unwrap_or_else(|| "inconnu".into());
 
-        let mut md = format!("# Résumé de session\n\n");
+        let mut md = "# Résumé de session\n\n".to_string();
         md.push_str(&format!("- **Généré le**: {}\n", now));
         md.push_str(&format!("- **Session**: {}\n", self.session_id));
         md.push_str(&format!("- **Messages**: {}\n", self.message_count));

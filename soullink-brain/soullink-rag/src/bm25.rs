@@ -29,6 +29,12 @@ pub struct Bm25Index {
     total_docs: usize,
 }
 
+impl Default for Bm25Index {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Bm25Index {
     pub fn new() -> Self {
         Self {
@@ -102,7 +108,7 @@ impl Bm25Index {
         let query_tokens = Self::tokenize(query);
         let mut scores: HashMap<String, f64> = HashMap::new();
 
-        for (_, doc) in &self.docs {
+        for doc in self.docs.values() {
             let mut score = 0.0;
             for term in &query_tokens {
                 let tf = doc.tf.get(term).copied().unwrap_or(0.0);
