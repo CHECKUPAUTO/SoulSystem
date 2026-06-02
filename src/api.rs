@@ -22,6 +22,8 @@ pub struct ApiState {
     pub bound_system: Arc<BoundSystem>,
     pub pty_sessions: Arc<Mutex<HashMap<String, PtyTerminal>>>,
     pub memory: Option<Arc<MemoryHub>>,
+    pub metrics: crate::metrics::MetricsRegistry,
+    pub bridge_store: Option<Arc<crate::bridge_store::BridgeStore>>,
 }
 
 // ── Requêtes / Réponses existantes ─────────────────────────────────────
@@ -136,6 +138,7 @@ pub fn router(state: Arc<ApiState>) -> Router {
         .route("/api/bridges/organs", get(organs_status_handler))
         .route("/api/bridges/mesh", get(mesh_status_handler))
         .route("/api/bridges/services", get(services_status_handler))
+        .route("/metrics", get(metrics_handler))
         .with_state(state)
 }
 
@@ -567,4 +570,16 @@ async fn services_status_handler() -> Json<serde_json::Value> {
         "count": services.len(),
         "services": out,
     }))
+}
+
+// ── Prometheus metrics endpoint ────────────────────────────────────
+
+async fn metrics_handler(
+    axum::extract::State(state): axum::extract::State<Arc<ApiState>>,
+) -> impl axum::response::IntoResponse {
+    let body = state.metrics.render().await;
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        body,
+    )
 }
