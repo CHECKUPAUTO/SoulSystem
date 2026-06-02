@@ -1,0 +1,26 @@
+[package]
+name = "bridge-integration-tests"
+version = "0.1.0"
+edition = "2021"
+description = "Tests d'intégration des 8 bridges SoulSystem ↔ écosystème"
+
+[[bin]]
+name = "smoke-bridges"
+path = "src/smoke.rs"
+
+[dependencies]
+# Bridges compilés (sans features lourdes)
+avid-bridge = { path = "../avid-bridge" }
+openevolve-bridge = { path = "../openevolve-bridge" }
+mesh-bridge = { path = "../mesh-bridge" }
+services-bridge = { path = "../services-bridge" }
+organs-bridge = { path = "../organs-bridge" }
+brain-bridge = { path = "../brain-bridge" }
+soul-neural-bridge = { path = "../soul-neural-bridge" }
+synergie-bridge = { path = "../synergie-bridge" }
+
+# HTTP
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"
+anyhow = "1"
