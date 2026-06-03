@@ -2,7 +2,7 @@
 name = "bridge-integration-tests"
 version = "0.1.0"
 edition = "2021"
-description = "Tests d'intégration des 8 bridges SoulSystem ↔ écosystème"
+description = "Tests d'intégration des 9 bridges SoulSystem ↔ écosystème"
 
 [[bin]]
 name = "smoke-bridges"
@@ -12,6 +12,7 @@ path = "src/smoke.rs"
 # Bridges compilés (sans features lourdes)
 avid-bridge = { path = "../avid-bridge" }
 openevolve-bridge = { path = "../openevolve-bridge" }
+forge-core = { path = "../forges/forge-core" }
 mesh-bridge = { path = "../mesh-bridge" }
 services-bridge = { path = "../services-bridge" }
 organs-bridge = { path = "../organs-bridge" }

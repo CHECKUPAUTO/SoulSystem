@@ -27,7 +27,14 @@ async fn main() -> anyhow::Result<()> {
         println!("  [1/6] forge campaign (bin-packing)...");
         use forge_bridge::{ForgeCampaign, ForgeConfig, binpack_demo::BinPacking};
         let campaign = ForgeCampaign::new(
-            ForgeConfig { generations: 20, population: 40, survivors: 4, base_seed: 42 },
+            ForgeConfig {
+                generations: 20,
+                population: 40,
+                survivors: 4,
+                base_seed: 42,
+                max_reflection_retries: 3,
+                stagnation_threshold: 5,
+            },
             BinPacking { capacity: 1.0, n_items: 50, n_instances: 20 },
         );
         let report = campaign.run();

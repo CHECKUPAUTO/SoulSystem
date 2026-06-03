@@ -794,6 +794,7 @@ dependencies = [
  "avid-bridge",
  "brain-bridge",
  "forge-bridge",
+ "forge-core",
  "mesh-bridge",
  "openevolve-bridge",
  "organs-bridge",

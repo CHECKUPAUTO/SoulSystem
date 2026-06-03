@@ -133,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
             tokio::task::spawn_blocking(|| {
                 use forge_bridge::{ForgeCampaign, ForgeConfig, binpack_demo::BinPacking};
                 let campaign = ForgeCampaign::new(
-                    ForgeConfig { generations: 3, population: 12, survivors: 2, base_seed: 42 },
+                    ForgeConfig { generations: 3, population: 12, survivors: 2, base_seed: 42, max_reflection_retries: 2, stagnation_threshold: 5 },
                     BinPacking { capacity: 1.0, n_items: 30, n_instances: 10 },
                 );
                 let report = campaign.run();

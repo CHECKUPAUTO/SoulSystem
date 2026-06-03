@@ -21,6 +21,8 @@ fn main() {
         population: 60,
         survivors: 8,
         base_seed: 42,
+        max_reflection_retries: 2,
+        stagnation_threshold: 5,
     };
 
     let engine = Engine::new(domain, config);
