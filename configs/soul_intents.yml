@@ -1,0 +1,103 @@
+# ── SoulSystem Intent Registry ────────────────────────────────────────────────
+# Mapping intention labels → agent/workflow components.
+# Used by the Graph Router (graph_router.rs) to select relevant agents
+# before dynamic DAG generation by the LLM.
+#
+# Pattern extracted from VideoAgent (HKUDS) — Graph-Powered Agentic Workflow.
+# ───────────────────────────────────────────────────────────────────────────────
+
+# ── Code Intelligence ──────────────────────────────────────────────────────────
+code_review:
+  - code_reviewer
+  - lint_checker
+  - security_auditor
+
+code_generation:
+  - code_generator
+  - boilerplate_writer
+  - test_writer
+
+refactoring:
+  - refactor_engine
+  - dependency_analyzer
+  - dead_code_detector
+
+debugging:
+  - crash_analyzer
+  - stack_trace_parser
+  - bisector
+
+# ── Research & Analysis ───────────────────────────────────────────────────────
+deep_research:
+  - web_searcher
+  - paper_analyzer
+  - summarizer
+  - citation_extractor
+
+repo_analysis:
+  - repo_cloner
+  - codebase_mapper
+  - dependency_graph
+  - architecture_analyzer
+
+trend_analysis:
+  - trend_scanner
+  - github_explorer
+  - arxiv_fetcher
+
+# ── Memory & Knowledge ────────────────────────────────────────────────────────
+knowledge_extraction:
+  - wiki_synthesizer
+  - pattern_extractor
+  - concept_linker
+
+memory_consolidation:
+  - memory_compactor
+  - insight_generator
+  - relevance_ranker
+
+# ── System Operations ─────────────────────────────────────────────────────────
+system_diagnostics:
+  - health_checker
+  - log_analyzer
+  - resource_monitor
+  - gpu_diagnostics
+
+deployment:
+  - build_runner
+  - test_runner
+  - service_manager
+  - config_validator
+
+# ── Agent Orchestration ───────────────────────────────────────────────────────
+multi_agent_planning:
+  - task_decomposer
+  - agent_assigner
+  - result_merger
+
+self_improvement:
+  - skill_crystallizer
+  - pattern_learner
+  - feedback_integrator
+
+# ── Neural Mesh ───────────────────────────────────────────────────────────────
+mesh_health:
+  - organ_pinger
+  - stimulus_router
+  - turbulence_monitor
+
+mesh_evolution:
+  - evolution_engine
+  - fitness_evaluator
+  - mutation_generator
+
+# ── Communication ─────────────────────────────────────────────────────────────
+content_creation:
+  - report_writer
+  - diagram_generator
+  - presentation_builder
+
+message_routing:
+  - intent_classifier
+  - priority_sorter
+  - channel_router
