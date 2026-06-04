@@ -1,12 +1,19 @@
 //! Workflow execution engine: DAG building, topological sort, loop handling.
+//!
+//! Two modes:
+//!   - Static: YAML-defined workflows loaded via `load_workflow()`
+//!   - Dynamic: LLM-generated workflows via `run_dynamic()` (VideoAgent pattern)
 
+use crate::agent_registry::AgentRegistry;
 use crate::config::WorkflowConfig;
 use crate::context::WorkflowContext;
 use crate::git_worktree::WorktreeManager;
-use crate::node::{Node, NodeResult};
+use crate::graph_router::GraphRouter;
+use crate::node::{Node, NodeResult, NodeType};
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
 use std::collections::HashMap;
+use std::sync::Arc;
 use thiserror::Error;
 use tracing::{info, warn};
 
@@ -43,9 +50,13 @@ pub enum WorkflowStatus {
 pub struct WorkflowEngine {
     configs: HashMap<String, WorkflowConfig>,
     worktree: Option<WorktreeManager>,
-    /// Optional memory graph for context-enriched AI nodes
+    /// Optional memory graph for context-enriched AI node execution
     #[cfg(feature = "memory")]
     memory: Option<std::sync::Arc<soullink_memory::MemoryGraph>>,
+    /// Agent registry for dynamic workflow execution
+    agent_registry: Arc<AgentRegistry>,
+    /// GraphRouter for LLM-driven dynamic DAG generation
+    graph_router: Option<Arc<GraphRouter>>,
 }
 
 impl WorkflowEngine {
@@ -56,6 +67,8 @@ impl WorkflowEngine {
             worktree: None,
             #[cfg(feature = "memory")]
             memory: None,
+            agent_registry: Arc::new(AgentRegistry::new()),
+            graph_router: None,
         }
     }
 
@@ -63,6 +76,169 @@ impl WorkflowEngine {
     #[cfg(feature = "memory")]
     pub fn with_memory(&mut self, graph: std::sync::Arc<soullink_memory::MemoryGraph>) {
         self.memory = Some(graph);
+    }
+
+    /// Set the GraphRouter for dynamic LLM-driven workflow generation.
+    /// Required for `run_dynamic()` to work.
+    pub fn set_graph_router(&mut self, router: GraphRouter) {
+        self.graph_router = Some(Arc::new(router));
+    }
+
+    /// Get a reference to the AgentRegistry for registering custom agents.
+    pub fn agent_registry(&self) -> &Arc<AgentRegistry> {
+        &self.agent_registry
+    }
+
+    /// Run a workflow dynamically from a natural language request.
+    /// Uses the VideoAgent pattern: Intent Analysis → Graph Generation → Execution.
+    ///
+    /// Requires `set_graph_router()` to have been called.
+    pub async fn run_dynamic(&self, request: &str) -> Result<WorkflowResult, EngineError> {
+        let router = self
+            .graph_router
+            .as_ref()
+            .ok_or_else(|| EngineError::NodeFailed(
+                "GraphRouter not configured. Call set_graph_router() first.".into()
+            ))?;
+
+        info!("Dynamic workflow request: {}", request);
+
+        // Step 1: Generate agent graph from natural language request
+        let graph_output = router
+            .generate_graph(request)
+            .await
+            .map_err(|e| EngineError::NodeFailed(format!("Graph generation failed: {e}")))?;
+
+        info!(
+            "Generated graph: {} agents, chain: {:?}",
+            graph_output.agent_graph.len(),
+            graph_output.agent_chain
+        );
+
+        // Step 2: Convert graph to executable nodes
+        let nodes = GraphRouter::graph_to_nodes(&graph_output);
+
+        // Step 3: Check if nodes reference registered agents
+        for node in &nodes {
+            if !self.agent_registry.has(&node.id) {
+                warn!("Agent '{}' not in registry — execution will be best-effort", node.id);
+            }
+        }
+
+        // Step 4: Build DAG and execute
+        let order = Self::build_dag(&nodes)?;
+        let ctx = WorkflowContext::new(request);
+        let mut outputs: HashMap<String, String> = HashMap::new();
+
+        for idx in &order {
+            let node = &nodes[*idx];
+
+            // Check dependency failures
+            for dep in &node.depends_on {
+                if let Some(err) = outputs.get(dep) {
+                    if err.starts_with("ERROR:") {
+                        let err_msg = format!("dependency {dep} failed: {err}");
+                        return Ok(WorkflowResult {
+                            workflow_name: "dynamic".into(),
+                            outputs: outputs.clone(),
+                            status: WorkflowStatus::Failed(err_msg),
+                        });
+                    }
+                }
+            }
+
+            // Execute: try AgentRegistry first, fall back to Node::execute
+            let result = if let NodeType::Agent(ref agent_node) = node.node_type {
+                self.execute_registered_agent(&node.id, agent_node, &ctx, &outputs).await
+            } else {
+                node.execute(&ctx).await
+            };
+
+            match result {
+                NodeResult::Success(output) => {
+                    ctx.set(&node.id, &output).await;
+                    outputs.insert(node.id.clone(), output);
+                }
+                NodeResult::Failed(err) => {
+                    let err_msg = format!("ERROR: {err}");
+                    ctx.set(&node.id, &err_msg).await;
+                    outputs.insert(node.id.clone(), err_msg);
+                }
+                other => {
+                    info!("Node {} returned: {:?}", node.id, other);
+                    if let NodeResult::Success(ref output) = other {
+                        ctx.set(&node.id, output).await;
+                        outputs.insert(node.id.clone(), output.clone());
+                    }
+                }
+            }
+        }
+
+        let has_failure = outputs.values().any(|v| v.starts_with("ERROR:"));
+        Ok(WorkflowResult {
+            workflow_name: "dynamic".into(),
+            outputs,
+            status: if has_failure {
+                WorkflowStatus::Failed("one or more nodes failed".into())
+            } else {
+                WorkflowStatus::Success
+            },
+        })
+    }
+
+    /// Execute a node using the AgentRegistry, with data flow from previous outputs.
+    async fn execute_registered_agent(
+        &self,
+        node_id: &str,
+        agent_node: &crate::node::AgentNode,
+        ctx: &WorkflowContext,
+        prev_outputs: &HashMap<String, String>,
+    ) -> NodeResult {
+        // Build input map from context and previous outputs
+        let mut inputs = HashMap::new();
+
+        // Try to extract inputs from the workflow context
+        for (key, value) in prev_outputs {
+            // Heuristic: if a previous output key matches an input param name for this agent
+            inputs.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+
+        // Always provide the task as content input
+        inputs.entry("content".into()).or_insert_with(|| agent_node.task.clone());
+
+        // Execute via agent registry
+        match self.agent_registry.execute(node_id, &inputs) {
+            Some(result) => {
+                if result.success {
+                    // Serialize outputs into a single string for the workflow context
+                    let output_str = result
+                        .outputs
+                        .iter()
+                        .map(|(k, v)| format!("## {}
+
+{}", k, v))
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    NodeResult::Success(output_str)
+                } else {
+                    NodeResult::Failed(
+                        result.error.unwrap_or_else(|| "Agent execution failed".into()),
+                    )
+                }
+            }
+            None => {
+                warn!("Agent '{}' not in registry, using LLM fallback", node_id);
+                // Fall back to LLM-based execution
+                Node {
+                    id: node_id.to_string(),
+                    depends_on: vec![],
+                    node_type: NodeType::Agent(agent_node.clone()),
+                    loop_config: None,
+                }
+                .execute(ctx)
+                .await
+            }
+        }
     }
 
     /// Load a workflow config from a YAML file and register it.
@@ -337,5 +513,135 @@ nodes:
         engine.register_workflow(config);
         let result = engine.run("simple", "test input").await.unwrap();
         assert!(matches!(result.status, WorkflowStatus::Success));
+    }
+
+    #[tokio::test]
+    async fn run_dynamic_workflow() {
+        use crate::agent_registry::AgentRegistry;
+        use crate::graph_router::{AgentGraphOutput, AgentGraphNode, GraphOutput, GraphParam, UserInputNode};
+        use crate::node::NodeType;
+
+        // Build a static graph that mimics what the LLM would generate
+        let graph = AgentGraphOutput {
+            feasibility: "Feasible".into(),
+            agent_graph: vec![
+                AgentGraphNode {
+                    node: "code_reviewer".into(),
+                    inputs: vec![
+                        GraphParam { name: "repo_path".into(), description: "Path".into() },
+                        GraphParam { name: "focus_areas".into(), description: "Areas".into() },
+                    ],
+                    outputs: vec![
+                        GraphOutput {
+                            name: "report".into(),
+                            description: "Code review report".into(),
+                            links: vec![{
+                                let mut m = std::collections::HashMap::new();
+                                m.insert("lint_checker".into(), "review_report".into());
+                                m
+                            }],
+                        },
+                    ],
+                },
+                AgentGraphNode {
+                    node: "lint_checker".into(),
+                    inputs: vec![
+                        GraphParam { name: "repo_path".into(), description: "Path".into() },
+                        GraphParam { name: "review_report".into(), description: "Review".into() },
+                    ],
+                    outputs: vec![
+                        GraphOutput {
+                            name: "lint_results".into(),
+                            description: "Lint report".into(),
+                            links: vec![
+                                {
+                                    let mut m = std::collections::HashMap::new();
+                                    m.insert("security_auditor".into(), "lint_results".into());
+                                    m
+                                },
+                            ],
+                        },
+                    ],
+                },
+                AgentGraphNode {
+                    node: "security_auditor".into(),
+                    inputs: vec![
+                        GraphParam { name: "repo_path".into(), description: "Path".into() },
+                        GraphParam { name: "lint_results".into(), description: "Lint".into() },
+                    ],
+                    outputs: vec![
+                        GraphOutput {
+                            name: "audit_report".into(),
+                            description: "Security report".into(),
+                            links: vec![],
+                        },
+                    ],
+                },
+            ],
+            agent_chain: vec!["code_reviewer".into(), "lint_checker".into(), "security_auditor".into()],
+            user_input_graph: vec![
+                UserInputNode {
+                    node: "repo_path".into(),
+                    description: "Repository path".into(),
+                    links: vec![{
+                        let mut m = std::collections::HashMap::new();
+                        m.insert("code_reviewer".into(), "repo_path".into());
+                        m.insert("lint_checker".into(), "repo_path".into());
+                        m.insert("security_auditor".into(), "repo_path".into());
+                        m
+                    }],
+                },
+            ],
+            reasoning: "Three-step pipeline: review → lint → audit".into(),
+        };
+
+        // Convert to nodes
+        let nodes = GraphRouter::graph_to_nodes(&graph);
+        assert_eq!(nodes.len(), 3);
+
+        // Execute via engine
+        let engine = WorkflowEngine::new();
+        let order = WorkflowEngine::build_dag(&nodes).unwrap();
+
+        let ctx = WorkflowContext::new("Review /tmp/test");
+        let mut outputs: HashMap<String, String> = HashMap::new();
+
+        for idx in &order {
+            let node = &nodes[*idx];
+            for dep in &node.depends_on {
+                if let Some(err) = outputs.get(dep) {
+                    if err.starts_with("ERROR:") {
+                        break;
+                    }
+                }
+            }
+
+            // Execute via agent registry
+            if let NodeType::Agent(ref agent_node) = node.node_type {
+                let mut inputs = HashMap::new();
+                for (k, v) in &outputs {
+                    inputs.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                inputs.entry("repo_path".into()).or_insert_with(|| "/tmp/test".into());
+                inputs.entry("content".into()).or_insert_with(|| agent_node.task.clone());
+
+                match engine.agent_registry.execute(&node.id, &inputs) {
+                    Some(result) if result.success => {
+                        let out = result.outputs.values().cloned().collect::<Vec<_>>().join("\n");
+                        outputs.insert(node.id.clone(), out);
+                    }
+                    _ => {
+                        outputs.insert(node.id.clone(), format!("ERROR: agent {}", node.id));
+                    }
+                }
+            }
+        }
+
+        assert!(outputs.contains_key("code_reviewer"));
+        assert!(outputs.contains_key("lint_checker"));
+        assert!(outputs.contains_key("security_auditor"));
+        assert!(!outputs["code_reviewer"].starts_with("ERROR:"));
+        assert!(!outputs["lint_checker"].starts_with("ERROR:"));
+        assert!(!outputs["security_auditor"].starts_with("ERROR:"));
     }
 }

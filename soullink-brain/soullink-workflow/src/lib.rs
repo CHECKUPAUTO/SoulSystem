@@ -8,6 +8,7 @@
 //! Graph Router (VideoAgent pattern): LLM-driven dynamic DAG generation
 //! with intent analysis, intent→tools mapping, and self-evaluation loops.
 
+pub mod agent_registry;
 pub mod conditions;
 pub mod config;
 pub mod context;
@@ -16,6 +17,7 @@ pub mod git_worktree;
 pub mod graph_router;
 pub mod node;
 
+pub use agent_registry::{Agent, AgentRegistry, AgentResult};
 pub use conditions::LoopCondition;
 pub use config::WorkflowConfig;
 pub use context::WorkflowContext;
