@@ -15,10 +15,10 @@ serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
-soul-core = { path = "/root/SoulSystem/soul-neural/crates/soul-core", optional = true }
-soul-hnn = { path = "/root/SoulSystem/soul-neural/crates/soul-hnn", optional = true }
-soul-cortex = { path = "/root/SoulSystem/soul-neural/crates/soul-cortex", optional = true }
-soul-minillm = { path = "/root/SoulSystem/soul-neural/crates/soul-minillm", optional = true }
+soul-core = { path = "../soul-neural/crates/soul-core", optional = true }
+soul-hnn = { path = "../soul-neural/crates/soul-hnn", optional = true }
+soul-cortex = { path = "../soul-neural/crates/soul-cortex", optional = true }
+soul-minillm = { path = "../soul-neural/crates/soul-minillm", optional = true }
 
 [features]
 default = []
