@@ -15,7 +15,7 @@ serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
-openevolve = { path = "/root/SoulSystem/openevolve", optional = true }
+openevolve = { path = "../openevolve", optional = true }
 
 [features]
 default = []

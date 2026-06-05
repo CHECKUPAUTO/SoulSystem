@@ -24,6 +24,9 @@ impl Action {
     pub async fn execute(&self) -> Result<String, String> {
         match self {
             Action::RestartService(svc) => {
+                if !is_safe_name(svc) {
+                    return Err(format!("Security: invalid service name '{}'", svc));
+                }
                 info!("🔄 Restart service: {}", svc);
                 match Command::new("systemctl").args(["restart", svc]).output() {
                     Ok(o) if o.status.success() => Ok(format!("Service {} restarted", svc)),
@@ -112,6 +115,9 @@ impl Action {
                 }
             }
             Action::ExecuteShell(cmd) => {
+                if !is_safe_shell_command(cmd) {
+                    return Err("Security: invalid shell command".to_string());
+                }
                 info!("💻 Shell: {}", cmd);
                 match Command::new("sh").args(["-c", cmd]).output() {
                     Ok(o) if o.status.success() => {
@@ -132,6 +138,9 @@ impl Action {
                 Ok("Self-evolution sequence initiated".into())
             }
             Action::BlockIp(ip) => {
+                if !is_valid_ip(ip) {
+                    return Err(format!("Security: invalid IP address '{}'", ip));
+                }
                 info!("🛡️  Blocking IP: {}", ip);
                 // Implementation using iptables (requires root)
                 match Command::new("iptables")
@@ -163,6 +172,9 @@ impl Action {
                 }
             }
             Action::CreateTool { name, script } => {
+                if !is_safe_name(name) {
+                    return Err(format!("Security: invalid tool name '{}'", name));
+                }
                 info!("🛠️  Creating new tool: {}", name);
                 let tool_dir = std::path::Path::new("/app/tools");
                 let _ = std::fs::create_dir_all(tool_dir);
@@ -216,5 +228,91 @@ impl Action {
                 }
             }
         }
+    }
+}
+
+// 🛡️ Security Validation Helpers
+
+fn is_valid_ip(ip: &str) -> bool {
+    ip.parse::<std::net::IpAddr>().is_ok()
+}
+
+fn is_safe_name(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    // Allow alphanumeric, dots, dashes, and underscores (common in service and tool names)
+    // This prevents path traversal (no / or ..) and most shell injection characters
+    name.chars()
+        .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+}
+
+fn is_safe_shell_command(cmd: &str) -> bool {
+    !cmd.is_empty() && !cmd.contains('\0')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_action_validation_success() {
+        // Valid IP
+        let action = Action::BlockIp("1.2.3.4".to_string());
+        let res = action.execute().await;
+        // Should fail because iptables not available in test, but NOT with security error
+        assert!(!res.unwrap_err().contains("Security"));
+
+        // Valid service name
+        let action = Action::RestartService("nginx".to_string());
+        let res = action.execute().await;
+        assert!(!res.unwrap_err().contains("Security"));
+
+        // Valid tool name
+        let action = Action::CreateTool {
+            name: "my_tool".to_string(),
+            script: "echo 1".to_string(),
+        };
+        let res = action.execute().await;
+        // Might fail due to filesystem permissions in some envs, but not security validation
+        if let Err(e) = res {
+            assert!(!e.contains("Security"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_action_validation_failure() {
+        // Invalid IP
+        let action = Action::BlockIp("1.2.3.4; rm -rf /".to_string());
+        let res = action.execute().await;
+        assert!(res.unwrap_err().contains("Security: invalid IP address"));
+
+        // Invalid service name (injection attempt)
+        let action = Action::RestartService("nginx; reboot".to_string());
+        let res = action.execute().await;
+        assert!(res.unwrap_err().contains("Security: invalid service name"));
+
+        // Invalid tool name (path traversal)
+        let action = Action::CreateTool {
+            name: "../../etc/passwd".to_string(),
+            script: "owned".to_string(),
+        };
+        let res = action.execute().await;
+        assert!(res.unwrap_err().contains("Security: invalid tool name"));
+
+        // Empty shell command
+        let action = Action::ExecuteShell("".to_string());
+        let res = action.execute().await;
+        assert!(res.unwrap_err().contains("Security: invalid shell command"));
+    }
+
+    #[test]
+    fn test_is_safe_name() {
+        assert!(is_safe_name("valid-service.123_name"));
+        assert!(!is_safe_name("invalid name"));
+        assert!(!is_safe_name("invalid/name"));
+        assert!(!is_safe_name("invalid;name"));
+        assert!(!is_safe_name("../traversal"));
+        assert!(!is_safe_name(""));
     }
 }
