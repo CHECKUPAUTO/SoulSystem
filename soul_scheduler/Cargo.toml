@@ -1,0 +1,15 @@
+[package]
+name = "soul_scheduler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libc = "0.2.155"
+
+[[bench]]
+name = "scheduler_benchmarks"
+path = "tests/scheduler_benchmarks.rs"
+harness = false
+
+[dev-dependencies]
+criterion = "0.5"

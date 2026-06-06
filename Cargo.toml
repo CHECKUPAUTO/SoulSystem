@@ -1,0 +1,27 @@
+[workspace]
+members = [
+    "scirust_affective_core",
+    "semantic_neuromodulator",
+    "neural_metacognition",
+    "ecosystem_synapse_linker",
+    "neural_clinical_console",
+    "semantic_firewall",
+    "neural_cluster_sync",
+    "neural_graph_compiler",
+    "neural_chaos_monkey",
+    "ontological_self_healing",
+    "soul_system_bin",
+    "soul_scheduler",
+    "soul_matrix_engine",
+    "soul_storage",
+    "soul_ipc",
+    "soul_evolution"
+]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+debug = false

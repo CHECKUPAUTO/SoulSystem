@@ -1,0 +1,8 @@
+[package]
+name = "soul_evolution"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libc = "0.2.155"
+soul_scheduler = { path = "../soul_scheduler" }

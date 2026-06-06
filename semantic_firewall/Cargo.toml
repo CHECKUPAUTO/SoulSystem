@@ -1,0 +1,7 @@
+[package]
+name = "semantic_firewall"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+scirust = { package = "scirust-core", path = "../../scirust/scirust-core" }

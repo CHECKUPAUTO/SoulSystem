@@ -1,0 +1,9 @@
+[package]
+name = "neural_clinical_console"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.38", features = ["net", "rt-multi-thread", "macros", "sync", "time"] }
+parking_lot = "0.12.3"
+neural_metacognition = { path = "../neural_metacognition" }

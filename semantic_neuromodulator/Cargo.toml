@@ -1,0 +1,9 @@
+[package]
+name = "semantic_neuromodulator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+scirust = { package = "scirust-core", path = "../../scirust/scirust-core" }
+scirust_affective_core = { path = "../scirust_affective_core" }
+core_affinity = "0.8"
