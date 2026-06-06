@@ -31,15 +31,17 @@ pub struct AgentScheduler {
     workers: Arc<Vec<WorkerContext>>,
     running: Arc<AtomicBool>,
     pub manifest: HardwareManifest,
+    pub telemetry: Arc<soul_telemetry::TelemetryHub>,
 }
 
 impl AgentScheduler {
     /// Construct a new scheduler instance. Probes hardware topology.
     pub fn new() -> Self {
         let manifest = HardwareManifest::probe();
-        let mut workers = Vec::with_capacity(manifest.total_logical_cores);
+        let total_cores = manifest.total_logical_cores;
+        let mut workers = Vec::with_capacity(total_cores);
 
-        for i in 0..manifest.total_logical_cores {
+        for i in 0..total_cores {
             workers.push(WorkerContext {
                 core_id: i,
                 queue: LockFreeTaskDeque::new(),
@@ -51,6 +53,7 @@ impl AgentScheduler {
             workers: Arc::new(workers),
             running: Arc::new(AtomicBool::new(false)),
             manifest,
+            telemetry: Arc::new(soul_telemetry::TelemetryHub::new(total_cores)),
         }
     }
 
@@ -78,9 +81,17 @@ impl AgentScheduler {
             self.manifest.cache_hierarchy.l1_data.line_size
         );
 
+        // Echantillonneur thermique : sort la lecture du capteur sysfs du chemin
+        // chaud. Les workers ne font plus qu'un load atomique (check_thermal_status).
+        match self.telemetry.spawn_thermal_sampler(std::time::Duration::from_millis(100)) {
+            Ok(_handle) => { /* detache : le Weak l'eteint a la liberation du hub */ }
+            Err(e) => eprintln!("[CRITICAL] echec spawn thermal-sampler: {e} -> protection thermique inactive"),
+        }
+
         for worker_idx in 0..self.workers.len() {
             let workers_ref = self.workers.clone();
             let running_ref = self.running.clone();
+            let telemetry_ref = self.telemetry.clone();
             std::thread::Builder::new()
                 .name(format!("soul-worker-{}", worker_idx))
                 .spawn(move || {
@@ -94,9 +105,18 @@ impl AgentScheduler {
                     let is_numa = local_worker.topology.memory_layout == MemoryTopology::Numa;
 
                     while running_ref.load(Ordering::Relaxed) {
+                        // THERMAL SAFETY CHECK
+                        if telemetry_ref.check_thermal_status(local_worker.core_id) {
+                            std::thread::yield_now();
+                        }
+
                         // PRIORITY 1: Local LIFO consumption (hot cache in L1/L2)
                         if let Some(task) = local_worker.queue.pop() {
+                            let start = std::time::Instant::now();
                             (task.execute)(task.context);
+                            let elapsed = start.elapsed().as_nanos() as u64;
+
+                            telemetry_ref.record_execution(local_worker.core_id, elapsed, false);
                             spin_counter = 0;
                             continue;
                         }
@@ -105,7 +125,11 @@ impl AgentScheduler {
                         let mut stolen = false;
                         for &peer_id in &local_worker.topology.intra_socket_peers {
                             if let Some(task) = workers_ref[peer_id].queue.steal() {
+                                let start = std::time::Instant::now();
                                 (task.execute)(task.context);
+                                let elapsed = start.elapsed().as_nanos() as u64;
+
+                                telemetry_ref.record_execution(local_worker.core_id, elapsed, true);
                                 stolen = true;
                                 break;
                             }
@@ -119,7 +143,11 @@ impl AgentScheduler {
                         if is_numa {
                             for &peer_id in &local_worker.topology.inter_socket_peers {
                                 if let Some(task) = workers_ref[peer_id].queue.steal() {
+                                    let start = std::time::Instant::now();
                                     (task.execute)(task.context);
+                                    let elapsed = start.elapsed().as_nanos() as u64;
+
+                                    telemetry_ref.record_execution(local_worker.core_id, elapsed, true);
                                     stolen = true;
                                     break;
                                 }
