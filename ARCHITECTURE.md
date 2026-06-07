@@ -60,3 +60,7 @@ Fondation (0 dép interne) : `soul_ipc`, `soul_telemetry`, `soul_guard`, `soul_j
 ## Limites
 
 21/27 crates n'ont ni `description` ni doc d'en-tête ; leur rôle est inféré du nom + du graphe, pas d'une spec. Les 6 rôles en clair viennent du doc-comment réel. Ce document décrit l'état réel du workspace sur disque et remplace toute description aspirationnelle antérieure.
+
+## Prérequis de build
+
+- `turbovec` (vendoré) se lie à **OpenBLAS** via son `build.rs` (`cargo:rustc-link-lib=openblas` sous Linux). Installer `libopenblas-dev` avant de compiler turbovec, sinon le lien échoue : `cannot find -lopenblas`.

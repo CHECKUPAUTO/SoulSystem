@@ -16,6 +16,12 @@ pub struct SystemAuditor {
     write_index: AtomicUsize,
 }
 
+impl Default for SystemAuditor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SystemAuditor {
     pub fn new() -> Self {
         let initial_frame = TelemetryFrame { timestamp_ns: 0, memory_throughput_bytes_per_sec: 0, active_synapse_count: 0, current_meta_loss: 0.0 };

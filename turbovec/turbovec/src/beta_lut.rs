@@ -2,13 +2,13 @@
 //!
 //! Replaces `statrs::Beta` for Lloyd-Max codebook boundary computation.
 
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use std::collections::HashMap;
 
 const LUT_SIZE: usize = 8192;
 
 /// Cached Beta CDF lookup table.
 pub struct BetaCDF {
-    dim: usize,
     lut_x: [f32; LUT_SIZE],   // domain values [-1, 1]
     lut_y: [f32; LUT_SIZE],   // CDF values
 }
@@ -16,8 +16,18 @@ pub struct BetaCDF {
 impl BetaCDF {
     /// Get or create the (cached) Beta CDF for the given dimension.
     pub fn new(dim: usize) -> &'static Self {
-        static CACHE: OnceLock<BetaCDF> = OnceLock::new();
-        CACHE.get_or_init(|| Self::compute(dim))
+        // BUG corrige : cache PAR dimension. L'ancien OnceLock<BetaCDF> global ne
+        // memorisait qu'UNE CDF -> le 1er dim appele etait reutilise pour tous les
+        // autres -> codebook faux en dimension differente.
+        static CACHE: OnceLock<Mutex<HashMap<usize, &'static BetaCDF>>> = OnceLock::new();
+        let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut map = cache.lock().unwrap();
+        if let Some(&cdf) = map.get(&dim) {
+            return cdf;
+        }
+        let leaked: &'static BetaCDF = Box::leak(Box::new(Self::compute(dim)));
+        map.insert(dim, leaked);
+        leaked
     }
 
     fn compute(dim: usize) -> BetaCDF {
@@ -43,7 +53,7 @@ impl BetaCDF {
             lut_y[i] = cdf as f32;
         }
 
-        BetaCDF { dim, lut_x, lut_y }
+        BetaCDF { lut_x, lut_y }
     }
 
     /// Sample CDF value at x in [-1, 1].

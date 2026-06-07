@@ -30,10 +30,10 @@ impl NeuralSurgeon {
         if !self.is_active.load(Ordering::Acquire) { return; }
 
         // Traitement par bloc de taille VECTOR_DIM (Auto-vectorisation SIMD forcée)
-        for chunk in activations.chunks_mut(VECTOR_DIM) {
-            let len = chunk.len();
-            for i in 0..len {
-                chunk[i] += self.coefficient * self.steering_vector[i];
+        for (idx, chunk) in activations.chunks_mut(VECTOR_DIM).enumerate() {
+            let offset = idx * VECTOR_DIM;
+            for (i, val) in chunk.iter_mut().enumerate() {
+                *val += self.coefficient * self.steering_vector[offset + i];
             }
         }
     }

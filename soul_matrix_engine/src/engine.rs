@@ -44,7 +44,7 @@ impl MatrixEngine {
         // Alignement strict du pas de blocage sur la ligne de cache (généralement multiple de 16 ou 32 flottants)
         let elements_per_cache_line = line_size / 4;
         let optimal_block = if elements_per_cache_line > 0 {
-            (side / elements_per_cache_line) * elements_per_cache_line
+            (side / elements_per_cache_line).saturating_mul(elements_per_cache_line)
         } else {
             side
         };
@@ -62,8 +62,7 @@ impl MatrixEngine {
 
     /// Exécute la multiplication C = C + (A × B) de manière asynchrone, parallélisée par blocs et Zéro-Allocation.
     ///
-    /// SAFETY: Les pointeurs data doivent pointer vers des buffers alloués avec l'alignement correct (≥ 64 bytes).
-    /// a.cols == b.rows doit être vérifié avant appel. c.data pointe vers un buffer de sortie valide.
+    /// Safety: The pointers data must point to valid buffers allocated with correct alignment (≥ 64 bytes).
     pub unsafe fn execute_gemm(&self, a: &MatrixDescriptor, b: &MatrixDescriptor, c: &mut MatrixDescriptor) {
         assert_eq!(a.cols, b.rows, "[VM GEMM ERROR] Matrix dimension mismatch for dot product.");
         assert_eq!(a.rows, c.rows);

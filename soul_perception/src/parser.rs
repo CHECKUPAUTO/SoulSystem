@@ -21,8 +21,7 @@ impl<'a> ZeroCopyScanner<'a> {
                 if start.is_none() {
                     self.cursor += 1;
                     start = Some(self.cursor);
-                } else {
-                    let token_start = start.unwrap();
+                } else if let Some(token_start) = start {
                     let token_end = self.cursor;
                     self.cursor += 1;
                     return Some(&bytes[token_start..token_end]);
@@ -41,7 +40,8 @@ impl<'a> ZeroCopyScanner<'a> {
 pub struct PerceptionPipeline;
 
 impl PerceptionPipeline {
-    /// Analyse un flux réseau et injecte les signatures sémantiques directement dans le bus d'agents
+    /// # Safety
+    /// raw_data must be a valid byte slice; ipc_bus must remain alive for the duration of this call.
     pub unsafe fn parse_and_route(raw_data: &[u8], target_agent_id: u32, ipc_bus: &InterAgentBus) -> usize {
         let mut scanner = ZeroCopyScanner::new(raw_data);
         let mut routed_signals = 0;

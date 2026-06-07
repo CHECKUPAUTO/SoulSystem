@@ -11,6 +11,10 @@ pub struct EvolutionaryForge {
     best_score: f64,
 }
 
+impl Default for EvolutionaryForge {
+    fn default() -> Self { Self::new() }
+}
+
 impl EvolutionaryForge {
     pub fn new() -> Self {
         Self {

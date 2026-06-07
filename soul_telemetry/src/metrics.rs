@@ -96,18 +96,15 @@ impl TelemetryHub {
         let weak: Weak<Self> = Arc::downgrade(self);
         std::thread::Builder::new()
             .name("thermal-sampler".to_string())
-            .spawn(move || loop {
+            .spawn(move || {
                 // Upgrade ephemere : on ne garde aucune ref forte pendant le
                 // sleep, sinon on retarderait la liberation du hub.
-                match weak.upgrade() {
-                    Some(hub) => {
-                        if let Some(milli) = read_thermal_millicelsius() {
-                            hub.thermal_millicelsius.store(milli, Ordering::Relaxed);
-                        }
+                while let Some(hub) = weak.upgrade() {
+                    if let Some(milli) = read_thermal_millicelsius() {
+                        hub.thermal_millicelsius.store(milli, Ordering::Relaxed);
                     }
-                    None => break, // hub libere -> fin du thread
+                    std::thread::sleep(period);
                 }
-                std::thread::sleep(period);
             })
     }
 }

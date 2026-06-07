@@ -8,6 +8,7 @@ use std::arch::aarch64::*;
 /// Micro-kernel NEON : C += A × B pour un bloc M×K, K×N.
 /// Gestion des dimensions non-alignées (non-multiples de 4) via cleanup scalar en fin de tile.
 #[cfg(target_arch = "aarch64")]
+/// Safety: Pointers must be valid, non-null, and properly aligned. a.cols == b.rows must hold.
 #[target_feature(enable = "neon")]
 pub unsafe extern "C" fn gemm_micro_kernel_neon(
     a: *const f32, b: *const f32, c: *mut f32,

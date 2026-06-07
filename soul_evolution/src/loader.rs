@@ -3,16 +3,21 @@
 //! et les injecter dynamiquement dans le planificateur sans redémarrer le superviseur.
 
 use std::ffi::CString;
+#[allow(unused_imports)]
 use soul_scheduler::queue::Task;
+#[allow(unused_imports)]
 use soul_scheduler::scheduler::AgentScheduler;
 
 /// Chargeur de modules dynamiques — supporte le hot-swap de routines agents au runtime.
 pub struct DynamicModuleLoader;
 
+impl Default for DynamicModuleLoader {
+    fn default() -> Self { Self }
+}
+
 impl DynamicModuleLoader {
-    /// Charge un module compilé (.so) et extrait le point d'entrée d'exécution d'agent.
-    ///
-    /// SAFETY: Le chemin du fichier doit pointer vers une bibliothèque partagée valide.
+    /// # Safety
+    /// Le chemin du fichier doit pointer vers une bibliothèque partagée valide.
     /// Le symbole doit exister dans la bibliothèque avec la signature `extern "C" fn(*mut u8)`.
     /// La bibliothèque reste chargée en mémoire jusqu'à ce que dlclose soit appelé explicitement.
     pub unsafe fn load_agent_routine(library_path: &str) -> Option<(*mut libc::c_void, extern "C" fn(*mut u8))> {
@@ -46,17 +51,16 @@ impl DynamicModuleLoader {
         Some((handle, routine))
     }
 
-    /// Libère un module précédemment chargé via `load_agent_routine`.
+    /// # Safety
+    /// handle must be a valid pointer returned by `load_agent_routine`.
     pub unsafe fn unload_module(handle: *mut libc::c_void) {
         if !handle.is_null() {
             libc::dlclose(handle);
         }
     }
 
-    /// Injecte dynamiquement un comportement auto-généré dans le planificateur de tâches courant.
-    /// Charge le .so, extrait la routine, crée une Task et l'envoie au core spécifié.
-    ///
-    /// SAFETY: scheduler_ptr doit pointer vers un AgentScheduler valide et non mutuellement exclu.
+    /// # Safety
+    /// scheduler_ptr doit pointer vers un AgentScheduler valide et non mutuellement exclu.
     pub unsafe fn hot_swap_task(
         scheduler_ptr: *mut AgentScheduler,
         core_id: usize,

@@ -24,7 +24,8 @@ impl ClusterNode {
         Ok(Self { socket })
     }
 
-    /// Transmet un message d'agent local vers un nœud distant du cluster
+    /// # Safety
+    /// msg.payload_ptr must be valid for payload_size bytes if non-null.
     pub unsafe fn transmit_remote(&self, target_node_addr: &str, msg: &AgentMessage) -> std::io::Result<usize> {
         let mut pkt = NetworkPacket {
             magic_bytes: 0x50554C,

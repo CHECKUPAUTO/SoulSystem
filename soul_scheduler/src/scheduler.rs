@@ -34,6 +34,10 @@ pub struct AgentScheduler {
     pub telemetry: Arc<soul_telemetry::TelemetryHub>,
 }
 
+impl Default for AgentScheduler {
+    fn default() -> Self { Self::new() }
+}
+
 impl AgentScheduler {
     /// Construct a new scheduler instance. Probes hardware topology.
     pub fn new() -> Self {

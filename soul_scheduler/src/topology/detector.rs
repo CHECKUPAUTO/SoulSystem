@@ -176,9 +176,7 @@ impl HardwareManifest {
                     l2 = CacheLevelInfo { level, line_size, total_size };
                 }
                 3 => {
-                    if l3.is_none() {
-                        l3 = Some(CacheLevelInfo { level, line_size, total_size });
-                    }
+                    l3 = l3.or(Some(CacheLevelInfo { level, line_size, total_size }));
                 }
                 _ => {}
             }

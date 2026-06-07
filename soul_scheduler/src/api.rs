@@ -7,6 +7,8 @@ pub extern "C" fn soul_scheduler_init() -> *mut AgentScheduler {
 }
 
 #[no_mangle]
+/// # Safety
+/// The returned pointer is valid and must be freed with `soul_scheduler_free`.
 pub unsafe extern "C" fn soul_scheduler_start(ptr: *mut AgentScheduler) -> i32 {
     if ptr.is_null() {
         return -1;
@@ -16,6 +18,8 @@ pub unsafe extern "C" fn soul_scheduler_start(ptr: *mut AgentScheduler) -> i32 {
 }
 
 #[no_mangle]
+/// # Safety
+/// ptr must be a valid pointer returned by `soul_scheduler_init`.
 pub unsafe extern "C" fn soul_scheduler_get_core_count(ptr: *const AgentScheduler) -> u32 {
     if ptr.is_null() {
         return 0;
@@ -24,6 +28,8 @@ pub unsafe extern "C" fn soul_scheduler_get_core_count(ptr: *const AgentSchedule
 }
 
 #[no_mangle]
+/// # Safety
+/// ptr must be a valid pointer returned by `soul_scheduler_init`.
 pub unsafe extern "C" fn soul_scheduler_submit_task(
     ptr: *mut AgentScheduler,
     core_id: u32,
@@ -45,6 +51,8 @@ pub unsafe extern "C" fn soul_scheduler_submit_task(
 }
 
 #[no_mangle]
+/// # Safety
+/// ptr must be a valid pointer returned by `soul_scheduler_init`.
 pub unsafe extern "C" fn soul_scheduler_stop(ptr: *mut AgentScheduler) {
     if !ptr.is_null() {
         (*ptr).shutdown();
@@ -52,6 +60,8 @@ pub unsafe extern "C" fn soul_scheduler_stop(ptr: *mut AgentScheduler) {
 }
 
 #[no_mangle]
+/// # Safety
+/// ptr must be a valid pointer returned by `soul_scheduler_init`.
 pub unsafe extern "C" fn soul_scheduler_free(ptr: *mut AgentScheduler) {
     if !ptr.is_null() {
         let _ = Box::from_raw(ptr);

@@ -19,6 +19,10 @@ pub struct SynapticLinkerAgent {
     write_lock: Mutex<()>,
 }
 
+impl Default for SynapticLinkerAgent {
+    fn default() -> Self { Self::new() }
+}
+
 impl SynapticLinkerAgent {
     pub fn new() -> Self {
         let table = RoutingTable { routes: [SynapseRoute { source_id: 0, target_id: 0, weight: 0.0, is_active: false }; 1024], active_count: 0 };

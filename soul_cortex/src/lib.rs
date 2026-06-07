@@ -9,6 +9,10 @@ pub struct RecurrentCortex {
     weight_wh: Vec<f32>, // Poids état précédent -> état
 }
 
+impl Default for RecurrentCortex {
+    fn default() -> Self { Self::new() }
+}
+
 impl RecurrentCortex {
     pub fn new() -> Self {
         Self {

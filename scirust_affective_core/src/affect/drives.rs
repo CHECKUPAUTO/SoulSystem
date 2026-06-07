@@ -16,7 +16,7 @@ impl DriveRegistry {
         for drive in &mut self.drives {
             if drive.drive_type == DriveType::SelfPreservation { drive.current_value -= penalty * 0.5; }
             else if drive.drive_type == DriveType::Curiosity { drive.current_value += penalty * 0.2; }
-            if drive.current_value > 1.0 { drive.current_value = 1.0; } if drive.current_value < 0.0 { drive.current_value = 0.0; }
+            drive.current_value = drive.current_value.clamp(0.0, 1.0);
         }
     }
 }

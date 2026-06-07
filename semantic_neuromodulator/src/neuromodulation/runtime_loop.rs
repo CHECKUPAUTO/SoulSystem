@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use crate::neuromodulation::chemical_map::{NeuromodulatorMapper, NeurochemistryProfile};
+use crate::neuromodulation::chemical_map::{NeuromodulatorMapper};
 use crate::neuromodulation::param_bridge::AlgorithmicParameters;
 use scirust_affective_core::AffectiveState;
 

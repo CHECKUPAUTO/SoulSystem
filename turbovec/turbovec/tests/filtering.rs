@@ -342,16 +342,31 @@ fn block_skip_at_one_percent_selectivity_matches_post_filter() {
     let masked_ids = masked.indices_for_query(0);
     let masked_scores = masked.scores_for_query(0);
     assert_eq!(masked_ids.len(), expected.len(), "result count");
-    for (i, (exp_score, exp_id)) in expected.iter().enumerate() {
-        assert_eq!(
-            masked_ids[i], *exp_id,
-            "rank {}: id mismatch (got {}, want {})",
-            i, masked_ids[i], exp_id
-        );
+
+    // Quantized RaBitQ scores collapse onto identical f32 buckets (ULP ~= 128
+    // at this score magnitude), so many candidates tie exactly. Exact id order
+    // *within* a tie group is undefined and legitimately differs between the
+    // block-skip path and a post-hoc-filtered dense scan; the k cutoff may also
+    // split a tie group arbitrarily. The invariant block-skip must satisfy is:
+    // an identical score sequence (same retrieval quality) with every returned
+    // id allowed by the mask and distinct -- not one particular tie ordering.
+    let mut seen = std::collections::HashSet::new();
+    for (i, (exp_score, _exp_id)) in expected.iter().enumerate() {
         assert!(
             (masked_scores[i] - exp_score).abs() < 1e-4,
             "rank {}: score mismatch (got {}, want {})",
             i, masked_scores[i], exp_score
+        );
+        let id = masked_ids[i];
+        assert!(
+            mask[id as usize],
+            "rank {}: returned id {} is not allowed by the mask",
+            i, id
+        );
+        assert!(
+            seen.insert(id),
+            "rank {}: duplicate id {} in masked results",
+            i, id
         );
     }
 }
