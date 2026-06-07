@@ -67,6 +67,7 @@ pub mod dispatch {
 }
 
 pub mod cuda_backend;
+pub mod unified;
 #[cfg(feature = "cuda")]
 pub mod cuda_turboquant;
 pub mod error;
