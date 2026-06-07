@@ -55,7 +55,13 @@ fn householder_qr(a: &[f64], dim: usize) -> Vec<f64> {
         let alpha = sign * x_norm;
         let v_len = dim - k;
         let mut v: Vec<f64> = vec![0.0_f64; v_len];
-        v[0] = a[k * dim + k] - alpha;
+        // BUG corrige : le vecteur de Householder doit contenir TOUTE la colonne k
+        // (sous-diagonale incluse), pas seulement v[0]. Sans la queue, le reflecteur
+        // degenere (bascule de signe) et Q n'est pas orthonormale.
+        for i in 0..v_len {
+            v[i] = a[(k + i) * dim + k];
+        }
+        v[0] -= alpha;
 
         let v_norm2 = v.iter().map(|x| x * x).sum::<f64>();
         let v_norm = v_norm2.sqrt();

@@ -72,14 +72,20 @@ impl ChaCha8Rng {
 
     /// Box-Muller transform for standard normal distribution.
     pub fn gen_normal(&mut self) -> f64 {
-        let u1 = self.gen_f64();
+        // u1 dans (0,1] : exclut 0 pour eviter ln(0) = -inf.
+        let u1 = self.gen_f64().max(f64::MIN_POSITIVE);
         let u2 = self.gen_f64();
-        -2.0 * u1.ln().sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+        // BUG corrige : le -2 doit etre SOUS la racine. L'original calculait
+        // -2 * sqrt(ln(u1)) -> sqrt d'un negatif (u1<1) -> NaN.
+        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
     }
 
     fn gen_f64(&mut self) -> f64 {
         let lo = self.next_u32();
         let hi = self.next_u32();
-        ((lo as u64) << 32 | hi as u64) as f64 * (1.0 / (1u64 << 53) as f64)
+        let combined = ((lo as u64) << 32) | hi as u64;
+        // 53 bits de mantisse -> f64 dans [0, 1). L'original gardait 64 bits avec
+        // un scale 2^-53 -> valeurs jusqu'a ~2^11, hors [0,1).
+        (combined >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
     }
 }
