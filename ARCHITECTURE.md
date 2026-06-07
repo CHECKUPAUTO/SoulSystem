@@ -1,6 +1,6 @@
 # Architecture — soul_system
 
-État réel du workspace au commit `47dd1fb`, généré depuis le disque (non aspirationnel).
+État réel du workspace, généré depuis le disque (non aspirationnel).
 27 crates membres + 1 submodule (`turbovec`), ~4 070 lignes Rust, **2 binaires**.
 
 ## Vue d'ensemble
@@ -64,4 +64,4 @@ Fondation (0 dép interne) : `soul_ipc`, `soul_telemetry`, `soul_guard`, `soul_j
 
 ## Limites
 
-21/27 crates n'ont ni `description` ni doc d'en-tête ; leur rôle est inféré du nom + du graphe, pas d'une spec. Les 6 rôles en clair viennent du doc-comment réel. Ce fichier décrit l'état au commit `47dd1fb` et remplace toute description aspirationnelle antérieure.
+21/27 crates n'ont ni `description` ni doc d'en-tête ; leur rôle est inféré du nom + du graphe, pas d'une spec. Les 6 rôles en clair viennent du doc-comment réel. Ce document décrit l'état réel du workspace sur disque et remplace toute description aspirationnelle antérieure.
