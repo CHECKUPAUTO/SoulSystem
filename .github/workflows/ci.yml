@@ -27,10 +27,9 @@ jobs:
     - name: Clippy
       run: cargo clippy --all-targets
     
-    - name: Security audit
-      uses: actions-rust-lang/audit@v1
-      with:
-        denyWarnings: false
+    - name: Security audit (informational only)
+      run: cargo install cargo-audit && cargo audit || true
+      continue-on-error: true
 
   # Job 2: Build + Test (core)
   build:

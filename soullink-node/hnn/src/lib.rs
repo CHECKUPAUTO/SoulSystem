@@ -437,7 +437,9 @@ mod tests {
             spike_threshold: 0.8,
         };
         let mut layer = HamiltonianLayer::new(cfg);
-        let e_before = layer.total_energy();
+        // Set p to known positive values so stimulus reliably increases kinetic energy.
+        // (random init can produce negative p, where adding positive input reduces |p|)
+        layer.p = ndarray::Array1::from_vec(vec![0.1, 0.2, 0.3, 0.4]);
         let p_before = layer.p.clone();
         layer.stimulate(&[10.0, 10.0, 10.0, 10.0]);
         // Energy should increase immediately after stimulus (momentum injected)
