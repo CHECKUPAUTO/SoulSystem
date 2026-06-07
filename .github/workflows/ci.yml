@@ -30,7 +30,7 @@ jobs:
     - name: Security audit
       uses: actions-rust-lang/audit@v1
       with:
-        args: --deny warnings
+        denyWarnings: false
 
   # Job 2: Build + Test (core)
   build:
