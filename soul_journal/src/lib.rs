@@ -22,14 +22,21 @@ unsafe impl Send for MmapJournal {}
 unsafe impl Sync for MmapJournal {}
 
 impl MmapJournal {
-    pub fn new(file_path: &str) -> Self {
+    /// Ouvre/cree le segment journal en mmap. Renvoie `Err` (jamais de panique)
+    /// si le chemin est invalide ou si open/ftruncate/mmap echouent.
+    pub fn new(file_path: &str) -> std::io::Result<Self> {
+        let c_path = CString::new(file_path)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
         unsafe {
-            let c_path = CString::new(file_path).unwrap();
             let fd = libc::open(c_path.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o666);
             if fd < 0 {
-                panic!("[JOURNAL CRITICAL] Impossible de creer le descripteur NVMe.");
+                return Err(std::io::Error::last_os_error());
             }
-            libc::ftruncate(fd, JOURNAL_SIZE as libc::off_t);
+            if libc::ftruncate(fd, JOURNAL_SIZE as libc::off_t) != 0 {
+                let e = std::io::Error::last_os_error();
+                libc::close(fd);
+                return Err(e);
+            }
             let mmap_ptr = libc::mmap(
                 std::ptr::null_mut(),
                 JOURNAL_SIZE,
@@ -40,17 +47,16 @@ impl MmapJournal {
             );
             libc::close(fd);
             if mmap_ptr == libc::MAP_FAILED {
-                panic!("[JOURNAL CRITICAL] Echec mmap native.");
+                return Err(std::io::Error::last_os_error());
             }
-            Self { mmap_ptr: mmap_ptr as *mut u8, write_offset: AtomicUsize::new(0) }
+            Ok(Self { mmap_ptr: mmap_ptr as *mut u8, write_offset: AtomicUsize::new(0) })
         }
     }
 
-    /// PROTOCOLE DE PUBLICATION : reserve le slot (CAS sur l'offset), ecrit
-    /// tag+payload, PUIS publie `size` en DERNIER via store Release. Un lecteur
-    /// chargeant `size` en Acquire et le voyant >0 a la garantie que tag+payload
-    /// sont visibles (happens-before) -> aucune lecture dechiree. `size==0` =
-    /// marqueur "non commite", donc payload vide refuse.
+    /// PROTOCOLE DE PUBLICATION : reserve le slot (CAS), ecrit tag+payload, PUIS
+    /// publie `size` en DERNIER via store Release. Lecteur Acquire : size>0 =>
+    /// tag+payload visibles (happens-before), aucune lecture dechiree. size==0 =
+    /// marqueur "non commite" -> payload vide refuse.
     pub fn append_log(&self, tag: u32, data: &[u8]) -> bool {
         let size = data.len();
         if size == 0 || size > u32::MAX as usize {
@@ -60,7 +66,7 @@ impl MmapJournal {
         loop {
             let current_offset = self.write_offset.load(Ordering::Acquire);
             if current_offset + need >= JOURNAL_SIZE {
-                return false; // plein
+                return false;
             }
             if self
                 .write_offset
@@ -76,7 +82,6 @@ impl MmapJournal {
                     let base = self.mmap_ptr.add(current_offset);
                     std::ptr::copy_nonoverlapping(&tag as *const u32 as *const u8, base, 4);
                     std::ptr::copy_nonoverlapping(data.as_ptr(), base.add(8), size);
-                    // PUBLICATION : size en dernier, store Release (offset+4 aligne 4).
                     let size_cell = base.add(4) as *const AtomicU32;
                     (*size_cell).store(size as u32, Ordering::Release);
                 }
@@ -85,8 +90,7 @@ impl MmapJournal {
         }
     }
 
-    /// Relit les records COMMITES. `size` lu en Acquire ; `size==0` -> fin de la
-    /// zone lisible. Sound vis-a-vis d'ecrivains concurrents.
+    /// Relit les records COMMITES (`size` lu en Acquire ; size==0 -> fin lisible).
     pub fn read_committed(&self) -> Vec<(u32, Vec<u8>)> {
         let mut out = Vec::new();
         let mut off = 0usize;
@@ -185,17 +189,25 @@ mod tests {
     }
 
     #[test]
+    fn new_renvoie_err_sans_paniquer() {
+        let r = MmapJournal::new("/tmp/inva\0lide.bin"); // NUL interne -> CString echoue
+        assert!(r.is_err(), "chemin invalide doit renvoyer Err");
+        let r2 = MmapJournal::new("/nonexistent_dir_xyz_42/journal.bin"); // open ENOENT
+        assert!(r2.is_err(), "repertoire inexistant doit renvoyer Err");
+        println!("PREUVE no-panic : new() -> Err sur chemin invalide et repertoire inexistant");
+    }
+
+    #[test]
     fn sync_puis_reopen_intact() {
         let path = format!("/tmp/soul_journal_test_sync_{}.bin", std::process::id());
         let _ = std::fs::remove_file(&path);
         {
-            let j = MmapJournal::new(&path);
+            let j = MmapJournal::new(&path).expect("create journal");
             assert!(j.append_log(0xAA, b"hello"));
             assert!(j.append_log(0xBB, b"world!!"));
             assert!(j.sync());
-            let recs = relire_records(&path, 2);
-            assert_eq!(recs, vec![(0xAAu32, b"hello".to_vec()), (0xBBu32, b"world!!".to_vec())]);
-            println!("PREUVE sync+reopen : 2 records intacts (poignee tierce, padding-aware)");
+            assert_eq!(relire_records(&path, 2), vec![(0xAAu32, b"hello".to_vec()), (0xBBu32, b"world!!".to_vec())]);
+            println!("PREUVE sync+reopen : 2 records intacts");
         }
         let _ = std::fs::remove_file(&path);
     }
@@ -204,12 +216,11 @@ mod tests {
     fn durabilite_sans_drop() {
         let path = format!("/tmp/soul_journal_test_nodrop_{}.bin", std::process::id());
         let _ = std::fs::remove_file(&path);
-        let j = MmapJournal::new(&path);
+        let j = MmapJournal::new(&path).expect("create journal");
         assert!(j.append_log(0x01, b"durable-record"));
         assert!(j.sync());
         std::mem::forget(j);
-        let recs = relire_records(&path, 1);
-        assert_eq!(recs, vec![(0x01u32, b"durable-record".to_vec())]);
+        assert_eq!(relire_records(&path, 1), vec![(0x01u32, b"durable-record".to_vec())]);
         println!("PREUVE no-Drop : record present apres mem::forget");
         let _ = std::fs::remove_file(&path);
     }
@@ -218,10 +229,10 @@ mod tests {
     fn read_committed_et_payload_vide_refuse() {
         let path = format!("/tmp/soul_journal_test_rc_{}.bin", std::process::id());
         let _ = std::fs::remove_file(&path);
-        let j = MmapJournal::new(&path);
+        let j = MmapJournal::new(&path).expect("create journal");
         assert!(j.append_log(10, b"abc"));
         assert!(j.append_log(20, b"defgh"));
-        assert!(!j.append_log(30, b""), "payload vide refuse (sentinel size==0)");
+        assert!(!j.append_log(30, b""), "payload vide refuse");
         assert_eq!(j.read_committed(), vec![(10u32, b"abc".to_vec()), (20u32, b"defgh".to_vec())]);
         println!("PREUVE read_committed + refus payload vide");
         let _ = std::fs::remove_file(&path);
@@ -231,17 +242,16 @@ mod tests {
     fn flusher_periodique_et_auto_stop() {
         let path = format!("/tmp/soul_journal_test_flush_{}.bin", std::process::id());
         let _ = std::fs::remove_file(&path);
-        let j = Arc::new(MmapJournal::new(&path));
+        let j = Arc::new(MmapJournal::new(&path).expect("create journal"));
         let h = j.spawn_flusher(Duration::from_millis(20)).expect("spawn flusher");
         assert!(j.append_log(0x77, b"flushed-by-thread"));
         std::thread::sleep(Duration::from_millis(120));
         assert_eq!(relire_records(&path, 1), vec![(0x77u32, b"flushed-by-thread".to_vec())]);
-        println!("PREUVE flusher : record persiste");
         drop(j);
         let start = std::time::Instant::now();
         h.join().expect("join flusher");
         assert!(start.elapsed() < Duration::from_secs(2));
-        println!("PREUVE auto-stop flusher : termine en {:?}", start.elapsed());
+        println!("PREUVE flusher + auto-stop en {:?}", start.elapsed());
         let _ = std::fs::remove_file(&path);
     }
 
@@ -249,7 +259,7 @@ mod tests {
     fn concurrent_aucune_lecture_dechiree() {
         let path = format!("/tmp/soul_journal_test_conc_{}.bin", std::process::id());
         let _ = std::fs::remove_file(&path);
-        let j = Arc::new(MmapJournal::new(&path));
+        let j = Arc::new(MmapJournal::new(&path).expect("create journal"));
         const N: u32 = 2000;
 
         let jw = j.clone();
@@ -269,13 +279,8 @@ mod tests {
                 let recs = jr.read_committed();
                 for (tag, payload) in &recs {
                     let expected = (tag % 251) as u8;
-                    assert_eq!(payload.len(), 16, "longueur incoherente");
-                    assert!(
-                        payload.iter().all(|&b| b == expected),
-                        "LECTURE DECHIREE tag={} -> {:?}",
-                        tag,
-                        payload
-                    );
+                    assert_eq!(payload.len(), 16);
+                    assert!(payload.iter().all(|&b| b == expected), "LECTURE DECHIREE tag={}", tag);
                 }
                 max_seen = max_seen.max(recs.len());
                 if max_seen >= N as usize {
@@ -288,14 +293,13 @@ mod tests {
 
         writer.join().expect("writer");
         assert_eq!(reader.join().expect("reader"), N as usize);
-
         let final_recs = j.read_committed();
         assert_eq!(final_recs.len(), N as usize);
         for (i, (tag, payload)) in final_recs.iter().enumerate() {
-            assert_eq!(*tag, (i as u32) + 1, "ordre");
+            assert_eq!(*tag, (i as u32) + 1);
             assert!(payload.iter().all(|&b| b == (tag % 251) as u8));
         }
-        println!("PREUVE concurrent : {} records, aucune lecture dechiree (Release/Acquire)", N);
+        println!("PREUVE concurrent : {} records, aucune lecture dechiree", N);
         let _ = std::fs::remove_file(&path);
     }
 }
