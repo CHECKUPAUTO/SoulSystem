@@ -134,11 +134,32 @@ mod tests {
 
     #[test]
     fn engine_adapts_to_simd_extension() {
-        use soul_scheduler::topology::{VectorExtension, HardwareManifest};
         let manifest = HardwareManifest::probe();
         let engine = MatrixEngine::new(&manifest);
 
-        // Le kernel doit être non-null (pointeur de fonction valide)
-        assert!(!engine.kernel.is_null(), "Kernel function pointer must not be null");
+        // Le kernel selectionne doit calculer un GEMM correct, y compris sur des
+        // dimensions a queue (M impair, N non-multiple de 4) : exerce le chemin
+        // vectorise ET les cleanups scalaires sans hors-bornes ni double comptage.
+        let (m, n, k) = (3usize, 5usize, 4usize);
+        let a: Vec<f32> = (0..m * k).map(|x| x as f32 * 0.5 + 1.0).collect();
+        let b: Vec<f32> = (0..k * n).map(|x| x as f32 * 0.25 - 0.5).collect();
+        let mut c = vec![0.0f32; m * n];
+        unsafe {
+            (engine.kernel)(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), m, n, k, k, n, n);
+        }
+        let mut expected = vec![0.0f32; m * n];
+        for i in 0..m {
+            for j in 0..n {
+                let mut acc = 0.0f32;
+                for p in 0..k {
+                    acc += a[i * k + p] * b[p * n + j];
+                }
+                expected[i * n + j] = acc;
+            }
+        }
+        for idx in 0..m * n {
+            assert!((c[idx] - expected[idx]).abs() < 1e-3, "GEMM faux a [{}]: {} != {}", idx, c[idx], expected[idx]);
+        }
+        println!("PREUVE GEMM neon : {}x{}x{} (M impair, N%4!=0) == reference scalaire", m, n, k);
     }
 }
