@@ -16,9 +16,14 @@ fn lloyd_max(bits: usize, dim: usize) -> (Vec<f32>, Vec<f32>) {
     let n_levels = 1usize << bits;
     let beta_cdf = BetaCDF::new(dim);
 
-    // Initialize centroids evenly spaced on [-1, 1]
+    // Initialize centroids at per-dim distribution quantiles (inverse Beta CDF).
+    // Evenly-spaced-on-[-1,1] init collapses at high dim: the marginal
+    // concentrates near 0, fixed outer centroids fall in empty tails, their
+    // cells capture ~0 mass, and the 4-level quantizer degenerates to the
+    // 2-level sign solution (MSE = (1 - 2/pi)*sigma^2). Quantile init keeps
+    // every cell mass-balanced so Lloyd-Max reaches the true optimum.
     let mut centroids: Vec<f64> = (0..n_levels)
-        .map(|i| -1.0 + 2.0 * i as f64 / (n_levels.max(2) as f64 - 1.0))
+        .map(|i| beta_cdf.inverse_cdf(((i as f64 + 0.5) / n_levels as f64) as f32) as f64)
         .collect();
 
     for _ in 0..50 {

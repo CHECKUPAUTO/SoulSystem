@@ -53,6 +53,18 @@ impl BetaCDF {
             lut_y[i] = cdf as f32;
         }
 
+        // Normalize to a proper CDF on [0, 1]. The loop above integrates the
+        // *unnormalized* Beta kernel (1+x)^(a-1)(1-x)^(a-1); its total mass is the
+        // Beta normalization constant (~0.06 at high dim), not 1. Without this,
+        // sample_cdf is on the wrong scale and quantile seeding lands every
+        // centroid in one tail.
+        let total = cdf;
+        if total > 0.0 {
+            for y in lut_y.iter_mut() {
+                *y = (*y as f64 / total) as f32;
+            }
+        }
+
         BetaCDF { lut_x, lut_y }
     }
 
