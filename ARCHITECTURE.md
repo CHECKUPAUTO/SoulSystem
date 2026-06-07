@@ -7,10 +7,10 @@
 
 Le workspace se scinde en **deux sous-systèmes quasi disjoints**, chacun piloté par son binaire ; aucune arête ne les relie.
 
-- **`soul_kernel`** (bin) — moitié *runtime/OS* : 13 crates `soul_*` (ordonnancement, GEMM, stockage, IPC, télémétrie…).
+- **`soul_kernel`** (bin) — moitié *runtime/OS* : 15 crates `soul_*` (ordonnancement, GEMM, stockage, IPC, télémétrie…).
 - **`soul_system_bin`** (bin) — moitié *cognitive* : 10 crates `neural_*` / `semantic_*` / `scirust_affective_core`, bâtis sur la dépendance externe `scirust`.
 
-Deux crates ne sont atteints par **aucun** binaire (orphelins) : `soul_cluster`, `soul_perception`.
+Tous les crates membres sont atteints par un binaire : **0 orphelin** depuis le câblage de `soul_cluster` + `soul_perception` dans `soul_kernel`.
 
 ## Sous-système `soul_kernel`
 
@@ -19,7 +19,7 @@ Fondation (0 dép interne) : `soul_ipc`, `soul_telemetry`, `soul_guard`, `soul_j
 
 | crate | LoC | type | dépend de | rôle |
 |---|---|---|---|---|
-| soul_kernel | 71 | bin | (les 12 ci-dessous) | point d'entrée runtime |
+| soul_kernel | 71 | bin | (les 14 ci-dessous) | point d'entrée runtime |
 | soul_scheduler | 796 | lib | soul_telemetry | ordonnancement — cœur (non documenté) |
 | soul_matrix_engine | 517 | lib | soul_scheduler | noyau GEMM vectorisé SIMD, conscient des caches |
 | soul_ipc | 346 | lib | — | IPC — fondation (4 dépendants) |
@@ -30,6 +30,8 @@ Fondation (0 dép interne) : `soul_ipc`, `soul_telemetry`, `soul_guard`, `soul_j
 | soul_guard | 117 | lib | — | (non documenté) |
 | soul_surgery | 109 | lib | — | (non documenté) |
 | soul_agent_runtime | 85 | lib | scheduler, matrix_engine, storage, ipc | (non documenté) |
+| soul_cluster | 75 | lib | soul_ipc | cluster UDP (NetworkPacket 276 o : transmit/listen) |
+| soul_perception | 75 | lib | soul_ipc | parser zero-copy : tokens DATA_/ERR_ -> bus IPC |
 | soul_cortex | 47 | lib | soul_matrix_engine | (non documenté) |
 | soul_forge | 46 | lib | soul_telemetry | (non documenté) |
 | soul_scout | 35 | lib | — | (non documenté) |
@@ -49,13 +51,6 @@ Fondation (0 dép interne) : `soul_ipc`, `soul_telemetry`, `soul_guard`, `soul_j
 | ontological_self_healing | 47 | lib | — | auto-réparation : détecte/répare les incohérences d'un état |
 | neural_clinical_console | 45 | lib | neural_metacognition | (non documenté) |
 | neural_metacognition | 43 | lib | — | (non documenté) |
-
-## Orphelins (compilent, aucun binaire ne les utilise)
-
-| crate | LoC | dépend de | décision |
-|---|---|---|---|
-| soul_cluster | 75 | soul_ipc | câbler dans `soul_kernel` ou retirer |
-| soul_perception | 75 | soul_ipc | câbler ou retirer |
 
 ## Hors-workspace
 
