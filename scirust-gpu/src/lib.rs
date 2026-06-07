@@ -75,5 +75,4 @@ pub mod gpu_gemm;
 pub mod gpu_tensor;
 pub mod quant_train;
 pub mod quantize;
-pub mod unified;
 pub mod wgpu_backend;
