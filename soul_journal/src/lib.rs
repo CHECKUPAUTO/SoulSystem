@@ -4,6 +4,9 @@ use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+pub mod rotation;
+pub use rotation::RotatingJournal;
+
 const JOURNAL_SIZE: usize = 1024 * 1024 * 64; // Segment de 64 Mo pre-alloue en mmap
 
 /// Taille reservee : entete (tag u32 + size u32) + payload, arrondie a 4 octets
@@ -16,6 +19,7 @@ const fn padded_len(payload_size: usize) -> usize {
 pub struct MmapJournal {
     mmap_ptr: *mut u8,
     write_offset: AtomicUsize,
+    size: usize,
 }
 
 unsafe impl Send for MmapJournal {}
@@ -25,6 +29,12 @@ impl MmapJournal {
     /// Ouvre/cree le segment journal en mmap. Renvoie `Err` (jamais de panique)
     /// si le chemin est invalide ou si open/ftruncate/mmap echouent.
     pub fn new(file_path: &str) -> std::io::Result<Self> {
+        Self::new_with_size(file_path, JOURNAL_SIZE)
+    }
+
+    /// Comme `new` mais avec une taille de segment explicite (rotation / tests).
+    pub fn new_with_size(file_path: &str, size: usize) -> std::io::Result<Self> {
+        let size = size.max(8);
         let c_path = CString::new(file_path)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
         unsafe {
@@ -32,14 +42,14 @@ impl MmapJournal {
             if fd < 0 {
                 return Err(std::io::Error::last_os_error());
             }
-            if libc::ftruncate(fd, JOURNAL_SIZE as libc::off_t) != 0 {
+            if libc::ftruncate(fd, size as libc::off_t) != 0 {
                 let e = std::io::Error::last_os_error();
                 libc::close(fd);
                 return Err(e);
             }
             let mmap_ptr = libc::mmap(
                 std::ptr::null_mut(),
-                JOURNAL_SIZE,
+                size,
                 libc::PROT_READ | libc::PROT_WRITE,
                 libc::MAP_SHARED,
                 fd,
@@ -49,7 +59,7 @@ impl MmapJournal {
             if mmap_ptr == libc::MAP_FAILED {
                 return Err(std::io::Error::last_os_error());
             }
-            Ok(Self { mmap_ptr: mmap_ptr as *mut u8, write_offset: AtomicUsize::new(0) })
+            Ok(Self { mmap_ptr: mmap_ptr as *mut u8, write_offset: AtomicUsize::new(0), size })
         }
     }
 
@@ -65,7 +75,7 @@ impl MmapJournal {
         let need = padded_len(size);
         loop {
             let current_offset = self.write_offset.load(Ordering::Acquire);
-            if current_offset + need >= JOURNAL_SIZE {
+            if current_offset + need >= self.size {
                 return false;
             }
             if self
@@ -95,7 +105,7 @@ impl MmapJournal {
         let mut out = Vec::new();
         let mut off = 0usize;
         loop {
-            if off + 8 > JOURNAL_SIZE {
+            if off + 8 > self.size {
                 break;
             }
             unsafe {
@@ -104,7 +114,7 @@ impl MmapJournal {
                 if size == 0 {
                     break;
                 }
-                if off + 8 + size > JOURNAL_SIZE {
+                if off + 8 + size > self.size {
                     break;
                 }
                 let mut tag_bytes = [0u8; 4];
@@ -155,7 +165,7 @@ impl Drop for MmapJournal {
             if len > 0 {
                 libc::msync(self.mmap_ptr as *mut libc::c_void, len, libc::MS_SYNC);
             }
-            libc::munmap(self.mmap_ptr as *mut libc::c_void, JOURNAL_SIZE);
+            libc::munmap(self.mmap_ptr as *mut libc::c_void, self.size);
         }
     }
 }

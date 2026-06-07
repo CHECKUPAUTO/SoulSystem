@@ -20,8 +20,8 @@ pub unsafe extern "C" fn gemm_micro_kernel_neon(
     for i in (0..m).step_by(2) {
         let i_len = std::cmp::min(2, m - i);
 
-        for j in (0..n).step_by(4) {
-            let j_len = std::cmp::min(4, n - j);
+        let n_main = n - (n % 4); // chemin vectorise : tuiles pleines de 4 uniquement
+        for j in (0..n_main).step_by(4) {
 
             // Accumulateurs initiaux à zéro
             for ci in 0..i_len {
@@ -45,7 +45,7 @@ pub unsafe extern "C" fn gemm_micro_kernel_neon(
         if j_start < n {
             for ci in 0..i_len {
                 for j in j_start..n {
-                    let mut sum: f32 = *c.add((i + ci) * ld_c + j);
+                    let mut sum: f32 = 0.0; // overwrite, coherent avec le zero-init vectorise
                     for p in 0..k {
                         sum += *a.add((i + ci) * ld_a + p) * *b.add(p * ld_b + j);
                     }
@@ -60,7 +60,7 @@ pub unsafe extern "C" fn gemm_micro_kernel_neon(
     if i_start < m {
         for i in i_start..m {
             for j in 0..n {
-                let mut sum: f32 = *c.add(i * ld_c + j);
+                let mut sum: f32 = 0.0;
                 for p in 0..k {
                     sum += *a.add(i * ld_a + p) * *b.add(p * ld_b + j);
                 }
