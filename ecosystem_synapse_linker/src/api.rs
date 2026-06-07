@@ -1,4 +1,4 @@
-use crate::linker::agent::{SynapticLinkerAgent, SynapseRoute};
+use crate::linker::agent::SynapticLinkerAgent;
 
 #[no_mangle] pub extern "C" fn synapse_linker_init() -> *mut SynapticLinkerAgent {
     let linker = Box::new(SynapticLinkerAgent::new()); Box::into_raw(linker)

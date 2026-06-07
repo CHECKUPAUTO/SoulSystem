@@ -1,5 +1,4 @@
 use parking_lot::{Mutex, RwLock};
-use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SynapseRoute {

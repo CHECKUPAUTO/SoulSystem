@@ -15,7 +15,23 @@ members = [
     "soul_matrix_engine",
     "soul_storage",
     "soul_ipc",
-    "soul_evolution"
+    "soul_evolution",
+    "soul_kernel",
+    "soul_agent_runtime",
+    "soul_perception",
+    "soul_telemetry",
+    "soul_cluster",
+    "soul_surgery",
+    "soul_journal",
+    "soul_forge",
+    "soul_cortex",
+    "soul_scout",
+    "soul_guard"
+
+
+
+
+
 ]
 resolver = "2"
 

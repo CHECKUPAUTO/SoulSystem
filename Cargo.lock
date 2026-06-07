@@ -921,6 +921,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul_agent_runtime"
+version = "0.1.0"
+dependencies = [
+ "soul_ipc",
+ "soul_matrix_engine",
+ "soul_scheduler",
+ "soul_storage",
+]
+
+[[package]]
+name = "soul_cluster"
+version = "0.1.0"
+dependencies = [
+ "soul_ipc",
+]
+
+[[package]]
+name = "soul_cortex"
+version = "0.1.0"
+dependencies = [
+ "soul_matrix_engine",
+]
+
+[[package]]
 name = "soul_evolution"
 version = "0.1.0"
 dependencies = [
@@ -929,8 +953,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul_forge"
+version = "0.1.0"
+dependencies = [
+ "soul_telemetry",
+]
+
+[[package]]
+name = "soul_guard"
+version = "0.1.0"
+
+[[package]]
 name = "soul_ipc"
 version = "0.1.0"
+
+[[package]]
+name = "soul_journal"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "soul_kernel"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "soul_agent_runtime",
+ "soul_cortex",
+ "soul_evolution",
+ "soul_forge",
+ "soul_guard",
+ "soul_ipc",
+ "soul_journal",
+ "soul_matrix_engine",
+ "soul_scheduler",
+ "soul_scout",
+ "soul_storage",
+ "soul_surgery",
+]
 
 [[package]]
 name = "soul_matrix_engine"
@@ -940,12 +1001,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul_perception"
+version = "0.1.0"
+dependencies = [
+ "soul_ipc",
+]
+
+[[package]]
 name = "soul_scheduler"
 version = "0.1.0"
 dependencies = [
  "criterion",
  "libc",
+ "soul_telemetry",
 ]
+
+[[package]]
+name = "soul_scout"
+version = "0.1.0"
 
 [[package]]
 name = "soul_storage"
@@ -953,6 +1026,10 @@ version = "0.1.0"
 dependencies = [
  "soul_scheduler",
 ]
+
+[[package]]
+name = "soul_surgery"
+version = "0.1.0"
 
 [[package]]
 name = "soul_system_bin"
@@ -971,6 +1048,13 @@ dependencies = [
  "semantic_firewall",
  "semantic_neuromodulator",
  "tokio",
+]
+
+[[package]]
+name = "soul_telemetry"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

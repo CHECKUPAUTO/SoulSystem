@@ -1,0 +1,10 @@
+[package]
+name = "soul_agent_runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+soul_scheduler = { path = "../soul_scheduler" }
+soul_matrix_engine = { path = "../soul_matrix_engine" }
+soul_storage = { path = "../soul_storage" }
+soul_ipc = { path = "../soul_ipc" }

@@ -170,7 +170,7 @@ mod tests {
         // Insert 5 vectors with distinct directions.
         for i in 0..5 {
             let mut vec = [0.0; VECTOR_DIM];
-            vec[i] = (i as f32 + 1.0); // Only the i-th dimension is non-zero
+            vec[i] = i as f32 + 1.0; // Only the i-th dimension is non-zero
             store.insert(i as u64, &vec);
         }
 
