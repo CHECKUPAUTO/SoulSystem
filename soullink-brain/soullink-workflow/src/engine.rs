@@ -94,12 +94,11 @@ impl WorkflowEngine {
     ///
     /// Requires `set_graph_router()` to have been called.
     pub async fn run_dynamic(&self, request: &str) -> Result<WorkflowResult, EngineError> {
-        let router = self
-            .graph_router
-            .as_ref()
-            .ok_or_else(|| EngineError::NodeFailed(
-                "GraphRouter not configured. Call set_graph_router() first.".into()
-            ))?;
+        let router = self.graph_router.as_ref().ok_or_else(|| {
+            EngineError::NodeFailed(
+                "GraphRouter not configured. Call set_graph_router() first.".into(),
+            )
+        })?;
 
         info!("Dynamic workflow request: {}", request);
 
@@ -121,7 +120,10 @@ impl WorkflowEngine {
         // Step 3: Check if nodes reference registered agents
         for node in &nodes {
             if !self.agent_registry.has(&node.id) {
-                warn!("Agent '{}' not in registry — execution will be best-effort", node.id);
+                warn!(
+                    "Agent '{}' not in registry — execution will be best-effort",
+                    node.id
+                );
             }
         }
 
@@ -149,7 +151,8 @@ impl WorkflowEngine {
 
             // Execute: try AgentRegistry first, fall back to Node::execute
             let result = if let NodeType::Agent(ref agent_node) = node.node_type {
-                self.execute_registered_agent(&node.id, agent_node, &ctx, &outputs).await
+                self.execute_registered_agent(&node.id, agent_node, &ctx, &outputs)
+                    .await
             } else {
                 node.execute(&ctx).await
             };
@@ -204,7 +207,9 @@ impl WorkflowEngine {
         }
 
         // Always provide the task as content input
-        inputs.entry("content".into()).or_insert_with(|| agent_node.task.clone());
+        inputs
+            .entry("content".into())
+            .or_insert_with(|| agent_node.task.clone());
 
         // Execute via agent registry
         match self.agent_registry.execute(node_id, &inputs) {
@@ -214,15 +219,22 @@ impl WorkflowEngine {
                     let output_str = result
                         .outputs
                         .iter()
-                        .map(|(k, v)| format!("## {}
+                        .map(|(k, v)| {
+                            format!(
+                                "## {}
 
-{}", k, v))
+{}",
+                                k, v
+                            )
+                        })
                         .collect::<Vec<_>>()
                         .join("\n\n");
                     NodeResult::Success(output_str)
                 } else {
                     NodeResult::Failed(
-                        result.error.unwrap_or_else(|| "Agent execution failed".into()),
+                        result
+                            .error
+                            .unwrap_or_else(|| "Agent execution failed".into()),
                     )
                 }
             }
@@ -518,7 +530,9 @@ nodes:
     #[tokio::test]
     async fn run_dynamic_workflow() {
         use crate::agent_registry::AgentRegistry;
-        use crate::graph_router::{AgentGraphOutput, AgentGraphNode, GraphOutput, GraphParam, UserInputNode};
+        use crate::graph_router::{
+            AgentGraphNode, AgentGraphOutput, GraphOutput, GraphParam, UserInputNode,
+        };
         use crate::node::NodeType;
 
         // Build a static graph that mimics what the LLM would generate
@@ -528,70 +542,82 @@ nodes:
                 AgentGraphNode {
                     node: "code_reviewer".into(),
                     inputs: vec![
-                        GraphParam { name: "repo_path".into(), description: "Path".into() },
-                        GraphParam { name: "focus_areas".into(), description: "Areas".into() },
-                    ],
-                    outputs: vec![
-                        GraphOutput {
-                            name: "report".into(),
-                            description: "Code review report".into(),
-                            links: vec![{
-                                let mut m = std::collections::HashMap::new();
-                                m.insert("lint_checker".into(), "review_report".into());
-                                m
-                            }],
+                        GraphParam {
+                            name: "repo_path".into(),
+                            description: "Path".into(),
+                        },
+                        GraphParam {
+                            name: "focus_areas".into(),
+                            description: "Areas".into(),
                         },
                     ],
+                    outputs: vec![GraphOutput {
+                        name: "report".into(),
+                        description: "Code review report".into(),
+                        links: vec![{
+                            let mut m = std::collections::HashMap::new();
+                            m.insert("lint_checker".into(), "review_report".into());
+                            m
+                        }],
+                    }],
                 },
                 AgentGraphNode {
                     node: "lint_checker".into(),
                     inputs: vec![
-                        GraphParam { name: "repo_path".into(), description: "Path".into() },
-                        GraphParam { name: "review_report".into(), description: "Review".into() },
-                    ],
-                    outputs: vec![
-                        GraphOutput {
-                            name: "lint_results".into(),
-                            description: "Lint report".into(),
-                            links: vec![
-                                {
-                                    let mut m = std::collections::HashMap::new();
-                                    m.insert("security_auditor".into(), "lint_results".into());
-                                    m
-                                },
-                            ],
+                        GraphParam {
+                            name: "repo_path".into(),
+                            description: "Path".into(),
+                        },
+                        GraphParam {
+                            name: "review_report".into(),
+                            description: "Review".into(),
                         },
                     ],
+                    outputs: vec![GraphOutput {
+                        name: "lint_results".into(),
+                        description: "Lint report".into(),
+                        links: vec![{
+                            let mut m = std::collections::HashMap::new();
+                            m.insert("security_auditor".into(), "lint_results".into());
+                            m
+                        }],
+                    }],
                 },
                 AgentGraphNode {
                     node: "security_auditor".into(),
                     inputs: vec![
-                        GraphParam { name: "repo_path".into(), description: "Path".into() },
-                        GraphParam { name: "lint_results".into(), description: "Lint".into() },
-                    ],
-                    outputs: vec![
-                        GraphOutput {
-                            name: "audit_report".into(),
-                            description: "Security report".into(),
-                            links: vec![],
+                        GraphParam {
+                            name: "repo_path".into(),
+                            description: "Path".into(),
+                        },
+                        GraphParam {
+                            name: "lint_results".into(),
+                            description: "Lint".into(),
                         },
                     ],
-                },
-            ],
-            agent_chain: vec!["code_reviewer".into(), "lint_checker".into(), "security_auditor".into()],
-            user_input_graph: vec![
-                UserInputNode {
-                    node: "repo_path".into(),
-                    description: "Repository path".into(),
-                    links: vec![{
-                        let mut m = std::collections::HashMap::new();
-                        m.insert("code_reviewer".into(), "repo_path".into());
-                        m.insert("lint_checker".into(), "repo_path".into());
-                        m.insert("security_auditor".into(), "repo_path".into());
-                        m
+                    outputs: vec![GraphOutput {
+                        name: "audit_report".into(),
+                        description: "Security report".into(),
+                        links: vec![],
                     }],
                 },
             ],
+            agent_chain: vec![
+                "code_reviewer".into(),
+                "lint_checker".into(),
+                "security_auditor".into(),
+            ],
+            user_input_graph: vec![UserInputNode {
+                node: "repo_path".into(),
+                description: "Repository path".into(),
+                links: vec![{
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("code_reviewer".into(), "repo_path".into());
+                    m.insert("lint_checker".into(), "repo_path".into());
+                    m.insert("security_auditor".into(), "repo_path".into());
+                    m
+                }],
+            }],
             reasoning: "Three-step pipeline: review → lint → audit".into(),
         };
 
@@ -622,12 +648,21 @@ nodes:
                 for (k, v) in &outputs {
                     inputs.entry(k.clone()).or_insert_with(|| v.clone());
                 }
-                inputs.entry("repo_path".into()).or_insert_with(|| "/tmp/test".into());
-                inputs.entry("content".into()).or_insert_with(|| agent_node.task.clone());
+                inputs
+                    .entry("repo_path".into())
+                    .or_insert_with(|| "/tmp/test".into());
+                inputs
+                    .entry("content".into())
+                    .or_insert_with(|| agent_node.task.clone());
 
                 match engine.agent_registry.execute(&node.id, &inputs) {
                     Some(result) if result.success => {
-                        let out = result.outputs.values().cloned().collect::<Vec<_>>().join("\n");
+                        let out = result
+                            .outputs
+                            .values()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join("\n");
                         outputs.insert(node.id.clone(), out);
                     }
                     _ => {

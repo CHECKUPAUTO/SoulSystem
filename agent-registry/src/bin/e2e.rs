@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let start = Instant::now();
         println!("  [1/6] forge campaign (bin-packing)...");
-        use forge_bridge::{ForgeCampaign, ForgeConfig, binpack_demo::BinPacking};
+        use forge_bridge::{binpack_demo::BinPacking, ForgeCampaign, ForgeConfig};
         let campaign = ForgeCampaign::new(
             ForgeConfig {
                 generations: 20,
@@ -35,13 +35,21 @@ async fn main() -> anyhow::Result<()> {
                 max_reflection_retries: 3,
                 stagnation_threshold: 5,
             },
-            BinPacking { capacity: 1.0, n_items: 50, n_instances: 20 },
+            BinPacking {
+                capacity: 1.0,
+                n_items: 50,
+                n_instances: 20,
+            },
         );
         let report = campaign.run();
         match report.best {
             Some(best) => {
                 let obj0 = best.score.objectives.first().copied().unwrap_or(0.0);
-                println!("        ✅ Forge OK in {:.2?} — best avg_bins = {:.3}", start.elapsed(), obj0);
+                println!(
+                    "        ✅ Forge OK in {:.2?} — best avg_bins = {:.3}",
+                    start.elapsed(),
+                    obj0
+                );
                 passed += 1;
             }
             None => println!("        ❌ Forge produced no best candidate"),
@@ -55,7 +63,11 @@ async fn main() -> anyhow::Result<()> {
         let path = std::path::Path::new("forge_checkpoint.json");
         if path.exists() {
             let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-            println!("        ✅ Checkpoint OK in {:.2?} — {} bytes", start.elapsed(), size);
+            println!(
+                "        ✅ Checkpoint OK in {:.2?} — {} bytes",
+                start.elapsed(),
+                size
+            );
             passed += 1;
         } else {
             println!("        ❌ No checkpoint file found");
@@ -69,8 +81,13 @@ async fn main() -> anyhow::Result<()> {
         let client = orchestrator_bridge::OrchestratorClient::connect("http://127.0.0.1:9020");
         match client.mesh_status().await {
             Ok(s) => {
-                println!("        ✅ Mesh OK in {:.2?} — {}/{} online, total_N={}", 
-                    start.elapsed(), s.online, s.total_brains, s.total_N);
+                println!(
+                    "        ✅ Mesh OK in {:.2?} — {}/{} online, total_N={}",
+                    start.elapsed(),
+                    s.online,
+                    s.total_brains,
+                    s.total_N
+                );
                 passed += 1;
             }
             Err(e) => println!("        ❌ Orchestrator error: {e}"),
@@ -86,7 +103,10 @@ async fn main() -> anyhow::Result<()> {
             Ok(resp) => {
                 let v: serde_json::Value = resp.json().await?;
                 let ver = v.get("version").and_then(|x| x.as_str()).unwrap_or("?");
-                println!("        ✅ SoulSystem OK in {:.2?} — v{ver}", start.elapsed());
+                println!(
+                    "        ✅ SoulSystem OK in {:.2?} — v{ver}",
+                    start.elapsed()
+                );
                 passed += 1;
             }
             Err(e) => println!("        ❌ SoulSystem error: {e}"),
@@ -98,11 +118,18 @@ async fn main() -> anyhow::Result<()> {
         let start = Instant::now();
         println!("  [5/6] cross-bridge probe (soul → all)...");
         let client = reqwest::Client::new();
-        match client.post("http://127.0.0.1:9023/api/bridges/probe").send().await {
+        match client
+            .post("http://127.0.0.1:9023/api/bridges/probe")
+            .send()
+            .await
+        {
             Ok(resp) => {
                 let v: serde_json::Value = resp.json().await?;
                 let count = v.as_object().map(|o| o.len()).unwrap_or(0);
-                println!("        ✅ Cross-bridge OK in {:.2?} — {count} agents aggregated", start.elapsed());
+                println!(
+                    "        ✅ Cross-bridge OK in {:.2?} — {count} agents aggregated",
+                    start.elapsed()
+                );
                 passed += 1;
             }
             Err(e) => println!("        ❌ Cross-bridge error: {e}"),
@@ -118,7 +145,10 @@ async fn main() -> anyhow::Result<()> {
             Ok(resp) => {
                 let v: serde_json::Value = resp.json().await?;
                 let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("?");
-                println!("        ✅ AVID/ONAEU OK in {:.2?} — status={status}", start.elapsed());
+                println!(
+                    "        ✅ AVID/ONAEU OK in {:.2?} — status={status}",
+                    start.elapsed()
+                );
                 passed += 1;
             }
             Err(e) => println!("        ❌ AVID/ONAEU error: {e}"),
@@ -127,11 +157,17 @@ async fn main() -> anyhow::Result<()> {
 
     println!();
     if passed == total {
-        println!("  🟢 {passed}/{total} tests verts — total {:.2?}", total_start.elapsed());
+        println!(
+            "  🟢 {passed}/{total} tests verts — total {:.2?}",
+            total_start.elapsed()
+        );
         println!("  SoulSystem est le hub central du mesh.");
         std::process::exit(0);
     } else {
-        println!("  🟡 {passed}/{total} tests OK — {} échec(s)", total - passed);
+        println!(
+            "  🟡 {passed}/{total} tests OK — {} échec(s)",
+            total - passed
+        );
         std::process::exit(1);
     }
 }

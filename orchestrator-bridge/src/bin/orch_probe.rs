@@ -20,8 +20,10 @@ async fn main() -> anyhow::Result<()> {
 
     // 2. Mesh status
     let s = client.mesh_status().await?;
-    println!("\n  📊 mesh : {}/{} online, total_N = {}",
-        s.online, s.total_brains, s.total_N);
+    println!(
+        "\n  📊 mesh : {}/{} online, total_N = {}",
+        s.online, s.total_brains, s.total_N
+    );
 
     // 3. Brains (registered)
     let b = client.mesh_brains().await?;
@@ -29,13 +31,17 @@ async fn main() -> anyhow::Result<()> {
     let mut names: Vec<_> = b.brains.iter().collect();
     names.sort_by(|a, b| a.0.cmp(b.0));
     for (name, brain) in names {
-        println!("     {:<10} port={:<6} version={:<5} spec={:?}",
-            name, brain.port, brain.version, brain.speciality);
+        println!(
+            "     {:<10} port={:<6} version={:<5} spec={:?}",
+            name, brain.port, brain.version, brain.speciality
+        );
     }
 
     // 4. Test query (au cas où)
     println!("\n  💬 test query vers mesh...");
-    let q = client.mesh_query("hello mesh, qui es-tu ?", Some(2)).await?;
+    let q = client
+        .mesh_query("hello mesh, qui es-tu ?", Some(2))
+        .await?;
     println!("     réponse : {}", q);
 
     println!("\n  ══ bridge OK en {:.2?} ══\n", start.elapsed());

@@ -1,0 +1,16 @@
+[package]
+name = "soullink-circuit-breaker"
+version = "0.1.0"
+edition = "2021"
+description = "OTP-style circuit breaker — ported from AlexClaw Elixir pattern. State machine with ETS-equivalent DashMap for lock-free hot-path reads, auto half-open probing, and Telegram-style notifications."
+
+[dependencies]
+dashmap = "6"
+tokio = { version = "1", features = ["sync", "time", "rt", "rt-multi-thread", "macros"] }
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tokio-test = "0.4"

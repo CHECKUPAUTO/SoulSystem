@@ -183,10 +183,7 @@ pub struct CircuitStats {
 
 #[derive(Debug)]
 pub enum CircuitError {
-    Open {
-        name: String,
-        retry_after: Duration,
-    },
+    Open { name: String, retry_after: Duration },
     CallFailed(anyhow::Error),
 }
 
@@ -220,11 +217,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_circuit_opens_after_threshold() {
-        let cb = CircuitBreaker::new(
-            CircuitBreakerConfig::new("test").with_threshold(3),
-        );
+        let cb = CircuitBreaker::new(CircuitBreakerConfig::new("test").with_threshold(3));
         for _ in 0..3 {
-            let _ = cb.try_call(|| async { Err::<(), _>(anyhow::anyhow!("boom")) }).await;
+            let _ = cb
+                .try_call(|| async { Err::<(), _>(anyhow::anyhow!("boom")) })
+                .await;
         }
         assert_eq!(cb.state().await, CircuitState::Open);
     }
@@ -237,7 +234,9 @@ mod tests {
                 .with_reset_timeout(Duration::from_millis(10)),
         );
         for _ in 0..2 {
-            let _ = cb.try_call(|| async { Err::<(), _>(anyhow::anyhow!("boom")) }).await;
+            let _ = cb
+                .try_call(|| async { Err::<(), _>(anyhow::anyhow!("boom")) })
+                .await;
         }
         assert_eq!(cb.state().await, CircuitState::Open);
         tokio::time::sleep(Duration::from_millis(20)).await;

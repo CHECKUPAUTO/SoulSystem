@@ -501,9 +501,10 @@ impl GraphRouter {
             for other_node in &graph.agent_graph {
                 for output in &other_node.outputs {
                     for link in &output.links {
-                        if link.values().any(|v| {
-                            graph_node.inputs.iter().any(|i| i.name == *v)
-                        }) {
+                        if link
+                            .values()
+                            .any(|v| graph_node.inputs.iter().any(|i| i.name == *v))
+                        {
                             if !depends_on.contains(&other_node.node) {
                                 depends_on.push(other_node.node.clone());
                             }
@@ -548,50 +549,48 @@ impl GraphRouter {
         json["response"]
             .as_str()
             .map(|s| s.to_string())
-            .ok_or_else(|| GraphRouterError::LlmError("No 'response' field in Ollama output".into()))
+            .ok_or_else(|| {
+                GraphRouterError::LlmError("No 'response' field in Ollama output".into())
+            })
     }
 
     fn parse_list_from_llm(&self, raw: &str) -> Result<Vec<String>, GraphRouterError> {
         // Extract [...] from LLM output
-        let start = raw.find('[').ok_or_else(|| {
-            GraphRouterError::JsonParseError("No '[' found in LLM output".into())
-        })?;
-        let end = raw.rfind(']').ok_or_else(|| {
-            GraphRouterError::JsonParseError("No ']' found in LLM output".into())
-        })?;
+        let start = raw
+            .find('[')
+            .ok_or_else(|| GraphRouterError::JsonParseError("No '[' found in LLM output".into()))?;
+        let end = raw
+            .rfind(']')
+            .ok_or_else(|| GraphRouterError::JsonParseError("No ']' found in LLM output".into()))?;
 
         let list_str = &raw[start..=end];
         // Python-like list → JSON array (replace single quotes with double)
         let json_str = list_str.replace('\'', "\"");
 
-        serde_json::from_str(&json_str).map_err(|e| {
-            GraphRouterError::JsonParseError(format!("Failed to parse list: {e}"))
-        })
+        serde_json::from_str(&json_str)
+            .map_err(|e| GraphRouterError::JsonParseError(format!("Failed to parse list: {e}")))
     }
 
     fn parse_json_from_llm<T: for<'de> Deserialize<'de>>(
         &self,
         raw: &str,
     ) -> Result<T, GraphRouterError> {
-        let start = raw.find('{').ok_or_else(|| {
-            GraphRouterError::JsonParseError("No '{' found in LLM output".into())
-        })?;
-        let end = raw.rfind('}').ok_or_else(|| {
-            GraphRouterError::JsonParseError("No '}' found in LLM output".into())
-        })?;
+        let start = raw
+            .find('{')
+            .ok_or_else(|| GraphRouterError::JsonParseError("No '{' found in LLM output".into()))?;
+        let end = raw
+            .rfind('}')
+            .ok_or_else(|| GraphRouterError::JsonParseError("No '}' found in LLM output".into()))?;
 
         let json_str = &raw[start..=end];
-        serde_json::from_str(json_str).map_err(|e| {
-            GraphRouterError::JsonParseError(format!("Failed to parse JSON: {e}"))
-        })
+        serde_json::from_str(json_str)
+            .map_err(|e| GraphRouterError::JsonParseError(format!("Failed to parse JSON: {e}")))
     }
 
-    fn parse_graph_from_llm(
-        &self,
-        raw: &str,
-    ) -> Result<AgentGraphOutput, GraphRouterError> {
+    fn parse_graph_from_llm(&self, raw: &str) -> Result<AgentGraphOutput, GraphRouterError> {
         // Find the outermost JSON object (nested braces for Agent Graph array)
-        let start = raw.find("{\n  \"Feasibility\"")
+        let start = raw
+            .find("{\n  \"Feasibility\"")
             .or_else(|| raw.find("{\"Feasibility\""))
             .or_else(|| raw.find('{'))
             .ok_or_else(|| {

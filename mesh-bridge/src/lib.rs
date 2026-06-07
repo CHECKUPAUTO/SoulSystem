@@ -30,14 +30,46 @@ pub struct ServiceDef {
 }
 
 pub const MESH_SERVICES: &[ServiceDef] = &[
-    ServiceDef { name: "rag_turbo",  port: 9070, kind: "passthrough" },
-    ServiceDef { name: "rowboat",    port: 9071, kind: "passthrough" },
-    ServiceDef { name: "moe",        port: 9072, kind: "passthrough" },
-    ServiceDef { name: "pacemaker",  port: 9073, kind: "status-only" },
-    ServiceDef { name: "blackboard", port: 9074, kind: "status-only" },
-    ServiceDef { name: "memori",     port: 9075, kind: "status-only" },
-    ServiceDef { name: "v14",        port: 9095, kind: "passthrough" },
-    ServiceDef { name: "voice",      port: 9050, kind: "tts" },
+    ServiceDef {
+        name: "rag_turbo",
+        port: 9070,
+        kind: "passthrough",
+    },
+    ServiceDef {
+        name: "rowboat",
+        port: 9071,
+        kind: "passthrough",
+    },
+    ServiceDef {
+        name: "moe",
+        port: 9072,
+        kind: "passthrough",
+    },
+    ServiceDef {
+        name: "pacemaker",
+        port: 9073,
+        kind: "status-only",
+    },
+    ServiceDef {
+        name: "blackboard",
+        port: 9074,
+        kind: "status-only",
+    },
+    ServiceDef {
+        name: "memori",
+        port: 9075,
+        kind: "status-only",
+    },
+    ServiceDef {
+        name: "v14",
+        port: 9095,
+        kind: "passthrough",
+    },
+    ServiceDef {
+        name: "voice",
+        port: 9050,
+        kind: "tts",
+    },
 ];
 
 /// Status runtime d'un service mesh.
@@ -100,7 +132,8 @@ impl MeshClient {
                 if let Ok(resp) = client.get(&url_health).send().await {
                     if resp.status().is_success() {
                         if let Ok(v) = resp.json::<serde_json::Value>().await {
-                            status.version = v.get("version").and_then(|x| x.as_str()).map(String::from);
+                            status.version =
+                                v.get("version").and_then(|x| x.as_str()).map(String::from);
                             status.reachable = true;
                             status.detail = Some(v);
                         }
@@ -108,7 +141,8 @@ impl MeshClient {
                 } else if let Ok(resp) = client.get(&url_status).send().await {
                     if resp.status().is_success() {
                         if let Ok(v) = resp.json::<serde_json::Value>().await {
-                            status.version = v.get("version").and_then(|x| x.as_str()).map(String::from);
+                            status.version =
+                                v.get("version").and_then(|x| x.as_str()).map(String::from);
                             status.reachable = true;
                             status.detail = Some(v);
                         }
@@ -127,7 +161,11 @@ impl MeshClient {
         *self.statuses.write().await = results.clone();
 
         let reachable = results.values().filter(|s| s.reachable).count();
-        info!("🕸️ mesh-bridge: {}/{} mesh services reachable", reachable, results.len());
+        info!(
+            "🕸️ mesh-bridge: {}/{} mesh services reachable",
+            reachable,
+            results.len()
+        );
         results
     }
 
@@ -163,23 +201,31 @@ impl MeshClient {
 
     /// Lit les coalitions actives du blackboard (aller).
     pub async fn blackboard_coalitions(&self) -> Result<serde_json::Value> {
-        self.call("blackboard", "/api/coalitions", reqwest::Method::GET, None).await
+        self.call("blackboard", "/api/coalitions", reqwest::Method::GET, None)
+            .await
     }
 
     /// Lit le status détaillé du pacemaker (aller).
     pub async fn pacemaker_status(&self) -> Result<serde_json::Value> {
-        self.call("pacemaker", "/api/status", reqwest::Method::GET, None).await
+        self.call("pacemaker", "/api/status", reqwest::Method::GET, None)
+            .await
     }
 
     /// Lit le status du memori (aller).
     pub async fn memori_status(&self) -> Result<serde_json::Value> {
-        self.call("memori", "/api/status", reqwest::Method::GET, None).await
+        self.call("memori", "/api/status", reqwest::Method::GET, None)
+            .await
     }
 
     /// Pousse un stimulus vers le pacemaker (retour).
     pub async fn pacemaker_decide(&self, signal: &str) -> Result<serde_json::Value> {
-        self.call("pacemaker", "/api/decide", reqwest::Method::POST, Some(serde_json::json!({ "signal": signal })))
-            .await
+        self.call(
+            "pacemaker",
+            "/api/decide",
+            reqwest::Method::POST,
+            Some(serde_json::json!({ "signal": signal })),
+        )
+        .await
     }
 }
 

@@ -200,9 +200,10 @@ impl RagMiddleware {
             let broad_results = hub.search(query, self.config.top_k * 2).await;
             for r in &broad_results {
                 if r.score >= self.config.min_score * 0.85
-                    && !all_results.iter().any(|(t, _)| t == &r.text) {
-                        all_results.push((r.text.clone(), r.score));
-                    }
+                    && !all_results.iter().any(|(t, _)| t == &r.text)
+                {
+                    all_results.push((r.text.clone(), r.score));
+                }
             }
         }
 

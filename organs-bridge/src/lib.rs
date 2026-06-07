@@ -26,21 +26,69 @@ pub struct OrganDef {
 }
 
 pub const V1_ORGANS: &[OrganDef] = &[
-    OrganDef { name: "reasoning",    port: 5031, generation: 1 },
-    OrganDef { name: "integration",  port: 5032, generation: 1 },
-    OrganDef { name: "perception",   port: 5033, generation: 1 },
-    OrganDef { name: "affect",       port: 5034, generation: 1 },
-    OrganDef { name: "reflex",       port: 5035, generation: 1 },
-    OrganDef { name: "language",     port: 5036, generation: 1 },
+    OrganDef {
+        name: "reasoning",
+        port: 5031,
+        generation: 1,
+    },
+    OrganDef {
+        name: "integration",
+        port: 5032,
+        generation: 1,
+    },
+    OrganDef {
+        name: "perception",
+        port: 5033,
+        generation: 1,
+    },
+    OrganDef {
+        name: "affect",
+        port: 5034,
+        generation: 1,
+    },
+    OrganDef {
+        name: "reflex",
+        port: 5035,
+        generation: 1,
+    },
+    OrganDef {
+        name: "language",
+        port: 5036,
+        generation: 1,
+    },
 ];
 
 pub const V2_ORGANS: &[OrganDef] = &[
-    OrganDef { name: "foresight",    port: 9040, generation: 2 },
-    OrganDef { name: "homeostasis",  port: 9041, generation: 2 },
-    OrganDef { name: "creativity",   port: 9042, generation: 2 },
-    OrganDef { name: "social",       port: 9043, generation: 2 },
-    OrganDef { name: "validation",   port: 9044, generation: 2 },
-    OrganDef { name: "autonomy",     port: 9046, generation: 2 },
+    OrganDef {
+        name: "foresight",
+        port: 9040,
+        generation: 2,
+    },
+    OrganDef {
+        name: "homeostasis",
+        port: 9041,
+        generation: 2,
+    },
+    OrganDef {
+        name: "creativity",
+        port: 9042,
+        generation: 2,
+    },
+    OrganDef {
+        name: "social",
+        port: 9043,
+        generation: 2,
+    },
+    OrganDef {
+        name: "validation",
+        port: 9044,
+        generation: 2,
+    },
+    OrganDef {
+        name: "autonomy",
+        port: 9046,
+        generation: 2,
+    },
 ];
 
 /// Status runtime d'un organe.
@@ -100,7 +148,8 @@ impl OrgansClient {
                 };
                 if let Ok(resp) = client.get(&url_root).send().await {
                     if let Ok(v) = resp.json::<serde_json::Value>().await {
-                        status.version = v.get("version").and_then(|x| x.as_str()).map(String::from);
+                        status.version =
+                            v.get("version").and_then(|x| x.as_str()).map(String::from);
                         status.reachable = true;
                     }
                 }
@@ -124,7 +173,11 @@ impl OrgansClient {
         *self.statuses.write().await = results.clone();
 
         let reachable = results.values().filter(|s| s.reachable).count();
-        info!("🧠 organs-bridge: {}/{} organs reachable", reachable, results.len());
+        info!(
+            "🧠 organs-bridge: {}/{} organs reachable",
+            reachable,
+            results.len()
+        );
         results
     }
 
@@ -161,33 +214,54 @@ impl OrgansClient {
 
     /// Demande à l'organe `reasoning` de raisonner sur un input (aller).
     pub async fn reason(&self, input: &str) -> Result<serde_json::Value> {
-        self.call("reasoning", "/api/reason", reqwest::Method::POST, Some(serde_json::json!({ "input": input })))
-            .await
+        self.call(
+            "reasoning",
+            "/api/reason",
+            reqwest::Method::POST,
+            Some(serde_json::json!({ "input": input })),
+        )
+        .await
     }
 
     /// Envoie un stimulus à l'organe `perception` (aller).
     pub async fn perceive(&self, stimulus: &str) -> Result<serde_json::Value> {
-        self.call("perception", "/api/perceive", reqwest::Method::POST, Some(serde_json::json!({ "input": stimulus })))
-            .await
+        self.call(
+            "perception",
+            "/api/perceive",
+            reqwest::Method::POST,
+            Some(serde_json::json!({ "input": stimulus })),
+        )
+        .await
     }
 
     /// Stimule l'organe `reflex` (aller-retour).
     pub async fn stimulate_reflex(&self, signal: &str) -> Result<serde_json::Value> {
-        self.call("reflex", "/api/stimulate", reqwest::Method::POST, Some(serde_json::json!({ "signal": signal })))
-            .await
+        self.call(
+            "reflex",
+            "/api/stimulate",
+            reqwest::Method::POST,
+            Some(serde_json::json!({ "signal": signal })),
+        )
+        .await
     }
 
     /// Envoie un reward à un organe (retour) — push vers l'organe.
     pub async fn reward(&self, organ_name: &str, value: f64) -> Result<serde_json::Value> {
-        self.call(organ_name, "/api/reward", reqwest::Method::POST, Some(serde_json::json!({ "value": value })))
-            .await
+        self.call(
+            organ_name,
+            "/api/reward",
+            reqwest::Method::POST,
+            Some(serde_json::json!({ "value": value })),
+        )
+        .await
     }
 
     // ── Actions V2 (aller-retour) ────────────────────────────────────────
 
     /// Lit les stats d'un organe V2 (aller).
     pub async fn stats(&self, organ_name: &str) -> Result<serde_json::Value> {
-        self.call(organ_name, "/api/stats", reqwest::Method::GET, None).await
+        self.call(organ_name, "/api/stats", reqwest::Method::GET, None)
+            .await
     }
 }
 

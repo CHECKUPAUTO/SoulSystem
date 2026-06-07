@@ -12,8 +12,8 @@
 //!   agent_registry once      # affiche un rapport snapshot
 //!   agent_registry watch     # rapport toutes les 30s
 
-use std::time::{Duration, Instant};
 use serde_json::Value;
+use std::time::{Duration, Instant};
 
 const SOULSYSTEM_URL: &str = "http://127.0.0.1:9023";
 const ORCHESTRATOR_URL: &str = "http://127.0.0.1:9020";
@@ -33,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
         "watch" => loop {
             run_snapshot().await?;
             tokio::time::sleep(Duration::from_secs(30)).await;
-        }
+        },
         _ => {
             eprintln!("usage: agent_registry [once|watch]");
             std::process::exit(1);
@@ -53,7 +53,15 @@ async fn run_snapshot() -> anyhow::Result<()> {
     println!("  ╭─ SoulSystem :9023 (hub central) ─────────────────────");
     for (name, status) in &hubs {
         let ok = status.starts_with("OK");
-        println!("  │  {:<10} {}", name, if ok { format!("✅ {}", truncate(status, 60)) } else { format!("❌ {}", truncate(status, 60)) });
+        println!(
+            "  │  {:<10} {}",
+            name,
+            if ok {
+                format!("✅ {}", truncate(status, 60))
+            } else {
+                format!("❌ {}", truncate(status, 60))
+            }
+        );
     }
     println!("  │");
 
@@ -133,7 +141,8 @@ async fn forward_orch_to_soulsystem(client: &reqwest::Client) -> String {
         Ok(resp) => {
             let status = resp.status();
             let v: Value = resp.json().await.unwrap_or(serde_json::json!({}));
-            let keys: Vec<String> = v.as_object()
+            let keys: Vec<String> = v
+                .as_object()
                 .map(|o| o.keys().cloned().collect())
                 .unwrap_or_default();
             format!("HTTP {status} — {} keys aggregated", keys.len())

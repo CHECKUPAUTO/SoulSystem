@@ -20,10 +20,14 @@ fn forge_bridge_smoke_full_campaign() {
         population: 12,
         survivors: 3,
         base_seed: 0xBADC_0FFE,
-            max_reflection_retries: 2,
-            stagnation_threshold: 5,
+        max_reflection_retries: 2,
+        stagnation_threshold: 5,
     };
-    let domain = BinPacking { capacity: 1.0, n_items: 20, n_instances: 6 };
+    let domain = BinPacking {
+        capacity: 1.0,
+        n_items: 20,
+        n_instances: 6,
+    };
     let report = ForgeCampaign::new(cfg, domain).run();
     let elapsed = start.elapsed();
 
@@ -42,7 +46,10 @@ fn forge_bridge_smoke_full_campaign() {
     assert!(!report.history.is_empty(), "history doit être non-vide");
     assert!(report.best.is_some(), "best doit être trouvé");
     assert!(report.holdout_best.is_some(), "holdout doit être évalué");
-    assert!(elapsed < Duration::from_secs(15), "campagne de smoke doit finir < 15s");
+    assert!(
+        elapsed < Duration::from_secs(15),
+        "campagne de smoke doit finir < 15s"
+    );
 }
 
 #[test]
@@ -59,8 +66,7 @@ fn forge_bridge_smoke_dto_json_clean() {
     let c = forge_bridge::binpack_demo::PackHeuristic { w: [0.25; 4] };
     let c_dto = CandidateDto::from(&c);
     let c_json = serde_json::to_string(&c_dto).expect("CandidateDto → JSON");
-    let c_parsed: serde_json::Value =
-        serde_json::from_str(&c_json).expect("JSON → Value");
+    let c_parsed: serde_json::Value = serde_json::from_str(&c_json).expect("JSON → Value");
     assert_eq!(
         c_parsed["id"].as_u64().unwrap(),
         forge_core::fnv1a(&c.repr()),

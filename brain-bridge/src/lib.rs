@@ -65,17 +65,20 @@ impl BrainClient {
             let name = name.to_string();
             let port = *port;
             tasks.push(tokio::spawn(async move {
-                let (energy_avg, evolution_generation, neurons) = match client.get(&url).send().await {
-                    Ok(resp) => match resp.json::<serde_json::Value>().await {
-                        Ok(v) => (
-                            v.get("energy_avg").and_then(|x| x.as_f64()).unwrap_or(0.0),
-                            v.get("evolution_generation").and_then(|x| x.as_u64()).unwrap_or(0),
-                            v.get("neurons").and_then(|x| x.as_u64()).unwrap_or(0),
-                        ),
+                let (energy_avg, evolution_generation, neurons) =
+                    match client.get(&url).send().await {
+                        Ok(resp) => match resp.json::<serde_json::Value>().await {
+                            Ok(v) => (
+                                v.get("energy_avg").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                                v.get("evolution_generation")
+                                    .and_then(|x| x.as_u64())
+                                    .unwrap_or(0),
+                                v.get("neurons").and_then(|x| x.as_u64()).unwrap_or(0),
+                            ),
+                            Err(_) => (0.0, 0, 0),
+                        },
                         Err(_) => (0.0, 0, 0),
-                    },
-                    Err(_) => (0.0, 0, 0),
-                };
+                    };
                 OrganStatus {
                     name,
                     port,

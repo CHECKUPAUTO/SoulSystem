@@ -75,9 +75,7 @@ impl SoulNeuralClient {
             .json()
             .await
             .context("orchestrator mesh status json")?;
-        info!(
-            "🧬 soul-neural-bridge OK: orchestrator reachable (mesh status fetched)"
-        );
+        info!("🧬 soul-neural-bridge OK: orchestrator reachable (mesh status fetched)");
         Ok(resp)
     }
 
@@ -132,10 +130,7 @@ impl SoulNeuralClient {
         // Mise à jour du last_synced_at (retour).
         let mut s = self.state.write().await;
         s.last_synced_at = Some(chrono::Utc::now());
-        s.last_step_fitness = resp
-            .get("fitness")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+        s.last_step_fitness = resp.get("fitness").and_then(|v| v.as_f64()).unwrap_or(0.0);
         Ok(resp)
     }
 }

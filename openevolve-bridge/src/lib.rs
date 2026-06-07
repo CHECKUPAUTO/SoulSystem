@@ -177,8 +177,8 @@ impl OpenEvolveClient {
 
 /// Initialise le bridge : crée le client et log l'état.
 pub async fn init() -> Result<OpenEvolveClient> {
-    let url = std::env::var("OPENEVOLVE_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:7879".to_string());
+    let url =
+        std::env::var("OPENEVOLVE_URL").unwrap_or_else(|_| "http://127.0.0.1:7879".to_string());
     let client = OpenEvolveClient::connect(url).await?;
     info!("🧬 openevolve-bridge initialized (HTTP client)");
     Ok(client)

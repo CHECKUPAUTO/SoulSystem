@@ -38,18 +38,78 @@ pub struct ServiceDef {
 }
 
 pub const SERVICES: &[ServiceDef] = &[
-    ServiceDef { name: "omniclaw",         port: 9091,  health_path: "/api/health",   kind: "rust-orchestrator" },
-    ServiceDef { name: "onaeu",            port: 7878,  health_path: "/health",       kind: "avid-like" },
-    ServiceDef { name: "ollama",           port: 11434, health_path: "/api/version",  kind: "llm-inference" },
-    ServiceDef { name: "turboquant-proxy", port: 11435, health_path: "/api/version",  kind: "trading-proxy" },
-    ServiceDef { name: "soulbridge",       port: 11436, health_path: "/health",       kind: "openai-proxy" },
-    ServiceDef { name: "nats",             port: 4222,  health_path: "/varz",         kind: "messaging" },
-    ServiceDef { name: "crowdsec",         port: 8083,  health_path: "/v1/usage",     kind: "cybersecurity" },
-    ServiceDef { name: "mirofish-router",  port: 7470,  health_path: "/health",       kind: "llm-router" },
-    ServiceDef { name: "super-tool",       port: 8085,  health_path: "/health",       kind: "tool-server" },
-    ServiceDef { name: "qmd-mcp",          port: 8181,  health_path: "/",             kind: "mcp-server" },
-    ServiceDef { name: "sl13-monolith",    port: 9045,  health_path: "/health",       kind: "hnn-monolith" },
-    ServiceDef { name: "novnc",            port: 9060,  health_path: "/",             kind: "vnc-web" },
+    ServiceDef {
+        name: "omniclaw",
+        port: 9091,
+        health_path: "/api/health",
+        kind: "rust-orchestrator",
+    },
+    ServiceDef {
+        name: "onaeu",
+        port: 7878,
+        health_path: "/health",
+        kind: "avid-like",
+    },
+    ServiceDef {
+        name: "ollama",
+        port: 11434,
+        health_path: "/api/version",
+        kind: "llm-inference",
+    },
+    ServiceDef {
+        name: "turboquant-proxy",
+        port: 11435,
+        health_path: "/api/version",
+        kind: "trading-proxy",
+    },
+    ServiceDef {
+        name: "soulbridge",
+        port: 11436,
+        health_path: "/health",
+        kind: "openai-proxy",
+    },
+    ServiceDef {
+        name: "nats",
+        port: 4222,
+        health_path: "/varz",
+        kind: "messaging",
+    },
+    ServiceDef {
+        name: "crowdsec",
+        port: 8083,
+        health_path: "/v1/usage",
+        kind: "cybersecurity",
+    },
+    ServiceDef {
+        name: "mirofish-router",
+        port: 7470,
+        health_path: "/health",
+        kind: "llm-router",
+    },
+    ServiceDef {
+        name: "super-tool",
+        port: 8085,
+        health_path: "/health",
+        kind: "tool-server",
+    },
+    ServiceDef {
+        name: "qmd-mcp",
+        port: 8181,
+        health_path: "/",
+        kind: "mcp-server",
+    },
+    ServiceDef {
+        name: "sl13-monolith",
+        port: 9045,
+        health_path: "/health",
+        kind: "hnn-monolith",
+    },
+    ServiceDef {
+        name: "novnc",
+        port: 9060,
+        health_path: "/",
+        kind: "vnc-web",
+    },
 ];
 
 /// Status runtime d'un service.
@@ -109,7 +169,8 @@ impl ServicesClient {
                 if let Ok(resp) = client.get(&url).send().await {
                     if resp.status().is_success() {
                         if let Ok(v) = resp.json::<serde_json::Value>().await {
-                            status.version = v.get("version").and_then(|x| x.as_str()).map(String::from);
+                            status.version =
+                                v.get("version").and_then(|x| x.as_str()).map(String::from);
                             status.reachable = true;
                             status.detail = Some(v);
                         } else {
@@ -131,7 +192,11 @@ impl ServicesClient {
         *self.statuses.write().await = results.clone();
 
         let reachable = results.values().filter(|s| s.reachable).count();
-        info!("🌐 services-bridge: {}/{} tier services reachable", reachable, results.len());
+        info!(
+            "🌐 services-bridge: {}/{} tier services reachable",
+            reachable,
+            results.len()
+        );
         results
     }
 
@@ -167,46 +232,66 @@ impl ServicesClient {
 
     /// Liste les modèles Ollama disponibles (aller).
     pub async fn ollama_list_models(&self) -> Result<Vec<String>> {
-        let v: serde_json::Value = self.call("ollama", "/api/tags", reqwest::Method::GET, None).await?;
-        let models = v.get("models")
+        let v: serde_json::Value = self
+            .call("ollama", "/api/tags", reqwest::Method::GET, None)
+            .await?;
+        let models = v
+            .get("models")
             .and_then(|m| m.as_array())
-            .map(|arr| arr.iter()
-                .filter_map(|m| m.get("name").and_then(|n| n.as_str()))
-                .map(String::from)
-                .collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m.get("name").and_then(|n| n.as_str()))
+                    .map(String::from)
+                    .collect()
+            })
             .unwrap_or_default();
         Ok(models)
     }
 
     /// Demande une génération à Ollama (aller-retour).
     pub async fn ollama_generate(&self, model: &str, prompt: &str) -> Result<serde_json::Value> {
-        self.call("ollama", "/api/generate", reqwest::Method::POST, Some(serde_json::json!({
-            "model": model,
-            "prompt": prompt,
-            "stream": false,
-        }))).await
+        self.call(
+            "ollama",
+            "/api/generate",
+            reqwest::Method::POST,
+            Some(serde_json::json!({
+                "model": model,
+                "prompt": prompt,
+                "stream": false,
+            })),
+        )
+        .await
     }
 
     /// Appelle l'API omniclaw /api/status (aller).
     pub async fn omniclaw_status(&self) -> Result<serde_json::Value> {
-        self.call("omniclaw", "/api/status", reqwest::Method::GET, None).await
+        self.call("omniclaw", "/api/status", reqwest::Method::GET, None)
+            .await
     }
 
     /// Appelle l'API onaeu (AVID-like) pour crawl (aller-retour).
     pub async fn onaeu_crawl(&self, url: &str) -> Result<serde_json::Value> {
-        self.call("onaeu", "/api/scout/crawl", reqwest::Method::POST, Some(serde_json::json!({
-            "url": url,
-        }))).await
+        self.call(
+            "onaeu",
+            "/api/scout/crawl",
+            reqwest::Method::POST,
+            Some(serde_json::json!({
+                "url": url,
+            })),
+        )
+        .await
     }
 
     /// Liste les outils du super-tool (aller).
     pub async fn supertool_list(&self) -> Result<serde_json::Value> {
-        self.call("super-tool", "/tools", reqwest::Method::GET, None).await
+        self.call("super-tool", "/tools", reqwest::Method::GET, None)
+            .await
     }
 
     /// Lit l'état du sl13-monolith (HNN, aller).
     pub async fn monolith_health(&self) -> Result<serde_json::Value> {
-        self.call("sl13-monolith", "/health", reqwest::Method::GET, None).await
+        self.call("sl13-monolith", "/health", reqwest::Method::GET, None)
+            .await
     }
 }
 

@@ -47,23 +47,38 @@ pub struct AgentResult {
 
 pub struct CodeReviewer;
 impl Agent for CodeReviewer {
-    fn name(&self) -> &str { "code_reviewer" }
+    fn name(&self) -> &str {
+        "code_reviewer"
+    }
     fn description(&self) -> &str {
         "Reviews code for bugs, style issues, security vulnerabilities, and architectural problems"
     }
     fn input_schema(&self) -> Vec<ParamSchema> {
         vec![
-            ParamSchema { name: "repo_path".into(), param_type: "str".into(), description: "Path to the repository to review".into() },
-            ParamSchema { name: "focus_areas".into(), param_type: "str".into(), description: "Comma-separated focus areas (security, performance, style)".into() },
+            ParamSchema {
+                name: "repo_path".into(),
+                param_type: "str".into(),
+                description: "Path to the repository to review".into(),
+            },
+            ParamSchema {
+                name: "focus_areas".into(),
+                param_type: "str".into(),
+                description: "Comma-separated focus areas (security, performance, style)".into(),
+            },
         ]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "report".into(), param_type: "str".into(), description: "Code review report with findings and recommendations".into() },
-        ]
+        vec![ParamSchema {
+            name: "report".into(),
+            param_type: "str".into(),
+            description: "Code review report with findings and recommendations".into(),
+        }]
     }
     fn execute(&self, inputs: &HashMap<String, String>) -> AgentResult {
-        let repo = inputs.get("repo_path").map(|s| s.as_str()).unwrap_or("unknown");
+        let repo = inputs
+            .get("repo_path")
+            .map(|s| s.as_str())
+            .unwrap_or("unknown");
         let report = format!(
             "# Code Review Report\n\n## Repository: {}\n\n## Summary\n- Reviewed source files\n- No critical issues found in automated scan\n\n## Recommendations\n- Run cargo clippy for detailed lint suggestions\n- Review error handling patterns",
             repo
@@ -82,30 +97,49 @@ impl Agent for CodeReviewer {
 
 pub struct LintChecker;
 impl Agent for LintChecker {
-    fn name(&self) -> &str { "lint_checker" }
+    fn name(&self) -> &str {
+        "lint_checker"
+    }
     fn description(&self) -> &str {
         "Runs static analysis and linters on code, returning violations and suggestions"
     }
     fn input_schema(&self) -> Vec<ParamSchema> {
         vec![
-            ParamSchema { name: "repo_path".into(), param_type: "str".into(), description: "Path to the repository".into() },
-            ParamSchema { name: "review_report".into(), param_type: "str".into(), description: "Report from code reviewer for context".into() },
+            ParamSchema {
+                name: "repo_path".into(),
+                param_type: "str".into(),
+                description: "Path to the repository".into(),
+            },
+            ParamSchema {
+                name: "review_report".into(),
+                param_type: "str".into(),
+                description: "Report from code reviewer for context".into(),
+            },
         ]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "lint_results".into(), param_type: "str".into(), description: "Lint violations with severity and locations".into() },
-        ]
+        vec![ParamSchema {
+            name: "lint_results".into(),
+            param_type: "str".into(),
+            description: "Lint violations with severity and locations".into(),
+        }]
     }
     fn execute(&self, inputs: &HashMap<String, String>) -> AgentResult {
-        let repo = inputs.get("repo_path").map(|s| s.as_str()).unwrap_or("unknown");
+        let repo = inputs
+            .get("repo_path")
+            .map(|s| s.as_str())
+            .unwrap_or("unknown");
         let results = format!(
             "# Lint Results\n\nRepository: {}\n\n## Clippy\n- 0 warnings\n- 0 errors\n\n## Format Check\n- cargo fmt: OK",
             repo
         );
         AgentResult {
             success: true,
-            outputs: { let mut m = HashMap::new(); m.insert("lint_results".into(), results); m },
+            outputs: {
+                let mut m = HashMap::new();
+                m.insert("lint_results".into(), results);
+                m
+            },
             error: None,
         }
     }
@@ -113,57 +147,104 @@ impl Agent for LintChecker {
 
 pub struct SecurityAuditor;
 impl Agent for SecurityAuditor {
-    fn name(&self) -> &str { "security_auditor" }
+    fn name(&self) -> &str {
+        "security_auditor"
+    }
     fn description(&self) -> &str {
         "Audits code for security vulnerabilities: exposed secrets, unsafe patterns, injection risks"
     }
     fn input_schema(&self) -> Vec<ParamSchema> {
         vec![
-            ParamSchema { name: "repo_path".into(), param_type: "str".into(), description: "Path to repository".into() },
-            ParamSchema { name: "lint_results".into(), param_type: "str".into(), description: "Lint results for context".into() },
+            ParamSchema {
+                name: "repo_path".into(),
+                param_type: "str".into(),
+                description: "Path to repository".into(),
+            },
+            ParamSchema {
+                name: "lint_results".into(),
+                param_type: "str".into(),
+                description: "Lint results for context".into(),
+            },
         ]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "audit_report".into(), param_type: "str".into(), description: "Security audit findings with severity".into() },
-        ]
+        vec![ParamSchema {
+            name: "audit_report".into(),
+            param_type: "str".into(),
+            description: "Security audit findings with severity".into(),
+        }]
     }
     fn execute(&self, inputs: &HashMap<String, String>) -> AgentResult {
-        let repo = inputs.get("repo_path").map(|s| s.as_str()).unwrap_or("unknown");
+        let repo = inputs
+            .get("repo_path")
+            .map(|s| s.as_str())
+            .unwrap_or("unknown");
         let report = format!(
             "# Security Audit\n\nRepository: {}\n\n## Checks\n- [✓] No exposed secrets\n- [✓] No unsafe blocks without safety comments\n- [✓] Dependencies up to date\n\n## Risk Level: LOW",
             repo
         );
-        AgentResult { success: true, outputs: { let mut m = HashMap::new(); m.insert("audit_report".into(), report); m }, error: None }
+        AgentResult {
+            success: true,
+            outputs: {
+                let mut m = HashMap::new();
+                m.insert("audit_report".into(), report);
+                m
+            },
+            error: None,
+        }
     }
 }
 
 pub struct CodeGenerator;
 impl Agent for CodeGenerator {
-    fn name(&self) -> &str { "code_generator" }
+    fn name(&self) -> &str {
+        "code_generator"
+    }
     fn description(&self) -> &str {
         "Generates code based on specifications, producing compilable source files"
     }
     fn input_schema(&self) -> Vec<ParamSchema> {
         vec![
-            ParamSchema { name: "specification".into(), param_type: "str".into(), description: "Code specification or requirements".into() },
-            ParamSchema { name: "language".into(), param_type: "str".into(), description: "Target language (rust, python, etc.)".into() },
+            ParamSchema {
+                name: "specification".into(),
+                param_type: "str".into(),
+                description: "Code specification or requirements".into(),
+            },
+            ParamSchema {
+                name: "language".into(),
+                param_type: "str".into(),
+                description: "Target language (rust, python, etc.)".into(),
+            },
         ]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
         vec![
-            ParamSchema { name: "generated_code".into(), param_type: "str".into(), description: "Generated source code".into() },
-            ParamSchema { name: "output_path".into(), param_type: "str".into(), description: "Path where code was written".into() },
+            ParamSchema {
+                name: "generated_code".into(),
+                param_type: "str".into(),
+                description: "Generated source code".into(),
+            },
+            ParamSchema {
+                name: "output_path".into(),
+                param_type: "str".into(),
+                description: "Path where code was written".into(),
+            },
         ]
     }
     fn execute(&self, inputs: &HashMap<String, String>) -> AgentResult {
-        let spec = inputs.get("specification").map(|s| s.as_str()).unwrap_or("unknown");
+        let spec = inputs
+            .get("specification")
+            .map(|s| s.as_str())
+            .unwrap_or("unknown");
         let lang = inputs.get("language").map(|s| s.as_str()).unwrap_or("rust");
         AgentResult {
             success: true,
             outputs: {
                 let mut m = HashMap::new();
-                m.insert("generated_code".into(), format!("// Generated {} code for: {}", lang, spec));
+                m.insert(
+                    "generated_code".into(),
+                    format!("// Generated {} code for: {}", lang, spec),
+                );
                 m.insert("output_path".into(), "/tmp/generated.rs".into());
                 m
             },
@@ -176,25 +257,46 @@ impl Agent for CodeGenerator {
 
 pub struct RepoCloner;
 impl Agent for RepoCloner {
-    fn name(&self) -> &str { "repo_cloner" }
-    fn description(&self) -> &str { "Clones a git repository for analysis" }
+    fn name(&self) -> &str {
+        "repo_cloner"
+    }
+    fn description(&self) -> &str {
+        "Clones a git repository for analysis"
+    }
     fn input_schema(&self) -> Vec<ParamSchema> {
         vec![
-            ParamSchema { name: "repo_url".into(), param_type: "str".into(), description: "Git repository URL".into() },
-            ParamSchema { name: "branch".into(), param_type: "str".into(), description: "Branch to clone (default: main)".into() },
+            ParamSchema {
+                name: "repo_url".into(),
+                param_type: "str".into(),
+                description: "Git repository URL".into(),
+            },
+            ParamSchema {
+                name: "branch".into(),
+                param_type: "str".into(),
+                description: "Branch to clone (default: main)".into(),
+            },
         ]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "clone_path".into(), param_type: "str".into(), description: "Local path of cloned repository".into() },
-        ]
+        vec![ParamSchema {
+            name: "clone_path".into(),
+            param_type: "str".into(),
+            description: "Local path of cloned repository".into(),
+        }]
     }
     fn execute(&self, inputs: &HashMap<String, String>) -> AgentResult {
-        let url = inputs.get("repo_url").map(|s| s.as_str()).unwrap_or("unknown");
+        let url = inputs
+            .get("repo_url")
+            .map(|s| s.as_str())
+            .unwrap_or("unknown");
         let path = format!("/tmp/cloned_{}", url.replace('/', "_").replace(':', "_"));
         AgentResult {
             success: true,
-            outputs: { let mut m = HashMap::new(); m.insert("clone_path".into(), path); m },
+            outputs: {
+                let mut m = HashMap::new();
+                m.insert("clone_path".into(), path);
+                m
+            },
             error: None,
         }
     }
@@ -202,45 +304,79 @@ impl Agent for RepoCloner {
 
 pub struct CodebaseMapper;
 impl Agent for CodebaseMapper {
-    fn name(&self) -> &str { "codebase_mapper" }
-    fn description(&self) -> &str { "Maps a codebase structure: files, modules, dependencies" }
+    fn name(&self) -> &str {
+        "codebase_mapper"
+    }
+    fn description(&self) -> &str {
+        "Maps a codebase structure: files, modules, dependencies"
+    }
     fn input_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "clone_path".into(), param_type: "str".into(), description: "Path to the cloned repository".into() },
-        ]
+        vec![ParamSchema {
+            name: "clone_path".into(),
+            param_type: "str".into(),
+            description: "Path to the cloned repository".into(),
+        }]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "structure_report".into(), param_type: "str".into(), description: "Codebase structure and module map".into() },
-        ]
+        vec![ParamSchema {
+            name: "structure_report".into(),
+            param_type: "str".into(),
+            description: "Codebase structure and module map".into(),
+        }]
     }
     fn execute(&self, inputs: &HashMap<String, String>) -> AgentResult {
-        let path = inputs.get("clone_path").map(|s| s.as_str()).unwrap_or("unknown");
-        let report = format!("# Codebase Map\n\nPath: {}\n\n## Structure\n- src/\n- tests/\n- Cargo.toml", path);
-        AgentResult { success: true, outputs: { let mut m = HashMap::new(); m.insert("structure_report".into(), report); m }, error: None }
+        let path = inputs
+            .get("clone_path")
+            .map(|s| s.as_str())
+            .unwrap_or("unknown");
+        let report = format!(
+            "# Codebase Map\n\nPath: {}\n\n## Structure\n- src/\n- tests/\n- Cargo.toml",
+            path
+        );
+        AgentResult {
+            success: true,
+            outputs: {
+                let mut m = HashMap::new();
+                m.insert("structure_report".into(), report);
+                m
+            },
+            error: None,
+        }
     }
 }
 
 pub struct ArchitectureAnalyzer;
 impl Agent for ArchitectureAnalyzer {
-    fn name(&self) -> &str { "architecture_analyzer" }
-    fn description(&self) -> &str { "Analyzes software architecture: patterns, coupling, cohesion" }
+    fn name(&self) -> &str {
+        "architecture_analyzer"
+    }
+    fn description(&self) -> &str {
+        "Analyzes software architecture: patterns, coupling, cohesion"
+    }
     fn input_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "structure_report".into(), param_type: "str".into(), description: "Codebase structure report".into() },
-        ]
+        vec![ParamSchema {
+            name: "structure_report".into(),
+            param_type: "str".into(),
+            description: "Codebase structure report".into(),
+        }]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "architecture_report".into(), param_type: "str".into(), description: "Architecture analysis with recommendations".into() },
-        ]
+        vec![ParamSchema {
+            name: "architecture_report".into(),
+            param_type: "str".into(),
+            description: "Architecture analysis with recommendations".into(),
+        }]
     }
     fn execute(&self, _inputs: &HashMap<String, String>) -> AgentResult {
         AgentResult {
             success: true,
             outputs: {
                 let mut m = HashMap::new();
-                m.insert("architecture_report".into(), "# Architecture Analysis\n\nPattern: Modular\nCoupling: Low\nCohesion: High".into());
+                m.insert(
+                    "architecture_report".into(),
+                    "# Architecture Analysis\n\nPattern: Modular\nCoupling: Low\nCohesion: High"
+                        .into(),
+                );
                 m
             },
             error: None,
@@ -252,17 +388,25 @@ impl Agent for ArchitectureAnalyzer {
 
 pub struct HealthChecker;
 impl Agent for HealthChecker {
-    fn name(&self) -> &str { "health_checker" }
-    fn description(&self) -> &str { "Checks system health: services, disk, memory, GPU" }
+    fn name(&self) -> &str {
+        "health_checker"
+    }
+    fn description(&self) -> &str {
+        "Checks system health: services, disk, memory, GPU"
+    }
     fn input_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "target".into(), param_type: "str".into(), description: "Target to check (all, gpu, disk, memory, services)".into() },
-        ]
+        vec![ParamSchema {
+            name: "target".into(),
+            param_type: "str".into(),
+            description: "Target to check (all, gpu, disk, memory, services)".into(),
+        }]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "health_report".into(), param_type: "str".into(), description: "Health check results".into() },
-        ]
+        vec![ParamSchema {
+            name: "health_report".into(),
+            param_type: "str".into(),
+            description: "Health check results".into(),
+        }]
     }
     fn execute(&self, inputs: &HashMap<String, String>) -> AgentResult {
         let target = inputs.get("target").map(|s| s.as_str()).unwrap_or("all");
@@ -281,24 +425,51 @@ impl Agent for HealthChecker {
 
 pub struct LogAnalyzer;
 impl Agent for LogAnalyzer {
-    fn name(&self) -> &str { "log_analyzer" }
-    fn description(&self) -> &str { "Analyzes system logs for errors, patterns, and anomalies" }
+    fn name(&self) -> &str {
+        "log_analyzer"
+    }
+    fn description(&self) -> &str {
+        "Analyzes system logs for errors, patterns, and anomalies"
+    }
     fn input_schema(&self) -> Vec<ParamSchema> {
         vec![
-            ParamSchema { name: "log_source".into(), param_type: "str".into(), description: "Path or service name for log analysis".into() },
-            ParamSchema { name: "time_range".into(), param_type: "str".into(), description: "Time range to analyze (e.g., last 1h)".into() },
+            ParamSchema {
+                name: "log_source".into(),
+                param_type: "str".into(),
+                description: "Path or service name for log analysis".into(),
+            },
+            ParamSchema {
+                name: "time_range".into(),
+                param_type: "str".into(),
+                description: "Time range to analyze (e.g., last 1h)".into(),
+            },
         ]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "log_report".into(), param_type: "str".into(), description: "Log analysis findings".into() },
-        ]
+        vec![ParamSchema {
+            name: "log_report".into(),
+            param_type: "str".into(),
+            description: "Log analysis findings".into(),
+        }]
     }
     fn execute(&self, inputs: &HashMap<String, String>) -> AgentResult {
-        let source = inputs.get("log_source").map(|s| s.as_str()).unwrap_or("unknown");
+        let source = inputs
+            .get("log_source")
+            .map(|s| s.as_str())
+            .unwrap_or("unknown");
         AgentResult {
             success: true,
-            outputs: { let mut m = HashMap::new(); m.insert("log_report".into(), format!("# Log Analysis: {}\n\n- 0 critical errors\n- 2 warnings (non-critical)", source)); m },
+            outputs: {
+                let mut m = HashMap::new();
+                m.insert(
+                    "log_report".into(),
+                    format!(
+                        "# Log Analysis: {}\n\n- 0 critical errors\n- 2 warnings (non-critical)",
+                        source
+                    ),
+                );
+                m
+            },
             error: None,
         }
     }
@@ -308,24 +479,45 @@ impl Agent for LogAnalyzer {
 
 pub struct WikiSynthesizer;
 impl Agent for WikiSynthesizer {
-    fn name(&self) -> &str { "wiki_synthesizer" }
-    fn description(&self) -> &str { "Synthesizes knowledge into structured wiki entries" }
+    fn name(&self) -> &str {
+        "wiki_synthesizer"
+    }
+    fn description(&self) -> &str {
+        "Synthesizes knowledge into structured wiki entries"
+    }
     fn input_schema(&self) -> Vec<ParamSchema> {
         vec![
-            ParamSchema { name: "source_content".into(), param_type: "str".into(), description: "Source content to synthesize".into() },
-            ParamSchema { name: "topic".into(), param_type: "str".into(), description: "Topic for the wiki entry".into() },
+            ParamSchema {
+                name: "source_content".into(),
+                param_type: "str".into(),
+                description: "Source content to synthesize".into(),
+            },
+            ParamSchema {
+                name: "topic".into(),
+                param_type: "str".into(),
+                description: "Topic for the wiki entry".into(),
+            },
         ]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "wiki_entry".into(), param_type: "str".into(), description: "Structured wiki entry in markdown".into() },
-        ]
+        vec![ParamSchema {
+            name: "wiki_entry".into(),
+            param_type: "str".into(),
+            description: "Structured wiki entry in markdown".into(),
+        }]
     }
     fn execute(&self, inputs: &HashMap<String, String>) -> AgentResult {
         let topic = inputs.get("topic").map(|s| s.as_str()).unwrap_or("unknown");
         AgentResult {
             success: true,
-            outputs: { let mut m = HashMap::new(); m.insert("wiki_entry".into(), format!("# {}\n\nAuto-generated wiki entry.", topic)); m },
+            outputs: {
+                let mut m = HashMap::new();
+                m.insert(
+                    "wiki_entry".into(),
+                    format!("# {}\n\nAuto-generated wiki entry.", topic),
+                );
+                m
+            },
             error: None,
         }
     }
@@ -333,22 +525,34 @@ impl Agent for WikiSynthesizer {
 
 pub struct PatternExtractor;
 impl Agent for PatternExtractor {
-    fn name(&self) -> &str { "pattern_extractor" }
-    fn description(&self) -> &str { "Extracts reusable patterns from code, documents, or conversations" }
+    fn name(&self) -> &str {
+        "pattern_extractor"
+    }
+    fn description(&self) -> &str {
+        "Extracts reusable patterns from code, documents, or conversations"
+    }
     fn input_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "source_content".into(), param_type: "str".into(), description: "Content to extract patterns from".into() },
-        ]
+        vec![ParamSchema {
+            name: "source_content".into(),
+            param_type: "str".into(),
+            description: "Content to extract patterns from".into(),
+        }]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "patterns".into(), param_type: "str".into(), description: "Extracted patterns".into() },
-        ]
+        vec![ParamSchema {
+            name: "patterns".into(),
+            param_type: "str".into(),
+            description: "Extracted patterns".into(),
+        }]
     }
     fn execute(&self, _inputs: &HashMap<String, String>) -> AgentResult {
         AgentResult {
             success: true,
-            outputs: { let mut m = HashMap::new(); m.insert("patterns".into(), "## Extracted Patterns\n\n1. Graph-based workflow routing\n2. Self-evaluation loops".into()); m },
+            outputs: {
+                let mut m = HashMap::new();
+                m.insert("patterns".into(), "## Extracted Patterns\n\n1. Graph-based workflow routing\n2. Self-evaluation loops".into());
+                m
+            },
             error: None,
         }
     }
@@ -356,23 +560,44 @@ impl Agent for PatternExtractor {
 
 pub struct Summarizer;
 impl Agent for Summarizer {
-    fn name(&self) -> &str { "summarizer" }
-    fn description(&self) -> &str { "Summarizes documents, code, or conversations into concise overviews" }
+    fn name(&self) -> &str {
+        "summarizer"
+    }
+    fn description(&self) -> &str {
+        "Summarizes documents, code, or conversations into concise overviews"
+    }
     fn input_schema(&self) -> Vec<ParamSchema> {
         vec![
-            ParamSchema { name: "content".into(), param_type: "str".into(), description: "Content to summarize".into() },
-            ParamSchema { name: "max_length".into(), param_type: "str".into(), description: "Maximum summary length in words".into() },
+            ParamSchema {
+                name: "content".into(),
+                param_type: "str".into(),
+                description: "Content to summarize".into(),
+            },
+            ParamSchema {
+                name: "max_length".into(),
+                param_type: "str".into(),
+                description: "Maximum summary length in words".into(),
+            },
         ]
     }
     fn output_schema(&self) -> Vec<ParamSchema> {
-        vec![
-            ParamSchema { name: "summary".into(), param_type: "str".into(), description: "Concise summary".into() },
-        ]
+        vec![ParamSchema {
+            name: "summary".into(),
+            param_type: "str".into(),
+            description: "Concise summary".into(),
+        }]
     }
     fn execute(&self, _inputs: &HashMap<String, String>) -> AgentResult {
         AgentResult {
             success: true,
-            outputs: { let mut m = HashMap::new(); m.insert("summary".into(), "Summary: Content analyzed and condensed to key points.".into()); m },
+            outputs: {
+                let mut m = HashMap::new();
+                m.insert(
+                    "summary".into(),
+                    "Summary: Content analyzed and condensed to key points.".into(),
+                );
+                m
+            },
             error: None,
         }
     }
@@ -388,7 +613,9 @@ pub struct AgentRegistry {
 impl AgentRegistry {
     /// Create a new registry with all built-in agents pre-registered.
     pub fn new() -> Self {
-        let mut registry = Self { agents: HashMap::new() };
+        let mut registry = Self {
+            agents: HashMap::new(),
+        };
         registry.register_defaults();
         registry
     }
@@ -411,7 +638,8 @@ impl AgentRegistry {
 
     /// Add an agent to the registry.
     pub fn add<A: Agent + 'static>(&mut self, agent: A) {
-        self.agents.insert(agent.name().to_string(), Box::new(agent));
+        self.agents
+            .insert(agent.name().to_string(), Box::new(agent));
     }
 
     /// Get an agent by name.

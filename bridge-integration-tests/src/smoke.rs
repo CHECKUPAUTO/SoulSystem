@@ -64,7 +64,10 @@ async fn main() -> anyhow::Result<()> {
                 let probed = client.probe_all().await;
                 let up = probed.values().filter(|s| s.reachable).count();
                 let total = probed.len();
-                (format!("ServicesClient OK, {up}/{total} services UP"), up > 0)
+                (
+                    format!("ServicesClient OK, {up}/{total} services UP"),
+                    up > 0,
+                )
             }
             Ok(Err(e)) => (format!("init error: {e}"), false),
             Err(_) => ("timeout 12s".to_string(), false),
@@ -131,10 +134,21 @@ async fn main() -> anyhow::Result<()> {
         let res = tokio::time::timeout(
             Duration::from_secs(10),
             tokio::task::spawn_blocking(|| {
-                use forge_bridge::{ForgeCampaign, ForgeConfig, binpack_demo::BinPacking};
+                use forge_bridge::{binpack_demo::BinPacking, ForgeCampaign, ForgeConfig};
                 let campaign = ForgeCampaign::new(
-                    ForgeConfig { generations: 3, population: 12, survivors: 2, base_seed: 42, max_reflection_retries: 2, stagnation_threshold: 5 },
-                    BinPacking { capacity: 1.0, n_items: 30, n_instances: 10 },
+                    ForgeConfig {
+                        generations: 3,
+                        population: 12,
+                        survivors: 2,
+                        base_seed: 42,
+                        max_reflection_retries: 2,
+                        stagnation_threshold: 5,
+                    },
+                    BinPacking {
+                        capacity: 1.0,
+                        n_items: 30,
+                        n_instances: 10,
+                    },
                 );
                 let report = campaign.run();
                 if report.history.is_empty() {
@@ -142,7 +156,8 @@ async fn main() -> anyhow::Result<()> {
                 }
                 Ok::<(), anyhow::Error>(())
             }),
-        ).await;
+        )
+        .await;
         let (msg, ok) = match res {
             Ok(Ok(Ok(()))) => ("forge-bridge evolution OK".to_string(), true),
             Ok(Ok(Err(e))) => (format!("forge error: {e}"), false),

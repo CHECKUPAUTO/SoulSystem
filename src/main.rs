@@ -415,11 +415,10 @@ async fn main() -> Result<()> {
     // ── API HTTP REST (pour agents OpenClaw) ─────────────────────────────
     let bound_system_api = Arc::new(BoundSystem::new(BoundSystem::default_whitelist()));
     let metrics_registry = soulsystem::metrics::init();
-    let bridge_store = soulsystem::bridge_store::BridgeStore::open(
-        settings.paths.log_dir.join("bridges.db"),
-    )
-    .ok()
-    .map(Arc::new);
+    let bridge_store =
+        soulsystem::bridge_store::BridgeStore::open(settings.paths.log_dir.join("bridges.db"))
+            .ok()
+            .map(Arc::new);
     let api_state = Arc::new(soulsystem::api::ApiState {
         bound_system: bound_system_api,
         pty_sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -639,7 +638,6 @@ async fn main() -> Result<()> {
             Err(e) => tracing::warn!("services-bridge init failed: {}", e),
         }
     }
-
 
     // Souscripteur memoire permanent (log des events)
     let mem_bus = bus.clone();

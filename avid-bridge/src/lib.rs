@@ -5,8 +5,8 @@ use anyhow::Result;
 pub fn init() -> Result<()> {
     // Port 8080 = OWNCLOUD (réservé). AVID a migré vers ONAEU :7878 par défaut.
     // Le port peut être surchargé via AVID_ENDPOINT (utile pour un AVID distant).
-    let endpoint = std::env::var("AVID_ENDPOINT")
-        .unwrap_or_else(|_| "http://127.0.0.1:7878".to_string());
+    let endpoint =
+        std::env::var("AVID_ENDPOINT").unwrap_or_else(|_| "http://127.0.0.1:7878".to_string());
     tracing::info!(
         "🧬 AVID bridge initialized (HTTP client to {} — set AVID_ENDPOINT to override)",
         endpoint

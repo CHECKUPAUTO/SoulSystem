@@ -78,6 +78,8 @@ members = [
     # forge-bridge (now in forges/forge-bridge)
     "agent-registry",
     "bridge-integration-tests",
+    "soullink-circuit-breaker",
+    "soullink-sanitizer",
 ]
 
 exclude = [

@@ -429,7 +429,13 @@ async fn bridges_status_handler() -> Json<BridgesStatus> {
     let synergie = probe_url("http://127.0.0.1:7460", "/health").await;
     let brain = probe_url("http://127.0.0.1:9010", "/api/health").await;
     let soul_neural = probe_url("http://127.0.0.1:9020", "/api/mesh/status").await;
-    Json(BridgesStatus { avid, openevolve, synergie, brain, soul_neural })
+    Json(BridgesStatus {
+        avid,
+        openevolve,
+        synergie,
+        brain,
+        soul_neural,
+    })
 }
 
 async fn bridges_probe_handler() -> Json<serde_json::Value> {
@@ -484,26 +490,33 @@ async fn probe_url(base: &str, path: &str) -> String {
 async fn organs_status_handler() -> Json<serde_json::Value> {
     // V1 organs (5031-5036) — /api/stats
     // V2 organs (9040-9046) — /api/stats
-    let v1 = [("reasoning", 5031),
+    let v1 = [
+        ("reasoning", 5031),
         ("integration", 5032),
         ("perception", 5033),
         ("affect", 5034),
         ("reflex", 5035),
-        ("language", 5036)];
-    let v2 = [("foresight", 9040),
+        ("language", 5036),
+    ];
+    let v2 = [
+        ("foresight", 9040),
         ("homeostasis", 9041),
         ("creativity", 9042),
         ("social", 9043),
         ("validation", 9044),
-        ("autonomy", 9046)];
+        ("autonomy", 9046),
+    ];
 
     let mut out = serde_json::Map::new();
     for (name, port) in v1.iter().chain(v2.iter()) {
         let r = probe_url(&format!("http://127.0.0.1:{}", port), "/").await;
-        out.insert(name.to_string(), serde_json::json!({
-            "port": port,
-            "status": r,
-        }));
+        out.insert(
+            name.to_string(),
+            serde_json::json!({
+                "port": port,
+                "status": r,
+            }),
+        );
     }
     Json(serde_json::json!({
         "v1_count": v1.len(),
@@ -527,11 +540,14 @@ async fn mesh_status_handler() -> Json<serde_json::Value> {
     for (name, port, path) in services.iter() {
         let url = format!("http://127.0.0.1:{}", port);
         let r = probe_url(&url, path).await;
-        out.insert(name.to_string(), serde_json::json!({
-            "port": port,
-            "path": path,
-            "status": r,
-        }));
+        out.insert(
+            name.to_string(),
+            serde_json::json!({
+                "port": port,
+                "path": path,
+                "status": r,
+            }),
+        );
     }
     Json(serde_json::json!({
         "count": services.len(),
@@ -560,11 +576,14 @@ async fn services_status_handler() -> Json<serde_json::Value> {
     for (name, port, path) in services.iter() {
         let url = format!("http://127.0.0.1:{}", port);
         let r = probe_url(&url, path).await;
-        out.insert(name.to_string(), serde_json::json!({
-            "port": port,
-            "path": path,
-            "status": r,
-        }));
+        out.insert(
+            name.to_string(),
+            serde_json::json!({
+                "port": port,
+                "path": path,
+                "status": r,
+            }),
+        );
     }
     Json(serde_json::json!({
         "count": services.len(),
@@ -579,7 +598,10 @@ async fn metrics_handler(
 ) -> impl axum::response::IntoResponse {
     let body = state.metrics.render().await;
     (
-        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
         body,
     )
 }

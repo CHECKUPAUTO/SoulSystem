@@ -12,21 +12,41 @@ pub struct Score {
 
 impl Score {
     pub fn invalid() -> Self {
-        Score { objectives: Vec::new(), valid: false, error_msg: None }
+        Score {
+            objectives: Vec::new(),
+            valid: false,
+            error_msg: None,
+        }
     }
     pub fn with_error(msg: String) -> Self {
-        Score { objectives: Vec::new(), valid: false, error_msg: Some(msg) }
+        Score {
+            objectives: Vec::new(),
+            valid: false,
+            error_msg: Some(msg),
+        }
     }
     pub fn valid(objectives: Vec<f64>) -> Self {
-        Score { objectives, valid: true, error_msg: None }
+        Score {
+            objectives,
+            valid: true,
+            error_msg: None,
+        }
     }
     pub fn dominates(&self, other: &Self) -> bool {
-        if !self.valid { return false; }
-        if !other.valid { return true; }
+        if !self.valid {
+            return false;
+        }
+        if !other.valid {
+            return true;
+        }
         let mut better = false;
         for (a, b) in self.objectives.iter().zip(other.objectives.iter()) {
-            if a > b { return false; }
-            if a < b { better = true; }
+            if a > b {
+                return false;
+            }
+            if a < b {
+                better = true;
+            }
         }
         better
     }
@@ -49,7 +69,12 @@ pub trait Domain: Sync + Send {
         Vec::new()
     }
 
-    fn reflect(&self, _rng: &mut StdRng, _failed: &Self::Cand, _error: &str) -> Result<Option<Self::Cand>> {
+    fn reflect(
+        &self,
+        _rng: &mut StdRng,
+        _failed: &Self::Cand,
+        _error: &str,
+    ) -> Result<Option<Self::Cand>> {
         Ok(None)
     }
 }

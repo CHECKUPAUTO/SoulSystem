@@ -107,8 +107,7 @@ impl LSTM {
         let mut outputs: Vec<Var<'t>> = Vec::with_capacity(seq_len);
 
         for t in 0..seq_len {
-            let x_t = input
-                .slice_rows(t * batch_size, (t + 1) * batch_size);
+            let x_t = input.slice_rows(t * batch_size, (t + 1) * batch_size);
 
             // gates = x_t @ W_ih^T + h @ W_hh^T + b_ih + b_hh
             let mut gates = x_t.matmul(w_ih_t).add(h.matmul(w_hh_t));

@@ -7,7 +7,7 @@ use std::sync::RwLock;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::candidate::Candidate;
 use crate::domain::{Domain, Score};
@@ -56,7 +56,11 @@ impl<'de, C: Candidate + Serialize + for<'a> Deserialize<'a>> Deserialize<'de> f
         }
         let v = Inner::<C>::deserialize(d)?;
         let cand: C = serde_json::from_value(v.cand).map_err(serde::de::Error::custom)?;
-        Ok(Individual { cand, score: v.score, crowding_distance: 0.0 })
+        Ok(Individual {
+            cand,
+            score: v.score,
+            crowding_distance: 0.0,
+        })
     }
 }
 
@@ -66,7 +70,9 @@ pub struct EvaluationCache {
 
 impl EvaluationCache {
     pub fn new() -> Self {
-        EvaluationCache { cache: RwLock::new(HashMap::new()) }
+        EvaluationCache {
+            cache: RwLock::new(HashMap::new()),
+        }
     }
     pub fn get(&self, id: u64) -> Option<Score> {
         self.cache.read().unwrap().get(&id).cloned()
@@ -109,7 +115,11 @@ impl<'de, C: Candidate + Serialize + for<'a> Deserialize<'a>> Deserialize<'de> f
             let i: Individual<C> = serde_json::from_value(jv).map_err(serde::de::Error::custom)?;
             archive.push(i);
         }
-        Ok(Checkpoint { generation: v.generation, config: v.config, archive })
+        Ok(Checkpoint {
+            generation: v.generation,
+            config: v.config,
+            archive,
+        })
     }
 }
 
@@ -127,8 +137,7 @@ impl<C: Candidate + Serialize + for<'a> Deserialize<'a>> Checkpoint<C> {
 
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let data = fs::read_to_string(path)?;
-        serde_json::from_str(&data)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        serde_json::from_str(&data).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     }
 }
 
@@ -176,7 +185,9 @@ where
         for g in 0..self.config.generations {
             let trial = Trial {
                 generation: g,
-                seed: self.config.base_seed
+                seed: self
+                    .config
+                    .base_seed
                     .wrapping_mul(0x9E37_79B9_7F4A_7C15)
                     .wrapping_add(g.wrapping_add(1)),
             };
@@ -253,8 +264,7 @@ where
             };
             let _ = cp.save_atomic(Path::new("forge_checkpoint.json"));
 
-            let survivors: Vec<D::Cand> =
-                archive.iter().map(|i| i.cand.clone()).collect();
+            let survivors: Vec<D::Cand> = archive.iter().map(|i| i.cand.clone()).collect();
             if survivors.is_empty() {
                 pop = (0..self.config.population)
                     .map(|_| self.domain.seed(&mut master))
@@ -442,10 +452,10 @@ fn nsga2_select<C: Candidate>(archive: &mut Vec<Individual<C>>, survivors_limit:
                         let next = front[k + 1];
                         let curr = front[k];
                         if archive[curr].crowding_distance != f64::INFINITY {
-                            archive[curr].crowding_distance +=
-                                (archive[next].score.objectives[obj_idx]
-                                    - archive[prev].score.objectives[obj_idx])
-                                    / norm;
+                            archive[curr].crowding_distance += (archive[next].score.objectives
+                                [obj_idx]
+                                - archive[prev].score.objectives[obj_idx])
+                                / norm;
                         }
                     }
                 }
@@ -472,13 +482,11 @@ fn nsga2_select<C: Candidate>(archive: &mut Vec<Individual<C>>, survivors_limit:
             .iter()
             .position(|f| f.contains(&b.1))
             .unwrap_or(usize::MAX);
-        front_a
-            .cmp(&front_b)
-            .then_with(|| {
-                b.0.crowding_distance
-                    .partial_cmp(&a.0.crowding_distance)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+        front_a.cmp(&front_b).then_with(|| {
+            b.0.crowding_distance
+                .partial_cmp(&a.0.crowding_distance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
 
     *archive = annotated.into_iter().map(|(ind, _)| ind).collect();

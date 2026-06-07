@@ -183,12 +183,16 @@ mod tests {
         let path = tmp.path().with_extension("db");
         let store = BridgeStore::open(&path).unwrap();
         store.record("avid", true, Some("0.6.0"), None).unwrap();
-        store.record("openevolve", false, None, Some("timeout")).unwrap();
+        store
+            .record("openevolve", false, None, Some("timeout"))
+            .unwrap();
 
         let all = store.all().unwrap();
         assert_eq!(all.len(), 2);
         assert!(all.iter().any(|r| r.name == "avid" && r.reachable));
-        assert!(all.iter().any(|r| r.name == "openevolve" && !r.reachable && r.consecutive_failures == 1));
+        assert!(all
+            .iter()
+            .any(|r| r.name == "openevolve" && !r.reachable && r.consecutive_failures == 1));
     }
 
     #[test]

@@ -137,7 +137,8 @@ impl SynergieClient {
             .json()
             .await
             .context("synergie scan json")?;
-        Ok(resp.get("status")
+        Ok(resp
+            .get("status")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string())
@@ -161,8 +162,7 @@ impl SynergieClient {
 
 /// Initialise le bridge : crée le client et log l'état.
 pub async fn init() -> Result<SynergieClient> {
-    let url = std::env::var("SYNERGIE_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:7460".to_string());
+    let url = std::env::var("SYNERGIE_URL").unwrap_or_else(|_| "http://127.0.0.1:7460".to_string());
     let client = SynergieClient::connect(url).await?;
     info!("🔗 synergie-bridge initialized (HTTP client)");
     Ok(client)

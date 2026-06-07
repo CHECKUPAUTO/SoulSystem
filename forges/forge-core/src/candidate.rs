@@ -11,7 +11,9 @@ pub type CandidateId = u64;
 
 /// Contrat minimal d'un candidat. `Clone + Send + Sync` pour permettre une
 /// future evaluation parallele sans changer l'API.
-pub trait Candidate: Clone + Send + Sync + serde::Serialize + for<'a> serde::Deserialize<'a> {
+pub trait Candidate:
+    Clone + Send + Sync + serde::Serialize + for<'a> serde::Deserialize<'a>
+{
     /// Hash stable du contenu (typiquement `fnv1a(&self.repr())`).
     fn id(&self) -> CandidateId;
     /// Representation textuelle exacte (code source, ou parametres).

@@ -1619,8 +1619,10 @@ impl Tape {
                                                     && ih_signed < h_in as isize
                                                     && iw_signed >= 0
                                                     && iw_signed < w_in as isize
-                                                    && (ih_signed as usize - (oh - kh + pad)).is_multiple_of(stride)
-                                                    && (iw_signed as usize - (ow - kw + pad)).is_multiple_of(stride)
+                                                    && (ih_signed as usize - (oh - kh + pad))
+                                                        .is_multiple_of(stride)
+                                                    && (iw_signed as usize - (ow - kw + pad))
+                                                        .is_multiple_of(stride)
                                                 {
                                                     let ih = ih_signed as usize;
                                                     let iw = iw_signed as usize;
