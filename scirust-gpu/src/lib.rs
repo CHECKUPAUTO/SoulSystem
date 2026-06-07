@@ -67,7 +67,6 @@ pub mod dispatch {
 }
 
 pub mod cuda_backend;
-pub mod unified;
 #[cfg(feature = "cuda")]
 pub mod cuda_turboquant;
 pub mod error;
@@ -75,4 +74,5 @@ pub mod gpu_gemm;
 pub mod gpu_tensor;
 pub mod quant_train;
 pub mod quantize;
+pub mod unified;
 pub mod wgpu_backend;

@@ -271,6 +271,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires external DB at /root/consciousness-research-engine/data/papers.db"]
     fn test_db_open_and_query() {
         let db = ResearchDB::new().expect("DB must exist");
         
@@ -284,6 +285,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires external DB at /root/consciousness-research-engine/data/papers.db"]
     fn test_search() {
         let db = ResearchDB::new().unwrap();
         let (papers, total) = db.search_papers("consciousness", 1, 100, None, None).unwrap();
@@ -291,6 +293,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires external DB at /root/consciousness-research-engine/data/papers.db"]
     fn test_stats() {
         let db = ResearchDB::new().unwrap();
         let stats = db.get_stats().unwrap();
@@ -299,6 +302,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires external DB at /root/consciousness-research-engine/data/papers.db"]
     fn test_timeline() {
         let db = ResearchDB::new().unwrap();
         let timeline = db.get_timeline(None, None).unwrap();
@@ -335,6 +339,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires external DB at /root/consciousness-research-engine/data/papers.db"]
     fn test_source_filter() {
         let db = ResearchDB::new().unwrap();
         let (papers, _) = db.list_papers(1, 100, Some("arxiv"), None, None, "year", "desc").unwrap();
