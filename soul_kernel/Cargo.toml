@@ -18,3 +18,5 @@ soul_scout = { path = "../soul_scout" }
 soul_guard = { path = "../soul_guard" }
 libc = "0.2"
 
+soul_cluster = { path = "../soul_cluster" }
+soul_perception = { path = "../soul_perception" }

@@ -980,6 +980,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "soul_agent_runtime",
+ "soul_cluster",
  "soul_cortex",
  "soul_evolution",
  "soul_forge",
@@ -987,6 +988,7 @@ dependencies = [
  "soul_ipc",
  "soul_journal",
  "soul_matrix_engine",
+ "soul_perception",
  "soul_scheduler",
  "soul_scout",
  "soul_storage",

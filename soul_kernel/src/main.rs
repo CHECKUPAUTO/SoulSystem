@@ -4,6 +4,9 @@ use soul_cortex::RecurrentCortex;
 use soul_scout::SovereignScout;
 use soul_guard::SystemGuard;
 use soul_surgery::NeuralSurgeon;
+use soul_cluster::ClusterNode;
+use soul_perception::PerceptionPipeline;
+use soul_ipc::bus::{AgentMessage, InterAgentBus};
 
 fn main() {
     println!("====================================================");
@@ -59,6 +62,37 @@ fn main() {
     }
     if !guard.verify_integrity(unsafe_data) {
         println!("[GUARD] ATTENTION : violation detectee, verrouillage preventif.");
+    }
+
+
+    // 6. Cablage des ex-orphelins : perception (parse -> bus IPC) + cluster (UDP)
+    let bus = InterAgentBus::new();
+    let raw = b"{\"k1\":\"DATA_temp_42\",\"k2\":\"ERR_overheat\",\"k3\":\"ignore_me\"}";
+    let routed = unsafe { PerceptionPipeline::parse_and_route(raw, 1, &bus) };
+    println!("[PERCEPTION] {} signaux routes vers le bus (pending={})", routed, bus.pending_count());
+    while let Some(m) = bus.dequeue() {
+        println!("[PERCEPTION]  -> signal_code=0x{:04X} payload_size={}", m.signal_code, m.payload_size);
+    }
+
+    let node = ClusterNode::bind("127.0.0.1:48999").expect("bind cluster node");
+    let cluster_payload: &[u8] = b"HELLO_CLUSTER";
+    let out = AgentMessage {
+        source_agent_id: 1,
+        target_agent_id: 2,
+        signal_code: 0x434C5354,
+        payload_ptr: cluster_payload.as_ptr() as *mut u8,
+        payload_size: cluster_payload.len(),
+    };
+    let sent = unsafe { node.transmit_remote("127.0.0.1:48999", &out).expect("transmit") };
+    let mut storage = [0u8; 256];
+    let mut received = None;
+    for _ in 0..50 {
+        if let Some(m) = node.listen_and_inject(&mut storage) { received = Some(m); break; }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    match received {
+        Some(m) => println!("[CLUSTER] round-trip OK : {} octets envoyes, recu signal=0x{:08X} payload_size={}", sent, m.signal_code, m.payload_size),
+        None => println!("[CLUSTER] {} octets envoyes mais rien recu (loopback)", sent),
     }
 
     // 5. Threads de calcul
