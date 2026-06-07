@@ -10,3 +10,6 @@ homepage = "https://github.com/RyanCodrai/turbovec"
 readme = "../README.md"
 keywords = ["vector-search", "quantization", "nearest-neighbor", "ann", "simd"]
 categories = ["algorithms", "science", "compression"]
+
+[dev-dependencies]
+statrs = "0.18.0"

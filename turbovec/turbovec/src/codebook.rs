@@ -62,6 +62,16 @@ fn lloyd_max(bits: usize, dim: usize) -> (Vec<f32>, Vec<f32>) {
             new_centroids[i] = if mass > 1e-15 { moment / mass } else { (lo + hi) / 2.0 };
         }
 
+        // Force la symetrie : Beta((d-1)/2,(d-1)/2) est symetrique autour de 0, donc
+        // le quantificateur MMSE l'est aussi. On projette chaque mise a jour sur
+        // l'espace symetrique -> empeche la derive asymetrique (cellules de queue
+        // vides -> repli sur le milieu) aux grandes dimensions.
+        for i in 0..n_levels / 2 {
+            let half = (new_centroids[i] - new_centroids[n_levels - 1 - i]) / 2.0;
+            new_centroids[i] = half;
+            new_centroids[n_levels - 1 - i] = -half;
+        }
+
         // Check convergence
         let err: f64 = centroids
             .iter()
@@ -74,15 +84,10 @@ fn lloyd_max(bits: usize, dim: usize) -> (Vec<f32>, Vec<f32>) {
         centroids = new_centroids;
     }
 
-    // Convert to f32 and compute boundaries for export
-    let boundaries: Vec<f32> = (0..n_levels)
-        .map(|i| {
-            if i == 0 {
-                -1.0_f32
-            } else {
-                ((centroids[i - 1] + centroids[i]) / 2.0) as f32
-            }
-        })
+    // Frontieres exportees = les n_levels-1 milieux internes uniquement
+    // (boundary[i] entre centroids[i] et centroids[i+1]) ; pas les bords +/-1.
+    let boundaries: Vec<f32> = (0..n_levels - 1)
+        .map(|i| ((centroids[i] + centroids[i + 1]) / 2.0) as f32)
         .collect();
 
     (boundaries, centroids.iter().map(|&v| v as f32).collect())

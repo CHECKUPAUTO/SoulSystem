@@ -1453,8 +1453,8 @@ fn calibrate_queries(
     let mut bias_corrs = vec![0.0f32; nq];
 
     q_calib
-        .par_chunks_mut(dim)
-        .zip(bias_corrs.par_iter_mut())
+        .chunks_mut(dim)
+        .zip(bias_corrs.iter_mut())
         .enumerate()
         .for_each(|(qi, (calib_row, bias))| {
             let q_row = &q_rot[qi * dim..(qi + 1) * dim];
@@ -1534,7 +1534,7 @@ pub fn search(
         const QBS: usize = 4;
         let results: Vec<Vec<(Vec<f32>, Vec<i64>)>> = (0..nq)
             .step_by(QBS)
-            .flat_map(|qi_start| {
+            .map(|qi_start| {
                 let qi_end = (qi_start + QBS).min(nq);
                 let batch_size = qi_end - qi_start;
 
@@ -1659,7 +1659,7 @@ pub fn search(
                         let i: Vec<i64> = pairs.iter().map(|p| p.1 as i64).collect();
                         (s, i)
                     })
-                    .collect()
+                    .collect::<Vec<_>>()
             })
             .collect();
         results.into_iter().flatten().collect::<Vec<_>>()
