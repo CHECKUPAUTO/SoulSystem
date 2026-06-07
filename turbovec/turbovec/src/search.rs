@@ -354,7 +354,7 @@ unsafe fn search_multi_query_avx2(
                     if chunk_start >= end - base_vec { break; }
                     let scores_v = _mm256_loadu_ps(block_out.as_ptr().add(chunk_start));
                     let cmp = _mm256_cmp_ps(scores_v, v_hmin, _CMP_GT_OQ);
-                    if _mm256_movemask_ps(cmp) == 0 { continue; }
+                    if mask.is_none() && _mm256_movemask_ps(cmp) == 0 { continue; }
 
                     let chunk_end = (chunk_start + 8).min(end - base_vec);
                     for lane in chunk_start..chunk_end {
@@ -625,9 +625,9 @@ unsafe fn search_multi_query_avx512bw(
     if bulk_blocks < n_blocks {
         let b = bulk_blocks;
         let base_vec = b * BLOCK;
-        if !block_has_allowed(mask, base_vec) {
-            return;
-        }
+        // if !block_has_allowed(mask, base_vec) {
+        //     return;
+        // }
 
         // Same flush structure as `search_multi_query_avx2`: per-query f32
         // accumulators seeded with bias, batched i16 accumulation with
@@ -858,7 +858,7 @@ unsafe fn avx2_post_flush_heap_update(
             if chunk_start >= end_lane { break; }
             let scores_v = _mm256_loadu_ps(block_out.as_ptr().add(chunk_start));
             let cmp = _mm256_cmp_ps(scores_v, v_hmin, _CMP_GT_OQ);
-            if _mm256_movemask_ps(cmp) == 0 { continue; }
+            if mask.is_none() && _mm256_movemask_ps(cmp) == 0 { continue; }
 
             let chunk_end = (chunk_start + 8).min(end_lane);
             for lane in chunk_start..chunk_end {
@@ -1053,7 +1053,7 @@ unsafe fn avx2_block_epilogue(
                 if chunk_start >= end_lane { break; }
                 let scores_v = _mm256_loadu_ps(block_out.as_ptr().add(chunk_start));
                 let cmp = _mm256_cmp_ps(scores_v, v_hmin, _CMP_GT_OQ);
-                if _mm256_movemask_ps(cmp) == 0 { continue; }
+                if mask.is_none() && _mm256_movemask_ps(cmp) == 0 { continue; }
 
                 let chunk_end = (chunk_start + 8).min(end_lane);
                 for lane in chunk_start..chunk_end {
