@@ -943,6 +943,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul_attention"
+version = "0.1.0"
+
+[[package]]
 name = "soul_cluster"
 version = "0.1.0"
 dependencies = [

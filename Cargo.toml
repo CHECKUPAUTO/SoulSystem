@@ -28,6 +28,7 @@ members = [
     "soul_scout",
     "soul_guard",
     "soul_orchestrator",
+    "soul_attention",
 
 
 
