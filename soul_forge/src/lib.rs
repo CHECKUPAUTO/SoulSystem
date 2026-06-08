@@ -9,10 +9,13 @@ pub struct Genome {
 pub struct EvolutionaryForge {
     pub current_genome: Genome,
     best_score: f64,
+    generation: u64,
 }
 
 impl Default for EvolutionaryForge {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EvolutionaryForge {
@@ -23,28 +26,68 @@ impl EvolutionaryForge {
                 work_stealing_threshold: 100,
             },
             best_score: 0.0,
+            generation: 0,
         }
     }
 
-    /// Analyse les métriques de cycles CPU de la télémétrie pour évaluer la viabilité du génome actuel
-    pub fn evaluate_and_mutate(&mut self, _telemetry: &TelemetryHub) -> bool {
-        // Simulation de calcul de fitness : Tâches exécutées / Cycles totaux consommés
-        let total_tasks = 0.0;
-        let total_cycles = 1.0;
+    /// Évalue le génome actuel via les métriques réelles du TelemetryHub et
+    /// applique une mutation si le fitness a diminué.
+    ///
+    /// Le fitness est défini comme le ratio tâches exécutées / cycles totaux,
+    /// ce qui mesure l'efficacité d'exécution du scheduler. Un fitness plus
+    /// élevé signifie que le scheduler produit plus de travail par cycle.
+    pub fn evaluate_and_mutate(&mut self, telemetry: &TelemetryHub) -> bool {
+        // Agrégation des métriques réelles depuis le hub
+        let (total_tasks, total_cycles) = telemetry.aggregate_metrics();
 
-        // Extraction brute des atomiques via le hub de télémétrie
-        // (Dans une vraie intégration, nous ajouterions un accesseur public dans soul_telemetry)
+        // Fitness = tâches / cycles (avec garde division par zéro)
+        let fitness = if total_cycles > 0 {
+            total_tasks as f64 / total_cycles as f64
+        } else {
+            0.0
+        };
 
-        let fitness = total_tasks / total_cycles;
+        self.generation += 1;
 
         if fitness > self.best_score {
             self.best_score = fitness;
-            false // Le génome est stable, pas de mutation immédiate nécessaire
+            false // Le génome est stable, pas de mutation immédiate
         } else {
-            // Algorithme de mutation génétique : altération pseudo-aléatoire des structures d'exécution
-            self.current_genome.matrix_tile_size = if self.current_genome.matrix_tile_size == 32 { 64 } else { 16 };
-            self.current_genome.work_stealing_threshold += 25;
+            self.mutate_genome();
             true // Le génome a muté
         }
+    }
+
+    /// Mutation génétique avec diversification des paramètres.
+    /// Utilise un pattern cyclique basé sur la génération pour éviter
+    /// de rester bloqué dans un optimum local.
+    fn mutate_genome(&mut self) {
+        let gen = self.generation;
+        // Cycle entre différentes stratégies de mutation
+        match gen % 4 {
+            0 => {
+                // Doubler la taille de tile (puis revenir à 32 si trop grand)
+                self.current_genome.matrix_tile_size =
+                    if self.current_genome.matrix_tile_size >= 128 { 16 } else { self.current_genome.matrix_tile_size * 2 };
+            }
+            1 => {
+                // Réduire le seuil de work-stealing
+                self.current_genome.work_stealing_threshold =
+                    self.current_genome.work_stealing_threshold.saturating_sub(50).max(25);
+            }
+            2 => {
+                // Alterner tile size entre 32 et 64
+                self.current_genome.matrix_tile_size = if self.current_genome.matrix_tile_size == 32 { 64 } else { 32 };
+            }
+            _ => {
+                // Augmenter le seuil de work-stealing
+                self.current_genome.work_stealing_threshold += 50;
+            }
+        }
+    }
+
+    /// Retourne la génération courante (nombre d'évaluations effectuées).
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 }

@@ -12,7 +12,6 @@ impl SystemGuard {
     pub fn new() -> Self {
         Self {
             is_compromised: AtomicBool::new(false),
-            // Deny-list par defaut (extensible via add_threat_signature).
             threat_signatures: vec![
                 b"ROOT_HIJACK".to_vec(),
                 b"HIJACK_ATTEMPT".to_vec(),
@@ -29,6 +28,20 @@ impl SystemGuard {
         if !sig.is_empty() {
             self.threat_signatures.push(sig.to_vec());
         }
+    }
+
+    /// Supprime une signature de menace par son contenu.
+    /// Retourne `true` si la signature etait presente et a ete supprimee.
+    pub fn remove_threat_signature(&mut self, sig: &[u8]) -> bool {
+        let len_before = self.threat_signatures.len();
+        self.threat_signatures.retain(|s| s != sig);
+        self.threat_signatures.len() < len_before
+    }
+
+    /// Reinitialise l'etat de compromission (delibere : a utiliser uniquement
+    /// en mode maintenance / apres resolution d'une alerte).
+    pub fn reset_compromise(&self) {
+        self.is_compromised.store(false, Ordering::Release);
     }
 
     #[inline]
@@ -50,7 +63,7 @@ impl SystemGuard {
     /// apparait dans le flux. Une detection verrouille le systeme.
     pub fn verify_integrity(&self, content: &[u8]) -> bool {
         if self.is_compromised.load(Ordering::Acquire) {
-            return false; // verrouillage immediat
+            return false;
         }
         for sig in &self.threat_signatures {
             if contains_subslice(content, sig) {
@@ -93,7 +106,6 @@ mod tests {
         let g = SystemGuard::new();
         assert!(!g.verify_integrity(b"CRITICAL_ALERT: ROOT_HIJACK_ATTEMPT_DETECTED"));
         assert!(g.is_compromised(), "une detection doit verrouiller le systeme");
-        // latch : meme un flux propre est desormais refuse
         assert!(!g.verify_integrity(b"hello"));
         println!("PREUVE hijack : ROOT_HIJACK detecte -> refuse + verrou (latch)");
     }
@@ -113,5 +125,28 @@ mod tests {
         let g = SystemGuard::new();
         assert!(!g.verify_integrity(b"sudo rm -rf / --no-preserve-root"));
         println!("PREUVE deny-list : 'rm -rf' detecte");
+    }
+
+    #[test]
+    fn remove_signature_works() {
+        let mut g = SystemGuard::new();
+        let n0 = g.signature_count();
+        g.add_threat_signature(b"TEMP_THREAT");
+        assert_eq!(g.signature_count(), n0 + 1);
+        assert!(g.remove_threat_signature(b"TEMP_THREAT"));
+        assert_eq!(g.signature_count(), n0);
+        assert!(g.verify_integrity(b"TEMP_THREAT is now safe"));
+        println!("PREUVE remove : signature supprimee, flux accepte");
+    }
+
+    #[test]
+    fn reset_compromise_clears_latch() {
+        let g = SystemGuard::new();
+        assert!(!g.verify_integrity(b"ROOT_HIJACK"));
+        assert!(g.is_compromised());
+        g.reset_compromise();
+        assert!(!g.is_compromised());
+        assert!(g.verify_integrity(b"hello world"));
+        println!("PREUVE reset : compromise reinitialise, flux de nouveau accepte");
     }
 }

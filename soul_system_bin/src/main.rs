@@ -60,7 +60,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let running = Arc::new(AtomicBool::new(true));
     let r_clone = running.clone();
     tokio::spawn(async move {
-        let mut sigint = signal(SignalKind::interrupt()).unwrap();
+        let mut sigint = match signal(SignalKind::interrupt()) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[SYSTEM] echec setup SIGINT: {} -> signal non disponible", e);
+                return;
+            }
+        };
         sigint.recv().await;
         r_clone.store(false, Ordering::SeqCst);
     });

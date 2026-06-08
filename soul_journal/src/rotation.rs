@@ -42,11 +42,17 @@ impl RotatingJournal {
         if data.is_empty() || data.len() + 8 >= self.segment_size {
             return false;
         }
-        let cur = self.state.read().unwrap().current.clone();
+        let cur = match self.state.read() {
+            Ok(st) => st.current.clone(),
+            Err(_) => return false,
+        };
         if cur.append_log(tag, data) {
             return true;
         }
-        let mut st = self.state.write().unwrap();
+        let mut st = match self.state.write() {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
         if st.current.append_log(tag, data) {
             return true; // un autre thread avait deja tourne
         }
@@ -64,7 +70,10 @@ impl RotatingJournal {
 
     /// Relit tous les records commites (segments scelles puis courant, dans l'ordre).
     pub fn read_all_committed(&self) -> Vec<(u32, Vec<u8>)> {
-        let st = self.state.read().unwrap();
+        let st = match self.state.read() {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
         let mut out = Vec::new();
         for seg in &st.sealed {
             out.extend(seg.read_committed());
@@ -75,7 +84,10 @@ impl RotatingJournal {
 
     /// msync de tous les segments.
     pub fn sync_all(&self) -> bool {
-        let st = self.state.read().unwrap();
+        let st = match self.state.read() {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
         let mut ok = true;
         for seg in &st.sealed {
             ok &= seg.sync();
@@ -85,7 +97,10 @@ impl RotatingJournal {
 
     /// Nombre de segments (scelles + courant).
     pub fn segment_count(&self) -> usize {
-        self.state.read().unwrap().sealed.len() + 1
+        self.state
+            .read()
+            .map(|st| st.sealed.len() + 1)
+            .unwrap_or(0)
     }
 }
 

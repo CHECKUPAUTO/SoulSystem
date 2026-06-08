@@ -39,12 +39,24 @@ pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
             println!("[AGENT-RUN-TIME] Agent #{} : Signal 0x{:X} intercepté.", agent.agent_id, message.signal_code);
 
             // 2. PHASE DE CONTEXTUALISATION (Neural Storage Scan)
-            // On extrait un vecteur fictif représentant le signal pour sonder notre mémoire interne
-            let mut fake_query = [0.0f32; 1024];
-            fake_query[0] = message.signal_code as f32; // Injection du code signal dans l'espace d'embedding
+            // Encodage du signal en vecteur d'embedding : on répartit le signal_code
+            // sur les 32 premières dimensions via un schéma cyclique pour maximiser
+            // la discriminativité dans l'espace de recherche KNN.
+            let mut query = [0.0f32; 1024];
+            let code = message.signal_code;
+            for dim in 0..32 {
+                let bit = (code >> dim) & 1;
+                query[dim] = if bit == 1 { 1.0 } else { -1.0 };
+            }
+            // Encodage de l'identité source sur les dimensions 32-63
+            let src = message.source_agent_id;
+            for dim in 0..32 {
+                let bit = (src >> dim) & 1;
+                query[32 + dim] = if bit == 1 { 0.5 } else { -0.5 };
+            }
 
             let mut search_buffer = [SearchResult { id: 0, score: 0.0 }; 5];
-            let found_memories = storage.knn_search(&fake_query, 5, &mut search_buffer);
+            let found_memories = storage.knn_search(&query, 5, &mut search_buffer);
 
             if found_memories > 0 {
                 println!("[AGENT-RUN-TIME] Agent #{} : {} souvenirs pertinents extraits de la mémoire.", agent.agent_id, found_memories);
