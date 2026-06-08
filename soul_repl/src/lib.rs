@@ -1,14 +1,21 @@
 use colored::*;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
-use soul_llm::{LlmConfig, OllamaClient};
+use soul_llm::{LlmConfig, OllamaClientBlocking};
 use soul_planner::CognitiveLoop;
 use soul_tools::{discover_system_tools, execute_shell, ToolRegistry};
+use soul_automation::{AlertOperator, AlertSeverity};
+use soul_security::SecurityEngine;
+use soul_monitor::MonitorEngine;
+use soul_cognitive::CognitiveEngine;
 
 pub struct ReplState {
-    pub llm: OllamaClient,
+    pub llm: OllamaClientBlocking,
     pub planner: CognitiveLoop,
     pub registry: ToolRegistry,
+    pub cognitive: CognitiveEngine,
+    pub security: SecurityEngine,
+    pub monitor: MonitorEngine,
 }
 
 impl ReplState {
@@ -19,15 +26,21 @@ impl ReplState {
             registry.register(tool);
         }
         Self {
-            llm: OllamaClient::new(config),
+            llm: OllamaClientBlocking::new(config),
             planner: CognitiveLoop::new(),
             registry,
+            cognitive: CognitiveEngine::new(),
+            security: SecurityEngine::new(),
+            monitor: MonitorEngine::new(),
         }
     }
 }
 
 pub fn run_repl(state: &mut ReplState) {
-    let mut rl = DefaultEditor::new().expect("Failed to create readline");
+    let mut rl = DefaultEditor::new().unwrap_or_else(|_| {
+        eprintln!("Failed to create readline editor");
+        std::process::exit(1);
+    });
 
     println!("{}", "SoulSystem Autonomous REPL".cyan().bold());
     println!("{}", "Type 'help' for commands, 'exit' to quit".dimmed());
@@ -76,11 +89,7 @@ fn handle_input(state: &mut ReplState, input: &str) {
                 println!("{}", "Usage: ask <question>".yellow());
                 return;
             }
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let resp = rt.block_on(async {
-                state.llm.generate(args).await
-            });
-            match resp {
+            match state.llm.generate(args) {
                 Ok(r) => println!("{}", r.response),
                 Err(e) => println!("{}: {}", "Error".red().bold(), e),
             }
@@ -97,8 +106,13 @@ fn handle_input(state: &mut ReplState, input: &str) {
                 created_at: chrono::Utc::now(),
                 status: soul_planner::GoalStatus::Active,
             };
-            let plan = state.planner.create_plan(&goal, &[]);
-            println!("{}: {}", "Plan".cyan().bold(), serde_json::to_string_pretty(&plan).unwrap());
+            let tool_names: Vec<String> = state.registry.list().iter().map(|t| t.name.clone()).collect();
+            println!("{}", "Planning with LLM...".dimmed());
+            let plan = state.planner.create_plan(&goal, &tool_names);
+            match serde_json::to_string_pretty(&plan) {
+                Ok(json) => println!("{}: {}", "Plan".cyan().bold(), json),
+                Err(e) => println!("{}: {}", "Error".red().bold(), e),
+            }
         }
         "tools" => {
             let tools = state.registry.list();
@@ -147,11 +161,16 @@ fn handle_input(state: &mut ReplState, input: &str) {
                 return;
             }
             state.planner.memory.observe(args.to_string());
+            state.cognitive.context.add(args, 0.5);
             println!("{}: {}", "Observed".green().bold(), args);
         }
         "decide" => {
+            println!("{}", "Thinking...".dimmed());
             let decision = state.planner.decide(args);
-            println!("{}: {}", "Decision".cyan().bold(), serde_json::to_string_pretty(&decision).unwrap());
+            match serde_json::to_string_pretty(&decision) {
+                Ok(json) => println!("{}: {}", "Decision".cyan().bold(), json),
+                Err(e) => println!("{}: {}", "Error".red().bold(), e),
+            }
         }
         "history" => {
             let recent = state.planner.history.recent(10);
@@ -165,21 +184,171 @@ fn handle_input(state: &mut ReplState, input: &str) {
                 }
             }
         }
+        "learn" => {
+            let learn_parts: Vec<&str> = args.splitn(3, ' ').collect();
+            if learn_parts.len() < 3 {
+                println!("{}", "Usage: learn <action> <outcome> <reward:0.0-1.0>".yellow());
+                return;
+            }
+            let reward = learn_parts[2].parse::<f32>().unwrap_or(0.5);
+            state.cognitive.learn(learn_parts[0], learn_parts[1], reward);
+            state.planner.history.record(
+                learn_parts[0].to_string(),
+                learn_parts[1].to_string(),
+                reward > 0.0,
+            );
+            println!("{}: learned '{}' → '{}' (reward: {:.1})", "Learned".green().bold(), learn_parts[0], learn_parts[1], reward);
+        }
+        "think" => {
+            if args.is_empty() {
+                println!("{}", "Usage: think <input>".yellow());
+                return;
+            }
+            let result = state.cognitive.think(args);
+            match serde_json::to_string_pretty(&result) {
+                Ok(json) => println!("{}: {}", "Think".cyan().bold(), json),
+                Err(e) => println!("{}: {}", "Error".red().bold(), e),
+            }
+        }
+        "knowledge" => {
+            let stats = state.cognitive.knowledge.stats();
+            println!("{}: {}", "Knowledge Graph".cyan().bold(), stats);
+            let entities = state.cognitive.knowledge.search(args);
+            if !entities.is_empty() {
+                println!("  Found {} entities:", entities.len());
+                for e in entities.iter().take(10) {
+                    println!("    {} ({})", e.name.green(), e.entity_type.dimmed());
+                }
+            }
+        }
+        "graph" => {
+            if args.is_empty() {
+                let stats = state.cognitive.knowledge.stats();
+                println!("{}: {}", "Knowledge Graph".cyan().bold(), stats);
+            } else {
+                let results = state.cognitive.knowledge.search(args);
+                if results.is_empty() {
+                    println!("{}", "No matching entities".dimmed());
+                } else {
+                    for e in results {
+                        println!("  {} ({})", e.name.green(), e.entity_type.dimmed());
+                        let related = state.cognitive.knowledge.get_related(&e.id);
+                        for r in related.iter().take(5) {
+                            println!("    → {} ({})", r.name, r.entity_type);
+                        }
+                    }
+                }
+            }
+        }
+        "clear" => {
+            state.planner.memory.observations.clear();
+            state.planner.history.actions.clear();
+            println!("{}", "Memory and history cleared".green().bold());
+        }
+        "config" => {
+            let cfg = state.llm.config();
+            println!("{}:", "Configuration".cyan().bold());
+            println!("  Model: {}", cfg.model.green());
+            println!("  URL: {}", cfg.base_url);
+            println!("  Temperature: {}", cfg.temperature);
+            println!("  Max tokens: {}", cfg.max_tokens);
+        }
+        "gpu" => {
+            match state.monitor.gpu.get_gpu_info() {
+                Some(gpu) => {
+                    println!("{}:", "GPU".cyan().bold());
+                    println!("  Name: {}", gpu.name.green());
+                    println!("  Temperature: {:.0}°C", gpu.temperature);
+                    println!("  Utilization: {:.1}%", gpu.utilization);
+                    println!("  Memory: {} MB / {} MB", gpu.memory_used, gpu.memory_total);
+                    println!("  Power: {:.0}W", gpu.power);
+                }
+                None => println!("{}", "No GPU detected".yellow()),
+            }
+        }
+        "network" => {
+            let stats = state.monitor.network.get_stats();
+            println!("{}:", "Network".cyan().bold());
+            println!("  Connections: {}", stats.connections);
+            println!("  Latency: {:.1}ms", stats.latency_ms);
+            for iface in &stats.interfaces {
+                println!("  {}: ↑{} ↓{}", iface.name.green(),
+                    format_bytes(iface.bytes_sent),
+                    format_bytes(iface.bytes_received));
+            }
+        }
+        "disks" => {
+            let disks = state.monitor.disk.get_disks();
+            println!("{}:", "Disks".cyan().bold());
+            for d in &disks {
+                println!("  {} → {} ({:.1}% used)",
+                    d.device.green(), d.mount_point, d.usage_percent);
+            }
+        }
+        "audit" => {
+            let recent = state.security.audit.recent(10);
+            if recent.is_empty() {
+                println!("{}", "No audit entries".dimmed());
+            } else {
+                println!("{}:", "Audit Trail".cyan().bold());
+                for e in recent {
+                    println!("  [{}] {} → {}: {}",
+                        e.timestamp.format("%H:%M"),
+                        e.actor.green(),
+                        e.target,
+                        e.action);
+                }
+            }
+        }
+        "secrets" => {
+            let secrets = state.security.secrets.list_secrets();
+            println!("{}: {} secrets", "Secrets".cyan().bold(), secrets.len());
+            for s in secrets {
+                println!("  {} (created: {})", s.name.green(),
+                    s.created_at.format("%Y-%m-%d"));
+            }
+        }
+        "block" => {
+            if args.is_empty() {
+                println!("{}", "Usage: block <ip>".yellow());
+                return;
+            }
+            state.security.intrusion.block_ip(args);
+            println!("{}: {}", "Blocked".red().bold(), args);
+        }
+        "intrusions" => {
+            let events = state.security.intrusion.recent_events(10);
+            if events.is_empty() {
+                println!("{}", "No intrusion events".dimmed());
+            } else {
+                println!("{}:", "Intrusion Events".cyan().bold());
+                for e in events {
+                    println!("  [{}] {:?} from {}: {}",
+                        e.timestamp.format("%H:%M"),
+                        e.severity,
+                        e.source_ip.green(),
+                        e.details);
+                }
+            }
+        }
+        "rate" => {
+            let parts: Vec<&str> = args.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let max: usize = parts[1].parse().unwrap_or(100);
+                state.security.rate_limiter.set_limit(parts[0], max, 60);
+                println!("{}: {} → max {}/min", "Rate limit".green().bold(), parts[0], max);
+            } else if !args.is_empty() {
+                let remaining = state.security.rate_limiter.remaining(args);
+                println!("{}: {} remaining", "Rate limit".cyan().bold(), remaining);
+            } else {
+                println!("{}", "Usage: rate <key> [max_requests]".yellow());
+            }
+        }
         "status" => {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let alive = rt.block_on(async { state.llm.is_alive().await });
-            let model = &state.llm.config().model;
-            let tools = state.registry.list().len();
-            let rate = state.planner.history.success_rate();
-            println!("{}:", "Status".cyan().bold());
-            println!("  Model: {}", model.green());
-            println!("  Ollama: {}", if alive { "connected".green() } else { "disconnected".red() });
-            println!("  Tools: {}", tools.to_string().green());
-            println!("  Success rate: {:.1}%", (rate * 100.0));
+            print_full_status(state);
         }
         "models" => {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(async { state.llm.list_models().await }) {
+            match state.llm.list_models() {
                 Ok(models) => {
                     println!("{}: {} models", "Models".cyan().bold(), models.len());
                     for m in models.iter().take(20) {
@@ -195,17 +364,86 @@ fn handle_input(state: &mut ReplState, input: &str) {
     }
 }
 
+fn print_full_status(state: &ReplState) {
+    let alive = state.llm.is_alive();
+    let model = &state.llm.config().model;
+    let tools = state.registry.list().len();
+    let rate = state.planner.history.success_rate();
+    let metrics = soul_bridges::monitor::get_metrics();
+    let docker_running = soul_bridges::docker::is_docker_running();
+    let containers = soul_bridges::docker::list_containers().unwrap_or_default();
+
+    println!("{}:", "System Status".cyan().bold());
+    println!("  LLM:");
+    println!("    Model: {}", model.green());
+    println!("    Ollama: {}", if alive { "connected".green() } else { "disconnected".red() });
+    println!("  Resources:");
+    println!("    CPU: {:.1}%", metrics.cpu_usage);
+    println!("    Memory: {:.1}% ({} MB / {} MB)",
+        metrics.memory_usage,
+        (metrics.memory_total - metrics.memory_available) / 1024,
+        metrics.memory_total / 1024);
+    println!("    Processes: {}", metrics.process_count);
+    println!("    Load: {:.2} / {:.2} / {:.2}", metrics.load_avg[0], metrics.load_avg[1], metrics.load_avg[2]);
+    println!("  Services:");
+    println!("    Tools: {}", tools.to_string().green());
+    println!("    Docker: {}", if docker_running { "running".green() } else { "stopped".red() });
+    if !containers.is_empty() {
+        println!("    Containers: {}", containers.len());
+        for c in containers.iter().take(5) {
+            println!("      {} - {}", c.name.green(), c.status);
+        }
+    }
+    println!("  Cognitive:");
+    println!("    Knowledge: {} entities", state.cognitive.knowledge.stats()["entities"]);
+    println!("    Learning rate: {:.1}%", state.cognitive.learning.success_rate() * 100.0);
+    println!("    Context: {}", state.cognitive.context.stats());
+    println!("  Security:");
+    println!("    Audit entries: {}", state.security.audit.count());
+    println!("    Intrusion events: {}", state.security.intrusion.stats()["total_events"]);
+    println!("    Secrets: {}", state.security.secrets.list_secrets().len());
+    println!("  Performance:");
+    println!("    Success rate: {:.1}%", (rate * 100.0));
+    println!("    Memory entries: {}", state.planner.memory.observations.len());
+}
+
+fn format_bytes(bytes: u64) -> String {
+    if bytes >= 1024 * 1024 * 1024 {
+        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    } else if bytes >= 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
 fn print_help() {
     println!("{}", "Commands:".cyan().bold());
     println!("  {} - Ask a question to the LLM", "ask <msg>".green());
-    println!("  {} - Create a plan for a goal", "plan <goal>".green());
+    println!("  {} - Create a plan for a goal (LLM-powered)", "plan <goal>".green());
     println!("  {} - Execute a shell command", "run <cmd>".green());
     println!("  {} - List available tools", "tools".green());
     println!("  {} - View working memory", "memory".green());
     println!("  {} - Record an observation", "observe <msg>".green());
-    println!("  {} - Make a decision", "decide <ctx>".green());
+    println!("  {} - Make a decision (LLM-powered)", "decide <ctx>".green());
     println!("  {} - View action history", "history".green());
-    println!("  {} - System status", "status".green());
+    println!("  {} - Learn from experience", "learn <action> <outcome> <reward>".green());
+    println!("  {} - Think about input (cognitive)", "think <input>".green());
+    println!("  {} - Query knowledge graph", "knowledge [query]".green());
+    println!("  {} - Explore knowledge graph", "graph [query]".green());
+    println!("  {} - Clear memory and history", "clear".green());
+    println!("  {} - Show configuration", "config".green());
+    println!("  {} - GPU status", "gpu".green());
+    println!("  {} - Network status", "network".green());
+    println!("  {} - Disk status", "disks".green());
+    println!("  {} - View audit trail", "audit".green());
+    println!("  {} - List secrets", "secrets".green());
+    println!("  {} - Block an IP", "block <ip>".green());
+    println!("  {} - View intrusion events", "intrusions".green());
+    println!("  {} - Rate limit management", "rate <key> [max]".green());
+    println!("  {} - Full system status", "status".green());
     println!("  {} - List Ollama models", "models".green());
     println!("  {} - Show this help", "help".green());
     println!("  {} - Exit", "exit".green());

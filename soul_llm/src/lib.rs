@@ -23,7 +23,7 @@ impl Default for LlmConfig {
     fn default() -> Self {
         Self {
             base_url: "http://127.0.0.1:11434".to_string(),
-            model: "qwen3:8b".to_string(),
+            model: "qwen3:4b".to_string(),
             temperature: 0.7,
             max_tokens: 2048,
         }
@@ -167,6 +167,62 @@ impl OllamaClient {
             .await?;
 
         Ok(resp.embeddings)
+    }
+
+    pub fn config(&self) -> &LlmConfig {
+        &self.config
+    }
+}
+
+// Blocking versions for REPL and non-async contexts
+pub struct OllamaClientBlocking {
+    config: LlmConfig,
+    http: reqwest::blocking::Client,
+}
+
+impl OllamaClientBlocking {
+    pub fn new(config: LlmConfig) -> Self {
+        Self {
+            config,
+            http: reqwest::blocking::Client::new(),
+        }
+    }
+
+    pub fn is_alive(&self) -> bool {
+        self.http
+            .get(format!("{}/api/tags", self.config.base_url))
+            .send()
+            .is_ok()
+    }
+
+    pub fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
+        let resp: ModelsResponse = self
+            .http
+            .get(format!("{}/api/tags", self.config.base_url))
+            .send()?
+            .json()?;
+        Ok(resp.models)
+    }
+
+    pub fn generate(&self, prompt: &str) -> Result<GenerateResponse, LlmError> {
+        let req = GenerateRequest {
+            model: self.config.model.clone(),
+            prompt: prompt.to_string(),
+            stream: false,
+            options: Some(GenerateOptions {
+                temperature: self.config.temperature,
+                num_predict: self.config.max_tokens,
+            }),
+        };
+
+        let resp: GenerateResponse = self
+            .http
+            .post(format!("{}/api/generate", self.config.base_url))
+            .json(&req)
+            .send()?
+            .json()?;
+
+        Ok(resp)
     }
 
     pub fn config(&self) -> &LlmConfig {

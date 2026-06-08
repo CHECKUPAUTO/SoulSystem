@@ -16,6 +16,7 @@ use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -47,6 +48,18 @@ struct Cli {
     /// Create a plan for a goal and exit
     #[arg(long)]
     plan: Option<String>,
+
+    /// Start autonomous loop (observe→plan→act→evaluate→decide)
+    #[arg(long)]
+    autonomous: bool,
+
+    /// Tick interval in seconds for autonomous loop (default: 30)
+    #[arg(long, default_value = "30")]
+    tick: u64,
+
+    /// Serve live dashboard on this port (only with --autonomous)
+    #[arg(long)]
+    dashboard: Option<u16>,
 }
 
 #[tokio::main]
@@ -57,6 +70,82 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // ── Autonomous modes (lightweight, no full system init) ────────────
+    if cli.repl {
+        info!("▶ Mode REPL autonome activé");
+        let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
+        soul_repl::run_repl(&mut repl_state);
+        return Ok(());
+    }
+
+    if let Some(ref question) = cli.ask {
+        info!("▶ Mode ask: {}", question);
+        let config = soul_llm::LlmConfig::default();
+        let client = soul_llm::OllamaClient::new(config);
+        match client.generate(question).await {
+            Ok(resp) => println!("{}", resp.response),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+        return Ok(());
+    }
+
+    if let Some(ref goal_desc) = cli.plan {
+        info!("▶ Mode plan: {}", goal_desc);
+        let config = soul_llm::LlmConfig::default();
+        let entity_name = hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "soulsystem".to_string());
+        let autonomous = soulsystem::autonomous::AutonomousEntity::new(config, &entity_name);
+        let goal = autonomous.create_goal(goal_desc);
+        let plan = autonomous.plan(&goal);
+        match serde_json::to_string_pretty(&plan) {
+            Ok(json) => println!("{}", json),
+            Err(e) => eprintln!("Error serializing plan: {}", e),
+        }
+        return Ok(());
+    }
+
+    if cli.autonomous {
+        info!("▶ Mode autonome activé (tick: {}s)", cli.tick);
+
+        let config = soul_llm::LlmConfig::default();
+        let entity_name = hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "soulsystem".to_string());
+        let mut entity = soulsystem::autonomous::AutonomousEntity::new(config, &entity_name);
+
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let shutdown_clone = shutdown.clone();
+
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.ok();
+            info!("Shutdown signal received");
+            shutdown_clone.store(true, Ordering::Relaxed);
+        });
+
+        #[cfg(unix)]
+        {
+            let shutdown_clone = shutdown.clone();
+            tokio::spawn(async move {
+                let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+                sigterm.recv().await;
+                info!("SIGTERM received");
+                shutdown_clone.store(true, Ordering::Relaxed);
+            });
+        }
+
+        let loop_config = soulsystem::autonomous_loop::AutonomousLoopConfig {
+            tick_interval_secs: cli.tick,
+            max_consecutive_noops: 10,
+            data_dir: "/var/lib/soulsystem/autonomous".to_string(),
+            dashboard_port: cli.dashboard,
+        };
+
+        soulsystem::autonomous_loop::run_autonomous_loop(&mut entity, loop_config, shutdown).await;
+        return Ok(());
+    }
+
+    // ── Full system initialization ─────────────────────────────────────
     // Chargement de la configuration centralisée
     let settings = soulsystem::config::Settings::new()?;
     info!(
@@ -763,41 +852,7 @@ async fn main() -> Result<()> {
 
     info!("✅ SoulSystem prêt — boucle principale");
 
-    // ── Autonomous entity ──────────────────────────────────────────────
-    let autonomous_config = soul_llm::LlmConfig::default();
-    let entity_name = hostname::get()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "soulsystem".to_string());
-    let autonomous = soulsystem::autonomous::AutonomousEntity::new(
-        autonomous_config,
-        &entity_name,
-    );
-
-    if cli.repl {
-        info!("▶ Mode REPL autonome activé");
-        let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
-        soul_repl::run_repl(&mut repl_state);
-        return Ok(());
-    }
-
-    if let Some(ref question) = cli.ask {
-        info!("▶ Mode ask: {}", question);
-        match autonomous.ask(question).await {
-            Ok(answer) => println!("{}", answer),
-            Err(e) => eprintln!("Error: {}", e),
-        }
-        return Ok(());
-    }
-
-    if let Some(ref goal_desc) = cli.plan {
-        info!("▶ Mode plan: {}", goal_desc);
-        let goal = autonomous.create_goal(goal_desc);
-        let plan = autonomous.plan(&goal);
-        println!("{}", serde_json::to_string_pretty(&plan).unwrap());
-        return Ok(());
-    }
-
-    // ── Boucle principale ──────────────────────────────────────────────────
+    // ── Default: simple loop ──────────────────────────────────────────────
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
     }

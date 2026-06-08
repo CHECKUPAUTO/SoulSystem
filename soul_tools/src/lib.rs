@@ -82,12 +82,18 @@ pub fn execute_shell(command: &str) -> Result<String, String> {
 }
 
 pub fn execute_tool(tool: &Tool, args: &str) -> Result<String, String> {
-    let cmd = if args.is_empty() {
-        tool.path.clone()
+    let mut cmd = Command::new(&tool.path);
+    if !args.is_empty() {
+        for arg in args.split_whitespace() {
+            cmd.arg(arg);
+        }
+    }
+    let output = cmd.output().map_err(|e| format!("Failed to execute {}: {}", tool.path, e))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
-        format!("{} {}", tool.path, args)
-    };
-    execute_shell(&cmd)
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
 }
 
 const SYSTEM_TOOLS: &[(&str, &str, &str, ToolCategory)] = &[
@@ -150,4 +156,113 @@ pub fn discover_system_tools() -> Vec<Tool> {
         }
     }
     tools
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_registry() {
+        let mut reg = ToolRegistry::new();
+        reg.register(Tool {
+            name: "test".to_string(),
+            path: "/bin/echo".to_string(),
+            description: "echo".to_string(),
+            category: ToolCategory::System,
+        });
+        assert_eq!(reg.list().len(), 1);
+        assert!(reg.get("test").is_some());
+        assert!(reg.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_tool_search() {
+        let mut reg = ToolRegistry::new();
+        reg.register(Tool {
+            name: "docker".to_string(),
+            path: "/usr/bin/docker".to_string(),
+            description: "Container runtime".to_string(),
+            category: ToolCategory::System,
+        });
+        reg.register(Tool {
+            name: "ls".to_string(),
+            path: "/bin/ls".to_string(),
+            description: "List files".to_string(),
+            category: ToolCategory::File,
+        });
+        let results = reg.search("docker");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "docker");
+    }
+
+    #[test]
+    fn test_tool_by_category() {
+        let mut reg = ToolRegistry::new();
+        reg.register(Tool {
+            name: "ls".to_string(),
+            path: "/bin/ls".to_string(),
+            description: "List files".to_string(),
+            category: ToolCategory::File,
+        });
+        reg.register(Tool {
+            name: "ps".to_string(),
+            path: "/bin/ps".to_string(),
+            description: "List processes".to_string(),
+            category: ToolCategory::Process,
+        });
+        let file_tools = reg.by_category(&ToolCategory::File);
+        assert_eq!(file_tools.len(), 1);
+    }
+
+    #[test]
+    fn test_execute_shell() {
+        let result = execute_shell("echo hello");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().trim(), "hello");
+    }
+
+    #[test]
+    fn test_execute_shell_error() {
+        let result = execute_shell("nonexistent_command_12345");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_execute_tool() {
+        let tool = Tool {
+            name: "echo".to_string(),
+            path: "/bin/echo".to_string(),
+            description: "echo".to_string(),
+            category: ToolCategory::System,
+        };
+        let result = execute_tool(&tool, "hello world");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().trim(), "hello world");
+    }
+
+    #[test]
+    fn test_execute_tool_no_args() {
+        let tool = Tool {
+            name: "echo".to_string(),
+            path: "/bin/echo".to_string(),
+            description: "echo".to_string(),
+            category: ToolCategory::System,
+        };
+        let result = execute_tool(&tool, "");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_discover_system_tools() {
+        let tools = discover_system_tools();
+        assert!(!tools.is_empty());
+        assert!(tools.iter().any(|t| t.name == "ls"));
+    }
+
+    #[test]
+    fn test_tool_category_eq() {
+        assert_eq!(ToolCategory::System, ToolCategory::System);
+        assert_ne!(ToolCategory::System, ToolCategory::File);
+    }
 }
