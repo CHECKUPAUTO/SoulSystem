@@ -26,7 +26,8 @@ members = [
     "soul_forge",
     "soul_cortex",
     "soul_scout",
-    "soul_guard"
+    "soul_guard",
+    "soul_orchestrator",
 
 
 
