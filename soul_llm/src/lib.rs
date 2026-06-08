@@ -23,7 +23,7 @@ impl Default for LlmConfig {
     fn default() -> Self {
         Self {
             base_url: "http://127.0.0.1:11434".to_string(),
-            model: "qwen3:8b".to_string(),
+            model: "qwen3:4b".to_string(),
             temperature: 0.7,
             max_tokens: 2048,
         }
