@@ -1000,7 +1000,9 @@ name = "soul_kernel"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "soul_acoustic",
  "soul_agent_runtime",
+ "soul_attention",
  "soul_cluster",
  "soul_cortex",
  "soul_evolution",
