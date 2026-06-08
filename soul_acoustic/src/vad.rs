@@ -216,3 +216,111 @@ mod tests {
         assert!(!g2.process_frame(&probe), "plancher eleve -> meme signal rejete");
     }
 }
+
+/// Segment voise : intervalle d'echantillons [start, end) dans le buffer PCM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VoicedSegment {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl VadGate {
+    /// Segmente un buffer PCM en regions voisees : decoupe en trames de
+    /// `frame_len` echantillons, agrege les trames actives consecutives (le
+    /// hangover prolonge naturellement chaque segment). La trame partielle
+    /// finale (< frame_len) est ignoree. Le traitement par trame reste
+    /// zero-alloc ; seul le Vec de sortie alloue.
+    pub fn segment(&mut self, pcm: &[i16], frame_len: usize) -> Vec<VoicedSegment> {
+        assert!(frame_len > 0, "frame_len doit etre > 0");
+        let n_frames = pcm.len() / frame_len;
+        let mut segments = Vec::new();
+        let mut open: Option<usize> = None;
+        for f in 0..n_frames {
+            let start = f * frame_len;
+            let active = self.process_frame(&pcm[start..start + frame_len]);
+            match (active, open) {
+                (true, None) => open = Some(start),
+                (false, Some(s)) => {
+                    segments.push(VoicedSegment { start: s, end: start });
+                    open = None;
+                }
+                _ => {}
+            }
+        }
+        if let Some(s) = open {
+            segments.push(VoicedSegment { start: s, end: n_frames * frame_len });
+        }
+        segments
+    }
+}
+
+#[cfg(test)]
+mod segment_tests {
+    use super::*;
+
+    const FL: usize = 4;
+
+    fn build(frames: &[&[i16; FL]]) -> Vec<i16> {
+        let mut v = Vec::new();
+        for &f in frames {
+            v.extend_from_slice(f);
+        }
+        v
+    }
+
+    #[test]
+    fn all_silence_no_segments() {
+        let mut g = VadGate::new().with_hangover(0);
+        assert!(g.segment(&[0i16; 32], FL).is_empty());
+    }
+
+    #[test]
+    fn single_voiced_region() {
+        let mut g = VadGate::new().with_hangover(0);
+        let s = [0i16; FL];
+        let loud = [16384i16; FL];
+        let pcm = build(&[&s, &s, &s, &loud, &loud, &s, &s, &s]); // silence x3, voix x2, silence x3
+        assert_eq!(g.segment(&pcm, FL), vec![VoicedSegment { start: 12, end: 20 }]);
+    }
+
+    #[test]
+    fn hangover_extends_segment() {
+        let mut g = VadGate::new().with_hangover(2);
+        let s = [0i16; FL];
+        let loud = [16384i16; FL];
+        let pcm = build(&[&s, &s, &s, &loud, &loud, &s, &s, &s]);
+        // voix 12..20 ; hangover 2 trames -> +8 echantillons -> fin a 28
+        assert_eq!(g.segment(&pcm, FL), vec![VoicedSegment { start: 12, end: 28 }]);
+    }
+
+    #[test]
+    fn two_voiced_regions() {
+        let mut g = VadGate::new().with_hangover(0);
+        let s = [0i16; FL];
+        let loud = [16384i16; FL];
+        let pcm = build(&[&s, &loud, &s, &loud, &s]);
+        assert_eq!(
+            g.segment(&pcm, FL),
+            vec![
+                VoicedSegment { start: 4, end: 8 },
+                VoicedSegment { start: 12, end: 16 },
+            ]
+        );
+    }
+
+    #[test]
+    fn voiced_to_end_closes_segment() {
+        let mut g = VadGate::new().with_hangover(0);
+        let s = [0i16; FL];
+        let loud = [16384i16; FL];
+        let pcm = build(&[&s, &s, &loud, &loud]); // voix jusqu'a la fin
+        assert_eq!(g.segment(&pcm, FL), vec![VoicedSegment { start: 8, end: 16 }]);
+    }
+
+    #[test]
+    #[should_panic(expected = "frame_len")]
+    fn frame_len_zero_panics() {
+        let mut g = VadGate::new();
+        g.segment(&[0i16; 16], 0);
+    }
+}
