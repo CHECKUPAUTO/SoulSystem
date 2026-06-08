@@ -57,6 +57,39 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // ── Autonomous modes (lightweight, no full system init) ────────────
+    if cli.repl {
+        info!("▶ Mode REPL autonome activé");
+        let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
+        soul_repl::run_repl(&mut repl_state);
+        return Ok(());
+    }
+
+    if let Some(ref question) = cli.ask {
+        info!("▶ Mode ask: {}", question);
+        let config = soul_llm::LlmConfig::default();
+        let client = soul_llm::OllamaClient::new(config);
+        match client.generate(question).await {
+            Ok(resp) => println!("{}", resp.response),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+        return Ok(());
+    }
+
+    if let Some(ref goal_desc) = cli.plan {
+        info!("▶ Mode plan: {}", goal_desc);
+        let config = soul_llm::LlmConfig::default();
+        let entity_name = hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "soulsystem".to_string());
+        let autonomous = soulsystem::autonomous::AutonomousEntity::new(config, &entity_name);
+        let goal = autonomous.create_goal(goal_desc);
+        let plan = autonomous.plan(&goal);
+        println!("{}", serde_json::to_string_pretty(&plan).unwrap());
+        return Ok(());
+    }
+
+    // ── Full system initialization ─────────────────────────────────────
     // Chargement de la configuration centralisée
     let settings = soulsystem::config::Settings::new()?;
     info!(
@@ -762,40 +795,6 @@ async fn main() -> Result<()> {
     info!("Preservation instinct: surveillance active (interval: 30s)");
 
     info!("✅ SoulSystem prêt — boucle principale");
-
-    // ── Autonomous entity ──────────────────────────────────────────────
-    let autonomous_config = soul_llm::LlmConfig::default();
-    let entity_name = hostname::get()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "soulsystem".to_string());
-    let autonomous = soulsystem::autonomous::AutonomousEntity::new(
-        autonomous_config,
-        &entity_name,
-    );
-
-    if cli.repl {
-        info!("▶ Mode REPL autonome activé");
-        let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
-        soul_repl::run_repl(&mut repl_state);
-        return Ok(());
-    }
-
-    if let Some(ref question) = cli.ask {
-        info!("▶ Mode ask: {}", question);
-        match autonomous.ask(question).await {
-            Ok(answer) => println!("{}", answer),
-            Err(e) => eprintln!("Error: {}", e),
-        }
-        return Ok(());
-    }
-
-    if let Some(ref goal_desc) = cli.plan {
-        info!("▶ Mode plan: {}", goal_desc);
-        let goal = autonomous.create_goal(goal_desc);
-        let plan = autonomous.plan(&goal);
-        println!("{}", serde_json::to_string_pretty(&plan).unwrap());
-        return Ok(());
-    }
 
     // ── Boucle principale ──────────────────────────────────────────────────
     loop {

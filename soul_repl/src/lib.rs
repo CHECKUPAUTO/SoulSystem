@@ -1,12 +1,12 @@
 use colored::*;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
-use soul_llm::{LlmConfig, OllamaClient};
+use soul_llm::{LlmConfig, OllamaClientBlocking};
 use soul_planner::CognitiveLoop;
 use soul_tools::{discover_system_tools, execute_shell, ToolRegistry};
 
 pub struct ReplState {
-    pub llm: OllamaClient,
+    pub llm: OllamaClientBlocking,
     pub planner: CognitiveLoop,
     pub registry: ToolRegistry,
 }
@@ -19,7 +19,7 @@ impl ReplState {
             registry.register(tool);
         }
         Self {
-            llm: OllamaClient::new(config),
+            llm: OllamaClientBlocking::new(config),
             planner: CognitiveLoop::new(),
             registry,
         }
@@ -76,11 +76,7 @@ fn handle_input(state: &mut ReplState, input: &str) {
                 println!("{}", "Usage: ask <question>".yellow());
                 return;
             }
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let resp = rt.block_on(async {
-                state.llm.generate(args).await
-            });
-            match resp {
+            match state.llm.generate(args) {
                 Ok(r) => println!("{}", r.response),
                 Err(e) => println!("{}: {}", "Error".red().bold(), e),
             }
@@ -166,8 +162,7 @@ fn handle_input(state: &mut ReplState, input: &str) {
             }
         }
         "status" => {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let alive = rt.block_on(async { state.llm.is_alive().await });
+            let alive = state.llm.is_alive();
             let model = &state.llm.config().model;
             let tools = state.registry.list().len();
             let rate = state.planner.history.success_rate();
@@ -178,8 +173,7 @@ fn handle_input(state: &mut ReplState, input: &str) {
             println!("  Success rate: {:.1}%", (rate * 100.0));
         }
         "models" => {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            match rt.block_on(async { state.llm.list_models().await }) {
+            match state.llm.list_models() {
                 Ok(models) => {
                     println!("{}: {} models", "Models".cyan().bold(), models.len());
                     for m in models.iter().take(20) {
