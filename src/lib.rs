@@ -2,7 +2,6 @@
 //! both the main binary and integration tests.
 
 #[cfg(feature = "dev")]
-#[cfg(feature = "dev")]
 pub mod anomaly;
 pub use ansi_converter;
 pub mod api;
@@ -36,7 +35,8 @@ pub mod telemetry;
 pub use terminal_stream;
 pub mod ws_bridge;
 
-#[cfg(feature = "dev")]
-#[cfg(feature = "dev")]
+// Autonomous entity modules
+pub mod autonomous;
+
 #[cfg(feature = "dev")]
 pub mod dev_dashboard;

@@ -80,6 +80,11 @@ members = [
     "bridge-integration-tests",
     "soullink-circuit-breaker",
     "soullink-sanitizer",
+    # Autonomous entity crates
+    "soul_llm",
+    "soul_planner",
+    "soul_tools",
+    "soul_repl",
 ]
 
 exclude = [
@@ -206,6 +211,15 @@ libc = "0.2"
 tempfile = "3"
 tokio-tungstenite = "0.29.0"
 futures-util = "0.3.32"
+
+# Autonomous entity crates
+soul_llm = { path = "soul_llm" }
+soul_planner = { path = "soul_planner" }
+soul_tools = { path = "soul_tools" }
+soul_repl = { path = "soul_repl" }
+uuid = { version = "1", features = ["v4"] }
+rustyline = "14"
+colored = "2"
 
 [features]
 dev = []

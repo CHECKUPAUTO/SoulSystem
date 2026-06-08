@@ -54,3 +54,17 @@ config/credentials*
 # Backups
 *.bak
 *.old
+
+# Backup files (from soullink-brain)
+**/*.backup.*
+**/config-backup-*
+
+# Build artifacts
+*.o
+*.d
+*.rlib
+*.rmeta
+
+# Lock files
+**/Cargo.lock
+Cargo.lock

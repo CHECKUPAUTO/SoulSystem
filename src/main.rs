@@ -35,6 +35,18 @@ struct Cli {
     /// Mode mock (simulation uniquement)
     #[arg(long)]
     mock: bool,
+
+    /// Autonomous REPL mode (interactive)
+    #[arg(long)]
+    repl: bool,
+
+    /// Ask a question to the autonomous entity and exit
+    #[arg(long)]
+    ask: Option<String>,
+
+    /// Create a plan for a goal and exit
+    #[arg(long)]
+    plan: Option<String>,
 }
 
 #[tokio::main]
@@ -750,6 +762,40 @@ async fn main() -> Result<()> {
     info!("Preservation instinct: surveillance active (interval: 30s)");
 
     info!("✅ SoulSystem prêt — boucle principale");
+
+    // ── Autonomous entity ──────────────────────────────────────────────
+    let autonomous_config = soul_llm::LlmConfig::default();
+    let entity_name = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "soulsystem".to_string());
+    let autonomous = soulsystem::autonomous::AutonomousEntity::new(
+        autonomous_config,
+        &entity_name,
+    );
+
+    if cli.repl {
+        info!("▶ Mode REPL autonome activé");
+        let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
+        soul_repl::run_repl(&mut repl_state);
+        return Ok(());
+    }
+
+    if let Some(ref question) = cli.ask {
+        info!("▶ Mode ask: {}", question);
+        match autonomous.ask(question).await {
+            Ok(answer) => println!("{}", answer),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+        return Ok(());
+    }
+
+    if let Some(ref goal_desc) = cli.plan {
+        info!("▶ Mode plan: {}", goal_desc);
+        let goal = autonomous.create_goal(goal_desc);
+        let plan = autonomous.plan(&goal);
+        println!("{}", serde_json::to_string_pretty(&plan).unwrap());
+        return Ok(());
+    }
 
     // ── Boucle principale ──────────────────────────────────────────────────
     loop {
