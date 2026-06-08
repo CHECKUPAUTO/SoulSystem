@@ -86,6 +86,11 @@ members = [
     "soul_tools",
     "soul_repl",
     "soul_bridges",
+    "soul_cognitive",
+    "soul_automation",
+    "soul_security",
+    "soul_monitor",
+    "soul_api",
 ]
 
 exclude = [
@@ -219,6 +224,11 @@ soul_planner = { path = "soul_planner" }
 soul_tools = { path = "soul_tools" }
 soul_repl = { path = "soul_repl" }
 soul_bridges = { path = "soul_bridges" }
+soul_cognitive = { path = "soul_cognitive" }
+soul_automation = { path = "soul_automation" }
+soul_security = { path = "soul_security" }
+soul_monitor = { path = "soul_monitor" }
+soul_api = { path = "soul_api" }
 uuid = { version = "1", features = ["v4"] }
 rustyline = "14"
 colored = "2"

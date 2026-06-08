@@ -2,12 +2,22 @@ use soul_llm::{LlmConfig, OllamaClient};
 use soul_planner::{CognitiveLoop, Goal, Plan};
 use soul_tools::{discover_system_tools, execute_shell, Tool, ToolRegistry};
 use soul_bridges::orchestrator::SoulOrchestrator;
+use soul_cognitive::CognitiveEngine;
+use soul_automation::AutomationEngine;
+use soul_security::SecurityEngine;
+use soul_monitor::MonitorEngine;
+use soul_api::ApiEngine;
 
 pub struct AutonomousEntity {
     pub llm: OllamaClient,
     pub planner: CognitiveLoop,
     pub registry: ToolRegistry,
     pub orchestrator: SoulOrchestrator,
+    pub cognitive: CognitiveEngine,
+    pub automation: AutomationEngine,
+    pub security: SecurityEngine,
+    pub monitor: MonitorEngine,
+    pub api: ApiEngine,
     pub name: String,
 }
 
@@ -23,6 +33,11 @@ impl AutonomousEntity {
             planner: CognitiveLoop::new(),
             registry,
             orchestrator: SoulOrchestrator::new(),
+            cognitive: CognitiveEngine::new(),
+            automation: AutomationEngine::new(),
+            security: SecurityEngine::new(),
+            monitor: MonitorEngine::new(),
+            api: ApiEngine::new(),
             name: name.to_string(),
         }
     }
@@ -85,6 +100,16 @@ impl AutonomousEntity {
     pub fn observe(&mut self, observation: &str) {
         self.planner.memory.observe(observation.to_string());
         self.orchestrator.observe(observation);
+        self.cognitive.context.add(observation, 0.5);
+    }
+
+    pub fn learn(&mut self, action: &str, outcome: &str, reward: f32) {
+        self.cognitive.learn(action, outcome, reward);
+        self.planner.history.record(action.to_string(), outcome.to_string(), reward > 0.0);
+    }
+
+    pub fn think(&mut self, input: &str) -> serde_json::Value {
+        self.cognitive.think(input)
     }
 
     pub fn status(&self) -> serde_json::Value {
@@ -107,9 +132,32 @@ impl AutonomousEntity {
     }
 
     pub fn full_status(&self) -> serde_json::Value {
+        let gpu = self.monitor.gpu.get_gpu_info();
+        let disks = self.monitor.disk.get_disks();
+        let io = self.monitor.disk.get_io();
+        
         serde_json::json!({
             "entity": self.status(),
             "orchestrator": self.orchestrator.status(),
+            "cognitive": self.cognitive.status(),
+            "automation": self.automation.status(),
+            "security": self.security.status(),
+            "monitor": {
+                "gpu": gpu.map(|g| serde_json::json!({
+                    "name": g.name,
+                    "temperature": g.temperature,
+                    "utilization": g.utilization,
+                    "memory_used_mb": g.memory_used / 1024,
+                    "memory_total_mb": g.memory_total / 1024,
+                    "power_w": g.power,
+                })),
+                "disks": disks.len(),
+                "disk_io": {
+                    "reads": io.reads_completed,
+                    "writes": io.writes_completed,
+                },
+            },
+            "api": self.api.status(),
             "recent_memory": self.planner.memory.recent_observations(5),
             "recent_actions": self.planner.history.recent(5),
         })

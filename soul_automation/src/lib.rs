@@ -1,0 +1,444 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum AutomationError {
+    #[error("Task not found: {0}")]
+    TaskNotFound(String),
+    #[error("Workflow error: {0}")]
+    WorkflowError(String),
+    #[error("Alert threshold exceeded: {0}")]
+    ThresholdExceeded(String),
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CRON SCHEDULER
+// ═══════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduledTask {
+    pub id: String,
+    pub name: String,
+    pub cron_expr: String,
+    pub command: String,
+    pub enabled: bool,
+    pub last_run: Option<chrono::DateTime<chrono::Utc>>,
+    pub next_run: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub struct CronScheduler {
+    tasks: Vec<ScheduledTask>,
+}
+
+impl CronScheduler {
+    pub fn new() -> Self {
+        Self { tasks: Vec::new() }
+    }
+
+    pub fn add_task(&mut self, name: &str, cron_expr: &str, command: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let task = ScheduledTask {
+            id: id.clone(),
+            name: name.to_string(),
+            cron_expr: cron_expr.to_string(),
+            command: command.to_string(),
+            enabled: true,
+            last_run: None,
+            next_run: self.calculate_next_run(cron_expr),
+        };
+        self.tasks.push(task);
+        id
+    }
+
+    pub fn remove_task(&mut self, id: &str) -> bool {
+        let len = self.tasks.len();
+        self.tasks.retain(|t| t.id != id);
+        self.tasks.len() < len
+    }
+
+    pub fn toggle_task(&mut self, id: &str, enabled: bool) -> bool {
+        if let Some(task) = self.tasks.iter_mut().find(|t| t.id == id) {
+            task.enabled = enabled;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn get_due_tasks(&self) -> Vec<&ScheduledTask> {
+        let now = chrono::Utc::now();
+        self.tasks
+            .iter()
+            .filter(|t| t.enabled && t.next_run.map(|n| n <= now).unwrap_or(false))
+            .collect()
+    }
+
+    pub fn mark_executed(&mut self, id: &str) {
+        let next = Some(chrono::Utc::now() + chrono::Duration::hours(1));
+        if let Some(task) = self.tasks.iter_mut().find(|t| t.id == id) {
+            task.last_run = Some(chrono::Utc::now());
+            task.next_run = next;
+        }
+    }
+
+    fn calculate_next_run(&self, _cron_expr: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+        Some(chrono::Utc::now() + chrono::Duration::hours(1))
+    }
+
+    pub fn list_tasks(&self) -> &[ScheduledTask] {
+        &self.tasks
+    }
+}
+
+impl Default for CronScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ALERT SYSTEM
+// ═══════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlertRule {
+    pub id: String,
+    pub name: String,
+    pub metric: String,
+    pub threshold: f64,
+    pub operator: AlertOperator,
+    pub severity: AlertSeverity,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AlertOperator {
+    GreaterThan,
+    LessThan,
+    Equals,
+    NotEquals,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AlertSeverity {
+    Info,
+    Warning,
+    Critical,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Alert {
+    pub id: String,
+    pub rule_id: String,
+    pub message: String,
+    pub severity: AlertSeverity,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub acknowledged: bool,
+}
+
+pub struct AlertSystem {
+    rules: Vec<AlertRule>,
+    alerts: Vec<Alert>,
+}
+
+impl AlertSystem {
+    pub fn new() -> Self {
+        Self {
+            rules: Vec::new(),
+            alerts: Vec::new(),
+        }
+    }
+
+    pub fn add_rule(&mut self, name: &str, metric: &str, threshold: f64, operator: AlertOperator, severity: AlertSeverity) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let rule = AlertRule {
+            id: id.clone(),
+            name: name.to_string(),
+            metric: metric.to_string(),
+            threshold,
+            operator,
+            severity,
+            enabled: true,
+        };
+        self.rules.push(rule);
+        id
+    }
+
+    pub fn check(&mut self, metric: &str, value: f64) -> Vec<Alert> {
+        let mut new_alerts = Vec::new();
+        for rule in &self.rules {
+            if !rule.enabled || rule.metric != metric {
+                continue;
+            }
+            let triggered = match rule.operator {
+                AlertOperator::GreaterThan => value > rule.threshold,
+                AlertOperator::LessThan => value < rule.threshold,
+                AlertOperator::Equals => (value - rule.threshold).abs() < f64::EPSILON,
+                AlertOperator::NotEquals => (value - rule.threshold).abs() > f64::EPSILON,
+            };
+            if triggered {
+                let alert = Alert {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    rule_id: rule.id.clone(),
+                    message: format!("{}: {} is {} (threshold: {})", rule.name, metric, value, rule.threshold),
+                    severity: rule.severity.clone(),
+                    timestamp: chrono::Utc::now(),
+                    acknowledged: false,
+                };
+                new_alerts.push(alert.clone());
+                self.alerts.push(alert);
+            }
+        }
+        new_alerts
+    }
+
+    pub fn acknowledge(&mut self, id: &str) -> bool {
+        if let Some(alert) = self.alerts.iter_mut().find(|a| a.id == id) {
+            alert.acknowledged = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn active_alerts(&self) -> Vec<&Alert> {
+        self.alerts.iter().filter(|a| !a.acknowledged).collect()
+    }
+
+    pub fn list_rules(&self) -> &[AlertRule] {
+        &self.rules
+    }
+}
+
+impl Default for AlertSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WORKFLOW ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStep {
+    pub id: String,
+    pub name: String,
+    pub action: String,
+    pub params: serde_json::Value,
+    pub next_step: Option<String>,
+    pub condition: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Workflow {
+    pub id: String,
+    pub name: String,
+    pub steps: Vec<WorkflowStep>,
+    pub current_step: Option<String>,
+    pub status: WorkflowStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum WorkflowStatus {
+    Idle,
+    Running,
+    Paused,
+    Completed,
+    Failed,
+}
+
+pub struct WorkflowEngine {
+    workflows: Vec<Workflow>,
+}
+
+impl WorkflowEngine {
+    pub fn new() -> Self {
+        Self { workflows: Vec::new() }
+    }
+
+    pub fn create_workflow(&mut self, name: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let workflow = Workflow {
+            id: id.clone(),
+            name: name.to_string(),
+            steps: Vec::new(),
+            current_step: None,
+            status: WorkflowStatus::Idle,
+        };
+        self.workflows.push(workflow);
+        id
+    }
+
+    pub fn add_step(&mut self, workflow_id: &str, name: &str, action: &str) -> Option<String> {
+        if let Some(workflow) = self.workflows.iter_mut().find(|w| w.id == workflow_id) {
+            let step_id = uuid::Uuid::new_v4().to_string();
+            let step = WorkflowStep {
+                id: step_id.clone(),
+                name: name.to_string(),
+                action: action.to_string(),
+                params: serde_json::json!({}),
+                next_step: None,
+                condition: None,
+            };
+            workflow.steps.push(step);
+            Some(step_id)
+        } else {
+            None
+        }
+    }
+
+    pub fn start_workflow(&mut self, id: &str) -> bool {
+        if let Some(workflow) = self.workflows.iter_mut().find(|w| w.id == id) {
+            workflow.status = WorkflowStatus::Running;
+            workflow.current_step = workflow.steps.first().map(|s| s.id.clone());
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn get_workflow(&self, id: &str) -> Option<&Workflow> {
+        self.workflows.iter().find(|w| w.id == id)
+    }
+
+    pub fn list_workflows(&self) -> &[Workflow] {
+        &self.workflows
+    }
+}
+
+impl Default for WorkflowEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUTO-HEALER
+// ═══════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealingAction {
+    pub id: String,
+    pub trigger: String,
+    pub action: String,
+    pub description: String,
+    pub success_count: usize,
+    pub failure_count: usize,
+}
+
+pub struct AutoHealer {
+    actions: Vec<HealingAction>,
+    history: Vec<HealingRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealingRecord {
+    pub action_id: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub success: bool,
+    pub details: String,
+}
+
+impl AutoHealer {
+    pub fn new() -> Self {
+        Self {
+            actions: Vec::new(),
+            history: Vec::new(),
+        }
+    }
+
+    pub fn register_action(&mut self, trigger: &str, action: &str, description: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let healing_action = HealingAction {
+            id: id.clone(),
+            trigger: trigger.to_string(),
+            action: action.to_string(),
+            description: description.to_string(),
+            success_count: 0,
+            failure_count: 0,
+        };
+        self.actions.push(healing_action);
+        id
+    }
+
+    pub fn diagnose(&self, symptoms: &[String]) -> Vec<&HealingAction> {
+        self.actions
+            .iter()
+            .filter(|a| symptoms.iter().any(|s| a.trigger.contains(s)))
+            .collect()
+    }
+
+    pub fn record_healing(&mut self, action_id: &str, success: bool, details: &str) {
+        let record = HealingRecord {
+            action_id: action_id.to_string(),
+            timestamp: chrono::Utc::now(),
+            success,
+            details: details.to_string(),
+        };
+        self.history.push(record);
+        if let Some(action) = self.actions.iter_mut().find(|a| a.id == action_id) {
+            if success {
+                action.success_count += 1;
+            } else {
+                action.failure_count += 1;
+            }
+        }
+    }
+
+    pub fn success_rate(&self) -> f32 {
+        if self.history.is_empty() {
+            return 1.0;
+        }
+        let success = self.history.iter().filter(|r| r.success).count() as f32;
+        success / self.history.len() as f32
+    }
+
+    pub fn list_actions(&self) -> &[HealingAction] {
+        &self.actions
+    }
+}
+
+impl Default for AutoHealer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUTOMATION ENGINE (ties everything together)
+// ═══════════════════════════════════════════════════════════════
+
+pub struct AutomationEngine {
+    pub scheduler: CronScheduler,
+    pub alerts: AlertSystem,
+    pub workflows: WorkflowEngine,
+    pub healer: AutoHealer,
+}
+
+impl AutomationEngine {
+    pub fn new() -> Self {
+        Self {
+            scheduler: CronScheduler::new(),
+            alerts: AlertSystem::new(),
+            workflows: WorkflowEngine::new(),
+            healer: AutoHealer::new(),
+        }
+    }
+
+    pub fn status(&self) -> serde_json::Value {
+        serde_json::json!({
+            "scheduled_tasks": self.scheduler.list_tasks().len(),
+            "active_alerts": self.alerts.active_alerts().len(),
+            "workflows": self.workflows.list_workflows().len(),
+            "healing_success_rate": self.healer.success_rate(),
+        })
+    }
+}
+
+impl Default for AutomationEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
