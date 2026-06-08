@@ -31,10 +31,10 @@ members = [
     "soul_attention",
     "soul_acoustic",
 
-
-
-
-
+    "soul_llm",
+    "soul_planner",
+    "soul_tools",
+    "soul_repl",
 ]
 resolver = "2"
 
@@ -44,3 +44,4 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 debug = false
+
