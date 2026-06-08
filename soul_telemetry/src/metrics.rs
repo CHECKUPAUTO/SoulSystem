@@ -85,6 +85,19 @@ impl TelemetryHub {
         self.thermal_millicelsius.load(Ordering::Relaxed) / 1000
     }
 
+    /// Agrège les métriques de TOUS les cœurs en un snapshot unique.
+    /// Utilisé par `soul_forge` pour calculer le fitness global du scheduler.
+    /// Coût : O(N) atomiques Relaxed (aucun verrou).
+    pub fn aggregate_metrics(&self) -> (u64, u64) {
+        let mut total_tasks: u64 = 0;
+        let mut total_cycles: u64 = 0;
+        for core in &self.cores_data {
+            total_tasks += core.tasks_executed.load(Ordering::Relaxed);
+            total_cycles += core.total_cycles.load(Ordering::Relaxed);
+        }
+        (total_tasks, total_cycles)
+    }
+
     /// Demarre l'echantillonneur thermique : lit le capteur sysfs toutes les
     /// `period` et publie la valeur. Le thread ne detient qu'un `Weak` sur le
     /// hub -> il s'arrete de lui-meme des que le dernier `Arc<TelemetryHub>` est

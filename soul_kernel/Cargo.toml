@@ -16,6 +16,8 @@ soul_forge = { path = "../soul_forge" }
 soul_cortex = { path = "../soul_cortex" }
 soul_scout = { path = "../soul_scout" }
 soul_guard = { path = "../soul_guard" }
+soul_acoustic = { path = "../soul_acoustic" }
+soul_attention = { path = "../soul_attention" }
 libc = "0.2"
 
 soul_cluster = { path = "../soul_cluster" }
