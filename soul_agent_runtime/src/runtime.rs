@@ -2,7 +2,8 @@ use soul_scheduler::queue::Task;
 use soul_scheduler::scheduler::AgentScheduler;
 use soul_matrix_engine::engine::{MatrixEngine, MatrixDescriptor};
 use soul_storage::index::{VectorStore, SearchResult};
-use soul_ipc::bus::InterAgentBus;
+use soul_ipc::AgentMessage;
+use soul_orchestrator::SovereignOrchestrator;
 
 
 /// Structure d'exécution d'un Agent Souverain (Alignée à l'octet près)
@@ -14,7 +15,7 @@ pub struct CognitiveAgent {
     pub scheduler_ptr: *const AgentScheduler,
     pub matrix_engine_ptr: *const MatrixEngine,
     pub storage_ptr: *const VectorStore,
-    pub ipc_bus_ptr: *const InterAgentBus,
+    pub orchestrator_ptr: *const SovereignOrchestrator,
 }
 
 unsafe impl Send for CognitiveAgent {}
@@ -27,14 +28,14 @@ pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
 
     unsafe {
         let agent = &*(ctx_ptr as *const CognitiveAgent);
-        let bus = &*agent.ipc_bus_ptr;
+        let orchestrator = &*agent.orchestrator_ptr;
         let storage = &*agent.storage_ptr;
         let matrix_engine = &*agent.matrix_engine_ptr;
         let scheduler = &*agent.scheduler_ptr;
 
         // 1. PHASE D'ÉCOUTE ET INTERCEPTION (IPC)
         // L'agent vérifie s'il a reçu une commande ou un token sur le bus MPMC
-        if let Some(message) = bus.try_recv(agent.agent_id) {
+        if let Some(message) = orchestrator.poll(agent.agent_id) {
             println!("[AGENT-RUN-TIME] Agent #{} : Signal 0x{:X} intercepté.", agent.agent_id, message.signal_code);
 
             // 2. PHASE DE CONTEXTUALISATION (Neural Storage Scan)
@@ -78,5 +79,44 @@ pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
             };
             scheduler.submit_to(agent.target_core, loop_back_task);
         }
+    }
+}
+
+/// Intake d'un agent : recupere le prochain message de SA mailbox via
+/// l'orchestrateur (file MPSC par agent). Remplace l'ancien filtrage par
+/// contenu sur le ring partage (`InterAgentBus::try_recv`), qui reordonnait les
+/// messages et n'etait pas equitable entre agents.
+pub fn agent_intake(orchestrator: &SovereignOrchestrator, agent_id: u32) -> Option<AgentMessage> {
+    orchestrator.poll(agent_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soul_orchestrator::DispatchOutcome;
+
+    fn sig(target: u32, code: u32) -> AgentMessage {
+        AgentMessage {
+            source_agent_id: 0,
+            target_agent_id: target,
+            signal_code: code,
+            payload_ptr: std::ptr::null_mut(),
+            payload_size: 0,
+        }
+    }
+
+    #[test]
+    fn intake_pulls_only_own_messages() {
+        let mut o = SovereignOrchestrator::new();
+        o.register_agent(1);
+        o.register_agent(2);
+        assert!(matches!(o.dispatch(sig(1, 0xAA)), DispatchOutcome::Delivered { .. }));
+        assert!(matches!(o.dispatch(sig(2, 0xBB)), DispatchOutcome::Delivered { .. }));
+        // chaque agent ne recoit QUE le sien : ni perte, ni cross-talk, ni reordre
+        let m1 = agent_intake(&o, 1).expect("message pour 1");
+        assert_eq!(m1.signal_code, 0xAA);
+        assert!(agent_intake(&o, 1).is_none(), "mailbox de 1 videe");
+        let m2 = agent_intake(&o, 2).expect("message pour 2");
+        assert_eq!(m2.signal_code, 0xBB);
     }
 }

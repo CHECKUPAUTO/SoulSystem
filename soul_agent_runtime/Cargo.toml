@@ -8,3 +8,4 @@ soul_scheduler = { path = "../soul_scheduler" }
 soul_matrix_engine = { path = "../soul_matrix_engine" }
 soul_storage = { path = "../soul_storage" }
 soul_ipc = { path = "../soul_ipc" }
+soul_orchestrator = { path = "../soul_orchestrator" }

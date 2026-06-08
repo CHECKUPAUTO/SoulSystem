@@ -1,3 +1,3 @@
 pub mod runtime;
 
-pub use runtime::{CognitiveAgent, run_agent_cognitive_step};
+pub use runtime::{agent_intake, CognitiveAgent, run_agent_cognitive_step};

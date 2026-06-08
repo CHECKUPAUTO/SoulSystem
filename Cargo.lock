@@ -942,6 +942,7 @@ version = "0.1.0"
 dependencies = [
  "soul_ipc",
  "soul_matrix_engine",
+ "soul_orchestrator",
  "soul_scheduler",
  "soul_storage",
 ]
