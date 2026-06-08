@@ -17,6 +17,14 @@ pub struct RuntimeConfig {
     pub bi_bridge_port: u16,
     pub last_modified: String,
     pub modified_by: String,
+    pub hnn_bridge_interval: u64,
+    pub security_scan_interval: u64,
+    pub memory_consolidation_interval: u64,
+    pub onaeu_mutation_chance: f64,
+    pub max_cycle_events: u64,
+    pub ql_learning_rate: f64,
+    pub ql_positive_reward: f64,
+    pub ql_negative_reward: f64,
 }
 
 impl Default for RuntimeConfig {
@@ -31,6 +39,14 @@ impl Default for RuntimeConfig {
             auto_evolve_interval: 5,
             sandbox_enabled: true,
             bi_bridge_port: 9051,
+            hnn_bridge_interval: 2,
+            security_scan_interval: 10,
+            memory_consolidation_interval: 20,
+            onaeu_mutation_chance: 0.05,
+            max_cycle_events: 100,
+            ql_learning_rate: 0.1,
+            ql_positive_reward: 0.5,
+            ql_negative_reward: -0.3,
             last_modified: chrono::Utc::now().to_rfc3339(),
             modified_by: "default".to_string(),
         }

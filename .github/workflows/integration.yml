@@ -14,6 +14,11 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libleptonica-dev libtesseract-dev
+
       - name: Build workspace
         run: cargo build
 
@@ -24,9 +29,7 @@ jobs:
           sleep 2
 
       - name: Run integration tests
-        # Décommenter quand le test sera créé (étape 4.2)
-        # run: cargo test --test integration_hello
-        run: echo "Integration test skipped (not yet implemented)"
+        run: cargo test --test integration_hello
 
       - name: Stop avid-server
         if: always()

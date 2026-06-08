@@ -202,12 +202,14 @@ impl AppState {
 
 // ─── Brain calls ────────────────────────────────────────────────────────────
 
+use anyhow::Context;
+
 async fn call_brain(
     http: &reqwest::Client,
     url: &str,
     endpoint: &str,
     body: Option<Value>,
-) -> Result<Value, String> {
+) -> anyhow::Result<Value> {
     let full_url = format!("{}{}", url, endpoint);
     let resp = if let Some(b) = body {
         http.post(&full_url).json(&b).send().await
@@ -215,10 +217,10 @@ async fn call_brain(
         http.get(&full_url).send().await
     };
 
-    match resp {
-        Ok(r) => r.json::<Value>().await.map_err(|e| e.to_string()),
-        Err(e) => Err(e.to_string()),
-    }
+    resp.with_context(|| format!("request to {full_url} failed"))?
+        .json::<Value>()
+        .await
+        .with_context(|| format!("json parse from {full_url}"))
 }
 
 async fn call_all_parallel(
@@ -243,7 +245,7 @@ async fn call_all_parallel(
             let http = state.http.clone();
             async move {
                 let result = call_brain(&http, &url, &ep, body).await;
-                (key, result.unwrap_or_else(|e| json!({ "error": e })))
+                (key, result.unwrap_or_else(|e| json!({ "error": e.to_string() })))
             }
         })
         .collect();
@@ -988,54 +990,35 @@ async fn main() {
 
     // ── Auth ──────────────────────────────────────────────────────────────
     //
-    // Phase 6b-audit-triage v2: load the token from the environment
-    // FIRST (where systemd injects it from EnvironmentFile=secrets.env),
-    // and fall back to the file only if the env is empty. Reading the
-    // file directly fails when the orchestrator runs as a non-root user
-    // (soullink uid 991) and secrets.env is the mandated 0600 root:root
-    // — which is exactly the production configuration. Pre-fix, this
-    // caused the orchestrator to generate a RANDOM ephemeral token on
-    // every start, leading to ~21 665 "auth failed — bad token" WARN/day
-    // from the guardian (which has the right token via its own env).
-    //
-    // Fall-through order:
-    //   1. $SOULLINK_INTERNAL_TOKEN   (systemd-injected, the happy path)
-    //   2. secrets::load_default()    (file read, still works if perms
-    //                                  allow and orchestrator runs as root)
-    //   3. Ephemeral RNG              (cohabitation last resort; warn loud)
-    let token = match std::env::var("SOULLINK_INTERNAL_TOKEN")
+    // Token is loaded exclusively from $SOULLINK_INTERNAL_TOKEN env var
+    // (injected by systemd via EnvironmentFile=/etc/soullink/secrets.env).
+    // Falls back to file read for dev scenarios.
+    // NEVER generates ephemeral tokens — production must fail fast.
+    let token = std::env::var("SOULLINK_INTERNAL_TOKEN")
         .ok()
         .filter(|s| !s.is_empty())
         .and_then(|hex| soullink_core::secrets::InternalToken::from_hex(&hex).ok())
-    {
-        Some(t) => {
-            info!("internal token loaded from $SOULLINK_INTERNAL_TOKEN");
-            t
-        }
-        None => match secrets::load_default() {
-            Ok(t) => {
-                info!("internal token loaded from /etc/soullink/secrets.env");
-                t
-            }
-            Err(e) => {
-                warn!(%e, "token unavailable from env AND file — generating ephemeral token \
-                           (cohabitation mode; localhost still unauthed). \
-                           This will break guardian auth; fix $SOULLINK_INTERNAL_TOKEN \
-                           in EnvironmentFile=/etc/soullink/secrets.env");
-                let mut bytes = [0u8; 32];
-                let seed = now_ts() ^ std::process::id() as u64;
-                for (i, b) in bytes.iter_mut().enumerate() {
-                    *b = ((seed
-                        .wrapping_mul(6364136223846793005)
-                        .wrapping_add(1442695040888963407))
-                        >> (i % 56)) as u8;
-                }
-                soullink_core::secrets::InternalToken(bytes)
-            }
-        },
-    };
+        .or_else(|| secrets::load_default().ok())
+        .unwrap_or_else(|| {
+            error!(
+                "SOULLINK_INTERNAL_TOKEN not set in env AND /etc/soullink/secrets.env \
+                 missing/unreadable. Refusing to start with ephemeral token. \
+                 Set EnvironmentFile=/etc/soullink/secrets.env in systemd unit."
+            );
+            std::process::exit(1);
+        });
 
-    let auth_cfg = AuthConfig::new(token, /* allow_localhost_unauthed: */ true);
+    info!("internal token loaded");
+
+    // Phase 1 → Phase 2: localhost unauthenticated access is now disabled.
+    // Set SOULLINK_ALLOW_LOCALHOST_UNAUTHED=true to re-enable during migration.
+    let allow_localhost = std::env::var("SOULLINK_ALLOW_LOCALHOST_UNAUTHED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    if allow_localhost {
+        warn!("localhost unauthenticated access ENABLED — disable in production");
+    }
+    let auth_cfg = AuthConfig::new(token, allow_localhost);
 
     // ── Routes ────────────────────────────────────────────────────────────
     // Public-ish read routes: no auth (read-only data, safe on localhost).

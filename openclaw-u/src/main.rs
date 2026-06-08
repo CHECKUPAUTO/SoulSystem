@@ -14,7 +14,7 @@ use std::time::Duration;
 use rand::seq::SliceRandom;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, sleep};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use openclaw_u::action::Action;
 use openclaw_u::autocode;
@@ -295,11 +295,16 @@ async fn heartbeat_loop(
                     snapshot.llm_available, snapshot.onaeu_cycle, snapshot.weaviate_objects);
 
                 // 2. HNN BRIDGE — lire blackboard V13
-                if cycle % 2 == 0 {
-                    let hnn = HnnState::fetch(&reqwest::Client::new()).await;
-                    info!("🧠 HNN — {}", hnn.summary());
-                    let hnn_json = serde_json::to_string(&hnn.organs).unwrap_or_default();
-                    let _ = weaviate.index(&hnn_json, "hnn_bridge").await;
+                {
+                    let cfg = &state.lock().await.runtime_config.clone();
+                    if cycle % cfg.hnn_bridge_interval == 0 {
+                        let hnn = HnnState::fetch(&reqwest::Client::new()).await;
+                        info!("🧠 HNN — {}", hnn.summary());
+                        let hnn_json = serde_json::to_string(&hnn.organs).unwrap_or_default();
+                        if let Err(e) = weaviate.index(&hnn_json, "hnn_bridge").await {
+                            warn!(error=%e, "hnn bridge index failed");
+                        }
+                    }
                 }
 
                 // 3. LLM COGNITION — décision intelligente
@@ -449,6 +454,8 @@ async fn heartbeat_loop(
                     };
 
                     let mut st = state.lock().await;
+                    let pos_reward = st.runtime_config.ql_positive_reward;
+                    let neg_reward = st.runtime_config.ql_negative_reward;
                     match action_result {
                         Ok(out) => {
                             info!("✅ ACTION: {}", out);
@@ -456,9 +463,9 @@ async fn heartbeat_loop(
                             // LEARNING: récompense positive
                             let action_key = st.last_llm_action.clone();
                             if !action_key.is_empty() {
-                                st.q_table.update(&action_key, 0.5, true);
+                                st.q_table.update(&action_key, pos_reward, true);
                                 st.resilience.record_success(&action_key);
-                                info!("🧠 Q-Learn: {} | reward=+0.5 | {}", action_key, st.q_table.to_context());
+                                info!("🧠 Q-Learn: {} | reward=+{} | {}", action_key, pos_reward, st.q_table.to_context());
                             }
                             st.q_table.save();
                             st.resilience.save();
@@ -466,11 +473,11 @@ async fn heartbeat_loop(
                         Err(e) => {
                             let err_str = e.clone();
                             warn!("❌ ACTION FAILED: {}", e);
-                            st.log_event("action_failed", -0.2, &e);
+                            st.log_event("action_failed", neg_reward, &e);
                             // LEARNING: récompense négative
                             let action_key = st.last_llm_action.clone();
                             if !action_key.is_empty() {
-                                st.q_table.update(&action_key, -0.3, false);
+                                st.q_table.update(&action_key, neg_reward, false);
                                 st.resilience.record_failure(&action_key, &err_str);
                                 info!("🧠 Q-Learn: {} | reward=-0.3 | {}", action_key, st.q_table.to_context());
 
@@ -531,23 +538,26 @@ async fn heartbeat_loop(
                 }
 
                 // 6. MÉMOIRE — rechercher contexte
-                if cycle % 3 == 0 {
-                    match weaviate.search("système état", 3).await {
-                        Ok(hits) => {
-                            for hit in &hits {
-                                info!("💾 MEM: [{}] {} (score:{:.2})", hit.source, hit.content.chars().take(40).collect::<String>(), hit.score);
+                {
+                    let cfg = &state.lock().await.runtime_config.clone();
+                    if cycle % cfg.hnn_bridge_interval.saturating_add(1) == 0 {
+                        match weaviate.search("système état", 3).await {
+                            Ok(hits) => {
+                                for hit in &hits {
+                                    info!("💾 MEM: [{}] {} (score:{:.2})", hit.source, hit.content.chars().take(40).collect::<String>(), hit.score);
+                                }
                             }
+                            Err(e) => warn!("Memory search failed: {}", e),
                         }
-                        Err(e) => warn!("Memory search failed: {}", e),
                     }
                 }
 
                 // 6. UPLINK — envoyer status à SoulLink via Bi-Bridge
                 {
                     let st = state.lock().await;
-                    let _ = bi_bridge.send_status(st.energy, st.uptime_cycles, st.task_count, &st.version).await;
+                    bi_bridge.send_status(st.energy, st.uptime_cycles, st.task_count, &st.version).await;
                     if has_alerts {
-                        let _ = bi_bridge.send_alert("warning", &snapshot.pending_alerts.join(", ")).await;
+                        bi_bridge.send_alert("warning", &snapshot.pending_alerts.join(", ")).await;
                     }
                 }
 
@@ -579,11 +589,13 @@ async fn heartbeat_loop(
                         }
                         DownlinkMessage::InjectCode { file, code } => {
                             info!("📥 DOWNLINK — Injection code: {}", file);
-                            // Store the code in a temporary patch file for the Autocode engine to promote
                             let patch_path = format!("{}.patch", file);
-                            let _ = fs::write(&patch_path, &code);
-                            st.goals.insert(0, format!("appliquer patch injection: {}", file));
-                            st.log_event("downlink_inject", 0.4, &file);
+                            if let Err(e) = fs::write(&patch_path, &code) {
+                                error!(error=%e, file=%patch_path, "failed to write injection patch");
+                            } else {
+                                st.goals.insert(0, format!("appliquer patch injection: {}", file));
+                                st.log_event("downlink_inject", 0.4, &file);
+                            }
                         }
                         DownlinkMessage::RequestStatus => {
                             info!("📥 DOWNLINK — Status demandé: {}", st.report());
@@ -594,12 +606,14 @@ async fn heartbeat_loop(
 
                 // 8. DÉCROISSANCE + SAUVEGARDE
                 let mut st = state.lock().await;
-                st.energy = (st.energy - 0.05).clamp(0.0, 10.0);
+                let decay = st.runtime_config.energy_decay;
+                let evolve_interval = st.runtime_config.auto_evolve_interval;
+                st.energy = (st.energy - decay).clamp(0.0, 10.0);
                 st.save();
                 drop(st);
 
                 // 9. AUTO-ÉVOLUTION — LLM + Self-Mod
-                let should_evolve = (cycle % 5 == 0) || action_str == "evolve" || action_str == "self_evolve";
+                let should_evolve = (cycle % evolve_interval == 0) || action_str == "evolve" || action_str == "self_evolve";
                 if should_evolve {
                     let state_clone = state.clone();
                     let llm_clone = llm_fast.clone();
@@ -616,12 +630,18 @@ async fn heartbeat_loop(
                     });
                 }
 
-                // 10. ONAÉ-U MUTATION (5% chance)
-                if rand::random::<f64>() < 0.05 {
+                // 10. ONAÉ-U MUTATION
+                let mutation_chance = {
+                    let st = state.lock().await;
+                    st.runtime_config.onaeu_mutation_chance
+                };
+                if rand::random::<f64>() < mutation_chance {
                     let actions = ["explore_new_patterns", "optimize_performance", "checkpoint_state"];
                     let mut rng = rand::thread_rng();
                     let action = actions.choose(&mut rng).unwrap_or(&"explore");
-                    let _ = onaeu.mutate(action).await;
+                    if let Err(e) = onaeu.mutate(action).await {
+                        warn!(error=%e, action=%action, "onaeu mutation failed");
+                    }
                 }
 
                 // 11. AUTONOMOUS HEALING
@@ -638,8 +658,12 @@ async fn heartbeat_loop(
                     }
                 }
 
-                // 12. SECURITY SCAN (every 10 cycles)
-                if cycle % 10 == 0 {
+                // 12. SECURITY SCAN
+                let sec_interval = {
+                    let st = state.lock().await;
+                    st.runtime_config.security_scan_interval
+                };
+                if cycle % sec_interval == 0 {
                     tokio::spawn(async move {
                         info!("🛡️ SECURITY: Démarrage d'un scan de vulnérabilités...");
                         let scanner = soullink_security::SecurityScanner::new();
@@ -655,8 +679,12 @@ async fn heartbeat_loop(
                     });
                 }
 
-                // 13. MEMORY CONSOLIDATION (every 20 cycles)
-                if cycle % 20 == 0 {
+                // 13. MEMORY CONSOLIDATION
+                let mem_interval = {
+                    let st = state.lock().await;
+                    st.runtime_config.memory_consolidation_interval
+                };
+                if cycle % mem_interval == 0 {
                     let st = state.lock().await;
                     let entries: Vec<String> = st.history.iter()
                         .map(|h| format!("[{}] {} -> {}", h.timestamp, h.event, h.outcome))
@@ -666,7 +694,9 @@ async fn heartbeat_loop(
                     if !entries.is_empty() {
                         info!("🧠 CONSOLIDATION: indexation de {} entrées d'historique", entries.len());
                         let consolidated = entries.join("\n");
-                        let _ = weaviate.index(&consolidated, "episodic_memory").await;
+                        if let Err(e) = weaviate.index(&consolidated, "episodic_memory").await {
+                            warn!(error=%e, "memory consolidation index failed");
+                        }
                     }
                 }
             }

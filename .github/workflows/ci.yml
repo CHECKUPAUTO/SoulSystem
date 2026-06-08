@@ -8,48 +8,85 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
 jobs:
-  # Job 1: Lint + Audit
+  # Job 1: Lint + Format + Security
   quality:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
         components: clippy, rustfmt
-    
+
     - name: Check formatting
       run: cargo fmt --all --check
-    
-    - name: Clippy
-      run: cargo clippy --all-targets
-    
-    - name: Security audit (informational only)
-      run: cargo install cargo-audit && cargo audit || true
-      continue-on-error: true
 
-  # Job 2: Build + Test (core)
+    - name: Clippy
+      run: cargo clippy --all-targets -- -D warnings
+
+    - name: Security audit
+      uses: actions-rust-lang/audit@v4
+      with:
+        args: --deny warnings
+
+  # Job 2: Build + Test (workspace core, excluding GPU/CUDA crates)
   build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
-    
-    - name: Check workspace core
-      run: cargo check -p soulsystem
-    
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends libleptonica-dev libtesseract-dev pkg-config libssl-dev
+
+    - name: Check full workspace (excluding GPU/CUDA)
+      run: |
+        cargo check --workspace \
+          --exclude scirust-gpu \
+          --exclude scirust-gpu-macros \
+          --exclude soullink-cutlass \
+          --exclude soullink-dali \
+          --exclude soullink-trt \
+          --exclude soullink-onednn
+
+    - name: Test workspace crates with tests
+      run: |
+        cargo test --workspace \
+          --exclude scirust-gpu \
+          --exclude scirust-gpu-macros \
+          --exclude soullink-cutlass \
+          --exclude soullink-dali \
+          --exclude soullink-trt \
+          --exclude soullink-onednn \
+          --exclude soullink-inference \
+          --exclude soullink-vision \
+          --exclude soullink-svs
+
+  # Job 3: Integration tests
+  integration:
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
     - name: Build release
       run: cargo build --release -p soulsystem
-    
-    - name: Run tests
-      run: cargo test -p soulsystem
 
-  # Job 3: Sous-workspaces
+    - name: Run integration tests
+      run: cargo test --test '*' -p soulsystem
+
+  # Job 4: Sub-workspace independent builds
   subprojects:
     runs-on: ubuntu-latest
     strategy:
@@ -57,7 +94,7 @@ jobs:
         dir: [soul-neural, avid, soullink-node, openevolve, synergie, openclaw-evolution, turboquant, brain-system-rs]
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 
@@ -65,9 +102,9 @@ jobs:
       run: |
         sudo apt-get update -qq
         sudo apt-get install -y -qq --no-install-recommends libleptonica-dev libtesseract-dev
-    
+
     - name: Check
       run: cargo check --manifest-path ${{ matrix.dir }}/Cargo.toml
-    
+
     - name: Test
       run: cargo test --manifest-path ${{ matrix.dir }}/Cargo.toml

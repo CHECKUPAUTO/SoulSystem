@@ -114,7 +114,9 @@ impl CoreState {
 
     pub fn save(&self) {
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(STATE_PATH, json);
+            if let Err(e) = fs::write(STATE_PATH, json) {
+                tracing::error!(error=%e, path=STATE_PATH, "failed to save core state");
+            }
         }
     }
 

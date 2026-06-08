@@ -1,31 +1,38 @@
-# ZeroBot — API Service
-FROM python:3.11-slim-bookworm AS base
+# ZeroBot — API Service (hardened)
+# Builder stage downloads model, runtime stage has minimal surface
+FROM python:3.11-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    g++ \
-    make \
-    curl \
-    git \
-    gdb \
-    binutils \
-    file \
-    && rm -rf /var/lib/apt/lists/*
+    gcc git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /zerobot
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Download sentence-transformers model (cached at build time)
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-large-en-v1.5')" 2>/dev/null || true
 
-FROM base AS final
+# Runtime stage: minimal image, non-root user
+FROM python:3.11-slim-bookworm
+
+RUN addgroup --system --gid 1001 zerobot && \
+    adduser --system --uid 1001 --gid 1001 --no-create-home --disabled-password zerobot
+
+WORKDIR /zerobot
+
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p /zerobot/data/chromadb /zerobot/logs /zerobot/knowledge/documents
+RUN mkdir -p /zerobot/data/chromadb /zerobot/logs /zerobot/knowledge/documents && \
+    chown -R zerobot:zerobot /zerobot
+
+USER zerobot
 
 EXPOSE 8000
 
-CMD ["uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')" || exit 1
+
+CMD ["uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -6,3 +6,8 @@ data/
 *.csv
 *.pdf
 *.png
+.env
+secrets.env
+*.pem
+*.key
+*.bak

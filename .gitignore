@@ -2,7 +2,6 @@
 
 # Rust build artifacts
 **/target/
-**/Cargo.lock
 
 # Compiled binaries
 binaries/
@@ -38,7 +37,20 @@ logs/
 temp/
 /target/
 output.log
+forge_checkpoint.json
+
+# Secrets / credentials
 .env
 .env.local
+.env.*
+secrets.env
+*.pem
+*.key
+*.p12
+*.cert
+credentials/
 config/credentials*
-forge_checkpoint.json
+
+# Backups
+*.bak
+*.old
