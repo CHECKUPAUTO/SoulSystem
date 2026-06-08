@@ -97,23 +97,24 @@ pub struct NetworkStats {
 }
 
 pub struct NetworkMonitor {
-    previous_stats: HashMap<String, NetworkInterface>,
+    previous_stats: std::cell::RefCell<HashMap<String, NetworkInterface>>,
 }
 
 impl NetworkMonitor {
     pub fn new() -> Self {
         Self {
-            previous_stats: HashMap::new(),
+            previous_stats: std::cell::RefCell::new(HashMap::new()),
         }
     }
 
-    pub fn get_stats(&mut self) -> NetworkStats {
+    pub fn get_stats(&self) -> NetworkStats {
         let interfaces = self.get_interfaces();
         let connections = self.count_connections();
         let latency = self.measure_latency();
 
+        let mut prev = self.previous_stats.borrow_mut();
         for iface in &interfaces {
-            self.previous_stats.insert(iface.name.clone(), iface.clone());
+            prev.insert(iface.name.clone(), iface.clone());
         }
 
         NetworkStats {
@@ -426,5 +427,84 @@ impl MonitorEngine {
 impl Default for MonitorEngine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gpu_monitor_availability() {
+        let gpu = GpuMonitor::new();
+        let available = gpu.is_available();
+        if available {
+            assert!(gpu.get_gpu_info().is_some());
+        }
+    }
+
+    #[test]
+    fn test_disk_monitor() {
+        let disk = DiskMonitor::new();
+        let disks = disk.get_disks();
+        assert!(!disks.is_empty());
+    }
+
+    #[test]
+    fn test_disk_monitor_io() {
+        let disk = DiskMonitor::new();
+        let io = disk.get_io();
+        assert!(io.reads_completed > 0 || io.writes_completed > 0);
+    }
+
+    #[test]
+    fn test_network_monitor() {
+        let net = NetworkMonitor::new();
+        let stats = net.get_stats();
+        assert!(stats.latency_ms >= 0.0);
+    }
+
+    #[test]
+    fn test_parse_size() {
+        assert_eq!(parse_size("10G"), 10 * 1024 * 1024 * 1024);
+        assert_eq!(parse_size("500M"), 500 * 1024 * 1024);
+        assert_eq!(parse_size("1024K"), 1024 * 1024);
+        assert_eq!(parse_size("100"), 100);
+    }
+
+    #[test]
+    fn test_predictive_analytics() {
+        let mut pa = PredictiveAnalytics::new(100);
+        for i in 0..10 {
+            pa.record("cpu", i as f64 * 10.0);
+        }
+        let prediction = pa.predict("cpu", 3600);
+        assert!(prediction.is_some());
+        let p = prediction.unwrap();
+        assert!(p.confidence > 0.0);
+    }
+
+    #[test]
+    fn test_predictive_analytics_insufficient_data() {
+        let pa = PredictiveAnalytics::new(100);
+        let prediction = pa.predict("cpu", 3600);
+        assert!(prediction.is_none());
+    }
+
+    #[test]
+    fn test_predictive_analytics_trend() {
+        let mut pa = PredictiveAnalytics::new(100);
+        pa.record("cpu", 10.0);
+        pa.record("cpu", 20.0);
+        let trend = pa.trend("cpu");
+        assert!(trend.is_some());
+        assert!(trend.unwrap() > 0.0);
+    }
+
+    #[test]
+    fn test_monitor_engine_status() {
+        let engine = MonitorEngine::new();
+        let status = engine.status();
+        assert!(status.get("disks").is_some());
     }
 }

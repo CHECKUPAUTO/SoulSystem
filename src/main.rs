@@ -85,7 +85,10 @@ async fn main() -> Result<()> {
         let autonomous = soulsystem::autonomous::AutonomousEntity::new(config, &entity_name);
         let goal = autonomous.create_goal(goal_desc);
         let plan = autonomous.plan(&goal);
-        println!("{}", serde_json::to_string_pretty(&plan).unwrap());
+        match serde_json::to_string_pretty(&plan) {
+            Ok(json) => println!("{}", json),
+            Err(e) => eprintln!("Error serializing plan: {}", e),
+        }
         return Ok(());
     }
 

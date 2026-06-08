@@ -351,3 +351,96 @@ impl Default for SecurityEngine {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_intrusion_detector() {
+        let mut detector = IntrusionDetector::new();
+        let event = detector.analyze_log("SQL injection attempt detected", "192.168.1.1");
+        assert!(event.is_some());
+        assert_eq!(detector.recent_events(10).len(), 1);
+    }
+
+    #[test]
+    fn test_intrusion_detector_clean_log() {
+        let mut detector = IntrusionDetector::new();
+        let event = detector.analyze_log("normal log message", "192.168.1.1");
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_intrusion_detector_block_ip() {
+        let mut detector = IntrusionDetector::new();
+        detector.block_ip("10.0.0.1");
+        assert!(detector.is_blocked("10.0.0.1"));
+        assert!(!detector.is_blocked("10.0.0.2"));
+    }
+
+    #[test]
+    fn test_secret_manager() {
+        let mut sm = SecretManager::new();
+        let id = sm.store_secret("api_key", "super_secret_123");
+        assert!(!id.is_empty());
+        assert!(sm.verify_secret("api_key", "super_secret_123"));
+        assert!(!sm.verify_secret("api_key", "wrong_password"));
+    }
+
+    #[test]
+    fn test_secret_manager_delete() {
+        let mut sm = SecretManager::new();
+        sm.store_secret("key", "value");
+        assert!(sm.delete_secret("key"));
+        assert!(!sm.delete_secret("nonexistent"));
+    }
+
+    #[test]
+    fn test_audit_trail() {
+        let mut audit = AuditTrail::new(100);
+        audit.log("test", "user", "system", serde_json::json!({"detail": "test"}));
+        assert_eq!(audit.count(), 1);
+        let recent = audit.recent(10);
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].action, "test");
+    }
+
+    #[test]
+    fn test_audit_trail_search() {
+        let mut audit = AuditTrail::new(100);
+        audit.log("login", "user1", "auth", serde_json::json!({}));
+        audit.log("logout", "user2", "auth", serde_json::json!({}));
+        let results = audit.search("login");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_rate_limiter() {
+        let mut rl = RateLimiter::new();
+        rl.set_limit("api", 3, 60);
+        assert!(rl.check("api"));
+        assert!(rl.check("api"));
+        assert!(rl.check("api"));
+        assert!(!rl.check("api"));
+        assert_eq!(rl.remaining("api"), 0);
+    }
+
+    #[test]
+    fn test_rate_limiter_reset() {
+        let mut rl = RateLimiter::new();
+        rl.set_limit("api", 1, 60);
+        assert!(rl.check("api"));
+        assert!(!rl.check("api"));
+        rl.reset("api");
+        assert!(rl.check("api"));
+    }
+
+    #[test]
+    fn test_security_engine_status() {
+        let engine = SecurityEngine::new();
+        let status = engine.status();
+        assert_eq!(status["secrets_count"], 0);
+        assert_eq!(status["audit_entries"], 0);
+    }
+}

@@ -234,7 +234,7 @@ impl LearningSystem {
             .iter()
             .map(|(action, score)| (action.clone(), *score))
             .collect();
-        suggestions.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        suggestions.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         suggestions
     }
 
@@ -325,7 +325,7 @@ impl MultiModelRouter {
     pub fn best_model(&self) -> &str {
         self.performance
             .iter()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(name, _)| name.as_str())
             .unwrap_or("qwen3:4b")
     }
@@ -388,7 +388,7 @@ impl ContextManager {
             if entry.importance > 0.7 {
                 self.long_term.push(entry.clone());
                 if self.long_term.len() > self.max_long_term {
-                    self.long_term.sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap());
+                    self.long_term.sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap_or(std::cmp::Ordering::Equal));
                     self.long_term.truncate(self.max_long_term);
                 }
             }
@@ -402,7 +402,7 @@ impl ContextManager {
             .chain(self.long_term.iter())
             .filter(|e| e.content.to_lowercase().contains(&query_lower))
             .collect();
-        results.sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap());
+        results.sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap_or(std::cmp::Ordering::Equal));
         results
     }
 
@@ -484,5 +484,141 @@ impl CognitiveEngine {
 impl Default for CognitiveEngine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_knowledge_graph_add_entity() {
+        let mut kg = KnowledgeGraph::new();
+        let id = kg.add_entity("TestEntity", "concept");
+        assert!(kg.get_entity(&id).is_some());
+        assert_eq!(kg.get_entity(&id).unwrap().name, "TestEntity");
+    }
+
+    #[test]
+    fn test_knowledge_graph_add_relation() {
+        let mut kg = KnowledgeGraph::new();
+        let a = kg.add_entity("A", "node");
+        let b = kg.add_entity("B", "node");
+        let rel_id = kg.add_relation(&a, &b, "connects_to");
+        assert!(!rel_id.is_empty());
+        let related = kg.get_related(&a);
+        assert_eq!(related.len(), 1);
+        assert_eq!(related[0].name, "B");
+    }
+
+    #[test]
+    fn test_knowledge_graph_find_path() {
+        let mut kg = KnowledgeGraph::new();
+        let a = kg.add_entity("A", "node");
+        let b = kg.add_entity("B", "node");
+        let c = kg.add_entity("C", "node");
+        kg.add_relation(&a, &b, "link");
+        kg.add_relation(&b, &c, "link");
+        let path = kg.find_path(&a, &c, 5);
+        assert!(path.is_some());
+        assert_eq!(path.unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_knowledge_graph_search() {
+        let mut kg = KnowledgeGraph::new();
+        kg.add_entity("RustLanguage", "language");
+        kg.add_entity("Python", "language");
+        let results = kg.search("Rust");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "RustLanguage");
+    }
+
+    #[test]
+    fn test_knowledge_graph_stats() {
+        let mut kg = KnowledgeGraph::new();
+        kg.add_entity("A", "type1");
+        kg.add_entity("B", "type2");
+        let stats = kg.stats();
+        assert_eq!(stats["entities"], 2);
+    }
+
+    #[test]
+    fn test_learning_system_record() {
+        let mut ls = LearningSystem::new();
+        ls.record("action1", "ctx", "success", 1.0);
+        ls.record("action2", "ctx", "failure", -1.0);
+        assert_eq!(ls.recent(10).len(), 2);
+    }
+
+    #[test]
+    fn test_learning_system_suggest() {
+        let mut ls = LearningSystem::new();
+        ls.record("good_action", "ctx", "success", 1.0);
+        ls.record("bad_action", "ctx", "failure", -1.0);
+        let suggestions = ls.suggest("ctx");
+        assert!(!suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_learning_system_success_rate() {
+        let mut ls = LearningSystem::new();
+        ls.record("a", "c", "o", 1.0);
+        ls.record("b", "c", "o", -1.0);
+        assert_eq!(ls.success_rate(), 0.5);
+    }
+
+    #[test]
+    fn test_learning_system_empty() {
+        let ls = LearningSystem::new();
+        assert_eq!(ls.success_rate(), 0.5);
+    }
+
+    #[test]
+    fn test_multi_model_router() {
+        let router = MultiModelRouter::new();
+        assert!(!router.list_models().is_empty());
+        let model = router.select_model("general");
+        assert!(!model.name.is_empty());
+    }
+
+    #[test]
+    fn test_context_manager() {
+        let mut ctx = ContextManager::new(5, 10);
+        ctx.add("test1", 0.5);
+        ctx.add("test2", 0.8);
+        assert_eq!(ctx.stats()["short_term"], 2);
+        let context = ctx.get_context();
+        assert!(context.contains("test1"));
+    }
+
+    #[test]
+    fn test_context_manager_recall() {
+        let mut ctx = ContextManager::new(5, 10);
+        ctx.add("important fact", 0.9);
+        ctx.add("other thing", 0.3);
+        let results = ctx.recall("important");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_cognitive_engine_think() {
+        let mut engine = CognitiveEngine::new();
+        let result = engine.think("test input");
+        assert!(result.get("input").is_some());
+    }
+
+    #[test]
+    fn test_cognitive_engine_learn() {
+        let mut engine = CognitiveEngine::new();
+        engine.learn("action", "outcome", 0.8);
+        assert_eq!(engine.learning.recent(10).len(), 1);
+    }
+
+    #[test]
+    fn test_cognitive_engine_status() {
+        let engine = CognitiveEngine::new();
+        let status = engine.status();
+        assert!(status.get("knowledge").is_some());
     }
 }

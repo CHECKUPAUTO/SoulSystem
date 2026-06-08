@@ -87,8 +87,9 @@ impl AutonomousEntity {
                     execute_shell(&step.action)?
                 }
             };
+            let success = !result.is_empty() && !result.to_lowercase().contains("error");
             results.push(result.clone());
-            self.planner.history.record(step.action.clone(), result, true);
+            self.planner.history.record(step.action.clone(), result, success);
         }
         Ok(results.join("\n"))
     }
@@ -101,15 +102,54 @@ impl AutonomousEntity {
         self.planner.memory.observe(observation.to_string());
         self.orchestrator.observe(observation);
         self.cognitive.context.add(observation, 0.5);
+        self.security.audit.log("observe", &self.name, "memory", serde_json::json!({"text": observation}));
     }
 
     pub fn learn(&mut self, action: &str, outcome: &str, reward: f32) {
         self.cognitive.learn(action, outcome, reward);
         self.planner.history.record(action.to_string(), outcome.to_string(), reward > 0.0);
+        self.security.audit.log("learn", &self.name, "cognitive", serde_json::json!({"action": action, "outcome": outcome, "reward": reward}));
     }
 
     pub fn think(&mut self, input: &str) -> serde_json::Value {
         self.cognitive.think(input)
+    }
+
+    pub fn decide(&mut self, context: &str) -> soul_planner::Decision {
+        self.planner.decide(context)
+    }
+
+    pub fn check_alerts(&mut self) -> Vec<String> {
+        let mut triggered = Vec::new();
+        let metrics = soul_bridges::monitor::get_metrics();
+
+        let cpu_alerts = self.automation.alerts.check("cpu", metrics.cpu_usage as f64);
+        for alert in &cpu_alerts {
+            triggered.push(format!("[{:?}] {}", alert.severity, alert.message));
+            self.security.audit.log("alert", "system", "cpu", serde_json::json!({"alert": alert.message}));
+        }
+
+        let mem_alerts = self.automation.alerts.check("memory", metrics.memory_usage as f64);
+        for alert in &mem_alerts {
+            triggered.push(format!("[{:?}] {}", alert.severity, alert.message));
+        }
+
+        if let Some(gpu) = self.monitor.gpu.get_gpu_info() {
+            let gpu_alerts = self.automation.alerts.check("gpu_temp", gpu.temperature as f64);
+            for alert in &gpu_alerts {
+                triggered.push(format!("[{:?}] {}", alert.severity, alert.message));
+            }
+            self.monitor.predictive.record("gpu_temp", gpu.temperature as f64);
+        }
+
+        self.monitor.predictive.record("cpu", metrics.cpu_usage as f64);
+        self.monitor.predictive.record("memory", metrics.memory_usage as f64);
+
+        triggered
+    }
+
+    pub fn predict(&self, metric: &str, seconds: u64) -> Option<soul_monitor::Prediction> {
+        self.monitor.predictive.predict(metric, seconds)
     }
 
     pub fn status(&self) -> serde_json::Value {
@@ -135,7 +175,8 @@ impl AutonomousEntity {
         let gpu = self.monitor.gpu.get_gpu_info();
         let disks = self.monitor.disk.get_disks();
         let io = self.monitor.disk.get_io();
-        
+        let net = self.monitor.network.get_stats();
+
         serde_json::json!({
             "entity": self.status(),
             "orchestrator": self.orchestrator.status(),
@@ -155,6 +196,10 @@ impl AutonomousEntity {
                 "disk_io": {
                     "reads": io.reads_completed,
                     "writes": io.writes_completed,
+                },
+                "network": {
+                    "connections": net.connections,
+                    "latency_ms": net.latency_ms,
                 },
             },
             "api": self.api.status(),

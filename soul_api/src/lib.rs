@@ -230,3 +230,78 @@ impl Default for ApiEngine {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_api_response_success() {
+        let resp = ApiResponse::success("data");
+        assert!(resp.success);
+        assert!(resp.data.is_some());
+        assert!(resp.error.is_none());
+    }
+
+    #[test]
+    fn test_api_response_error() {
+        let resp: ApiResponse<()> = ApiResponse::error("something went wrong");
+        assert!(!resp.success);
+        assert!(resp.data.is_none());
+        assert!(resp.error.is_some());
+    }
+
+    #[test]
+    fn test_rest_api() {
+        let api = RestApi::new(8080);
+        assert_eq!(api.port(), 8080);
+    }
+
+    #[test]
+    fn test_rest_api_default() {
+        let api = RestApi::default();
+        assert_eq!(api.port(), 9030);
+    }
+
+    #[test]
+    fn test_dashboard_html() {
+        let dashboard = Dashboard::new();
+        let html = dashboard.html();
+        assert!(html.contains("SoulSystem Dashboard"));
+        assert!(html.contains("<!DOCTYPE html>"));
+    }
+
+    #[test]
+    fn test_dashboard_update() {
+        let mut dashboard = Dashboard::new();
+        dashboard.update(DashboardData {
+            status: serde_json::json!({"ok": true}),
+            metrics: serde_json::json!({"cpu": 50.0}),
+            alerts: vec![],
+            recent_activity: vec![],
+        });
+        let html = dashboard.html();
+        assert!(html.contains("50.0"));
+    }
+
+    #[test]
+    fn test_telegram_bot_not_configured() {
+        let bot = TelegramBot::new();
+        assert!(!bot.is_configured());
+    }
+
+    #[test]
+    fn test_telegram_bot_configured() {
+        let mut bot = TelegramBot::new();
+        bot.set_token("test-token-123");
+        assert!(bot.is_configured());
+    }
+
+    #[test]
+    fn test_api_engine_status() {
+        let engine = ApiEngine::new();
+        let status = engine.status();
+        assert_eq!(status["rest_port"], 9030);
+        assert_eq!(status["telegram_configured"], false);
+    }
+}

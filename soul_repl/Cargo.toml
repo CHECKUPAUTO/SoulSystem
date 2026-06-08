@@ -8,6 +8,10 @@ soul_llm = { path = "../soul_llm" }
 soul_planner = { path = "../soul_planner" }
 soul_tools = { path = "../soul_tools" }
 soul_bridges = { path = "../soul_bridges" }
+soul_cognitive = { path = "../soul_cognitive" }
+soul_automation = { path = "../soul_automation" }
+soul_security = { path = "../soul_security" }
+soul_monitor = { path = "../soul_monitor" }
 rustyline = "14"
 colored = "2"
 serde_json = "1"

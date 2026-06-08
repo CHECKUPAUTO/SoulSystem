@@ -6641,6 +6641,7 @@ name = "soul_planner"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",
@@ -6656,9 +6657,13 @@ dependencies = [
  "colored",
  "rustyline",
  "serde_json",
+ "soul_automation",
  "soul_bridges",
+ "soul_cognitive",
  "soul_llm",
+ "soul_monitor",
  "soul_planner",
+ "soul_security",
  "soul_tools",
  "tokio",
  "tracing",
