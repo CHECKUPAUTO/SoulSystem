@@ -166,11 +166,33 @@ fn handle_input(state: &mut ReplState, input: &str) {
             let model = &state.llm.config().model;
             let tools = state.registry.list().len();
             let rate = state.planner.history.success_rate();
-            println!("{}:", "Status".cyan().bold());
-            println!("  Model: {}", model.green());
-            println!("  Ollama: {}", if alive { "connected".green() } else { "disconnected".red() });
-            println!("  Tools: {}", tools.to_string().green());
-            println!("  Success rate: {:.1}%", (rate * 100.0));
+            let metrics = soul_bridges::monitor::get_metrics();
+            let docker_running = soul_bridges::docker::is_docker_running();
+            let containers = soul_bridges::docker::list_containers().unwrap_or_default();
+            println!("{}:", "System Status".cyan().bold());
+            println!("  LLM:");
+            println!("    Model: {}", model.green());
+            println!("    Ollama: {}", if alive { "connected".green() } else { "disconnected".red() });
+            println!("  Resources:");
+            println!("    CPU: {:.1}%", metrics.cpu_usage);
+            println!("    Memory: {:.1}% ({} MB / {} MB)", 
+                metrics.memory_usage,
+                (metrics.memory_total - metrics.memory_available) / 1024,
+                metrics.memory_total / 1024);
+            println!("    Processes: {}", metrics.process_count);
+            println!("    Load: {:.2} / {:.2} / {:.2}", metrics.load_avg[0], metrics.load_avg[1], metrics.load_avg[2]);
+            println!("  Services:");
+            println!("    Tools: {}", tools.to_string().green());
+            println!("    Docker: {}", if docker_running { "running".green() } else { "stopped".red() });
+            if !containers.is_empty() {
+                println!("    Containers: {}", containers.len());
+                for c in containers.iter().take(5) {
+                    println!("      {} - {}", c.name.green(), c.status);
+                }
+            }
+            println!("  Performance:");
+            println!("    Success rate: {:.1}%", (rate * 100.0));
+            println!("    Memory entries: {}", state.planner.memory.observations.len());
         }
         "models" => {
             match state.llm.list_models() {

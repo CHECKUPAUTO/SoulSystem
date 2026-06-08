@@ -85,6 +85,7 @@ members = [
     "soul_planner",
     "soul_tools",
     "soul_repl",
+    "soul_bridges",
 ]
 
 exclude = [
@@ -217,6 +218,7 @@ soul_llm = { path = "soul_llm" }
 soul_planner = { path = "soul_planner" }
 soul_tools = { path = "soul_tools" }
 soul_repl = { path = "soul_repl" }
+soul_bridges = { path = "soul_bridges" }
 uuid = { version = "1", features = ["v4"] }
 rustyline = "14"
 colored = "2"

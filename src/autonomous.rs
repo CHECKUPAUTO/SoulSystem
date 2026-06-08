@@ -1,11 +1,13 @@
 use soul_llm::{LlmConfig, OllamaClient};
 use soul_planner::{CognitiveLoop, Goal, Plan};
 use soul_tools::{discover_system_tools, execute_shell, Tool, ToolRegistry};
+use soul_bridges::orchestrator::SoulOrchestrator;
 
 pub struct AutonomousEntity {
     pub llm: OllamaClient,
     pub planner: CognitiveLoop,
     pub registry: ToolRegistry,
+    pub orchestrator: SoulOrchestrator,
     pub name: String,
 }
 
@@ -20,8 +22,14 @@ impl AutonomousEntity {
             llm: OllamaClient::new(config),
             planner: CognitiveLoop::new(),
             registry,
+            orchestrator: SoulOrchestrator::new(),
             name: name.to_string(),
         }
+    }
+
+    pub fn with_openevolve(mut self, url: &str) -> Self {
+        self.orchestrator = self.orchestrator.with_openevolve(url);
+        self
     }
 
     pub async fn is_alive(&self) -> bool {
@@ -74,12 +82,36 @@ impl AutonomousEntity {
         self.registry.list()
     }
 
+    pub fn observe(&mut self, observation: &str) {
+        self.planner.memory.observe(observation.to_string());
+        self.orchestrator.observe(observation);
+    }
+
     pub fn status(&self) -> serde_json::Value {
+        let orch_status = self.orchestrator.status();
         serde_json::json!({
             "name": self.name,
             "tools": self.registry.list().len(),
             "success_rate": self.planner.history.success_rate(),
             "observations": self.planner.memory.observations.len(),
+            "openevolve": orch_status.openevolve.running,
+            "docker": orch_status.docker.running,
+            "system": {
+                "cpu": orch_status.system.cpu_usage,
+                "memory": orch_status.system.memory_usage,
+                "processes": orch_status.system.process_count,
+            },
+            "memory_entries": orch_status.memory_count,
+            "uptime_seconds": orch_status.uptime,
+        })
+    }
+
+    pub fn full_status(&self) -> serde_json::Value {
+        serde_json::json!({
+            "entity": self.status(),
+            "orchestrator": self.orchestrator.status(),
+            "recent_memory": self.planner.memory.recent_observations(5),
+            "recent_actions": self.planner.history.recent(5),
         })
     }
 }
