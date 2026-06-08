@@ -16,6 +16,7 @@ use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -47,6 +48,14 @@ struct Cli {
     /// Create a plan for a goal and exit
     #[arg(long)]
     plan: Option<String>,
+
+    /// Start autonomous loop (observe→plan→act→evaluate→decide)
+    #[arg(long)]
+    autonomous: bool,
+
+    /// Tick interval in seconds for autonomous loop (default: 30)
+    #[arg(long, default_value = "30")]
+    tick: u64,
 }
 
 #[tokio::main]
@@ -89,6 +98,44 @@ async fn main() -> Result<()> {
             Ok(json) => println!("{}", json),
             Err(e) => eprintln!("Error serializing plan: {}", e),
         }
+        return Ok(());
+    }
+
+    if cli.autonomous {
+        info!("▶ Mode autonome activé (tick: {}s)", cli.tick);
+
+        let config = soul_llm::LlmConfig::default();
+        let entity_name = hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "soulsystem".to_string());
+        let mut entity = soulsystem::autonomous::AutonomousEntity::new(config, &entity_name);
+
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let shutdown_clone = shutdown.clone();
+
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.ok();
+            info!("Shutdown signal received");
+            shutdown_clone.store(true, Ordering::Relaxed);
+        });
+
+        #[cfg(unix)]
+        {
+            let shutdown_clone = shutdown.clone();
+            tokio::spawn(async move {
+                let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+                sigterm.recv().await;
+                info!("SIGTERM received");
+                shutdown_clone.store(true, Ordering::Relaxed);
+            });
+        }
+
+        let loop_config = soulsystem::autonomous_loop::AutonomousLoopConfig {
+            tick_interval_secs: cli.tick,
+            max_consecutive_noops: 10,
+        };
+
+        soulsystem::autonomous_loop::run_autonomous_loop(&mut entity, loop_config, shutdown).await;
         return Ok(());
     }
 
@@ -799,7 +846,7 @@ async fn main() -> Result<()> {
 
     info!("✅ SoulSystem prêt — boucle principale");
 
-    // ── Boucle principale ──────────────────────────────────────────────────
+    // ── Default: simple loop ──────────────────────────────────────────────
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
     }
