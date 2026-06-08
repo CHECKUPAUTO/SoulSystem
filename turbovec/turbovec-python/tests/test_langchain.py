@@ -8,11 +8,12 @@ pytest.importorskip("langchain_core")
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 
+from conftest import DeterministicEmbedder
 from turbovec import IdMapIndex
 from turbovec.langchain import TurboQuantVectorStore
 
 
-class StubEmbeddings(Embeddings):
+class StubEmbeddings(Embeddings, DeterministicEmbedder):
     """Deterministic text->vector function for tests.
 
     Hashes the input string to seed an RNG, producing a reproducible
@@ -22,13 +23,7 @@ class StubEmbeddings(Embeddings):
     """
 
     def __init__(self, dim: int = 64) -> None:
-        self.dim = dim
-
-    def _embed(self, text: str) -> list[float]:
-        rng = np.random.default_rng(abs(hash(text)) % (2**32))
-        v = rng.standard_normal(self.dim).astype(np.float32)
-        v /= np.linalg.norm(v) + 1e-9
-        return v.tolist()
+        DeterministicEmbedder.__init__(self, dim)
 
     def embed_documents(self, texts):
         return [self._embed(t) for t in texts]

@@ -12,17 +12,11 @@ from haystack.dataclasses.sparse_embedding import SparseEmbedding
 from haystack.document_stores.errors import DuplicateDocumentError
 from haystack.document_stores.types import DuplicatePolicy
 
+from conftest import unit_vector, unit_vectors
 from turbovec.haystack import TurboQuantDocumentStore
 
 
 DIM = 128
-
-
-def unit_vector(seed: int) -> list[float]:
-    rng = np.random.default_rng(seed)
-    v = rng.standard_normal(DIM).astype(np.float32)
-    v /= np.linalg.norm(v) + 1e-9
-    return v.tolist()
 
 
 def make_docs(n: int, seed_offset: int = 0) -> list[Document]:

@@ -12,13 +12,14 @@ from agno.knowledge.document import Document
 from agno.vectordb.distance import Distance
 from agno.vectordb.search import SearchType
 
+from conftest import DeterministicEmbedder, unit_vector
 from turbovec.agno import TurboQuantVectorDb
 
 
 DIM = 64
 
 
-class StubEmbedder:
+class StubEmbedder(DeterministicEmbedder):
     """Deterministic Agno-style embedder for tests.
 
     Implements the minimal embedder surface the integration uses:
@@ -29,13 +30,8 @@ class StubEmbedder:
     enable_batch = False
 
     def __init__(self, dim: int = DIM) -> None:
+        super().__init__(dim)
         self.dimensions = dim
-
-    def _embed(self, text: str) -> list[float]:
-        rng = np.random.default_rng(abs(hash(text)) % (2**32))
-        v = rng.standard_normal(self.dimensions).astype(np.float32)
-        v /= np.linalg.norm(v) + 1e-9
-        return v.tolist()
 
     def get_embedding(self, text: str) -> list[float]:
         return self._embed(text)

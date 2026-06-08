@@ -9,14 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from conftest import unit_vectors
 from turbovec import TurboQuantIndex
-
-
-def unit_vectors(n: int, dim: int, seed: int = 0) -> np.ndarray:
-    rng = np.random.default_rng(seed)
-    v = rng.standard_normal((n, dim)).astype(np.float32)
-    v /= np.linalg.norm(v, axis=1, keepdims=True) + 1e-9
-    return v
 
 
 def test_new_reports_dim_and_bit_width():

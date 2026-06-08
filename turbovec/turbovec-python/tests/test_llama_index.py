@@ -14,15 +14,9 @@ from llama_index.core.vector_stores.types import (
     VectorStoreQuery,
 )
 
+from conftest import unit_vector as _unit_vec
 from turbovec import IdMapIndex
 from turbovec.llama_index import TurboQuantVectorStore
-
-
-def _unit_vec(seed: int, dim: int) -> list[float]:
-    rng = np.random.default_rng(seed)
-    v = rng.standard_normal(dim).astype(np.float32)
-    v /= np.linalg.norm(v) + 1e-9
-    return v.tolist()
 
 
 def _make_node(text: str, seed: int, dim: int = 64, metadata: dict | None = None,
