@@ -96,6 +96,17 @@ impl WorkingMemory {
         let start = len.saturating_sub(n);
         &self.observations[start..]
     }
+
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        let data = serde_json::to_string(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, data).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn load(path: &str) -> Result<Self, String> {
+        let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&data).map_err(|e| e.to_string())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,6 +149,17 @@ impl ActionHistory {
         }
         let successes = self.actions.iter().filter(|a| a.success).count() as f32;
         successes / self.actions.len() as f32
+    }
+
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        let data = serde_json::to_string(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, data).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn load(path: &str) -> Result<Self, String> {
+        let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&data).map_err(|e| e.to_string())
     }
 }
 
@@ -466,5 +488,32 @@ mod tests {
         };
         assert_eq!(decision.action, "test");
         assert_eq!(decision.confidence, 0.9);
+    }
+
+    #[test]
+    fn test_working_memory_save_load() {
+        let mut mem = WorkingMemory::new();
+        mem.observe("obs1".to_string());
+        mem.observe("obs2".to_string());
+        let path = "/tmp/soulsystem_test_wm.json";
+        mem.save(path).unwrap();
+        let loaded = WorkingMemory::load(path).unwrap();
+        assert_eq!(loaded.observations.len(), 2);
+        assert_eq!(loaded.observations[0], "obs1");
+        assert_eq!(loaded.observations[1], "obs2");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_action_history_save_load() {
+        let mut hist = ActionHistory::new(100);
+        hist.record("action1".to_string(), "result1".to_string(), true);
+        hist.record("action2".to_string(), "result2".to_string(), false);
+        let path = "/tmp/soulsystem_test_ah.json";
+        hist.save(path).unwrap();
+        let loaded = ActionHistory::load(path).unwrap();
+        assert_eq!(loaded.actions.len(), 2);
+        assert_eq!(loaded.success_rate(), 0.5);
+        let _ = std::fs::remove_file(path);
     }
 }

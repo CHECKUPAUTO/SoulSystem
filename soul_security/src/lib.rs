@@ -193,6 +193,7 @@ pub struct AuditEntry {
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditTrail {
     entries: Vec<AuditEntry>,
     max_entries: usize,
@@ -241,6 +242,17 @@ impl AuditTrail {
 
     pub fn count(&self) -> usize {
         self.entries.len()
+    }
+
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        let data = serde_json::to_string(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, data).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn load(path: &str) -> Result<Self, String> {
+        let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&data).map_err(|e| e.to_string())
     }
 }
 
@@ -442,5 +454,18 @@ mod tests {
         let status = engine.status();
         assert_eq!(status["secrets_count"], 0);
         assert_eq!(status["audit_entries"], 0);
+    }
+
+    #[test]
+    fn test_audit_trail_save_load() {
+        let mut audit = AuditTrail::new(100);
+        audit.log("test_action", "user1", "target1", serde_json::json!({"key": "value"}));
+        audit.log("other_action", "user2", "target2", serde_json::json!({}));
+        let path = "/tmp/soulsystem_test_audit.json";
+        audit.save(path).unwrap();
+        let loaded = AuditTrail::load(path).unwrap();
+        assert_eq!(loaded.count(), 2);
+        assert_eq!(loaded.recent(10)[0].action, "test_action");
+        let _ = std::fs::remove_file(path);
     }
 }

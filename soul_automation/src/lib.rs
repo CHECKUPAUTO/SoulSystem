@@ -82,8 +82,30 @@ impl CronScheduler {
         }
     }
 
+    pub fn make_due(&mut self, id: &str) {
+        if let Some(task) = self.tasks.iter_mut().find(|t| t.id == id) {
+            task.next_run = Some(chrono::Utc::now());
+        }
+    }
+
     fn calculate_next_run(&self, _cron_expr: &str) -> Option<chrono::DateTime<chrono::Utc>> {
         Some(chrono::Utc::now() + chrono::Duration::hours(1))
+    }
+
+    pub fn tick(&mut self) -> Vec<(String, String)> {
+        let now = chrono::Utc::now();
+        let due: Vec<(String, String)> = self
+            .tasks
+            .iter()
+            .filter(|t| t.enabled && t.next_run.map(|n| n <= now).unwrap_or(false))
+            .map(|t| (t.id.clone(), t.command.clone()))
+            .collect();
+
+        for (id, _) in &due {
+            self.mark_executed(id);
+        }
+
+        due
     }
 
     pub fn list_tasks(&self) -> &[ScheduledTask] {
@@ -306,6 +328,54 @@ impl WorkflowEngine {
     pub fn list_workflows(&self) -> &[Workflow] {
         &self.workflows
     }
+
+    pub fn execute_current_step(&mut self, id: &str) -> Option<(String, String)> {
+        let workflow = self.workflows.iter().find(|w| w.id == id)?;
+        if workflow.status != WorkflowStatus::Running {
+            return None;
+        }
+        let current_step_id = workflow.current_step.as_ref()?;
+        let step = workflow.steps.iter().find(|s| &s.id == current_step_id)?;
+        Some((step.id.clone(), step.action.clone()))
+    }
+
+    pub fn advance_workflow(&mut self, id: &str, success: bool) -> Option<String> {
+        let workflow = self.workflows.iter_mut().find(|w| w.id == id)?;
+        if workflow.status != WorkflowStatus::Running {
+            return None;
+        }
+        if !success {
+            workflow.status = WorkflowStatus::Failed;
+            return None;
+        }
+        let current_step_id = workflow.current_step.as_ref()?.clone();
+        let current_idx = workflow.steps.iter().position(|s| s.id == current_step_id)?;
+
+        // Check for explicit next_step first
+        let current = &workflow.steps[current_idx];
+        if let Some(ref next_id) = current.next_step {
+            workflow.current_step = Some(next_id.clone());
+            let step = workflow.steps.iter().find(|s| &s.id == next_id)?;
+            return Some(step.action.clone());
+        }
+
+        // Sequential: move to next index
+        let next_idx = current_idx + 1;
+        if next_idx >= workflow.steps.len() {
+            workflow.status = WorkflowStatus::Completed;
+            workflow.current_step = None;
+            return None;
+        }
+        workflow.current_step = Some(workflow.steps[next_idx].id.clone());
+        Some(workflow.steps[next_idx].action.clone())
+    }
+
+    pub fn list_running(&self) -> Vec<&Workflow> {
+        self.workflows
+            .iter()
+            .filter(|w| w.status == WorkflowStatus::Running)
+            .collect()
+    }
 }
 
 impl Default for WorkflowEngine {
@@ -435,6 +505,33 @@ impl AutomationEngine {
             "healing_success_rate": self.healer.success_rate(),
         })
     }
+
+    pub fn execute_due_tasks(&mut self) -> Vec<(String, bool, String)> {
+        let due = self.scheduler.tick();
+        let mut results = Vec::new();
+
+        for (task_id, command) in due {
+            let output = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&command)
+                .output();
+
+            match output {
+                Ok(output) => {
+                    let success = output.status.success();
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                    let msg = if success { stdout } else { stderr };
+                    results.push((task_id, success, msg));
+                }
+                Err(e) => {
+                    results.push((task_id, false, e.to_string()));
+                }
+            }
+        }
+
+        results
+    }
 }
 
 impl Default for AutomationEngine {
@@ -540,9 +637,135 @@ mod tests {
     }
 
     #[test]
+    fn test_workflow_advance_three_steps() {
+        let mut wf = WorkflowEngine::new();
+        let id = wf.create_workflow("test_3step");
+        wf.add_step(&id, "step1", "action1");
+        wf.add_step(&id, "step2", "action2");
+        wf.add_step(&id, "step3", "action3");
+
+        assert!(wf.start_workflow(&id));
+
+        // Execute and advance step 1
+        let (_step_id, action) = wf.execute_current_step(&id).unwrap();
+        assert_eq!(action, "action1");
+        let next_action = wf.advance_workflow(&id, true).unwrap();
+        assert_eq!(next_action, "action2");
+
+        // Execute and advance step 2
+        let (_step_id, action) = wf.execute_current_step(&id).unwrap();
+        assert_eq!(action, "action2");
+        let next_action = wf.advance_workflow(&id, true).unwrap();
+        assert_eq!(next_action, "action3");
+
+        // Execute and advance step 3 (last step)
+        let (_step_id, action) = wf.execute_current_step(&id).unwrap();
+        assert_eq!(action, "action3");
+        let next = wf.advance_workflow(&id, true);
+        assert!(next.is_none());
+
+        let workflow = wf.get_workflow(&id).unwrap();
+        assert_eq!(workflow.status, WorkflowStatus::Completed);
+        assert!(workflow.current_step.is_none());
+    }
+
+    #[test]
+    fn test_workflow_failure_mid() {
+        let mut wf = WorkflowEngine::new();
+        let id = wf.create_workflow("fail_mid");
+        wf.add_step(&id, "step1", "action1");
+        wf.add_step(&id, "step2", "action2");
+        wf.add_step(&id, "step3", "action3");
+
+        wf.start_workflow(&id);
+        wf.advance_workflow(&id, true);
+
+        // Fail at step 2
+        let result = wf.advance_workflow(&id, false);
+        assert!(result.is_none());
+        let workflow = wf.get_workflow(&id).unwrap();
+        assert_eq!(workflow.status, WorkflowStatus::Failed);
+    }
+
+    #[test]
+    fn test_list_running() {
+        let mut wf = WorkflowEngine::new();
+        let id1 = wf.create_workflow("wf1");
+        let id2 = wf.create_workflow("wf2");
+        wf.create_workflow("wf3");
+
+        wf.start_workflow(&id1);
+        wf.start_workflow(&id2);
+
+        let running = wf.list_running();
+        assert_eq!(running.len(), 2);
+        assert!(running.iter().all(|w| w.status == WorkflowStatus::Running));
+    }
+
+    #[test]
+    fn test_execute_current_step_not_running() {
+        let mut wf = WorkflowEngine::new();
+        let id = wf.create_workflow("idle_wf");
+        assert!(wf.execute_current_step(&id).is_none());
+    }
+
+    #[test]
     fn test_automation_engine_status() {
         let engine = AutomationEngine::new();
         let status = engine.status();
         assert_eq!(status["scheduled_tasks"], 0);
+    }
+
+    #[test]
+    fn test_tick_returns_due_tasks() {
+        let mut sched = CronScheduler::new();
+        let id = sched.add_task("test", "* * * * *", "echo test");
+        sched.make_due(&id);
+        let due = sched.tick();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].0, id);
+        assert_eq!(due[0].1, "echo test");
+    }
+
+    #[test]
+    fn test_tick_updates_last_run() {
+        let mut sched = CronScheduler::new();
+        let id = sched.add_task("test", "* * * * *", "echo hello");
+        assert!(sched.list_tasks()[0].last_run.is_none());
+        sched.make_due(&id);
+        sched.tick();
+        let task = sched.list_tasks().iter().find(|t| t.id == id).unwrap();
+        assert!(task.last_run.is_some());
+    }
+
+    #[test]
+    fn test_tick_disabled_task_not_returned() {
+        let mut sched = CronScheduler::new();
+        let id = sched.add_task("test", "* * * * *", "echo hello");
+        sched.make_due(&id);
+        sched.toggle_task(&id, false);
+        let due = sched.tick();
+        assert!(due.is_empty());
+    }
+
+    #[test]
+    fn test_execute_due_tasks() {
+        let mut engine = AutomationEngine::new();
+        let id = engine.scheduler.add_task("test", "* * * * *", "echo executed");
+        engine.scheduler.make_due(&id);
+        let results = engine.execute_due_tasks();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].1); // success
+        assert!(results[0].2.contains("executed"));
+    }
+
+    #[test]
+    fn test_execute_due_tasks_failing_command() {
+        let mut engine = AutomationEngine::new();
+        let id = engine.scheduler.add_task("test", "* * * * *", "exit 1");
+        engine.scheduler.make_due(&id);
+        let results = engine.execute_due_tasks();
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].1); // failure
     }
 }

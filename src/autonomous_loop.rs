@@ -7,6 +7,8 @@ use tracing::{info, warn};
 pub struct AutonomousLoopConfig {
     pub tick_interval_secs: u64,
     pub max_consecutive_noops: usize,
+    pub data_dir: String,
+    pub dashboard_port: Option<u16>,
 }
 
 impl Default for AutonomousLoopConfig {
@@ -14,6 +16,8 @@ impl Default for AutonomousLoopConfig {
         Self {
             tick_interval_secs: 30,
             max_consecutive_noops: 10,
+            data_dir: "/var/lib/soulsystem/autonomous".to_string(),
+            dashboard_port: None,
         }
     }
 }
@@ -25,6 +29,9 @@ pub struct CycleResult {
     pub decision: String,
     pub action_taken: bool,
     pub action_result: Option<String>,
+    pub cron_results: Vec<(String, bool, String)>,
+    pub workflow_results: Vec<String>,
+    pub healings: Vec<String>,
 }
 
 pub async fn run_autonomous_loop(
@@ -35,6 +42,17 @@ pub async fn run_autonomous_loop(
     info!("Autonomous loop starting (tick: {}s)", config.tick_interval_secs);
 
     setup_default_alerts(entity);
+    entity.register_healing_actions();
+
+    let _ = entity.load_state(&config.data_dir);
+
+    if let Some(port) = config.dashboard_port {
+        let data_dir = config.data_dir.clone();
+        tokio::spawn(async move {
+            serve_dashboard(port, data_dir).await;
+        });
+        info!("Dashboard serving on :{}", port);
+    }
 
     let mut cycle_count: usize = 0;
     let mut consecutive_noops: usize = 0;
@@ -59,6 +77,14 @@ pub async fn run_autonomous_loop(
             consecutive_noops = 0;
         }
 
+        if cycle_count % 10 == 0 {
+            if let Err(e) = entity.save_state(&config.data_dir) {
+                warn!("Failed to save state: {}", e);
+            } else {
+                info!("State saved (cycle {})", cycle_count);
+            }
+        }
+
         tokio::select! {
             _ = tokio::time::sleep(tokio::time::Duration::from_secs(config.tick_interval_secs)) => {}
             _ = shutdown_signal() => {
@@ -66,6 +92,12 @@ pub async fn run_autonomous_loop(
                 break;
             }
         }
+    }
+
+    if let Err(e) = entity.save_state(&config.data_dir) {
+        warn!("Final state save failed: {}", e);
+    } else {
+        info!("Final state saved");
     }
 
     info!("Autonomous loop stopped after {} cycles", cycle_count);
@@ -101,13 +133,31 @@ async fn execute_cycle(entity: &mut AutonomousEntity, cycle: usize) -> CycleResu
 
     let alerts = entity.check_alerts();
 
+    let cron_results = entity.tick_cron();
+    for (task_id, success, output) in &cron_results {
+        observations.push(format!("Cron {}: {} - {}", task_id, if *success { "OK" } else { "FAIL" }, output.chars().take(50).collect::<String>()));
+    }
+
+    let workflow_results = entity.tick_workflows();
+    for wr in &workflow_results {
+        observations.push(format!("Workflow: {}", wr));
+    }
+
+    let healings = entity.diagnose_and_heal();
+    for h in &healings {
+        observations.push(format!("Heal: {}", h));
+    }
+
     let context = format!(
-        "Cycle {}. System: CPU={:.1}% MEM={:.1}% PROCS={}. Alerts: {}. Recent memory: {:?}",
+        "Cycle {}. System: CPU={:.1}% MEM={:.1}% PROCS={}. Alerts: {}. Cron: {}. Workflows: {}. Healings: {}. Recent: {:?}",
         cycle,
         cpu,
         mem,
         procs,
         alerts.len(),
+        cron_results.len(),
+        workflow_results.len(),
+        healings.len(),
         entity.planner.memory.recent_observations(3),
     );
 
@@ -148,6 +198,9 @@ async fn execute_cycle(entity: &mut AutonomousEntity, cycle: usize) -> CycleResu
         decision: decision_str,
         action_taken,
         action_result,
+        cron_results,
+        workflow_results,
+        healings,
     }
 }
 
@@ -199,24 +252,98 @@ fn setup_default_alerts(entity: &mut AutonomousEntity) {
 }
 
 fn log_cycle_result(result: &CycleResult) {
-    let status = if result.action_taken { "ACTION" } else { "OBSERVE" };
+    let mut parts = vec![
+        format!("[Cycle {}]", result.cycle),
+        if result.action_taken { "ACTION".to_string() } else { "OBSERVE".to_string() },
+        format!("Decision: {}", result.decision),
+    ];
 
-    info!(
-        "[Cycle {}] {} | Decision: {} | Alerts: {} | Obs: {}{}",
-        result.cycle,
-        status,
-        result.decision,
-        result.alerts.len(),
-        result.observations.len(),
-        if result.action_taken {
-            format!(" | Result: {}", result.action_result.as_deref().unwrap_or("?"))
-        } else {
-            String::new()
-        },
-    );
+    if !result.cron_results.is_empty() {
+        parts.push(format!("Cron: {}", result.cron_results.len()));
+    }
+    if !result.workflow_results.is_empty() {
+        parts.push(format!("WF: {}", result.workflow_results.len()));
+    }
+    if !result.healings.is_empty() {
+        parts.push(format!("Heal: {}", result.healings.len()));
+    }
+
+    info!("{}", parts.join(" | "));
 
     for alert in &result.alerts {
         warn!("[Cycle {}] ALERT: {}", result.cycle, alert);
+    }
+}
+
+async fn serve_dashboard(port: u16, _data_dir: String) {
+    use axum::routing::get;
+    use axum::Router;
+
+    let html = r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>SoulSystem Autonomous Dashboard</title>
+    <meta charset="utf-8">
+    <meta http-equiv="refresh" content="10">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #1a1a2e; color: #eee; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .card { background: #16213e; border-radius: 8px; padding: 20px; margin: 10px 0; }
+        .metric { display: inline-block; margin: 10px; padding: 15px; background: #0f3460; border-radius: 8px; min-width: 150px; }
+        .metric h3 { margin: 0; color: #e94560; }
+        .metric p { margin: 5px 0 0; font-size: 24px; }
+        h1 { color: #e94560; }
+        .online { color: #4caf50; }
+        .offline { color: #f44336; }
+        pre { white-space: pre-wrap; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SoulSystem Autonomous Dashboard</h1>
+        <div class="card">
+            <h2>Status</h2>
+            <pre id="status">Loading...</pre>
+        </div>
+        <div class="card">
+            <h2>Recent Activity</h2>
+            <pre id="activity">Loading...</pre>
+        </div>
+    </div>
+    <script>
+        fetch('/api/status').then(r => r.json()).then(d => {
+            document.getElementById('status').textContent = JSON.stringify(d, null, 2);
+        });
+        fetch('/api/activity').then(r => r.json()).then(d => {
+            document.getElementById('activity').textContent = JSON.stringify(d, null, 2);
+        });
+    </script>
+</body>
+</html>"#.to_string();
+
+    let app = Router::new()
+        .route("/", get(move || {
+            let html = html.clone();
+            async move { axum::response::Html(html) }
+        }))
+        .route("/api/status", get(|| async {
+            axum::Json(serde_json::json!({"status": "running"}))
+        }))
+        .route("/api/activity", get(|| async {
+            axum::Json(serde_json::json!({"activity": []}))
+        }));
+
+    let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await {
+        Ok(l) => l,
+        Err(e) => {
+            warn!("Dashboard: failed to bind port {}: {}", port, e);
+            return;
+        }
+    };
+
+    info!("Dashboard listening on :{}", port);
+    if let Err(e) = axum::serve(listener, app).await {
+        warn!("Dashboard error: {}", e);
     }
 }
 

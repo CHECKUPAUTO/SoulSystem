@@ -45,6 +45,7 @@ pub struct Inference {
     pub path: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KnowledgeGraph {
     entities: HashMap<String, Entity>,
     relations: HashMap<String, Relation>,
@@ -176,6 +177,17 @@ impl KnowledgeGraph {
         }
         types
     }
+
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        let data = serde_json::to_string(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, data).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn load(path: &str) -> Result<Self, String> {
+        let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&data).map_err(|e| e.to_string())
+    }
 }
 
 impl Default for KnowledgeGraph {
@@ -198,6 +210,7 @@ pub struct Experience {
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LearningSystem {
     experiences: Vec<Experience>,
     patterns: HashMap<String, f32>,
@@ -250,6 +263,17 @@ impl LearningSystem {
         let len = self.experiences.len();
         let start = len.saturating_sub(n);
         &self.experiences[start..]
+    }
+
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        let data = serde_json::to_string(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, data).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn load(path: &str) -> Result<Self, String> {
+        let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&data).map_err(|e| e.to_string())
     }
 }
 
@@ -620,5 +644,31 @@ mod tests {
         let engine = CognitiveEngine::new();
         let status = engine.status();
         assert!(status.get("knowledge").is_some());
+    }
+
+    #[test]
+    fn test_knowledge_graph_save_load() {
+        let mut kg = KnowledgeGraph::new();
+        let id = kg.add_entity("TestEntity", "concept");
+        kg.add_entity("Other", "type");
+        let path = "/tmp/soulsystem_test_kg.json";
+        kg.save(path).unwrap();
+        let loaded = KnowledgeGraph::load(path).unwrap();
+        assert_eq!(loaded.entities.len(), 2);
+        assert_eq!(loaded.get_entity(&id).unwrap().name, "TestEntity");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_learning_system_save_load() {
+        let mut ls = LearningSystem::new();
+        ls.record("action1", "ctx", "success", 1.0);
+        ls.record("action2", "ctx", "failure", -1.0);
+        let path = "/tmp/soulsystem_test_ls.json";
+        ls.save(path).unwrap();
+        let loaded = LearningSystem::load(path).unwrap();
+        assert_eq!(loaded.recent(10).len(), 2);
+        assert_eq!(loaded.success_rate(), 0.5);
+        let _ = std::fs::remove_file(path);
     }
 }

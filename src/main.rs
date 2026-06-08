@@ -56,6 +56,10 @@ struct Cli {
     /// Tick interval in seconds for autonomous loop (default: 30)
     #[arg(long, default_value = "30")]
     tick: u64,
+
+    /// Serve live dashboard on this port (only with --autonomous)
+    #[arg(long)]
+    dashboard: Option<u16>,
 }
 
 #[tokio::main]
@@ -133,6 +137,8 @@ async fn main() -> Result<()> {
         let loop_config = soulsystem::autonomous_loop::AutonomousLoopConfig {
             tick_interval_secs: cli.tick,
             max_consecutive_noops: 10,
+            data_dir: "/var/lib/soulsystem/autonomous".to_string(),
+            dashboard_port: cli.dashboard,
         };
 
         soulsystem::autonomous_loop::run_autonomous_loop(&mut entity, loop_config, shutdown).await;
