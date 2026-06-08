@@ -933,6 +933,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul_acoustic"
+version = "0.1.0"
+
+[[package]]
 name = "soul_agent_runtime"
 version = "0.1.0"
 dependencies = [
