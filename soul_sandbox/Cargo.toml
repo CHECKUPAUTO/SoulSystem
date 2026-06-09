@@ -1,0 +1,13 @@
+[package]
+name = "soul_sandbox"
+version = "0.1.0"
+edition = "2021"
+description = "Sandbox d'exécution : liste blanche de commandes, timeouts, journalisation, journalisation de sécurité"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+parking_lot = "0.12"
+thiserror = "1"

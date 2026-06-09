@@ -35,6 +35,12 @@ members = [
     "soul_planner",
     "soul_tools",
     "soul_repl",
+    "soul_persistence",
+    "soul_sandbox",
+    "soul_gateway",
+    "soul_openclaw",
+    "soul_entity",
+    "souls",
 ]
 resolver = "2"
 

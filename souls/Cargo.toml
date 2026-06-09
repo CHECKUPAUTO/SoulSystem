@@ -1,0 +1,29 @@
+[package]
+name = "souls"
+version = "0.1.0"
+edition = "2021"
+description = "Binaire principal de SoulSystem : entité autonome + gateway HTTP/WS + REPL"
+
+[[bin]]
+name = "souls"
+path = "src/main.rs"
+
+[dependencies]
+soul_entity = { path = "../soul_entity" }
+soul_gateway = { path = "../soul_gateway" }
+soul_llm = { path = "../soul_llm" }
+soul_persistence = { path = "../soul_persistence" }
+soul_sandbox = { path = "../soul_sandbox" }
+soul_openclaw = { path = "../soul_openclaw" }
+soul_repl = { path = "../soul_repl" }
+soul_planner = { path = "../soul_planner" }
+soul_tools = { path = "../soul_tools" }
+
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+colored = "3"
