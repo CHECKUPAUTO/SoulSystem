@@ -9,7 +9,7 @@
 use crate::loss::{LossResult, SemanticLoss};
 use soullink_memory::concept::{Concept, ConceptKind};
 use soullink_memory::graph::MemoryGraph;
-use soullink_vector::hnsw_index::SearchResult;
+use soullink_vector::hnsw_index::VectorSearchResult;
 use tracing::{info, instrument};
 
 /// Configuration for the evaluation loop.
@@ -87,7 +87,7 @@ impl BrainEvaluator {
         let loss_result = self.loss.compute(query_emb, response_emb);
 
         // Search for related concepts using response embedding
-        let related: Vec<SearchResult> = memory_graph.search(response_emb, 5);
+        let related: Vec<VectorSearchResult> = memory_graph.search(response_emb, 5);
         let related_labels: Vec<String> = related.iter().map(|r| r.label.clone()).collect();
 
         let mut concepts_updated = 0;

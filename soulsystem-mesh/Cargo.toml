@@ -4,8 +4,6 @@ version = "1.0.0"
 edition = "2021"
 description = "SoulSystem Mesh — méta-crate liant tous les composants de l'écosystème"
 
-[workspace]
-
 [dependencies]
 # Cœur SoulSystem
 soulsystem = { path = "../" }

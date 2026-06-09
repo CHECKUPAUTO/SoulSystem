@@ -8,11 +8,11 @@ description = "Pont d'intégration AVID ↔ SoulSystem"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1"
-tracing = "0.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
 
 [features]
 default = []

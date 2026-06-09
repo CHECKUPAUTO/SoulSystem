@@ -4,15 +4,15 @@ version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.11", features = ["json"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-anyhow = "1"
-thiserror = "1"
-dashmap = "5"
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+dashmap = { workspace = true }
 moka = { version = "0.10", features = ["future"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { workspace = true }
 confy = "0.6"

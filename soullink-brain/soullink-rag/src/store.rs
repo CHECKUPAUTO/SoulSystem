@@ -10,7 +10,7 @@ use crate::page::{ChunkType, PageChunk, PageConfig, PageMetadata};
 use crate::provider::PageProvider;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use soullink_vector::hnsw_index::{HnswIndex, HnswParams, SearchResult};
+use soullink_vector::hnsw_index::{HnswIndex, HnswParams, VectorSearchResult};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -231,7 +231,7 @@ impl PageAwareStore {
         };
 
         // Vector search
-        let vector_results: Vec<SearchResult> = self
+        let vector_results: Vec<VectorSearchResult> = self
             .vector_index
             .search(&query_vec, top_k * 2)
             .unwrap_or_default();

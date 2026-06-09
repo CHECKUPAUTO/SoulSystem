@@ -9,7 +9,7 @@ use petgraph::visit::EdgeRef;
 use petgraph::Undirected;
 use sled::Db;
 use soullink_vector::alignment::{align_vector, DimensionRegistry};
-use soullink_vector::hnsw_index::{HnswParams, SearchResult, VectorStore};
+use soullink_vector::hnsw_index::{HnswParams, VectorSearchResult, VectorStore};
 use std::path::Path;
 
 use crate::concept::Concept;
@@ -22,13 +22,6 @@ pub struct EdgeRecord {
     pub a: usize,
     pub b: usize,
     pub weight: f32,
-}
-
-/// Edge metadata kept in-memory alongside the petgraph edge.
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // reserved for future edge aging logic
-struct EdgeMeta {
-    created_at: chrono::DateTime<Utc>,
 }
 
 /// The memory graph — concepts as nodes, weighted edges as associations.
@@ -173,7 +166,7 @@ impl MemoryGraph {
     }
 
     /// Semantic search via VectorStore.
-    pub fn search(&self, query: &[f32], top_k: usize) -> Vec<SearchResult> {
+    pub fn search(&self, query: &[f32], top_k: usize) -> Vec<VectorSearchResult> {
         self.vectors.search(query, top_k)
     }
 

@@ -15,7 +15,7 @@ name = "soullink-scan"
 path = "src/main.rs"
 
 [dependencies]
-regex = "1"
+regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "fs", "io-util"] }

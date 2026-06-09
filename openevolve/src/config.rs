@@ -204,6 +204,6 @@ impl Config {
 
     /// Sérialise en TOML pour debug / export.
     pub fn to_toml(&self) -> Result<String> {
-        toml::to_string_pretty(self).context("Sérialisation TOML échouée")
+        toml::to_string(self).context("Sérialisation TOML échouée")
     }
 }

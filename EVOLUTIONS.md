@@ -1,20 +1,22 @@
 # SoulSystem Evolution Roadmap 🦞
 
-## 1. Architecture & Performance
-- **Zero-Copy IPC**: Implement shared memory (`/dev/shm`) bus for tensor and HNN state exchange to replace HTTP/JSON overhead.
-- **Dynamic VRAM Management**: Orchestrator-level control to load/unload models and manage GPU memory across organs.
-- **Distributed Mesh**: Move beyond `127.0.0.1` using mDNS or a central registry for multi-node deployments.
+## 1. Architecture & Performance ✅
+- **Zero-Copy IPC**: ✅ `soullink-shm` — memfd + mmap + UDS fd-passing, ShmBus (16-slot broadcast)
+- **Dynamic VRAM Management**: ✅ `soullink-vram` — 5 priority levels, 4 pressure levels, reference counting
+- **Distributed Mesh**: ✅ `soullink-registry` — service directory, serialize/merge for multi-node sync
 
-## 2. Autonomy & AI
-- **Automated Fine-Tuning Pipeline**: Implement `soullink-trainer` to harvest successful metacognition trajectories and fine-tune local models (Qwen3 target).
-- **Hierarchical Memory**: Implement episodic (Chronos) vs semantic (Weaviate) memory consolidation.
-- **Mixture of Experts (MoE)**: Route tasks to specialized fine-tuned models (coding, science, creative).
+## 2. Autonomy & AI ✅
+- **Automated Fine-Tuning Pipeline**: ✅ `soullink-trainer` — trajectory recorder, filter, DPO pair export
+- **Hierarchical Memory**: ✅ `soullink-memory-hierarchy` — working (ring buffer) → episodic (decay) → semantic (consolidation)
+- **Mixture of Experts (MoE)**: ✅ `soullink-moe` — task classifier + expert router by domain/load
 
-## 3. New Tools
-- **`soul-top`**: A real-time TUI visualizer (built with Ratatui) for monitoring organ health, turbulence, and neural mesh connections.
-- **`soul-chaos`**: A resilience testing tool (Chaos Monkey) that injects failures (latency, process death, data corruption) to verify self-healing capabilities.
-- **`soul-shell`**: An interactive CLI for direct communication with the Kernel and manual stimulus injection.
+## 3. New Tools ✅
+- **`soul-top`**: ✅ Ratatui TUI — organ health, turbulence, events, gauges
+- **`soul-chaos`**: ✅ Chaos Monkey — Latency, Error, Corrupt, Kill, Flood injection
+- **`soul-shell`**: ✅ Interactive CLI — status, inject, memory, health commands
 
-## 4. Maintenance & Reliability
-- **Crate Unification**: Unify shared logic between `openclaw-u` and `soullink-brain` into a common library.
-- **Advanced Autocode**: Expand `AutoCoder` to refactor entire modules based on performance bottlenecks detected by `Metacognition`.
+## 4. Maintenance & Reliability ✅
+- **Crate Unification**: ✅ Bus, circuit breaker, soul-memory unified into common library
+- **Advanced Autocode**: Partially done (AutoCoder exists, metacognition-driven refactoring pending)
+- **Dependency Hygiene**: ✅ 35 crates migrated to workspace deps, openevolve unified
+- **Dead Code Cleanup**: ✅ 3 items deleted, 3 annotations removed

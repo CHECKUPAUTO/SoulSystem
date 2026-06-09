@@ -96,7 +96,7 @@ impl HnswParams {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-pub struct SearchResult {
+pub struct VectorSearchResult {
     pub label: String,
     /// Distance cosine hnsw_rs ∈ [0.0, 2.0]
     pub distance: f32,
@@ -267,7 +267,7 @@ impl HnswIndex {
 
     /// Recherche les `top_k` plus proches voisins.
     #[instrument(skip(self, query), fields(n = self.count.load(Ordering::Relaxed)))]
-    pub fn search(&self, query: &[f32], top_k: usize) -> Result<Vec<SearchResult>> {
+    pub fn search(&self, query: &[f32], top_k: usize) -> Result<Vec<VectorSearchResult>> {
         if top_k == 0 {
             return Err(VectorError::InvalidTopK);
         }
@@ -291,7 +291,7 @@ impl HnswIndex {
                 labels.get(n.d_id).filter(|l| !l.is_empty()).map(|label| {
                     let dist = n.distance;
                     let score = (1.0 - dist / 2.0).clamp(0.0, 1.0);
-                    SearchResult {
+                    VectorSearchResult {
                         label: label.clone(),
                         distance: dist,
                         score,
@@ -308,7 +308,7 @@ impl HnswIndex {
         &self,
         queries: &[Vec<f32>],
         top_k: usize,
-    ) -> Result<Vec<Vec<SearchResult>>> {
+    ) -> Result<Vec<Vec<VectorSearchResult>>> {
         if self.count.load(Ordering::Relaxed) == 0 {
             return Err(VectorError::EmptyIndex);
         }
@@ -325,7 +325,7 @@ impl HnswIndex {
                         labels.get(n.d_id).filter(|l| !l.is_empty()).map(|label| {
                             let dist = n.distance;
                             let score = (1.0 - dist / 2.0).clamp(0.0, 1.0);
-                            SearchResult {
+                            VectorSearchResult {
                                 label: label.clone(),
                                 distance: dist,
                                 score,
@@ -420,7 +420,7 @@ impl HybridSearch {
         Ok(())
     }
 
-    pub fn search(&self, query: &[f32], top_k: usize) -> Result<Vec<SearchResult>> {
+    pub fn search(&self, query: &[f32], top_k: usize) -> Result<Vec<VectorSearchResult>> {
         if self.hnsw_active.load(Ordering::Acquire) {
             return self.hnsw.search(query, top_k);
         }
@@ -438,7 +438,7 @@ impl HybridSearch {
 
         Ok(scores
             .into_iter()
-            .map(|(label, score)| SearchResult {
+            .map(|(label, score)| VectorSearchResult {
                 label,
                 distance: (1.0 - score) * 2.0,
                 score,
@@ -507,7 +507,7 @@ impl VectorStore {
         Ok(())
     }
 
-    pub fn search(&self, query: &[f32], top_k: usize) -> Vec<SearchResult> {
+    pub fn search(&self, query: &[f32], top_k: usize) -> Vec<VectorSearchResult> {
         self.inner.search(query, top_k).unwrap_or_default()
     }
 

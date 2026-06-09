@@ -1,48 +1,14 @@
-//! Metacognition — Auto-évaluation de la qualité des décisions
+//! Metacognition — Auto-évaluation de la qualité des décisions.
+//!
+//! Utilise les types partagés de `soulsystem_common::metacognition`.
 
-use serde::{Deserialize, Serialize};
+pub use soulsystem_common::metacognition::{
+    CycleMetrics, DecisionQuality, QualityCategory,
+    score_cycle, recommendation_for,
+};
 
-/// Métrique de performance d'un cycle
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CycleMetrics {
-    pub cycle: u64,
-    pub timestamp: String,
-    pub action_taken: String,
-    pub energy_before: f64,
-    pub energy_after: f64,
-    pub cpu_before: f32,
-    pub cpu_after: f32,
-    pub mem_before: f32,
-    pub mem_after: f32,
-    pub alerts_before: usize,
-    pub alerts_after: usize,
-    pub action_success: bool,
-    pub llm_confidence: f32,
-    pub time_taken_ms: u64,
-}
-
-/// Évaluation de la qualité d'une décision
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DecisionQuality {
-    pub cycle: u64,
-    pub action: String,
-    pub score: f32, // 0.0-1.0
-    pub category: QualityCategory,
-    pub explanation: String,
-    pub recommendation: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum QualityCategory {
-    Excellent,    // Amélioration claire + succès
-    Good,         // Succès mais peu d'impact
-    Neutral,      // Pas de changement notable
-    Poor,         // Échec ou dégradation
-    Catastrophic, // Dégradation sévère
-}
-
-/// Moteur de méta-cognition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Moteur de méta-cognition (historique + évaluations).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Metacognition {
     pub history: Vec<CycleMetrics>,
     pub evaluations: Vec<DecisionQuality>,
@@ -59,7 +25,7 @@ impl Metacognition {
         }
     }
 
-    /// Enregistre les métriques avant/après une action
+    /// Enregistre les métriques avant/après une action.
     #[allow(clippy::too_many_arguments)]
     pub fn record_cycle(
         &mut self,
@@ -97,64 +63,14 @@ impl Metacognition {
         self.last_cycle = cycle;
     }
 
-    /// Évalue la qualité de la dernière décision
+    /// Évalue la qualité de la dernière décision.
     pub fn evaluate_last(&self) -> Option<DecisionQuality> {
         let last = self.history.last()?;
         let prev = self.history.iter().rev().nth(1);
 
-        let mut score = 0.0f32;
-        let mut reasons = Vec::new();
+        let mut score = score_cycle(last);
 
-        // 1. Succès de l'action
-        if last.action_success {
-            score += 0.3;
-            reasons.push("action réussie".to_string());
-        } else {
-            score -= 0.3;
-            reasons.push("action échouée".to_string());
-        }
-
-        // 2. Énergie augmentée ou stable
-        let energy_delta = last.energy_after - last.energy_before;
-        if energy_delta > 0.0 {
-            score += 0.2;
-            reasons.push(format!("énergie +{:.1}", energy_delta));
-        } else if energy_delta < -0.5 {
-            score -= 0.2;
-            reasons.push(format!("énergie {:.1}", energy_delta));
-        }
-
-        // 3. CPU amélioré
-        let cpu_delta = last.cpu_after - last.cpu_before;
-        if cpu_delta < -5.0 {
-            score += 0.2;
-            reasons.push(format!("CPU amélioré {:.0}%", cpu_delta));
-        } else if cpu_delta > 10.0 {
-            score -= 0.2;
-            reasons.push(format!("CPU dégradé +{:.0}%", cpu_delta));
-        }
-
-        // 4. Mémoire améliorée
-        let mem_delta = last.mem_after - last.mem_before;
-        if mem_delta < -3.0 {
-            score += 0.1;
-            reasons.push(format!("MEM améliorée {:.0}%", mem_delta));
-        } else if mem_delta > 5.0 {
-            score -= 0.1;
-            reasons.push(format!("MEM dégradée +{:.0}%", mem_delta));
-        }
-
-        // 5. Alertes résolues
-        let alert_delta = last.alerts_after as i64 - last.alerts_before as i64;
-        if alert_delta < 0 {
-            score += 0.2;
-            reasons.push(format!("{} alertes résolues", -alert_delta));
-        } else if alert_delta > 0 {
-            score -= 0.2;
-            reasons.push(format!("{} nouvelles alertes", alert_delta));
-        }
-
-        // 6. Comparaison avec cycle précédent
+        // Bonus comparaison avec cycle précédent
         if let Some(prev) = prev {
             if last.cpu_after < prev.cpu_after {
                 score += 0.1;
@@ -162,47 +78,22 @@ impl Metacognition {
             if last.mem_after < prev.mem_after {
                 score += 0.1;
             }
+            score = score.clamp(0.0, 1.0);
         }
 
-        // 7. Confiance LLM vs réalité
-        if last.llm_confidence > 0.8 && !last.action_success {
-            score -= 0.2;
-            reasons.push("LLM surconfiant".to_string());
-        }
+        let category = QualityCategory::from_score(score);
+        let recommendation = recommendation_for(&category).to_string();
 
-        // Score clamp [0, 1]
-        score = score.clamp(0.0, 1.0);
-
-        let category = if score >= 0.8 {
-            QualityCategory::Excellent
-        } else if score >= 0.6 {
-            QualityCategory::Good
-        } else if score >= 0.4 {
-            QualityCategory::Neutral
-        } else if score >= 0.2 {
-            QualityCategory::Poor
+        let mut reasons = Vec::new();
+        if last.action_success {
+            reasons.push("action réussie".to_string());
         } else {
-            QualityCategory::Catastrophic
-        };
-
-        let recommendation = match category {
-            QualityCategory::Excellent => {
-                "Continuer cette stratégie. Essayer d'appliquer à d'autres situations.".to_string()
-            }
-            QualityCategory::Good => {
-                "Bonne direction. Vérifier si l'impact peut être amplifié.".to_string()
-            }
-            QualityCategory::Neutral => {
-                "Pas d'impact mesurable. Changer d'approche ou attendre.".to_string()
-            }
-            QualityCategory::Poor => {
-                "Action contre-productive. Privilégier une autre stratégie au prochain cycle."
-                    .to_string()
-            }
-            QualityCategory::Catastrophic => {
-                "Détérioration sévère. Pause immédiate et analyse approfondie.".to_string()
-            }
-        };
+            reasons.push("action échouée".to_string());
+        }
+        let energy_delta = last.energy_after - last.energy_before;
+        if energy_delta > 0.0 {
+            reasons.push(format!("énergie +{:.1}", energy_delta));
+        }
 
         Some(DecisionQuality {
             cycle: last.cycle,
@@ -214,7 +105,7 @@ impl Metacognition {
         })
     }
 
-    /// Résumé des N derniers cycles
+    /// Résumé des N derniers cycles.
     pub fn summary(&self, n: usize) -> String {
         let recent = self.history.iter().rev().take(n);
         let mut total_score = 0.0f32;
@@ -226,24 +117,7 @@ impl Metacognition {
             if m.action_success {
                 successes += 1;
             }
-            // Score approximatif
-            let s = if m.action_success { 0.5f32 } else { 0.0f32 }
-                + if m.energy_after > m.energy_before {
-                    0.2f32
-                } else {
-                    0.0f32
-                }
-                + if m.cpu_after < m.cpu_before {
-                    0.2f32
-                } else {
-                    0.0f32
-                }
-                + if m.alerts_after < m.alerts_before {
-                    0.1f32
-                } else {
-                    0.0f32
-                };
-            total_score += s.clamp(0.0f32, 1.0f32);
+            total_score += score_cycle(m);
         }
 
         let avg_score = if count > 0 {
@@ -266,7 +140,7 @@ impl Metacognition {
         )
     }
 
-    /// Ajuste les paramètres selon performance
+    /// Ajuste les paramètres selon performance.
     pub fn suggest_adjustments(&self) -> Vec<String> {
         let mut suggestions = Vec::new();
 

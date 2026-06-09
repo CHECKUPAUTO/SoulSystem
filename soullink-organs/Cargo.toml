@@ -1,7 +1,11 @@
 [package]
-name = "soullink-organs-v2"
-version = "6.1.0"
-edition = "2021"
+name = "soullink-organs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink organ services — foresight, homeostasis, creativity, social, validation"
 
 [[bin]]
 name = "soullink-foresight"
@@ -24,13 +28,13 @@ name = "soullink-validation"
 path = "src/validation.rs"
 
 [dependencies]
-axum = { version = "0.8", features = ["tokio", "json"] }
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tracing = "0.1"
-tracing-subscriber = "0.3"
-dashmap = "6"
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dashmap = { workspace = true }
 minreq = { version = "2", features = ["https"] }
 sha2 = "0.10"
-chrono = "0.4"
+chrono = { workspace = true }

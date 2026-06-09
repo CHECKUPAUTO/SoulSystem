@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::process::Command;
+use std::path::Path;
+use std::time::Duration;
+use tokio::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tool {
@@ -18,6 +20,51 @@ pub enum ToolCategory {
     Process,
     Data,
     Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum PermissionLevel {
+    Read,
+    Write,
+    Destructive,
+}
+
+impl PermissionLevel {
+    pub fn from_command(cmd: &str) -> Self {
+        let lower = cmd.to_lowercase();
+        // Destructive commands
+        if lower.contains("rm -rf")
+            || lower.contains("rm -r ")
+            || lower.contains("mkfs")
+            || lower.contains("dd if=")
+            || lower.contains("shutdown")
+            || lower.contains("reboot")
+            || lower.contains("systemctl stop")
+            || lower.contains("systemctl disable")
+            || lower.contains("chmod 777")
+            || lower.contains("chown -R")
+        {
+            return PermissionLevel::Destructive;
+        }
+        // Write commands
+        if lower.starts_with("rm ")
+            || lower.starts_with("mv ")
+            || lower.starts_with("chmod")
+            || lower.starts_with("chown")
+            || lower.starts_with("mkdir")
+            || lower.starts_with("touch")
+            || lower.starts_with("cp ")
+            || lower.contains(" > ")
+            || lower.contains(" >> ")
+            || lower.contains("tee ")
+            || lower.contains("write")
+            || lower.contains("patch")
+            || lower.contains("sed -i")
+        {
+            return PermissionLevel::Write;
+        }
+        PermissionLevel::Read
+    }
 }
 
 pub struct ToolRegistry {
@@ -67,8 +114,10 @@ impl Default for ToolRegistry {
     }
 }
 
+// ── Shell Execution ───────────────────────────────────────────────────
+
 pub fn execute_shell(command: &str) -> Result<String, String> {
-    let output = Command::new("sh")
+    let output = std::process::Command::new("sh")
         .arg("-c")
         .arg(command)
         .output()
@@ -89,6 +138,311 @@ pub fn execute_tool(tool: &Tool, args: &str) -> Result<String, String> {
     };
     execute_shell(&cmd)
 }
+
+// ── Async Shell Execution ─────────────────────────────────────────────
+
+pub struct AsyncShellExecutor {
+    timeout: Duration,
+}
+
+impl AsyncShellExecutor {
+    pub fn new(timeout_secs: u64) -> Self {
+        Self {
+            timeout: Duration::from_secs(timeout_secs),
+        }
+    }
+
+    pub async fn execute(&self, command: &str) -> Result<ShellOutput, String> {
+        let permission = PermissionLevel::from_command(command);
+
+        let result = tokio::time::timeout(
+            self.timeout,
+            Command::new("sh")
+                .arg("-c")
+                .arg(command)
+                .output(),
+        )
+        .await;
+
+        match result {
+            Ok(Ok(output)) => Ok(ShellOutput {
+                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                exit_code: output.status.code().unwrap_or(-1),
+                permission,
+            }),
+            Ok(Err(e)) => Err(format!("Failed to execute: {}", e)),
+            Err(_) => Err(format!(
+                "Command timed out after {}s: {}",
+                self.timeout.as_secs(),
+                command
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ShellOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+    pub permission: PermissionLevel,
+}
+
+impl ShellOutput {
+    pub fn is_success(&self) -> bool {
+        self.exit_code == 0
+    }
+
+    pub fn summary(&self, max_len: usize) -> String {
+        let output = if self.stdout.is_empty() {
+            &self.stderr
+        } else {
+            &self.stdout
+        };
+        truncate_str(output, max_len)
+    }
+}
+
+// ── File Operations ───────────────────────────────────────────────────
+
+pub fn read_file(path: &str, start_line: Option<usize>, num_lines: Option<usize>) -> Result<String, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Cannot read {}: {}", path, e))?;
+
+    let lines: Vec<&str> = content.lines().collect();
+    let start = start_line.unwrap_or(1).saturating_sub(1);
+    let end = start + num_lines.unwrap_or(200);
+
+    let selected: Vec<String> = lines[start..end.min(lines.len())]
+        .iter()
+        .enumerate()
+        .map(|(i, line)| format!("{:>4}: {}", start + i + 1, line))
+        .collect();
+
+    let mut result = selected.join("\n");
+    if end < lines.len() {
+        result.push_str(&format!(
+            "\n... ({} more lines, total {})",
+            lines.len() - end,
+            lines.len()
+        ));
+    }
+    Ok(result)
+}
+
+pub fn write_file(path: &str, content: &str, append: bool) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = if append {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|e| format!("Cannot open {}: {}", path, e))?
+    } else {
+        std::fs::File::create(path).map_err(|e| format!("Cannot create {}: {}", path, e))?
+    };
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("Cannot write {}: {}", path, e))
+}
+
+pub fn patch_file(path: &str, old_text: &str, new_text: &str) -> Result<String, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Cannot read {}: {}", path, e))?;
+
+    let count = content.matches(old_text).count();
+    if count == 0 {
+        return Err(format!(
+            "Text not found in {}. Try reading the file first.",
+            path
+        ));
+    }
+    if count > 1 {
+        return Err(format!(
+            "Text found {} times in {}. Must be unique. Use a larger chunk.",
+            count, path
+        ));
+    }
+
+    let new_content = content.replacen(old_text, new_text, 1);
+    std::fs::write(path, new_content)
+        .map_err(|e| format!("Cannot write {}: {}", path, e))?;
+
+    Ok(format!("Patched {} (1 occurrence replaced)", path))
+}
+
+pub fn list_directory(path: &str) -> Result<Vec<String>, String> {
+    let entries = std::fs::read_dir(path)
+        .map_err(|e| format!("Cannot read directory {}: {}", path, e))?;
+
+    let mut items: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| {
+            let file_type = e.file_type().map(|ft| {
+                if ft.is_dir() {
+                    "/"
+                } else if ft.is_symlink() {
+                    "@"
+                } else {
+                    ""
+                }
+            }).unwrap_or("");
+            format!("{}{}", e.file_name().to_string_lossy(), file_type)
+        })
+        .collect();
+
+    items.sort();
+    Ok(items)
+}
+
+pub fn search_files(pattern: &str, path: &str) -> Result<Vec<String>, String> {
+    let output = std::process::Command::new("find")
+        .arg(path)
+        .arg("-name")
+        .arg(pattern)
+        .arg("-type")
+        .arg("f")
+        .output()
+        .map_err(|e| format!("find failed: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.lines().map(|s| s.to_string()).collect())
+}
+
+pub fn grep_content(pattern: &str, path: &str, file_pattern: Option<&str>) -> Result<Vec<String>, String> {
+    let mut args = vec!["-rn", pattern, path];
+    if let Some(fp) = file_pattern {
+        args.push("--include");
+        args.push(fp);
+    }
+
+    let output = std::process::Command::new("grep")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("grep failed: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.lines().map(|s| s.to_string()).collect())
+}
+
+// ── Tool Dispatch ─────────────────────────────────────────────────────
+
+pub fn dispatch_tool(
+    tool_name: &str,
+    args: &serde_json::Value,
+) -> Result<String, String> {
+    match tool_name {
+        "execute_shell" => {
+            let cmd = args.get("command")
+                .and_then(|c| c.as_str())
+                .ok_or("Missing 'command' argument")?;
+            execute_shell(cmd)
+        }
+        "read_file" => {
+            let path = args.get("path")
+                .and_then(|p| p.as_str())
+                .ok_or("Missing 'path' argument")?;
+            let start = args.get("start_line").and_then(|l| l.as_u64()).map(|n| n as usize);
+            let num = args.get("num_lines").and_then(|l| l.as_u64()).map(|n| n as usize);
+            read_file(path, start, num)
+        }
+        "write_file" => {
+            let path = args.get("path")
+                .and_then(|p| p.as_str())
+                .ok_or("Missing 'path' argument")?;
+            let content = args.get("content")
+                .and_then(|c| c.as_str())
+                .ok_or("Missing 'content' argument")?;
+            let append = args.get("mode")
+                .and_then(|m| m.as_str())
+                .map(|m| m == "append")
+                .unwrap_or(false);
+            write_file(path, content, append)?;
+            Ok(format!("Written to {}", path))
+        }
+        "patch_file" => {
+            let path = args.get("path")
+                .and_then(|p| p.as_str())
+                .ok_or("Missing 'path' argument")?;
+            let old = args.get("old_text")
+                .and_then(|t| t.as_str())
+                .ok_or("Missing 'old_text' argument")?;
+            let new = args.get("new_text")
+                .and_then(|t| t.as_str())
+                .ok_or("Missing 'new_text' argument")?;
+            patch_file(path, old, new)
+        }
+        "list_directory" => {
+            let path = args.get("path")
+                .and_then(|p| p.as_str())
+                .unwrap_or(".");
+            let items = list_directory(path)?;
+            Ok(items.join("\n"))
+        }
+        "search_files" => {
+            let pattern = args.get("pattern")
+                .and_then(|p| p.as_str())
+                .ok_or("Missing 'pattern' argument")?;
+            let path = args.get("path")
+                .and_then(|p| p.as_str())
+                .unwrap_or(".");
+            let files = search_files(pattern, path)?;
+            Ok(files.join("\n"))
+        }
+        "grep_content" => {
+            let pattern = args.get("pattern")
+                .and_then(|p| p.as_str())
+                .ok_or("Missing 'pattern' argument")?;
+            let path = args.get("path")
+                .and_then(|p| p.as_str())
+                .unwrap_or(".");
+            let fp = args.get("file_pattern").and_then(|p| p.as_str());
+            let results = grep_content(pattern, path, fp)?;
+            Ok(results.join("\n"))
+        }
+        _ => Err(format!("Unknown tool: {}", tool_name)),
+    }
+}
+
+/// Async version of dispatch_tool that runs blocking operations on a separate thread.
+/// Use this from async contexts to avoid blocking the tokio runtime.
+pub async fn async_dispatch_tool(
+    tool_name: &str,
+    args: serde_json::Value,
+) -> Result<String, String> {
+    // For shell execution, use spawn_blocking to avoid blocking the runtime
+    if tool_name == "execute_shell" {
+        let name = tool_name.to_string();
+        tokio::task::spawn_blocking(move || dispatch_tool(&name, &args))
+            .await
+            .map_err(|e| format!("Task join error: {}", e))?
+    } else {
+        // For other tools (file I/O), they're fast enough to run inline
+        // but we still wrap in spawn_blocking for consistency
+        let name = tool_name.to_string();
+        tokio::task::spawn_blocking(move || dispatch_tool(&name, &args))
+            .await
+            .map_err(|e| format!("Task join error: {}", e))?
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        let half = max_len / 2;
+        format!(
+            "{}\n...[truncated {} chars]...\n{}",
+            &s[..half],
+            s.len() - max_len,
+            &s[s.len() - half..]
+        )
+    }
+}
+
+// ── System Tool Discovery ─────────────────────────────────────────────
 
 const SYSTEM_TOOLS: &[(&str, &str, &str, ToolCategory)] = &[
     ("ls", "ls", "List directory contents", ToolCategory::File),
@@ -150,4 +504,201 @@ pub fn discover_system_tools() -> Vec<Tool> {
         }
     }
     tools
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_permission_read() {
+        assert_eq!(PermissionLevel::from_command("ls -la"), PermissionLevel::Read);
+        assert_eq!(PermissionLevel::from_command("cat /etc/passwd"), PermissionLevel::Read);
+        assert_eq!(PermissionLevel::from_command("grep -r foo ."), PermissionLevel::Read);
+    }
+
+    #[test]
+    fn test_permission_write() {
+        assert_eq!(PermissionLevel::from_command("rm file.txt"), PermissionLevel::Write);
+        assert_eq!(PermissionLevel::from_command("mkdir /tmp/test"), PermissionLevel::Write);
+        assert_eq!(PermissionLevel::from_command("cp a.txt b.txt"), PermissionLevel::Write);
+        assert_eq!(PermissionLevel::from_command("sed -i 's/foo/bar/' file"), PermissionLevel::Write);
+    }
+
+    #[test]
+    fn test_permission_destructive() {
+        assert_eq!(PermissionLevel::from_command("rm -rf /"), PermissionLevel::Destructive);
+        assert_eq!(PermissionLevel::from_command("mkfs.ext4 /dev/sda"), PermissionLevel::Destructive);
+        assert_eq!(PermissionLevel::from_command("dd if=/dev/zero of=/dev/sda"), PermissionLevel::Destructive);
+    }
+
+    #[test]
+    fn test_tool_registry() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Tool {
+            name: "test".to_string(),
+            path: "/bin/test".to_string(),
+            description: "A test tool".to_string(),
+            category: ToolCategory::System,
+        });
+        assert!(registry.get("test").is_some());
+        assert_eq!(registry.list().len(), 1);
+        assert!(registry.search("test").len() == 1);
+    }
+
+    #[test]
+    fn test_execute_shell() {
+        let result = execute_shell("echo hello");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().trim(), "hello");
+    }
+
+    #[test]
+    fn test_read_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "line1\nline2\nline3\nline4\nline5\n").unwrap();
+
+        let content = read_file(path.to_str().unwrap(), None, None).unwrap();
+        assert!(content.contains("line1"));
+        assert!(content.contains("line5"));
+    }
+
+    #[test]
+    fn test_read_file_with_range() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "line1\nline2\nline3\nline4\nline5\n").unwrap();
+
+        let content = read_file(path.to_str().unwrap(), Some(2), Some(2)).unwrap();
+        assert!(content.contains("line2"));
+        assert!(content.contains("line3"));
+        assert!(!content.contains("line1"));
+    }
+
+    #[test]
+    fn test_write_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+
+        write_file(path.to_str().unwrap(), "hello world", false).unwrap();
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "hello world");
+    }
+
+    #[test]
+    fn test_write_file_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+
+        write_file(path.to_str().unwrap(), "hello", false).unwrap();
+        write_file(path.to_str().unwrap(), " world", true).unwrap();
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "hello world");
+    }
+
+    #[test]
+    fn test_patch_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "hello world").unwrap();
+
+        let result = patch_file(path.to_str().unwrap(), "world", "rust");
+        assert!(result.is_ok());
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "hello rust");
+    }
+
+    #[test]
+    fn test_patch_file_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "hello world").unwrap();
+
+        let result = patch_file(path.to_str().unwrap(), "xyz", "rust");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_patch_file_not_unique() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "hello hello hello").unwrap();
+
+        let result = patch_file(path.to_str().unwrap(), "hello", "world");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_list_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.txt"), "a").unwrap();
+        fs::write(dir.path().join("b.txt"), "b").unwrap();
+        fs::create_dir(dir.path().join("subdir")).unwrap();
+
+        let items = list_directory(dir.path().to_str().unwrap()).unwrap();
+        assert!(items.contains(&"a.txt".to_string()));
+        assert!(items.contains(&"b.txt".to_string()));
+        assert!(items.contains(&"subdir/".to_string()));
+    }
+
+    #[test]
+    fn test_search_files() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.rs"), "").unwrap();
+        fs::write(dir.path().join("b.py"), "").unwrap();
+        fs::write(dir.path().join("c.rs"), "").unwrap();
+
+        let files = search_files("*.rs", dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn test_dispatch_shell() {
+        let args = serde_json::json!({"command": "echo test123"});
+        let result = dispatch_tool("execute_shell", &args).unwrap();
+        assert_eq!(result.trim(), "test123");
+    }
+
+    #[test]
+    fn test_dispatch_read_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "hello").unwrap();
+
+        let args = serde_json::json!({"path": path.to_str().unwrap()});
+        let result = dispatch_tool("read_file", &args).unwrap();
+        assert!(result.contains("hello"));
+    }
+
+    #[test]
+    fn test_dispatch_write_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+
+        let args = serde_json::json!({"path": path.to_str().unwrap(), "content": "written"});
+        let result = dispatch_tool("write_file", &args).unwrap();
+        assert!(result.contains("Written"));
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "written");
+    }
+
+    #[test]
+    fn test_dispatch_list_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("file.txt"), "").unwrap();
+
+        let args = serde_json::json!({"path": dir.path().to_str().unwrap()});
+        let result = dispatch_tool("list_directory", &args).unwrap();
+        assert!(result.contains("file.txt"));
+    }
+
+    #[test]
+    fn test_dispatch_unknown_tool() {
+        let args = serde_json::json!({});
+        let result = dispatch_tool("nonexistent_tool", &args);
+        assert!(result.is_err());
+    }
 }

@@ -214,7 +214,6 @@ impl OrganSandbox {
             recovery_timeout: Duration::from_secs(30),
             half_open_successes_needed: 2,
             call_timeout: Duration::from_secs(policy.request_timeout_secs),
-            service_name: format!("organ:{}", id.name),
         });
 
         Self {

@@ -1,0 +1,13 @@
+[package]
+name = "soul-chaos"
+version = "13.5.0"
+edition = "2021"
+description = "SoulSystem — Chaos Monkey: resilience testing via fault injection"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+rand = { workspace = true }
+tokio = { workspace = true, features = ["time", "sync", "rt"] }

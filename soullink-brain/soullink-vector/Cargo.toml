@@ -27,7 +27,7 @@ bytes = "1"
 # HNSW + vector deps (V17: hnsw_rs 0.3 with AVX2 via simdeez_f)
 hnsw_rs = { version = "0.3", features = ["simdeez_f"] }
 half = { version = "2.4", features = ["num-traits", "serde"] }
-parking_lot = "0.12"
+parking_lot = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

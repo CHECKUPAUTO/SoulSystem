@@ -83,3 +83,44 @@ impl ShadowEvaluator {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_shadow_config_default() {
+        let config = ShadowConfig::default();
+        assert_eq!(config.virtual_equity_quote, 10_000.0);
+        assert!(config.track_virtual_positions);
+        assert_eq!(config.atr_period, Some(14));
+    }
+
+    #[test]
+    fn test_portfolio_snapshot() {
+        let snapshot = PortfolioSnapshot {
+            equity_quote: 10_000.0,
+            realized_pnl: 500.0,
+            total_unrealized: 200.0,
+            total_exposure_value: 5_000.0,
+            position_count_value: 3,
+        };
+        assert_eq!(snapshot.equity_quote, 10_000.0);
+        assert_eq!(snapshot.position_count(), 3);
+        assert_eq!(snapshot.total_exposure(), 5_000.0);
+    }
+
+    #[test]
+    fn test_shadow_evaluator_new() {
+        let evaluator = ShadowEvaluator::new(ShadowConfig::default());
+        let _rx = evaluator.subscribe();
+    }
+
+    #[tokio::test]
+    async fn test_portfolio_snapshot_empty() {
+        let evaluator = ShadowEvaluator::new(ShadowConfig::default());
+        let snapshot = evaluator.portfolio_snapshot().await;
+        assert_eq!(snapshot.equity_quote, 10_000.0);
+        assert_eq!(snapshot.position_count(), 0);
+    }
+}

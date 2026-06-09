@@ -1,5 +1,6 @@
 use forge_bridge::binpack_demo::BinPacking;
 use forge_bridge::{ForgeCampaign, ForgeConfig};
+use forge_core::Candidate;
 
 fn main() {
     for run in 0..3 {

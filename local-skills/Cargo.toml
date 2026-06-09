@@ -7,5 +7,8 @@ edition = "2021"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-anyhow = "1"
+anyhow = { workspace = true }
 sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = { workspace = true }

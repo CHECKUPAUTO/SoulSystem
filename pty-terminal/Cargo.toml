@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 portable-pty = "0.8"
-anyhow = "1"
+anyhow = { workspace = true }
 tracing = { workspace = true }
 libc = "0.2"
 serde = { workspace = true }

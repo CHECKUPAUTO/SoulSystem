@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/soulsystem-common",
     "soulsystem-gepa",
     "soulsystem-multiagent",
     "soulsystem-memory-extract",
@@ -43,6 +44,16 @@ members = [
     "soullink-brain/soullink-routing",
     "soullink-brain/soullink-wasm-organ",
     "soullink-brain/soullink-gbrain",
+    "soullink-brain/soullink-shm",
+    "soullink-brain/soullink-vram",
+    "soullink-brain/soullink-registry",
+    "soullink-brain/soullink-trainer",
+    "soullink-brain/soullink-memory-hierarchy",
+    "soullink-brain/soullink-moe",
+    "crates/soul-top",
+    "crates/soul-chaos",
+    "crates/soul-shell",
+    "crates/soul-dashboard",
     "soullink-organs",
     "avid-soullink",
     "avid-rstdp",
@@ -53,6 +64,7 @@ members = [
     "scirust-trading-persistence",
     "scirust-trading-news",
     "scirust-trading-monitor",
+    "scirust-trading-pipeline",
     "scirust-simd",
     "scirust-gpu",
     "soullink-metabolism",
@@ -85,6 +97,28 @@ members = [
     "soul_planner",
     "soul_tools",
     "soul_repl",
+    "soul-agent-core",
+    "soul-persist",
+    "soul-daemon",
+    "soul-sandbox",
+    "soul-browser",
+    "soul-subagents",
+    "soul-conversations",
+    "soul-goaltree",
+    "soul-automodify",
+    "soul-eventbus",
+    "soul-webfetch",
+    "soul-rag",
+    # Quality improvement crates
+    "soul-mcp",
+    "soul-skills",
+    "soul-graph-memory",
+    "soul-compaction",
+    "soul-protocol",
+    "soul-wasm",
+    "soul-designtree",
+    "soul-inference",
+    "soul-critique",
 ]
 
 exclude = [
@@ -111,11 +145,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tempfile = "3"
 arc-swap = "1.7"
-dashmap = "5.5"
+dashmap = "6"
 parking_lot = "0.12"
 ahash = "0.8"
-metrics = "0.22"
-metrics-exporter-prometheus = { version = "0.13", default-features = false, features = ["http-listener"] }
+metrics = "0.23"
+metrics-exporter-prometheus = { version = "0.15", default-features = false, features = ["http-listener"] }
 async-trait = "0.1"
 subtle = "2.5"
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -123,17 +157,19 @@ rmp-serde = "1.1"
 futures = { version = "0.3", default-features = false, features = ["std"] }
 wiremock = "0.6"
 criterion = { version = "0.5", default-features = false, features = ["async_tokio", "html_reports"] }
-axum = { version = "0.7", default-features = false, features = ["http1", "http2", "json", "tokio", "tower-log"] }
-tower = { version = "0.4", default-features = false, features = ["util"] }
-tower-http = { version = "0.5", default-features = false, features = ["trace", "cors", "limit"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "tokio", "tower-log"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tower-http = { version = "0.6", default-features = false, features = ["trace", "cors", "limit"] }
 hyper = { version = "1", features = ["server", "http1", "http2"] }
 nvml-wrapper = { version = "0.9", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
-toml = { version = "0.8", default-features = false, features = ["parse"] }
+toml = "0.8"
 regex = "1.10"
-thiserror = "1"
+thiserror = "2"
 anyhow = "1"
+rand = "0.8"
 tokio-stream = { version = "0.1", features = ["sync"] }
+clap = { version = "4", features = ["derive"] }
 # local workspace crates
 ansi-converter = { path = "ansi-converter" }
 bus = { path = "bus" }
@@ -147,6 +183,7 @@ spinner = { path = "spinner" }
 terminal-stream = { path = "terminal-stream" }
 scirust-autodiff = { path = "scirust-autodiff" }
 scirust-core = { path = "scirust-core" }
+soulsystem-common = { path = "crates/soulsystem-common" }
 
 # external crates referenced as workspace deps
 
@@ -160,6 +197,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 bus = { workspace = true }
 soul-memory = { workspace = true }
+soulsystem-common = { workspace = true }
 bound-system = { workspace = true }
 clawd = { workspace = true }
 ansi-converter = { workspace = true }
@@ -168,33 +206,34 @@ pty-terminal = { workspace = true }
 local-skills = { workspace = true }
 model-router = { workspace = true }
 spinner = { workspace = true }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal"] }
-toml = "0.8"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
 sled = "0.34"
 seahash = "4.1"
-chrono = "0.4"
+chrono = { workspace = true }
 sha2 = "0.10"
 hostname = "0.4"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-anyhow = "1"
-thiserror = "2"
-regex = "1"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
 rand = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"] }
 which = "8"
 sysinfo = "0.31"
-clap = { version = "4", features = ["derive"] }
+clap = { workspace = true }
 tar = "0.4"
 flate2 = "1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { workspace = true }
 teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
-axum = "0.7"
-soullink-memory = { path = "soullink-brain/soullink-memory",  }
-soullink-rag = { path = "soullink-brain/soullink-rag",  }
+axum = { workspace = true }
+soullink-memory = { path = "soullink-brain/soullink-memory" }
+soullink-rag = { path = "soullink-brain/soullink-rag" }
 soullink-autonomy = { path = "soullink-brain/soullink-autonomy" }
+soullink-circuit = { path = "soullink-brain/soullink-circuit" }
 
 # Ponts d'intégration optionnels
 avid-bridge = { path = "avid-bridge", optional = true }
@@ -208,7 +247,7 @@ services-bridge = { path = "services-bridge", optional = true }
 
 portable-pty = "0.8"
 libc = "0.2"
-tempfile = "3"
+tempfile = { workspace = true }
 tokio-tungstenite = "0.29.0"
 futures-util = "0.3.32"
 
@@ -217,6 +256,26 @@ soul_llm = { path = "soul_llm" }
 soul_planner = { path = "soul_planner" }
 soul_tools = { path = "soul_tools" }
 soul_repl = { path = "soul_repl" }
+soul_agent_core = { path = "soul-agent-core" }
+soul_persist = { path = "soul-persist" }
+soul_daemon = { path = "soul-daemon" }
+soul_sandbox = { path = "soul-sandbox" }
+soul_browser = { path = "soul-browser" }
+soul_subagents = { path = "soul-subagents" }
+soul_conversations = { path = "soul-conversations" }
+soul_goaltree = { path = "soul-goaltree" }
+soul_automodify = { path = "soul-automodify" }
+soul_eventbus = { path = "soul-eventbus" }
+soul-dashboard = { path = "crates/soul-dashboard" }
+soul_mcp = { path = "soul-mcp" }
+soul_skills = { path = "soul-skills" }
+soul_graph_memory = { path = "soul-graph-memory" }
+soul_compaction = { path = "soul-compaction" }
+soul_protocol = { path = "soul-protocol" }
+soul_wasm = { path = "soul-wasm" }
+soul_designtree = { path = "soul-designtree" }
+soul_inference = { path = "soul-inference" }
+soul_critique = { path = "soul-critique" }
 uuid = { version = "1", features = ["v4"] }
 rustyline = "14"
 colored = "2"

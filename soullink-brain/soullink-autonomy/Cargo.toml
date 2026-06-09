@@ -22,10 +22,10 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
-parking_lot = "0.12"
-rand = "0.8"
+parking_lot = { workspace = true }
+rand = { workspace = true }
 sled = "0.34"
-axum = "0.7"
+axum = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

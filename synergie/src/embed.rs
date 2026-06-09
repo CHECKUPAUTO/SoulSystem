@@ -162,8 +162,3 @@ fn cache_key(endpoint: &str, dim: usize, text: &str) -> Vec<u8> {
     let h = blake3::hash(seed.as_bytes());
     h.as_bytes().to_vec()
 }
-
-#[allow(dead_code)]
-fn _ensure_debug(_e: &EmbedCfg) {
-    debug!("embed cfg");
-}
