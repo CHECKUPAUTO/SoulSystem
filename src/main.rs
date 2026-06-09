@@ -73,8 +73,15 @@ async fn main() -> Result<()> {
     // ── Autonomous modes (lightweight, no full system init) ────────────
     if cli.repl {
         info!("▶ Mode REPL autonome activé");
-        let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
-        soul_repl::run_repl(&mut repl_state);
+        // Le REPL est une boucle bloquante (readline + clients HTTP bloquants) :
+        // il doit tourner hors du runtime tokio pour éviter les paniques
+        // "cannot block/drop a runtime from within a runtime".
+        std::thread::spawn(|| {
+            let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
+            soul_repl::run_repl(&mut repl_state);
+        })
+        .join()
+        .ok();
         return Ok(());
     }
 

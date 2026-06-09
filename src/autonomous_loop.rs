@@ -77,7 +77,7 @@ pub async fn run_autonomous_loop(
             consecutive_noops = 0;
         }
 
-        if cycle_count % 10 == 0 {
+        if cycle_count.is_multiple_of(10) {
             if let Err(e) = entity.save_state(&config.data_dir) {
                 warn!("Failed to save state: {}", e);
             } else {

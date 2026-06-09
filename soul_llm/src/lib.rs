@@ -133,6 +133,229 @@ pub struct FunctionSchema {
     pub parameters: serde_json::Value,
 }
 
+// ── Chat Session (conversation context manager) ────────────────────────
+
+/// Maintains an ordered conversation around a fixed system prompt, supporting
+/// tool calls and tool results. Autonomous agents use it to keep context
+/// coherent across multiple reason→act turns.
+#[derive(Debug, Clone)]
+pub struct ChatSession {
+    pub messages: Vec<ChatMessage>,
+    pub max_context_chars: usize,
+    system_prompt: String,
+}
+
+impl ChatSession {
+    /// Default character budget before compaction becomes advisable.
+    pub const DEFAULT_MAX_CONTEXT_CHARS: usize = 40_000;
+
+    pub fn new(system_prompt: &str) -> Self {
+        Self::with_max_context(system_prompt, Self::DEFAULT_MAX_CONTEXT_CHARS)
+    }
+
+    pub fn with_max_context(system_prompt: &str, max_context_chars: usize) -> Self {
+        let mut session = Self {
+            messages: Vec::new(),
+            max_context_chars,
+            system_prompt: system_prompt.to_string(),
+        };
+        if !system_prompt.is_empty() {
+            session.messages.push(ChatMessage {
+                role: Role::System,
+                content: system_prompt.to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
+        session
+    }
+
+    /// Reset the conversation, keeping only the system prompt.
+    pub fn clear(&mut self) {
+        self.messages.retain(|m| m.role == Role::System);
+        if self.messages.is_empty() && !self.system_prompt.is_empty() {
+            self.messages.push(ChatMessage {
+                role: Role::System,
+                content: self.system_prompt.clone(),
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
+    }
+
+    pub fn add_user_message(&mut self, content: &str) {
+        self.messages.push(ChatMessage {
+            role: Role::User,
+            content: content.to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        });
+    }
+
+    pub fn add_assistant_message(&mut self, content: &str) {
+        self.messages.push(ChatMessage {
+            role: Role::Assistant,
+            content: content.to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        });
+    }
+
+    pub fn add_assistant_with_tools(&mut self, content: Option<&str>, tool_calls: Vec<ToolCall>) {
+        self.messages.push(ChatMessage {
+            role: Role::Assistant,
+            content: content.unwrap_or("").to_string(),
+            tool_calls: if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls)
+            },
+            tool_call_id: None,
+        });
+    }
+
+    pub fn add_tool_result(&mut self, tool_call_id: &str, content: &str) {
+        self.messages.push(ChatMessage {
+            role: Role::Tool,
+            content: content.to_string(),
+            tool_calls: None,
+            tool_call_id: Some(tool_call_id.to_string()),
+        });
+    }
+
+    /// Snapshot of the conversation to send to the LLM.
+    pub fn build_messages(&self) -> Vec<ChatMessage> {
+        self.messages.clone()
+    }
+
+    /// Total characters currently held across all messages.
+    pub fn total_chars(&self) -> usize {
+        self.messages.iter().map(|m| m.content.len()).sum()
+    }
+
+    /// Compact, human-readable transcript of the conversation so far.
+    pub fn history_summary(&self) -> String {
+        self.messages
+            .iter()
+            .map(|m| {
+                let role = match m.role {
+                    Role::System => "system",
+                    Role::User => "user",
+                    Role::Assistant => "assistant",
+                    Role::Tool => "tool",
+                };
+                let content: String = m.content.chars().take(200).collect();
+                format!("{}: {}", role, content)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+/// Default tool schemas advertised to the LLM. These mirror the tools handled
+/// by `soul_tools::dispatch_tool`, so the model only requests calls the agent
+/// can actually execute.
+pub fn build_tool_schemas() -> Vec<ToolSchema> {
+    use serde_json::json;
+
+    let tool = |name: &str, description: &str, parameters: serde_json::Value| ToolSchema {
+        schema_type: "function".to_string(),
+        function: FunctionSchema {
+            name: name.to_string(),
+            description: description.to_string(),
+            parameters,
+        },
+    };
+
+    vec![
+        tool(
+            "execute_shell",
+            "Execute a shell command and return its stdout/stderr.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "The shell command to run" }
+                },
+                "required": ["command"]
+            }),
+        ),
+        tool(
+            "read_file",
+            "Read a text file, optionally limited to a line range.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path to the file" },
+                    "start_line": { "type": "integer", "description": "First line, 1-based (optional)" },
+                    "num_lines": { "type": "integer", "description": "Number of lines to read (optional)" }
+                },
+                "required": ["path"]
+            }),
+        ),
+        tool(
+            "write_file",
+            "Write or append text content to a file.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path to the file" },
+                    "content": { "type": "string", "description": "Content to write" },
+                    "mode": { "type": "string", "enum": ["overwrite", "append"], "description": "Write mode (default overwrite)" }
+                },
+                "required": ["path", "content"]
+            }),
+        ),
+        tool(
+            "patch_file",
+            "Replace an exact text fragment within a file.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path to the file" },
+                    "old_text": { "type": "string", "description": "Exact text to replace" },
+                    "new_text": { "type": "string", "description": "Replacement text" }
+                },
+                "required": ["path", "old_text", "new_text"]
+            }),
+        ),
+        tool(
+            "list_directory",
+            "List the entries of a directory.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Directory path (default '.')" }
+                }
+            }),
+        ),
+        tool(
+            "search_files",
+            "Find files matching a name pattern under a path.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string", "description": "Filename pattern" },
+                    "path": { "type": "string", "description": "Root path (default '.')" }
+                },
+                "required": ["pattern"]
+            }),
+        ),
+        tool(
+            "grep_content",
+            "Search file contents for a regular expression.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string", "description": "Regex to search for" },
+                    "path": { "type": "string", "description": "Root path (default '.')" },
+                    "file_pattern": { "type": "string", "description": "Optional filename filter" }
+                },
+                "required": ["pattern"]
+            }),
+        ),
+    ]
+}
+
 // ── Ollama API Types ──────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -363,7 +586,6 @@ impl OllamaClient {
         F: FnMut(&str) + Send,
     {
         use futures::StreamExt;
-        use tokio::io::AsyncBufReadExt;
 
         let req = ChatRequest {
             model: self.config.model.clone(),
@@ -476,33 +698,51 @@ impl OllamaClient {
     }
 }
 
-// Blocking versions for REPL and non-async contexts
+// Blocking versions for REPL and non-async contexts.
+//
+// Each request runs on a dedicated OS thread: reqwest::blocking panics when
+// created or dropped inside a tokio runtime, and these methods are called
+// from both pure-sync code and `block_on` sections.
 pub struct OllamaClientBlocking {
     config: LlmConfig,
-    http: reqwest::blocking::Client,
 }
 
 impl OllamaClientBlocking {
     pub fn new(config: LlmConfig) -> Self {
-        Self {
-            config,
-            http: reqwest::blocking::Client::new(),
-        }
+        Self { config }
+    }
+
+    /// Run a blocking HTTP operation on a thread outside any tokio context.
+    fn run_blocking<T, F>(&self, op: F) -> Result<T, LlmError>
+    where
+        T: Send + 'static,
+        F: FnOnce(reqwest::blocking::Client) -> Result<T, LlmError> + Send + 'static,
+    {
+        let timeout = Duration::from_secs(self.config.timeout_secs);
+        std::thread::spawn(move || {
+            let client = reqwest::blocking::Client::builder()
+                .timeout(timeout)
+                .build()
+                .unwrap_or_else(|_| reqwest::blocking::Client::new());
+            op(client)
+        })
+        .join()
+        .map_err(|_| LlmError::NotReachable("blocking LLM thread panicked".into()))?
     }
 
     pub fn is_alive(&self) -> bool {
-        self.http
-            .get(format!("{}/api/tags", self.config.base_url))
-            .send()
-            .is_ok()
+        let url = format!("{}/api/tags", self.config.base_url);
+        self.run_blocking(move |http| {
+            http.get(url).send()?;
+            Ok(())
+        })
+        .is_ok()
     }
 
     pub fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        let resp: ModelsResponse = self
-            .http
-            .get(format!("{}/api/tags", self.config.base_url))
-            .send()?
-            .json()?;
+        let url = format!("{}/api/tags", self.config.base_url);
+        let resp: ModelsResponse =
+            self.run_blocking(move |http| Ok(http.get(url).send()?.json()?))?;
         Ok(resp.models)
     }
 
@@ -516,15 +756,9 @@ impl OllamaClientBlocking {
                 num_predict: self.config.max_tokens,
             }),
         };
+        let url = format!("{}/api/generate", self.config.base_url);
 
-        let resp: GenerateResponse = self
-            .http
-            .post(format!("{}/api/generate", self.config.base_url))
-            .json(&req)
-            .send()?
-            .json()?;
-
-        Ok(resp)
+        self.run_blocking(move |http| Ok(http.post(url).json(&req).send()?.json()?))
     }
 
     pub fn config(&self) -> &LlmConfig {

@@ -273,7 +273,14 @@ impl DiskMonitor {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 14 {
                 let name = parts[2];
-                if name.starts_with("sd") || name.starts_with("nvme") {
+                // Physical and virtualized block devices: SATA/SCSI (sd),
+                // NVMe, virtio (vd), Xen (xvd), eMMC/SD (mmcblk, Jetson).
+                if name.starts_with("sd")
+                    || name.starts_with("nvme")
+                    || name.starts_with("vd")
+                    || name.starts_with("xvd")
+                    || name.starts_with("mmcblk")
+                {
                     reads += parts[3].parse().unwrap_or(0);
                     writes += parts[7].parse().unwrap_or(0);
                     read_bytes += parts[5].parse::<u64>().unwrap_or(0) * 512;
@@ -334,7 +341,7 @@ impl PredictiveAnalytics {
     }
 
     pub fn record(&mut self, metric: &str, value: f64) {
-        let entries = self.history.entry(metric.to_string()).or_insert_with(Vec::new);
+        let entries = self.history.entry(metric.to_string()).or_default();
         entries.push((chrono::Utc::now(), value));
         if entries.len() > self.max_history {
             entries.remove(0);
@@ -353,11 +360,21 @@ impl PredictiveAnalytics {
         let trend = (values.last()? - values.first()?) / values.len() as f64;
         let predicted = current + trend * (timeframe_seconds as f64 / 60.0);
 
+        // Confidence scales with signal stability: low variance around the
+        // mean means the linear extrapolation is more trustworthy.
+        let variance = values.iter().map(|v| (v - avg).powi(2)).sum::<f64>() / values.len() as f64;
+        let stability = if avg.abs() > f64::EPSILON {
+            1.0 / (1.0 + variance.sqrt() / avg.abs())
+        } else {
+            0.5
+        };
+        let confidence = (0.3 + 0.6 * stability).clamp(0.3, 0.9);
+
         Some(Prediction {
             metric: metric.to_string(),
             current_value: current,
             predicted_value: predicted,
-            confidence: 0.7,
+            confidence,
             timeframe_seconds,
         })
     }

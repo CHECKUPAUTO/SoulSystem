@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["dali"]
+# Stub mode by default; enable `dali` on machines with the NVIDIA DALI SDK
+# (e.g. Jetson) for the real FFI bindings.
+default = []
 dali = ["dep:cxx"]
 
 [dependencies]
