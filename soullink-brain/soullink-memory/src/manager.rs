@@ -7,7 +7,7 @@ use anyhow::Result;
 use crate::concept::{Concept, ConceptKind};
 use crate::graph::MemoryGraph;
 use crate::ollama_client::OllamaEmbeddingClient;
-use soullink_vector::hnsw_index::SearchResult;
+use soullink_vector::hnsw_index::VectorSearchResult;
 
 /// High-level memory manager bridging text → embedding → graph storage.
 pub struct MemoryManager {
@@ -29,7 +29,7 @@ impl MemoryManager {
     }
 
     /// Search by text (auto-embeds query via Ollama).
-    pub async fn search(&self, query: &str, top_k: usize) -> Vec<SearchResult> {
+    pub async fn search(&self, query: &str, top_k: usize) -> Vec<VectorSearchResult> {
         match self.ollama.embed(query).await {
             Ok(vec) => self.graph.search(&vec, top_k),
             Err(e) => {

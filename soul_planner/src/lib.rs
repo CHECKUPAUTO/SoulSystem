@@ -74,16 +74,26 @@ pub struct ActionRecord {
 pub struct WorkingMemory {
     pub observations: Vec<String>,
     pub context: serde_json::Value,
+    pub key_info: String,
+    pub related_sop: Option<String>,
     pub last_updated: DateTime<Utc>,
+}
+
+impl Default for WorkingMemory {
+    fn default() -> Self {
+        Self {
+            observations: Vec::new(),
+            context: serde_json::json!({}),
+            key_info: String::new(),
+            related_sop: None,
+            last_updated: Utc::now(),
+        }
+    }
 }
 
 impl WorkingMemory {
     pub fn new() -> Self {
-        Self {
-            observations: Vec::new(),
-            context: serde_json::json!({}),
-            last_updated: Utc::now(),
-        }
+        Self::default()
     }
 
     pub fn observe(&mut self, observation: String) {
@@ -162,6 +172,16 @@ impl ActionHistory {
         serde_json::from_str(&data).map_err(|e| e.to_string())
     }
 }
+
+fn truncate(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len - 3])
+    }
+}
+
+// ── Cognitive Loop (LLM-powered) ─────────────────────────────────────
 
 pub struct CognitiveLoop {
     pub memory: WorkingMemory,
@@ -325,6 +345,7 @@ impl CognitiveLoop {
         }
     }
 
+    /// Fallback: decide without LLM
     pub fn decide(&self, context: &str) -> Decision {
         let prompt = format!(
             "You are an autonomous agent. Based on this context, decide the best action.\n\n\
@@ -376,6 +397,19 @@ impl CognitiveLoop {
             reasoning: format!("Based on context: {}", context),
             confidence: 0.8,
             alternatives: vec!["retry".to_string(), "abort".to_string()],
+        }
+    }
+
+    pub fn evaluate_plan(&self, plan: &Plan, outcome: &str) -> Evaluation {
+        let success = outcome.to_lowercase().contains("success")
+            || outcome.to_lowercase().contains("done")
+            || outcome.to_lowercase().contains("completed");
+        Evaluation {
+            plan_id: plan.id.clone(),
+            success,
+            score: if success { 1.0 } else { 0.0 },
+            feedback: outcome.to_string(),
+            timestamp: Utc::now(),
         }
     }
 }

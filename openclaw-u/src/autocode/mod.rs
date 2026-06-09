@@ -170,7 +170,6 @@ pub enum OpportunityKind {
     RemoveStub,
     ReplacePrintln,
     AddTests,
-    #[allow(dead_code)]
     OptimizeAlgorithm,
 }
 

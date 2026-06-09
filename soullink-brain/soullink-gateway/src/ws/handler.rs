@@ -49,7 +49,7 @@ pub async fn handle_connection(
                                     code: "HANDLER_ERROR".into(),
                                     message: err_msg,
                                     id: None,
-                                }).unwrap()
+                                }).unwrap().into()
                             )).await;
                         }
                     }
@@ -78,7 +78,7 @@ pub async fn handle_connection(
                         code: "SHUTDOWN".into(),
                         message: "server shutting down".into(),
                         id: None,
-                    }).unwrap()
+                    }).unwrap().into()
                 )).await;
                 break;
             }
@@ -113,7 +113,7 @@ async fn handle_message(
             let hello = store.hello(&session);
             let reply = WsMessage::HelloOk(hello);
             let json = serde_json::to_string(&reply)?;
-            ws.send(Message::Text(json)).await?;
+            ws.send(Message::Text(json.into())).await?;
             info!(session = %session.id, "client authenticated");
         }
 
@@ -132,7 +132,7 @@ async fn handle_message(
         }
 
         WsMessage::Ping => {
-            ws.send(Message::Text(serde_json::to_string(&WsMessage::Pong)?))
+            ws.send(Message::Text(serde_json::to_string(&WsMessage::Pong)?.into()))
                 .await?;
         }
 
@@ -363,7 +363,7 @@ async fn send_ok(ws: &mut WebSocket, id: &str, payload: serde_json::Value) -> Ha
         payload: Some(payload),
         error: None,
     });
-    ws.send(Message::Text(serde_json::to_string(&reply)?))
+    ws.send(Message::Text(serde_json::to_string(&reply)?.into()))
         .await?;
     Ok(())
 }
@@ -378,7 +378,7 @@ async fn send_event(
         event: event.to_string(),
         payload: Some(payload),
     });
-    ws.send(Message::Text(serde_json::to_string(&msg)?)).await?;
+    ws.send(Message::Text(serde_json::to_string(&msg)?.into())).await?;
     Ok(())
 }
 
@@ -407,6 +407,6 @@ async fn send_error(
         }
     };
     let json = serde_json::to_string(&reply)?;
-    ws.send(Message::Text(json)).await?;
+    ws.send(Message::Text(json.into())).await?;
     Ok(())
 }

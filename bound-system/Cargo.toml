@@ -7,7 +7,7 @@ edition = "2024"
 seccompiler = "0.4"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal", "io-util"] }
 tracing = { workspace = true }
-anyhow = "1"
+anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 which = "6"

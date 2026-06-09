@@ -19,7 +19,7 @@ tracing-subscriber = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
 toml = { workspace = true }
 futures = { workspace = true }
-clap = { version = "4.5", features = ["derive"] }
+clap = { workspace = true }
 colored = "2"
 axum = { workspace = true, features = ["ws"] }
 uuid = { workspace = true }

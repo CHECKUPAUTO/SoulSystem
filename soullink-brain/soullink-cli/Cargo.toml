@@ -12,8 +12,8 @@ path = "src/main.rs"
 soullink-rag = { path = "../soullink-rag" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 anyhow = { workspace = true }
-clap = { version = "4.5", features = ["derive"] }
+clap = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true, features = ["json", "blocking"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { workspace = true }
 fs_extra = "1"

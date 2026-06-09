@@ -451,7 +451,6 @@ impl SmartRouter {
             recovery_timeout: std::time::Duration::from_secs(30),
             half_open_successes_needed: 2,
             call_timeout: std::time::Duration::from_secs(60),
-            service_name: format!("cheap:{cheap}"),
         });
 
         let primary_circuit = CircuitBreaker::with_config(CircuitBreakerConfig {
@@ -459,7 +458,6 @@ impl SmartRouter {
             recovery_timeout: std::time::Duration::from_secs(60),
             half_open_successes_needed: 2,
             call_timeout: std::time::Duration::from_secs(120),
-            service_name: format!("primary:{primary}"),
         });
 
         Self {

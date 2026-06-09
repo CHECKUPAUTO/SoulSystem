@@ -2,7 +2,7 @@
 
 **SoulSystem** = Écosystème autonome unifié : SoulLink HNN Mesh + OpenClaw-U Kernel + Clawd Assistant + AVID Engineering
 
-*Dernière mise à jour : 2026-05-11*
+*Dernière mise à jour : 2026-06-08*
 
 ---
 
@@ -72,7 +72,17 @@
 - **Apprentissage** : Q-Table pour optimisation des actions
 - **Intégrations** : Claudex (agent codage), Chronos (timeline), GBrain (knowledge graph)
 
-### 4. AVID — Organisme Numérique (Rust)
+### 4. Autonomous Entity — Entité Numérique Autonome (v0.2.0)
+- **Noyau** : `soul-agent-core` — Boucle ReAct (observe→think→act→evaluate)
+- **LLM** : `soul_llm` — ChatSession, streaming, tool calling natif Ollama
+- **Planification** : `soul_planner` — Décomposition de buts via LLM
+- **Outils** : `soul_tools` — Shell async, file ops, permissions (Read/Write/Destructive)
+- **Interface** : `soul_repl` — REPL conversationnel avec streaming temps réel
+- **Sécurité** — Blocage automatique des commandes destructrices, safety warnings aux tours 7/10/15/25/35/50
+- **Auto-évolution** — Memory distillation (task → apprentissages persistants)
+- **Lancement** : `cargo run -p soul_repl --release` ou `cargo run --bin soulsystem -- --repl`
+
+### 5. AVID — Organisme Numérique (Rust)
 - **12 crates** : anticlone, cli, core, cortex, mimic, orchestrator, sandbox, scout, server, tokenjuice, tui, vision
 - **827 fichiers Rust**, compilation release OK (2 min.)
 - **Pipeline** : Planner → CoreDesign → Critic → AntiClone → Sandbox
@@ -136,16 +146,27 @@
 
 ## Roadmap (EVOLUTIONS.md)
 
-Voir `EVOLUTIONS.md` pour le détail des évolutions planifiées :
-1. Zero-Copy IPC (shared memory)
-2. Dynamic VRAM Management
-3. Distributed Mesh (mDNS)
-4. Automated Fine-Tuning Pipeline
-5. Hierarchical Memory (épisodique vs sémantique)
-6. Mixture of Experts (MoE)
-7. TUI Visualizer (`soul-top`)
-8. Chaos Testing (`soul-chaos`)
-9. Interactive CLI (`soul-shell`)
+Voir `EVOLUTIONS.md` pour le détail des évolutions :
+
+### Phase 1 — Crate Unification ✅
+- Bus unification (`bus` + `soullink-bus`)
+- Circuit breaker unification (`soullink-circuit`)
+- Soul-memory unification (`soulsystem-common::embedder`)
+
+### Phase 2 — Architecture & Performance ✅
+- Zero-Copy IPC (`soullink-shm`) — memfd + mmap + UDS fd-passing
+- Dynamic VRAM Management (`soullink-vram`) — 5 priority levels, 4 pressure levels
+- Distributed Mesh (`soullink-registry`) — service directory, serialize/merge
+
+### Phase 3 — Autonomy & AI ✅
+- Fine-Tuning Pipeline (`soullink-trainer`) — trajectories, DPO pairs
+- Hierarchical Memory (`soullink-memory-hierarchy`) — working/episodic/semantic + consolidation
+- Mixture of Experts (`soullink-moe`) — task classifier + expert router
+
+### Phase 4 — New Tools ✅
+- TUI Visualizer (`soul-top`) — Ratatui dashboard
+- Chaos Testing (`soul-chaos`) — Latency, Error, Corrupt, Kill, Flood injection
+- Interactive CLI (`soul-shell`) — status, inject, memory, health commands
 
 ---
 
@@ -166,11 +187,31 @@ sudo ./scripts/setup-firewall.sh
 ```
 
 ## Versions
-- **SoulSystem** : v2.0.0
+- **SoulSystem** : v13.5.0
 - **OpenClaw-U** : v0.5.0
 - **SoulLink HNN** : v7.0 (V13 Mesh → V14 émergent)
 - **AVID** : v0.1.0 (12 crates, pré-production)
 - **Clawd** : Agent principal (évolution continue)
+
+### Nouveaux Crates (2026-06)
+| Crate | Phase | Tests | Description |
+|-------|-------|-------|-------------|
+| `soul-agent-core` | Auto | 0 | Autonomous agent — ReAct loop, safety, task queue |
+| `soul_llm` v0.2.0 | Auto | 0 | ChatSession, streaming, tool schemas |
+| `soul_planner` v0.2.0 | Auto | 11 | LLM-powered planning, memory distillation |
+| `soul_tools` v0.2.0 | Auto | 19 | Async shell, file ops, permission model |
+| `soul_repl` v0.2.0 | Auto | 0 | Conversation REPL with streaming |
+| `soullink-shm` | 2 | 8 | Zero-copy IPC via shared memory |
+| `soullink-vram` | 2 | 4 | Dynamic VRAM management |
+| `soullink-registry` | 2 | 6 | Distributed service registry |
+| `soullink-trainer` | 3 | 5 | Fine-tuning pipeline |
+| `soullink-memory-hierarchy` | 3 | 4 | Episodic/semantic memory consolidation |
+| `soullink-moe` | 3 | 8 | Mixture of Experts task routing |
+| `soul-top` | 4 | 3 | Real-time TUI visualizer |
+| `soul-chaos` | 4 | 8 | Chaos Monkey resilience testing |
+| `soul-shell` | 4 | 5 | Interactive CLI for kernel communication |
+| `soulsystem-common` | 1 | 30 | Shared types (embedder, config, health) |
+| `soullink-circuit` | 1 | 8 | Unified circuit breaker |
 
 ---
 

@@ -218,7 +218,3 @@ fn lsh_r_for(threshold: f32, n_sig: usize) -> usize {
     }
     best_r
 }
-
-// ItemKind import marker
-#[allow(dead_code)]
-fn _ensure_itemkind_used(_k: ItemKind) {}

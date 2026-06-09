@@ -8,8 +8,8 @@ default = []
 cutlass = ["dep:cust"]
 
 [dependencies]
-thiserror = "1.0"
-tracing = "0.1"
+thiserror = { workspace = true }
+tracing = { workspace = true }
 cust = { version = "0.3", optional = true }
 
 [build-dependencies]

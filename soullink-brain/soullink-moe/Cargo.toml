@@ -1,0 +1,12 @@
+[package]
+name = "soullink-moe"
+version = "13.5.0"
+edition = "2021"
+description = "SoulSystem — Mixture of Experts: task routing to specialized models"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+dashmap = { workspace = true }

@@ -499,11 +499,13 @@ async fn main() -> Result<()> {
                             .and_then(|m| m.get("tag"))
                             .and_then(|v| v.as_str())
                             .unwrap_or("general");
-                        let _ = idx_clone.lock().unwrap().insert_simple(
-                            &format!("mem-{}", chrono::Utc::now().timestamp_millis()),
-                            tag,
-                            &text.chars().take(200).collect::<String>(),
-                        );
+                        if let Ok(idx) = idx_clone.lock() {
+                            let _ = idx.insert_simple(
+                                &format!("mem-{}", chrono::Utc::now().timestamp_millis()),
+                                tag,
+                                &text.chars().take(200).collect::<String>(),
+                            );
+                        }
                     }
                     Ok(_) => {}
                     Err(_) => break,

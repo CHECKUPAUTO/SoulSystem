@@ -1,0 +1,14 @@
+[package]
+name = "soullink-registry"
+version = "13.5.0"
+edition = "2021"
+description = "SoulSystem — Service registry for multi-node mesh discovery"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+dashmap = { workspace = true }
+chrono = { workspace = true }

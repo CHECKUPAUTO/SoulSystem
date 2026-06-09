@@ -328,14 +328,14 @@ async fn ws_handler(ws: WebSocketUpgrade, State(s): State<AppState>) -> impl Int
     ws.on_upgrade(move |socket| async move {
         let (mut sink, mut stream) = socket.split();
         let hello = serde_json::json!({"type": "hello", "version": env!("CARGO_PKG_VERSION")});
-        let _ = sink.send(axum::extract::ws::Message::Text(hello.to_string())).await;
+        let _ = sink.send(axum::extract::ws::Message::Text(hello.to_string().into())).await;
         loop {
             tokio::select! {
                 ev = rx.recv() => {
                     match ev {
                         Ok(ev) => {
                             let payload = serde_json::to_string(&ev).unwrap_or_default();
-                            if sink.send(axum::extract::ws::Message::Text(payload)).await.is_err() { break; }
+                            if sink.send(axum::extract::ws::Message::Text(payload.into())).await.is_err() { break; }
                         }
                         Err(_) => break,
                     }

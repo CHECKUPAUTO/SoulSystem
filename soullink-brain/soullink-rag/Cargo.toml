@@ -17,11 +17,11 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-uuid = { version = "1", features = ["v4"] }
+uuid = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 sled = "0.34"
-parking_lot = "0.12"
+parking_lot = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 

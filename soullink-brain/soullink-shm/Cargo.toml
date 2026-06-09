@@ -1,0 +1,21 @@
+[package]
+name = "soullink-shm"
+version = "13.5.0"
+edition = "2021"
+description = "SoulSystem — Zero-copy IPC via shared memory ring buffer"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+nix = { version = "0.29", features = ["mman", "fs", "socket", "uio"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "shm_bench"
+harness = false

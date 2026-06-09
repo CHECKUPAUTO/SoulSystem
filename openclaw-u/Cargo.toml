@@ -10,17 +10,18 @@ description = "OpenClaw-U — Autonomous Agent Kernel"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-chrono = { version = "0.4", features = ["serde"] }
-rand = "0.8"
+chrono = { workspace = true }
+rand = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
-anyhow = "1"
-uuid = { version = "1", features = ["v4"] }
+anyhow = { workspace = true }
+uuid = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
-regex = "1"
-axum = "0.7"
+regex = { workspace = true }
+axum = { workspace = true }
 rusqlite = { version = "0.32", features = ["bundled", "chrono", "serde_json"] }
 soullink-security = { path = "../soullink-brain/soullink-security" }
+soulsystem-common = { workspace = true }
 
 [lib]
 name = "openclaw_u"

@@ -1,0 +1,19 @@
+[package]
+name = "soul_agent_core"
+version = "0.1.0"
+edition = "2021"
+description = "Autonomous agent core — ReAct loop, safety, task queue, self-evolution"
+
+[dependencies]
+soul_llm = { path = "../soul_llm" }
+soul_planner = { path = "../soul_planner" }
+soul_tools = { path = "../soul_tools" }
+soul_compaction = { path = "../soul-compaction" }
+soul_critique = { path = "../soul-critique" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "sync", "signal"] }
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+colored = "2"

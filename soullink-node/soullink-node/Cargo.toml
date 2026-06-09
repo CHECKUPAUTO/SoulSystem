@@ -14,7 +14,7 @@ rand          = "0.9"
 rayon         = "1.10"
 chrono        = { version = "0.4", features = ["clock", "serde"] }
 anyhow        = "1"
-thiserror     = "1"
+thiserror     = "2"
 uuid          = { version = "1", features = ["v4", "serde"] }
 blake3        = "1.5"
 sled          = "0.34"

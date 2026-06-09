@@ -9,7 +9,7 @@ teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
 bound-system = { workspace = true }
 ansi-converter = { workspace = true }
 spinner = { workspace = true }
-anyhow = "1"
+anyhow = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 serde = { workspace = true }
 rand = "0.8"

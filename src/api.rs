@@ -125,7 +125,7 @@ pub fn router(state: Arc<ApiState>) -> Router {
         .route("/api/exec", post(exec_handler))
         .route("/api/pty/create", post(pty_create_handler))
         .route("/api/pty/write", post(pty_write_handler))
-        .route("/api/pty/read/:session_id", get(pty_read_handler))
+        .route("/api/pty/read/{session_id}", get(pty_read_handler))
         .route("/api/pty/destroy", post(pty_destroy_handler))
         .route("/api/memory/store", post(memory_store_handler))
         .route("/api/memory/search", post(memory_search_handler))

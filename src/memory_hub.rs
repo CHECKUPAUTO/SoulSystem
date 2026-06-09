@@ -7,6 +7,8 @@
 use anyhow::Result;
 use chrono::Utc;
 use soul_memory::SoulMemory;
+use soulsystem_common::embedder::{Embedder, SciRustEmbedder};
+use soulsystem_common::memory_types::MemoryHit;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -19,55 +21,6 @@ use soullink_memory::DecayConfig;
 use soullink_rag::pipeline::PipelineConfig;
 
 pub type MemoryEventFn = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
-
-// ── SimpleEmbedder ────────────────────────────────────────────────────
-
-struct SimpleEmbedder {
-    dim: usize,
-    seeds: [u64; 8],
-}
-
-impl SimpleEmbedder {
-    fn new(dim: usize) -> Self {
-        Self {
-            dim,
-            seeds: [42, 137, 251, 491, 773, 1021, 1301, 1607],
-        }
-    }
-    fn embed(&self, text: &str) -> Vec<f32> {
-        if text.is_empty() {
-            return vec![0.0; self.dim];
-        }
-        use std::hash::{Hash, Hasher};
-        let chars: Vec<char> = text.chars().collect();
-        let mut vec = vec![0.0f32; self.dim];
-        for n in 2..=4usize {
-            if n > chars.len() {
-                continue;
-            }
-            for i in 0..=(chars.len() - n) {
-                let ngram: String = chars[i..i + n].iter().collect();
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                ngram.hash(&mut h);
-                let base = h.finish();
-                let pw = 1.0 + (i as f32 / chars.len().max(1) as f32) * 0.5;
-                for (slot, &seed) in self.seeds.iter().enumerate() {
-                    let mut h2 = std::collections::hash_map::DefaultHasher::new();
-                    (base, seed).hash(&mut h2);
-                    let idx = h2.finish() as usize % self.dim;
-                    vec[idx] += if (slot & 1) == 0 { 1.0 } else { -1.0 } * pw;
-                }
-            }
-        }
-        let norm: f32 = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm > 0.0 {
-            for x in &mut vec {
-                *x /= norm;
-            }
-        }
-        vec
-    }
-}
 
 // ── MemoryHub ──────────────────────────────────────────────────────────
 
@@ -255,7 +208,7 @@ impl MemoryHub {
 
         // 2. Graphe conceptuel
         if let Some(ref graph) = self.graph {
-            let qv = SimpleEmbedder::new(64).embed(query);
+            let qv = SciRustEmbedder::new(64).embed(query);
             for r in &graph.read().await.search(&qv, top_k) {
                 results.push(SearchResult {
                     text: r.label.clone(),
@@ -398,6 +351,17 @@ impl PrivacyLevel {
 impl std::fmt::Display for PrivacyLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+impl From<SearchResult> for MemoryHit {
+    fn from(r: SearchResult) -> Self {
+        Self {
+            text: r.text,
+            score: r.score,
+            source: r.source.to_string(),
+            timestamp: None,
+        }
     }
 }
 

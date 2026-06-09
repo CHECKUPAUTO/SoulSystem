@@ -12,5 +12,5 @@ rayon = "1.10"
 wide = "0.7"
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = { workspace = true }
 

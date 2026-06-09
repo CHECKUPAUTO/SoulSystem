@@ -12,16 +12,17 @@ description = "SoulLink V13.5 memory graph — concept storage, semantic search,
 soullink-core = { path = "../soullink-core" }
 soullink-vector = { path = "../soullink-vector" }
 soullink-simd = { path = "../soullink-simd" }
+soulsystem-common = { path = "../../crates/soulsystem-common" }
 
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
-anyhow = "1"
+anyhow = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 dashmap = { workspace = true }
-parking_lot = "0.12"
+parking_lot = { workspace = true }
 petgraph = "0.7"
 sled = "0.34"
 bincode = "1.3"
