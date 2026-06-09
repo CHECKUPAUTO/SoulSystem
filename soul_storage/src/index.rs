@@ -1,8 +1,8 @@
 //! Index vectoriel continu en mémoire partagée fixe (Zéro-Allocation après initialisation).
 //! Permet des recherches de similarité cosinus ultra-rapides sans verrou pour les lecteurs.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::cell::UnsafeCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const MAX_VECTORS: usize = 65536;
 const VECTOR_DIM: usize = 1024; // Adapté pour les embeddings de taille standard (Bert-like)
@@ -44,7 +44,12 @@ impl VectorStore {
     pub fn new() -> Self {
         // Allocation sur le heap pour éviter l'overflow de la pile.
         let records = (0..MAX_VECTORS)
-            .map(|_| UnsafeCell::new(VectorRecord { id: 0, data: [0.0; VECTOR_DIM] }))
+            .map(|_| {
+                UnsafeCell::new(VectorRecord {
+                    id: 0,
+                    data: [0.0; VECTOR_DIM],
+                })
+            })
             .collect::<Vec<_>>()
             .into_boxed_slice();
         Self {
@@ -74,7 +79,12 @@ impl VectorStore {
     /// Recherche par similarité cosinus (K-Nearest Neighbors). Zéro-Allocation.
     /// Le tableau `results` doit être pré-alloué avec une taille ≥ k.
     /// Conçu pour être exécuté directement par un thread worker du soul_scheduler.
-    pub fn knn_search(&self, query: &[f32; VECTOR_DIM], k: usize, results: &mut [SearchResult]) -> usize {
+    pub fn knn_search(
+        &self,
+        query: &[f32; VECTOR_DIM],
+        k: usize,
+        results: &mut [SearchResult],
+    ) -> usize {
         let current_count = self.count.load(Ordering::Acquire);
         if current_count == 0 {
             return 0;
@@ -99,8 +109,10 @@ impl VectorStore {
             // Déroulage de boucle x4 pour le prefetch hardware et la réduction de dépendance.
             let mut j = 0usize;
             while j + 4 <= VECTOR_DIM {
-                let a0 = query[j]; let b0 = record.data[j];
-                let a1 = query[j+1]; let b1 = record.data[j+1];
+                let a0 = query[j];
+                let b0 = record.data[j];
+                let a1 = query[j + 1];
+                let b1 = record.data[j + 1];
                 dot_product += a0 * b0 + a1 * b1;
                 norm_a += a0 * a0 + a1 * a1;
                 norm_b += b0 * b0 + b1 * b1;
@@ -108,7 +120,8 @@ impl VectorStore {
             }
             // Cleanup non-aligné.
             while j < VECTOR_DIM {
-                let a = query[j]; let b = record.data[j];
+                let a = query[j];
+                let b = record.data[j];
                 dot_product += a * b;
                 norm_a += a * a;
                 norm_b += b * b;
@@ -123,7 +136,10 @@ impl VectorStore {
 
             // Insertion triée sur place dans le tableau de résultats (min-heap manuel).
             if write_idx < effective_k {
-                results[write_idx] = SearchResult { id: record.id, score };
+                results[write_idx] = SearchResult {
+                    id: record.id,
+                    score,
+                };
                 // Bubble-up : maintenir l'ordre décroissant.
                 let mut pos = write_idx;
                 while pos > 0 && results[pos].score > results[pos - 1].score {
@@ -132,7 +148,10 @@ impl VectorStore {
                 }
                 write_idx += 1;
             } else if score > results[effective_k - 1].score {
-                results[effective_k - 1] = SearchResult { id: record.id, score };
+                results[effective_k - 1] = SearchResult {
+                    id: record.id,
+                    score,
+                };
                 // Bubble-down.
                 let mut pos = effective_k - 1;
                 while pos + 1 < effective_k && results[pos + 1].score > results[pos].score {
@@ -179,7 +198,10 @@ mod tests {
         query[0] = 1.0;
         query[1] = 0.5;
 
-        let mut results = [SearchResult { id: 0, score: f32::NEG_INFINITY }; 3];
+        let mut results = [SearchResult {
+            id: 0,
+            score: f32::NEG_INFINITY,
+        }; 3];
         let count = store.knn_search(&query, 3, &mut results);
 
         assert_eq!(count, 3);

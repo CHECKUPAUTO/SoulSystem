@@ -8,7 +8,10 @@ pub struct GraphCompiler {
 
 impl GraphCompiler {
     pub fn new(node_count: usize) -> Self {
-        Self { node_count, edges: Vec::new() }
+        Self {
+            node_count,
+            edges: Vec::new(),
+        }
     }
 
     /// Dependance `from -> to` (from avant to). Ignore les indices hors borne.

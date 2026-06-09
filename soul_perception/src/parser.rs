@@ -1,4 +1,4 @@
-use soul_ipc::bus::{InterAgentBus, AgentMessage};
+use soul_ipc::bus::{AgentMessage, InterAgentBus};
 
 /// Scanner d'extraction lexicale sans allocation (Zero-Copy Slice Processing)
 pub struct ZeroCopyScanner<'a> {
@@ -42,7 +42,11 @@ pub struct PerceptionPipeline;
 impl PerceptionPipeline {
     /// # Safety
     /// raw_data must be a valid byte slice; ipc_bus must remain alive for the duration of this call.
-    pub unsafe fn parse_and_route(raw_data: &[u8], target_agent_id: u32, ipc_bus: &InterAgentBus) -> usize {
+    pub unsafe fn parse_and_route(
+        raw_data: &[u8],
+        target_agent_id: u32,
+        ipc_bus: &InterAgentBus,
+    ) -> usize {
         let mut scanner = ZeroCopyScanner::new(raw_data);
         let mut routed_signals = 0;
 
@@ -56,7 +60,9 @@ impl PerceptionPipeline {
                     payload_ptr: token.as_ptr() as *mut u8,
                     payload_size: token.len(),
                 };
-                if ipc_bus.publish(msg) { routed_signals += 1; }
+                if ipc_bus.publish(msg) {
+                    routed_signals += 1;
+                }
             } else if token.len() >= 5 && &token[0..5] == b"DATA_" {
                 let msg = AgentMessage {
                     source_agent_id: 999,
@@ -65,7 +71,9 @@ impl PerceptionPipeline {
                     payload_ptr: token.as_ptr() as *mut u8,
                     payload_size: token.len(),
                 };
-                if ipc_bus.publish(msg) { routed_signals += 1; }
+                if ipc_bus.publish(msg) {
+                    routed_signals += 1;
+                }
             }
         }
         routed_signals

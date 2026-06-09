@@ -96,13 +96,21 @@ async fn main() -> anyhow::Result<()> {
             base_url: cli.ollama_url.clone(),
             model: cli.model.clone(),
             temperature: 0.7,
+            http_timeout: Duration::from_secs(30),
+            connect_timeout: Duration::from_secs(5),
+            auth_token: None,
             max_tokens: 2048,
+            goal_token_budget: 50000,
+            tokens_per_minute_budget: 100000,
+            pool_max_idle: 10,
+            pool_idle_timeout: Duration::from_secs(30),
         },
         sandbox_policy,
         loop_config: soul_openclaw::AgentLoopConfig::default(),
         autonomous_tick: Duration::from_millis(cli.tick_ms),
         memory_path: cli.memory.clone(),
         max_goal_history: 100,
+        event_store_path: Some(std::path::PathBuf::from("/tmp/soul_events")),
     };
 
     let entity = Arc::new(SoulEntity::new(entity_config)?);
@@ -181,7 +189,14 @@ async fn main() -> anyhow::Result<()> {
             base_url: cli.ollama_url.clone(),
             model: cli.model.clone(),
             temperature: 0.7,
+            http_timeout: Duration::from_secs(30),
+            connect_timeout: Duration::from_secs(5),
+            auth_token: None,
             max_tokens: 2048,
+            goal_token_budget: 50000,
+            tokens_per_minute_budget: 100000,
+            pool_max_idle: 10,
+            pool_idle_timeout: Duration::from_secs(30),
         };
         let mut repl_state = soul_repl::ReplState::new(llm_cfg);
         repl_state.entity_name = cli.name.clone();

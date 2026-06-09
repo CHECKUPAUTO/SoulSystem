@@ -68,16 +68,28 @@ impl EvolutionaryForge {
             0 => {
                 // Doubler la taille de tile (puis revenir à 32 si trop grand)
                 self.current_genome.matrix_tile_size =
-                    if self.current_genome.matrix_tile_size >= 128 { 16 } else { self.current_genome.matrix_tile_size * 2 };
+                    if self.current_genome.matrix_tile_size >= 128 {
+                        16
+                    } else {
+                        self.current_genome.matrix_tile_size * 2
+                    };
             }
             1 => {
                 // Réduire le seuil de work-stealing
-                self.current_genome.work_stealing_threshold =
-                    self.current_genome.work_stealing_threshold.saturating_sub(50).max(25);
+                self.current_genome.work_stealing_threshold = self
+                    .current_genome
+                    .work_stealing_threshold
+                    .saturating_sub(50)
+                    .max(25);
             }
             2 => {
                 // Alterner tile size entre 32 et 64
-                self.current_genome.matrix_tile_size = if self.current_genome.matrix_tile_size == 32 { 64 } else { 32 };
+                self.current_genome.matrix_tile_size = if self.current_genome.matrix_tile_size == 32
+                {
+                    64
+                } else {
+                    32
+                };
             }
             _ => {
                 // Augmenter le seuil de work-stealing

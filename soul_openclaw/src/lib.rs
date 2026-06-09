@@ -80,7 +80,11 @@ impl AgentMessage {
         }
     }
 
-    pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>, name: impl Into<String>) -> Self {
+    pub fn tool_result(
+        tool_call_id: impl Into<String>,
+        content: impl Into<String>,
+        name: impl Into<String>,
+    ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             role: Role::Tool,
@@ -123,7 +127,11 @@ pub struct AgentTool {
 }
 
 impl AgentTool {
-    pub fn new(name: impl Into<String>, description: impl Into<String>, schema: serde_json::Value) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        schema: serde_json::Value,
+    ) -> Self {
         Self {
             name: name.into(),
             description: description.into(),
@@ -185,7 +193,9 @@ pub struct HookHub {
 
 impl HookHub {
     pub fn new() -> Self {
-        Self { hooks: Mutex::new(Vec::new()) }
+        Self {
+            hooks: Mutex::new(Vec::new()),
+        }
     }
 
     pub fn register(&self, hook: Arc<dyn Hook>) {
@@ -246,7 +256,11 @@ pub struct SkillVersion {
 
 impl SkillVersion {
     pub fn new(major: u32, minor: u32, patch: u32) -> Self {
-        Self { major, minor, patch }
+        Self {
+            major,
+            minor,
+            patch,
+        }
     }
 }
 
@@ -267,7 +281,11 @@ pub struct Skill {
 }
 
 impl Skill {
-    pub fn new(name: impl Into<String>, version: SkillVersion, description: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        version: SkillVersion,
+        description: impl Into<String>,
+    ) -> Self {
         Self {
             name: name.into(),
             version,
@@ -284,7 +302,9 @@ pub struct SkillRegistry {
 
 impl SkillRegistry {
     pub fn new() -> Self {
-        Self { skills: Mutex::new(HashMap::new()) }
+        Self {
+            skills: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn install(&self, skill: Skill) -> bool {
@@ -451,7 +471,9 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         struct Counter(AtomicUsize);
         impl Hook for Counter {
-            fn name(&self) -> &str { "counter" }
+            fn name(&self) -> &str {
+                "counter"
+            }
             fn on_event(&self, _: &AgentEvent, _: &AgentContext) {
                 self.0.fetch_add(1, Ordering::SeqCst);
             }
@@ -460,7 +482,12 @@ mod tests {
         hub.register(Arc::new(Counter(AtomicUsize::new(0))));
         hub.register(Arc::new(Counter(AtomicUsize::new(0))));
         let ctx = AgentContext::new("x");
-        hub.fire(&AgentEvent::TurnEnd { reason: "ok".into() }, &ctx);
+        hub.fire(
+            &AgentEvent::TurnEnd {
+                reason: "ok".into(),
+            },
+            &ctx,
+        );
         assert_eq!(hub.count(), 2);
     }
 
@@ -476,11 +503,33 @@ mod tests {
     fn log_hook_does_not_panic() {
         let h = LogHook;
         let ctx = AgentContext::new("");
-        h.on_event(&AgentEvent::TextDelta { content: "x".into() }, &ctx);
-        h.on_event(&AgentEvent::ToolCall {
-            call: ToolCall { id: "c1".into(), name: "ls".into(), arguments: serde_json::json!({}) },
-        }, &ctx);
-        h.on_event(&AgentEvent::TurnEnd { reason: "end".into() }, &ctx);
-        h.on_event(&AgentEvent::Error { message: "x".into() }, &ctx);
+        h.on_event(
+            &AgentEvent::TextDelta {
+                content: "x".into(),
+            },
+            &ctx,
+        );
+        h.on_event(
+            &AgentEvent::ToolCall {
+                call: ToolCall {
+                    id: "c1".into(),
+                    name: "ls".into(),
+                    arguments: serde_json::json!({}),
+                },
+            },
+            &ctx,
+        );
+        h.on_event(
+            &AgentEvent::TurnEnd {
+                reason: "end".into(),
+            },
+            &ctx,
+        );
+        h.on_event(
+            &AgentEvent::Error {
+                message: "x".into(),
+            },
+            &ctx,
+        );
     }
 }

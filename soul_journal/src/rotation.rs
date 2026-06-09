@@ -4,8 +4,8 @@
 //! restent mappes (Arc vivant) tant que le `RotatingJournal` vit -> lecture
 //! multi-segments sans use-after-free.
 
-use std::sync::{Arc, RwLock};
 use crate::MmapJournal;
+use std::sync::{Arc, RwLock};
 
 const DEFAULT_SEGMENT_SIZE: usize = 1024 * 1024 * 64;
 
@@ -27,11 +27,18 @@ impl RotatingJournal {
     }
 
     pub fn new_with_size(base_path: &str, segment_size: usize) -> std::io::Result<Self> {
-        let seg0 = Arc::new(MmapJournal::new_with_size(&seg_path(base_path, 0), segment_size)?);
+        let seg0 = Arc::new(MmapJournal::new_with_size(
+            &seg_path(base_path, 0),
+            segment_size,
+        )?);
         Ok(Self {
             base_path: base_path.to_string(),
             segment_size,
-            state: RwLock::new(RotState { current: seg0, sealed: Vec::new(), seg_index: 0 }),
+            state: RwLock::new(RotState {
+                current: seg0,
+                sealed: Vec::new(),
+                seg_index: 0,
+            }),
         })
     }
 
@@ -57,7 +64,10 @@ impl RotatingJournal {
             return true; // un autre thread avait deja tourne
         }
         let next_idx = st.seg_index + 1;
-        let seg = match MmapJournal::new_with_size(&seg_path(&self.base_path, next_idx), self.segment_size) {
+        let seg = match MmapJournal::new_with_size(
+            &seg_path(&self.base_path, next_idx),
+            self.segment_size,
+        ) {
             Ok(s) => Arc::new(s),
             Err(_) => return false,
         };
@@ -97,10 +107,7 @@ impl RotatingJournal {
 
     /// Nombre de segments (scelles + courant).
     pub fn segment_count(&self) -> usize {
-        self.state
-            .read()
-            .map(|st| st.sealed.len() + 1)
-            .unwrap_or(0)
+        self.state.read().map(|st| st.sealed.len() + 1).unwrap_or(0)
     }
 }
 
@@ -116,7 +123,9 @@ mod tests {
     #[test]
     fn rotation_sur_segment_plein() {
         let base = format!("/tmp/soul_rotjournal_{}", std::process::id());
-        for i in 0u32..64 { let _ = std::fs::remove_file(seg_path(&base, i)); }
+        for i in 0u32..64 {
+            let _ = std::fs::remove_file(seg_path(&base, i));
+        }
 
         let j = RotatingJournal::new_with_size(&base, 8 * 1024).expect("create rotating");
         let payload = [0xABu8; 256];
@@ -125,26 +134,47 @@ mod tests {
             assert!(j.append_log(tag, &payload), "append {} a echoue", tag);
         }
         assert!(j.sync_all());
-        assert!(j.segment_count() >= 2, "rotation attendue (count={})", j.segment_count());
+        assert!(
+            j.segment_count() >= 2,
+            "rotation attendue (count={})",
+            j.segment_count()
+        );
 
         let recs = j.read_all_committed();
-        assert_eq!(recs.len(), n as usize, "tous les records relus a travers les segments");
+        assert_eq!(
+            recs.len(),
+            n as usize,
+            "tous les records relus a travers les segments"
+        );
         for (i, (tag, p)) in recs.iter().enumerate() {
             assert_eq!(*tag, i as u32 + 1, "ordre des records");
             assert_eq!(p.len(), 256);
             assert!(p.iter().all(|&b| b == 0xAB));
         }
-        println!("PREUVE rotation : {} records / {} segments, relecture intacte", n, j.segment_count());
-        for i in 0u32..64 { let _ = std::fs::remove_file(seg_path(&base, i)); }
+        println!(
+            "PREUVE rotation : {} records / {} segments, relecture intacte",
+            n,
+            j.segment_count()
+        );
+        for i in 0u32..64 {
+            let _ = std::fs::remove_file(seg_path(&base, i));
+        }
     }
 
     #[test]
     fn record_trop_grand_refuse_sans_boucle() {
         let base = format!("/tmp/soul_rotjournal_big_{}", std::process::id());
-        for i in 0u32..4 { let _ = std::fs::remove_file(seg_path(&base, i)); }
+        for i in 0u32..4 {
+            let _ = std::fs::remove_file(seg_path(&base, i));
+        }
         let j = RotatingJournal::new_with_size(&base, 4 * 1024).expect("create");
         let huge = vec![1u8; 8 * 1024];
-        assert!(!j.append_log(1, &huge), "record plus grand qu'un segment -> refuse");
-        for i in 0u32..4 { let _ = std::fs::remove_file(seg_path(&base, i)); }
+        assert!(
+            !j.append_log(1, &huge),
+            "record plus grand qu'un segment -> refuse"
+        );
+        for i in 0u32..4 {
+            let _ = std::fs::remove_file(seg_path(&base, i));
+        }
     }
 }

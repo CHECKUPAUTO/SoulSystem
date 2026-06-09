@@ -50,7 +50,9 @@ impl TelemetryHub {
             return;
         }
         let metrics = &self.cores_data[core_id];
-        metrics.total_cycles.fetch_add(cycles_spent, Ordering::Relaxed);
+        metrics
+            .total_cycles
+            .fetch_add(cycles_spent, Ordering::Relaxed);
         metrics.tasks_executed.fetch_add(1, Ordering::Relaxed);
         if was_stolen {
             metrics.tasks_stolen.fetch_add(1, Ordering::Relaxed);
@@ -149,16 +151,25 @@ mod tests {
         std::thread::sleep(Duration::from_millis(300));
 
         let c = hub.current_temp_celsius();
-        assert!(c > 0, "temperature non echantillonnee (sysfs zone0 absent ?) : {}", c);
+        assert!(
+            c > 0,
+            "temperature non echantillonnee (sysfs zone0 absent ?) : {}",
+            c
+        );
         assert!(c < 150, "temperature aberrante : {}", c);
-        println!("PREUVE thermique : capteur lu hors chemin chaud -> {} deg C", c);
+        println!(
+            "PREUVE thermique : capteur lu hors chemin chaud -> {} deg C",
+            c
+        );
     }
 
     #[test]
     fn sampler_s_eteint_a_la_liberation_du_hub() {
         // Le thread ne tient qu'un Weak : quand le dernier Arc tombe, il sort.
         let hub = Arc::new(TelemetryHub::new(1));
-        let h = hub.spawn_thermal_sampler(Duration::from_millis(20)).expect("spawn");
+        let h = hub
+            .spawn_thermal_sampler(Duration::from_millis(20))
+            .expect("spawn");
         drop(hub); // plus aucune reference forte
         let start = std::time::Instant::now();
         h.join().expect("join sampler");
@@ -166,6 +177,9 @@ mod tests {
             start.elapsed() < Duration::from_secs(2),
             "le sampler n'a pas termine apres liberation du hub"
         );
-        println!("PREUVE auto-stop : sampler termine en {:?}", start.elapsed());
+        println!(
+            "PREUVE auto-stop : sampler termine en {:?}",
+            start.elapsed()
+        );
     }
 }

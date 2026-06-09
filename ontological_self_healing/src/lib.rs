@@ -19,7 +19,9 @@ pub fn heal(state: &mut [f32], min: f32, max: f32) -> usize {
 
 /// Invariant satisfait : tout fini et dans [min, max].
 pub fn is_consistent(state: &[f32], min: f32, max: f32) -> bool {
-    state.iter().all(|v| v.is_finite() && *v >= min && *v <= max)
+    state
+        .iter()
+        .all(|v| v.is_finite() && *v >= min && *v <= max)
 }
 
 #[cfg(test)]

@@ -39,14 +39,32 @@ impl KvCache {
         }
     }
 
-    #[inline] pub fn dim(&self) -> usize { self.dim }
-    #[inline] pub fn n_sink(&self) -> usize { self.n_sink }
-    #[inline] pub fn n_window(&self) -> usize { self.n_window }
+    #[inline]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+    #[inline]
+    pub fn n_sink(&self) -> usize {
+        self.n_sink
+    }
+    #[inline]
+    pub fn n_window(&self) -> usize {
+        self.n_window
+    }
     /// Capacite physique (sinks + fenetre) = nb max de positions actives.
-    #[inline] pub fn capacity(&self) -> usize { self.n_sink + self.n_window }
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.n_sink + self.n_window
+    }
     /// Nombre total de tokens pousses depuis la creation/reset.
-    #[inline] pub fn len(&self) -> usize { self.len }
-    #[inline] pub fn is_empty(&self) -> bool { self.len == 0 }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 
     /// Slot physique d'une position logique (usage interne).
     #[inline]
@@ -130,7 +148,9 @@ mod tests {
     use super::*;
 
     fn vec_for(pos: usize, dim: usize, tag: f32) -> Vec<f32> {
-        (0..dim).map(|i| tag + pos as f32 * 100.0 + i as f32).collect()
+        (0..dim)
+            .map(|i| tag + pos as f32 * 100.0 + i as f32)
+            .collect()
     }
 
     #[test]
@@ -187,7 +207,11 @@ mod tests {
         assert!(c.get(2).is_none(), "evincee");
         assert!(c.get(6).is_none(), "jamais ecrite");
         let (k, _) = c.get(0).expect("sink");
-        assert_eq!(k, vec_for(0, 2, 1.0).as_slice(), "sink non corrompu apres wrap");
+        assert_eq!(
+            k,
+            vec_for(0, 2, 1.0).as_slice(),
+            "sink non corrompu apres wrap"
+        );
     }
 
     #[test]
@@ -214,7 +238,11 @@ mod tests {
         assert!(c.active().next().is_none());
         c.push(&[42.0; 2], &[42.0; 2]);
         assert_eq!(c.len(), 1);
-        assert_eq!(c.keys.as_ptr(), ptr_before, "buffer reutilise, pas realloue");
+        assert_eq!(
+            c.keys.as_ptr(),
+            ptr_before,
+            "buffer reutilise, pas realloue"
+        );
     }
 
     #[test]

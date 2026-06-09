@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use parking_lot::Mutex;
-use crate::affect::space::AffectiveState;
-use crate::affect::drives::DriveRegistry;
 use crate::affect::autograd_hook::EmotionalAutogradHook;
+use crate::affect::drives::DriveRegistry;
+use crate::affect::space::AffectiveState;
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 #[allow(static_mut_refs)]
 static mut GLOBAL_AFFECTIVE_STATE: Option<Arc<AffectiveState>> = None;
@@ -44,13 +44,24 @@ pub unsafe extern "C" fn affective_core_get_current_state(out_ptr: *mut f32) {
 /// Safe because out_ptr must point to a valid f32 value.
 #[no_mangle]
 pub unsafe extern "C" fn affective_core_compute_gate(out_ptr: *mut f32) {
-    if let (Some(ref state), Some(ref reg_lock), Some(ref hook)) =
-        (GLOBAL_AFFECTIVE_STATE.as_ref(), GLOBAL_DRIVE_REGISTRY.as_ref(), GLOBAL_HOOK.as_ref())
-    {
-        #[allow(static_mut_refs)]
+    // Use raw pointer access to avoid creating shared refs to mutable statics
+    // SAFETY: We're reading the static through a raw pointer without creating a reference
+    let state_opt: Option<Arc<AffectiveState>> = std::ptr::read_volatile(&raw const GLOBAL_AFFECTIVE_STATE);
+    let reg_opt: Option<Arc<Mutex<DriveRegistry>>> = std::ptr::read_volatile(&raw const GLOBAL_DRIVE_REGISTRY);
+    let hook_opt: Option<EmotionalAutogradHook> = std::ptr::read_volatile(&raw const GLOBAL_HOOK);
+
+    let state_ptr: *const AffectiveState = state_opt.map(|x| x.as_ref() as *const _).unwrap_or(std::ptr::null());
+    let reg_ptr: *const Mutex<DriveRegistry> = reg_opt.map(|x| x.as_ref() as *const _).unwrap_or(std::ptr::null());
+    let hook_ptr: *const EmotionalAutogradHook = hook_opt.as_ref().map(|x| x as *const _).unwrap_or(std::ptr::null());
+
+    if !state_ptr.is_null() && !reg_ptr.is_null() && !hook_ptr.is_null() {
+        let state = &*state_ptr;
+        let reg_lock = &*reg_ptr;
+        let hook = &*hook_ptr;
+
         let mut graph = scirust::autodiff::reverse::Tape::new();
-        let grads = (**hook).backpropagate_emotional_tension(&mut graph, &reg_lock.lock(), state);
-        let gate = (**hook).compute_weight_gate(&grads);
+        let grads = (*hook).backpropagate_emotional_tension(&mut graph, &reg_lock.lock(), state);
+        let gate = (*hook).compute_weight_gate(&grads);
         *out_ptr = gate;
     }
 }

@@ -9,7 +9,7 @@ soul_telemetry = { path = "../soul_telemetry" }
 
 [[bench]]
 name = "scheduler_benchmarks"
-path = "tests/scheduler_benchmarks.rs"
+path = "benches/scheduler_benchmarks.rs"
 harness = false
 
 [dev-dependencies]

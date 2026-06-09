@@ -1,5 +1,8 @@
 pub mod detector;
-pub use detector::{HardwareManifest, CpuArchitecture, VectorExtension, MemoryTopology, CacheManifest, CacheLevelInfo};
+pub use detector::{
+    CacheLevelInfo, CacheManifest, CpuArchitecture, HardwareManifest, MemoryTopology,
+    VectorExtension,
+};
 
 pub struct CpuTopology {
     pub core_id: usize,

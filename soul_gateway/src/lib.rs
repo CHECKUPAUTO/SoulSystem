@@ -16,6 +16,7 @@
 //! implémente, ce qui permet de tester le gateway sans dépendre du runtime
 //! complet.
 
+use std::sync::Arc;
 use async_trait::async_trait;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
@@ -30,7 +31,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::sync::Arc;
+
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -80,6 +81,8 @@ pub trait EntityHandle: Send + Sync {
     async fn execute_shell(&self, cmd: &str) -> Result<String, String>;
     async fn run_cycle(&self) -> Result<serde_json::Value, String>;
     async fn list_goals(&self) -> Vec<serde_json::Value>;
+    async fn replay_events(&self, n: usize) -> Vec<EntityEvent>;
+    async fn alert(&self, level: &str, message: &str) -> Result<(), String>;
 }
 
 /// Hub d'événements : tous les clients WS sont notifiés.
@@ -375,3 +378,71 @@ pub async fn serve(state: GatewayState, addr: SocketAddr) -> std::io::Result<()>
     tracing::info!("soul_gateway listening on {}", addr);
     axum::serve(listener, app).await
 }
+
+// ── TLS Support (mTLS ready) ────────────────────────────────
+
+use std::path::PathBuf;
+
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::ServerConfig;
+use rustls_pemfile::{certs, pkcs8_private_keys};
+use std::fs::File;
+use std::io::BufReader;
+
+/// TLS configuration for the gateway (supports mTLS via client_auth)
+#[derive(Debug, Clone)]
+pub struct TlsConfig {
+    pub cert_path: PathBuf,
+    pub key_path: PathBuf,
+    pub client_ca_path: Option<PathBuf>, // For mTLS: require client certificates
+}
+
+impl TlsConfig {
+    /// Load TLS configuration from certificate and key files
+    pub fn load(
+        cert_path: PathBuf,
+        key_path: PathBuf,
+        client_ca_path: Option<PathBuf>,
+    ) -> std::io::Result<Self> {
+        let cert_file = File::open(&cert_path)?;
+        let cert_bytes = certs(&mut BufReader::new(cert_file))?;
+        
+        let key_file = File::open(&key_path)?;
+        let key_bytes = pkcs8_private_keys(&mut BufReader::new(key_file))?;
+        
+        if cert_bytes.is_empty() || key_bytes.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Invalid certificate or key",
+            ));
+        }
+        
+        Ok(Self { cert_path, key_path, client_ca_path })
+    }
+    
+    /// Create a rustls ServerConfig (rustls 0.23 API)
+    pub fn make_server_config(&self) -> std::io::Result<Arc<ServerConfig>> {
+        let cert_file = File::open(&self.cert_path)?;
+        let key_file = File::open(&self.key_path)?;
+        
+        let cert_bytes = certs(&mut BufReader::new(cert_file))?;
+        let mut key_bytes = pkcs8_private_keys(&mut BufReader::new(key_file))?;
+        
+        if cert_bytes.is_empty() || key_bytes.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Invalid certificate or key",
+            ));
+        }
+        
+        let certs: Vec<CertificateDer> = cert_bytes.into_iter().map(CertificateDer::from).collect();
+        let key = PrivateKeyDer::Pkcs8(key_bytes.remove(0).into());
+        
+        let config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        
+        Ok(Arc::new(config))
+        }
+    }

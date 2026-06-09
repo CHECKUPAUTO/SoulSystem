@@ -20,10 +20,11 @@ soul_planner = { path = "../soul_planner" }
 soul_tools = { path = "../soul_tools" }
 
 tokio = { version = "1", features = ["full"] }
-serde_json = "1"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
 clap = { version = "4", features = ["derive", "env"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 anyhow = "1"
 colored = "3"

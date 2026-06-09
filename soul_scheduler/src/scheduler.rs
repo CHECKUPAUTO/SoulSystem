@@ -1,7 +1,7 @@
-use crate::queue::{Task, LockFreeTaskDeque};
+use crate::queue::{LockFreeTaskDeque, Task};
 use crate::topology::{CpuTopology, HardwareManifest, MemoryTopology};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Pin the calling thread to a specific CPU core via sched_setaffinity.
 fn enforce_cpu_affinity(core_id: usize) -> bool {
@@ -35,7 +35,9 @@ pub struct AgentScheduler {
 }
 
 impl Default for AgentScheduler {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AgentScheduler {
@@ -87,9 +89,14 @@ impl AgentScheduler {
 
         // Echantillonneur thermique : sort la lecture du capteur sysfs du chemin
         // chaud. Les workers ne font plus qu'un load atomique (check_thermal_status).
-        match self.telemetry.spawn_thermal_sampler(std::time::Duration::from_millis(100)) {
+        match self
+            .telemetry
+            .spawn_thermal_sampler(std::time::Duration::from_millis(100))
+        {
             Ok(_handle) => { /* detache : le Weak l'eteint a la liberation du hub */ }
-            Err(e) => eprintln!("[CRITICAL] echec spawn thermal-sampler: {e} -> protection thermique inactive"),
+            Err(e) => eprintln!(
+                "[CRITICAL] echec spawn thermal-sampler: {e} -> protection thermique inactive"
+            ),
         }
 
         for worker_idx in 0..self.workers.len() {
@@ -102,7 +109,10 @@ impl AgentScheduler {
                     let local_worker = &workers_ref[worker_idx];
 
                     if !enforce_cpu_affinity(local_worker.core_id) {
-                        eprintln!("[CRITICAL] Affinity bonding failure on Core #{}", local_worker.core_id);
+                        eprintln!(
+                            "[CRITICAL] Affinity bonding failure on Core #{}",
+                            local_worker.core_id
+                        );
                     }
 
                     let mut spin_counter = 0u32;
@@ -151,7 +161,11 @@ impl AgentScheduler {
                                     (task.execute)(task.context);
                                     let elapsed = start.elapsed().as_nanos() as u64;
 
-                                    telemetry_ref.record_execution(local_worker.core_id, elapsed, true);
+                                    telemetry_ref.record_execution(
+                                        local_worker.core_id,
+                                        elapsed,
+                                        true,
+                                    );
                                     stolen = true;
                                     break;
                                 }

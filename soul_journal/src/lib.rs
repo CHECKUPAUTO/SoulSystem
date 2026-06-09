@@ -59,7 +59,11 @@ impl MmapJournal {
             if mmap_ptr == libc::MAP_FAILED {
                 return Err(std::io::Error::last_os_error());
             }
-            Ok(Self { mmap_ptr: mmap_ptr as *mut u8, write_offset: AtomicUsize::new(0), size })
+            Ok(Self {
+                mmap_ptr: mmap_ptr as *mut u8,
+                write_offset: AtomicUsize::new(0),
+                size,
+            })
         }
     }
 
@@ -183,7 +187,8 @@ mod tests {
         let mut out = Vec::new();
         let mut off = 0usize;
         while out.len() < nb_attendu && off + 8 <= buf.len() {
-            let size = u32::from_le_bytes([buf[off + 4], buf[off + 5], buf[off + 6], buf[off + 7]]) as usize;
+            let size = u32::from_le_bytes([buf[off + 4], buf[off + 5], buf[off + 6], buf[off + 7]])
+                as usize;
             if size == 0 {
                 break;
             }
@@ -216,7 +221,10 @@ mod tests {
             assert!(j.append_log(0xAA, b"hello"));
             assert!(j.append_log(0xBB, b"world!!"));
             assert!(j.sync());
-            assert_eq!(relire_records(&path, 2), vec![(0xAAu32, b"hello".to_vec()), (0xBBu32, b"world!!".to_vec())]);
+            assert_eq!(
+                relire_records(&path, 2),
+                vec![(0xAAu32, b"hello".to_vec()), (0xBBu32, b"world!!".to_vec())]
+            );
             println!("PREUVE sync+reopen : 2 records intacts");
         }
         let _ = std::fs::remove_file(&path);
@@ -230,7 +238,10 @@ mod tests {
         assert!(j.append_log(0x01, b"durable-record"));
         assert!(j.sync());
         std::mem::forget(j);
-        assert_eq!(relire_records(&path, 1), vec![(0x01u32, b"durable-record".to_vec())]);
+        assert_eq!(
+            relire_records(&path, 1),
+            vec![(0x01u32, b"durable-record".to_vec())]
+        );
         println!("PREUVE no-Drop : record present apres mem::forget");
         let _ = std::fs::remove_file(&path);
     }
@@ -243,7 +254,10 @@ mod tests {
         assert!(j.append_log(10, b"abc"));
         assert!(j.append_log(20, b"defgh"));
         assert!(!j.append_log(30, b""), "payload vide refuse");
-        assert_eq!(j.read_committed(), vec![(10u32, b"abc".to_vec()), (20u32, b"defgh".to_vec())]);
+        assert_eq!(
+            j.read_committed(),
+            vec![(10u32, b"abc".to_vec()), (20u32, b"defgh".to_vec())]
+        );
         println!("PREUVE read_committed + refus payload vide");
         let _ = std::fs::remove_file(&path);
     }
@@ -253,10 +267,15 @@ mod tests {
         let path = format!("/tmp/soul_journal_test_flush_{}.bin", std::process::id());
         let _ = std::fs::remove_file(&path);
         let j = Arc::new(MmapJournal::new(&path).expect("create journal"));
-        let h = j.spawn_flusher(Duration::from_millis(20)).expect("spawn flusher");
+        let h = j
+            .spawn_flusher(Duration::from_millis(20))
+            .expect("spawn flusher");
         assert!(j.append_log(0x77, b"flushed-by-thread"));
         std::thread::sleep(Duration::from_millis(120));
-        assert_eq!(relire_records(&path, 1), vec![(0x77u32, b"flushed-by-thread".to_vec())]);
+        assert_eq!(
+            relire_records(&path, 1),
+            vec![(0x77u32, b"flushed-by-thread".to_vec())]
+        );
         drop(j);
         let start = std::time::Instant::now();
         h.join().expect("join flusher");
@@ -290,7 +309,11 @@ mod tests {
                 for (tag, payload) in &recs {
                     let expected = (tag % 251) as u8;
                     assert_eq!(payload.len(), 16);
-                    assert!(payload.iter().all(|&b| b == expected), "LECTURE DECHIREE tag={}", tag);
+                    assert!(
+                        payload.iter().all(|&b| b == expected),
+                        "LECTURE DECHIREE tag={}",
+                        tag
+                    );
                 }
                 max_seen = max_seen.max(recs.len());
                 if max_seen >= N as usize {

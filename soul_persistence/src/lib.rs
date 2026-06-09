@@ -104,7 +104,9 @@ impl LongTermMemory {
         for kv in self.db.iter() {
             let (_, v) = kv?;
             if let Ok(entry) = serde_json::from_slice::<StampedEntry>(&v) {
-                idx.entry(entry.kind.clone()).or_default().push(entry.id.clone());
+                idx.entry(entry.kind.clone())
+                    .or_default()
+                    .push(entry.id.clone());
             }
         }
         Ok(())
@@ -134,11 +136,7 @@ impl LongTermMemory {
 
     /// Liste les IDs d'un certain type.
     pub fn list_by_kind(&self, kind: &str) -> Vec<String> {
-        self.index
-            .lock()
-            .get(kind)
-            .cloned()
-            .unwrap_or_default()
+        self.index.lock().get(kind).cloned().unwrap_or_default()
     }
 
     /// Renvoie la dernière entrée d'un certain type (par date de création).
@@ -209,8 +207,7 @@ mod tests {
         let ltm = LongTermMemory::open_temporary().unwrap();
         let parent = StampedEntry::new(KIND_GOAL, json!({"v": 1}));
         let parent_id = ltm.put(parent).unwrap();
-        let child =
-            StampedEntry::new(KIND_PLAN, json!({"v": 2})).with_parent(parent_id.clone());
+        let child = StampedEntry::new(KIND_PLAN, json!({"v": 2})).with_parent(parent_id.clone());
         let child_id = ltm.put(child).unwrap();
         let chain = ltm.lineage(&child_id).unwrap();
         assert_eq!(chain.len(), 2);

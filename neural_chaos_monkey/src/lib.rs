@@ -78,6 +78,9 @@ mod tests {
         let fa = a.perturb(&mut ba, 1.0);
         assert_eq!(fa, b.perturb(&mut bb, 1.0));
         assert_eq!(ba, bb);
-        println!("PREUVE chaos deterministe : meme graine -> {} fautes identiques", fa);
+        println!(
+            "PREUVE chaos deterministe : meme graine -> {} fautes identiques",
+            fa
+        );
     }
 }

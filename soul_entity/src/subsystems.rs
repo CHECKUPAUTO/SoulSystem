@@ -131,7 +131,9 @@ impl Subsystems {
     /// `tag:u32 + len:u32 + payload:bytes`. Le payload est un JSON
     /// sérialisé (auto-descriptif).
     pub fn journal_log(&self, tag: u32, payload: &str) -> bool {
-        let Some(ref j) = self.journal else { return false; };
+        let Some(ref j) = self.journal else {
+            return false;
+        };
         let ok = j.append_log(tag, payload.as_bytes());
         if ok {
             *self.journal_records.lock() += 1;
@@ -141,7 +143,9 @@ impl Subsystems {
 
     /// Relit tous les records commités du journal.
     pub fn journal_dump(&self) -> Vec<(u32, String)> {
-        let Some(ref j) = self.journal else { return Vec::new() };
+        let Some(ref j) = self.journal else {
+            return Vec::new();
+        };
         j.read_committed()
             .into_iter()
             .map(|(tag, bytes)| (tag, String::from_utf8_lossy(&bytes).to_string()))
@@ -154,8 +158,8 @@ impl Subsystems {
     /// télémétrie sont d'abord synchronisés via `record_execution`.
     pub fn forge_evaluate(&self, total_tasks: u64, total_cycles: u64) -> bool {
         // Pousser les compteurs dans le hub (4 cœurs virtuels).
-        let per_core = (total_tasks / 4) as u64;
-        let per_cycles = (total_cycles / 4) as u64;
+        let per_core = total_tasks / 4;
+        let per_cycles = total_cycles / 4;
         for core in 0..4 {
             self.telemetry.record_execution(core, per_cycles, false);
         }
@@ -163,9 +167,12 @@ impl Subsystems {
         let mutated = self.forge.lock().evaluate_and_mutate(&self.telemetry);
         if mutated {
             let f = self.forge.lock();
-            let s = format!("generation={} tile={} threshold={}",
-                f.generation(), f.current_genome.matrix_tile_size,
-                f.current_genome.work_stealing_threshold);
+            let s = format!(
+                "generation={} tile={} threshold={}",
+                f.generation(),
+                f.current_genome.matrix_tile_size,
+                f.current_genome.work_stealing_threshold
+            );
             self.journal_log(TAG_FORGE, &s);
         }
         mutated
@@ -181,7 +188,8 @@ impl Subsystems {
             // Créer un lien synaptique agent → entité (broadcast).
             let entity_id = 0xFFFF_FFFFu64;
             let goal_id_u64 = goal_id as u64;
-            self.linker.update_synapse_route(entity_id, goal_id_u64, 1.0, true);
+            self.linker
+                .update_synapse_route(entity_id, goal_id_u64, 1.0, true);
             self.journal_log(
                 TAG_GOAL,
                 &format!("{}|register|{}", Utc::now().to_rfc3339(), label),
@@ -198,11 +206,17 @@ impl Subsystems {
 
     /// Marque un goal-agent comme completed (Dormant après exéc).
     pub fn orch_complete(&self, goal_id: u32) {
-        let _ = self.orchestrator.lock().transition(goal_id, soul_orchestrator::AgentState::Dormant);
+        let _ = self
+            .orchestrator
+            .lock()
+            .transition(goal_id, soul_orchestrator::AgentState::Dormant);
     }
 
     pub fn orch_state(&self, goal_id: u32) -> Option<String> {
-        self.orchestrator.lock().state(goal_id).map(|s| format!("{:?}", s))
+        self.orchestrator
+            .lock()
+            .state(goal_id)
+            .map(|s| format!("{:?}", s))
     }
 
     pub fn orch_count(&self) -> usize {
@@ -222,7 +236,11 @@ impl Subsystems {
 
     /// Compile un plan en ordre topologique. Les étapes sont des nœuds ;
     /// si l'étape N a une dépendance sur l'étape M, on ajoute l'arête M→N.
-    pub fn graph_compile_plan(&self, n_steps: usize, deps: &[(usize, usize)]) -> Result<Vec<usize>, &'static str> {
+    pub fn graph_compile_plan(
+        &self,
+        n_steps: usize,
+        deps: &[(usize, usize)],
+    ) -> Result<Vec<usize>, &'static str> {
         let mut g = self.graph.lock();
         // Recréer le graphe à la bonne taille.
         *g = GraphCompiler::new(n_steps);
@@ -265,6 +283,53 @@ impl Subsystems {
     /// Snapshot de l'état CRDT.
     pub fn crdt_snapshot(&self) -> Vec<f32> {
         self.crdt_state.lock().clone()
+    }
+
+    /// C.8 : diffuse le snapshot CRDT à une liste de peers UDP.
+    /// Format : `SOULCRDT\n<len:u32 LE>\n<bytes f32 LE>`.
+    /// Renvoie le nombre de peers contactés avec succès.
+    pub fn crdt_broadcast(&self, peers: &[std::net::SocketAddr]) -> usize {
+        use std::net::UdpSocket;
+        let snap = self.crdt_snapshot();
+        let mut payload = Vec::with_capacity(8 + snap.len() * 4);
+        payload.extend_from_slice(b"SOULCRDT\n");
+        payload.extend_from_slice(&(snap.len() as u32).to_le_bytes());
+        for f in &snap {
+            payload.extend_from_slice(&f.to_le_bytes());
+        }
+        let mut count = 0;
+        if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+            for peer in peers {
+                if socket.send_to(&payload, peer).is_ok() {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    /// C.8 : reçoit un datagramme CRDT (depuis un peer) et merge.
+    pub fn crdt_recv_datagram(&self, data: &[u8]) -> std::io::Result<usize> {
+        if data.len() < 8 + 4 || &data[..8] != b"SOULCRDT" {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "bad header",
+            ));
+        }
+        let len = u32::from_le_bytes([data[8], data[9], data[10], data[11]]) as usize;
+        if data.len() < 12 + len * 4 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "truncated",
+            ));
+        }
+        let mut remote = Vec::with_capacity(len);
+        for i in 0..len {
+            let off = 12 + i * 4;
+            let bytes = [data[off], data[off + 1], data[off + 2], data[off + 3]];
+            remote.push(f32::from_le_bytes(bytes));
+        }
+        Ok(self.crdt_merge(&remote))
     }
 
     // ── Synapse linker (inspection) ──────────────────────────
@@ -310,6 +375,13 @@ impl Subsystems {
     /// Charge un module .so (unsafe — l'appelant doit s'assurer que
     /// la bibliothèque est de confiance). Renvoie `true` si le symbole
     /// `soul_agent_main` est trouvé.
+    ///
+    /// # Safety
+    /// Caller must ensure:
+    /// - `path` points to a valid, trusted shared library (.so file)
+    /// - The library exports a `soul_agent_main` symbol with correct signature
+    /// - Loading the library does not violate memory safety (no conflicting global state)
+    /// - The library is compatible with the current architecture and Rust version
     pub unsafe fn module_load(&self, path: &str) -> bool {
         DynamicModuleLoader::load_agent_routine(path).is_some()
     }
@@ -325,7 +397,10 @@ impl Subsystems {
                 tracing::error!("[clinical] server crashed: {e}");
             }
         });
-        Ok(ClinicalHandle { server, task: handle })
+        Ok(ClinicalHandle {
+            server,
+            task: handle,
+        })
     }
 }
 
@@ -393,7 +468,9 @@ mod tests {
         let mut state = vec![0.5, f32::NAN, 1.0, 5.0, -2.0];
         let n = s.heal(&mut state, 0.0, 1.0);
         assert_eq!(n, 3);
-        assert!(state.iter().all(|v| v.is_finite() && *v >= 0.0 && *v <= 1.0));
+        assert!(state
+            .iter()
+            .all(|v| v.is_finite() && *v >= 0.0 && *v <= 1.0));
     }
 
     #[test]
@@ -419,8 +496,14 @@ mod tests {
         let s = Subsystems::new(None).unwrap();
         let order = s.graph_compile_plan(3, &[(0, 1), (0, 2), (1, 2)]).unwrap();
         // 0 doit être avant 1 et 2, 1 avant 2
-        assert!(order.iter().position(|&x| x == 0).unwrap() < order.iter().position(|&x| x == 1).unwrap());
-        assert!(order.iter().position(|&x| x == 1).unwrap() < order.iter().position(|&x| x == 2).unwrap());
+        assert!(
+            order.iter().position(|&x| x == 0).unwrap()
+                < order.iter().position(|&x| x == 1).unwrap()
+        );
+        assert!(
+            order.iter().position(|&x| x == 1).unwrap()
+                < order.iter().position(|&x| x == 2).unwrap()
+        );
     }
 
     #[test]

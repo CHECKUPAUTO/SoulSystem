@@ -2,10 +2,24 @@
 //! Utilisé si aucune extension SIMD n'est disponible ou en cas d'incompatibilité de plateforme.
 
 /// Micro-kernel fallback scalar : C += A × B, avec auto-vectorisation par le compilateur.
+///
+/// # Safety
+/// Caller must ensure:
+/// - `a` points to valid memory of at least `m * ld_a` elements
+/// - `b` points to valid memory of at least `k * ld_b` elements
+/// - `c` points to valid writable memory of at least `m * ld_c` elements
+/// - All pointers are properly aligned for f32 access
+/// - No aliasing violations between input/output buffers
 pub unsafe extern "C" fn gemm_micro_kernel_fallback(
-    a: *const f32, b: *const f32, c: *mut f32,
-    m: usize, n: usize, k: usize,
-    ld_a: usize, ld_b: usize, ld_c: usize,
+    a: *const f32,
+    b: *const f32,
+    c: *mut f32,
+    m: usize,
+    n: usize,
+    k: usize,
+    ld_a: usize,
+    ld_b: usize,
+    ld_c: usize,
 ) {
     // Déroulement de boucle x8 sur la dimension K pour le prefetch hardware.
     for i in 0..m {

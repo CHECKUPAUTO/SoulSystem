@@ -16,18 +16,27 @@ impl FirewallGuard {
     /// Seuil par defaut 0.85, sans ancre. Tant qu'aucun concept interdit n'est
     /// enregistre, tout passe (fail-open documente, a peupler par l'appelant).
     pub fn new() -> Self {
-        Self { threshold: 0.85, anchors: Vec::new() }
+        Self {
+            threshold: 0.85,
+            anchors: Vec::new(),
+        }
     }
 
     pub fn with_threshold(threshold: f32) -> Self {
-        Self { threshold, anchors: Vec::new() }
+        Self {
+            threshold,
+            anchors: Vec::new(),
+        }
     }
 
     /// Enregistre un concept interdit a partir de son embedding (normalise L2 a
     /// l'enregistrement). Renvoie false si le vecteur est nul/non-normalisable.
     pub fn register_forbidden(&mut self, anchor: &Tensor) -> bool {
         match normalize(&anchor.data) {
-            Some(v) => { self.anchors.push(v); true }
+            Some(v) => {
+                self.anchors.push(v);
+                true
+            }
             None => false,
         }
     }
@@ -54,7 +63,11 @@ impl FirewallGuard {
                 best = dot;
             }
         }
-        if best.is_finite() { best } else { 0.0 }
+        if best.is_finite() {
+            best
+        } else {
+            0.0
+        }
     }
 
     /// Verdict de surete : `true` = autorise, `false` = bloque.
@@ -102,8 +115,14 @@ mod tests {
         let proche = vec_tensor(vec![0.9, 0.1, 0.0, 0.0]); // quasi colineaire
         let sim = fw.max_similarity(&proche);
         assert!(sim > 0.85, "similarite attendue > seuil, obtenu {}", sim);
-        assert!(!fw.check_safety(&proche), "doit bloquer un vecteur proche du concept interdit");
-        println!("PREUVE block : cos={:.3} >= 0.85 -> check_safety=false", sim);
+        assert!(
+            !fw.check_safety(&proche),
+            "doit bloquer un vecteur proche du concept interdit"
+        );
+        println!(
+            "PREUVE block : cos={:.3} >= 0.85 -> check_safety=false",
+            sim
+        );
     }
 
     #[test]
@@ -113,7 +132,10 @@ mod tests {
 
         let ortho = vec_tensor(vec![0.0, 1.0, 0.0, 0.0]); // cos 0
         assert!(fw.check_safety(&ortho), "orthogonal doit passer");
-        println!("PREUVE allow ortho : cos={:.3} < 0.85 -> true", fw.max_similarity(&ortho));
+        println!(
+            "PREUVE allow ortho : cos={:.3} < 0.85 -> true",
+            fw.max_similarity(&ortho)
+        );
 
         let sous_seuil = vec_tensor(vec![1.0, 1.0, 0.0, 0.0]); // cos 0.707
         let sim = fw.max_similarity(&sous_seuil);
@@ -128,7 +150,10 @@ mod tests {
         assert!(fw.check_safety(&vec_tensor(vec![1.0, 2.0, 3.0, 4.0]))); // fail-open
 
         let mut fw2 = FirewallGuard::new();
-        assert!(!fw2.register_forbidden(&vec_tensor(vec![0.0, 0.0, 0.0, 0.0])), "vecteur nul non ancrable");
+        assert!(
+            !fw2.register_forbidden(&vec_tensor(vec![0.0, 0.0, 0.0, 0.0])),
+            "vecteur nul non ancrable"
+        );
         assert_eq!(fw2.forbidden_count(), 0);
         assert!(fw2.check_safety(&vec_tensor(vec![0.0, 0.0, 0.0, 0.0])));
         println!("PREUVE garde-fous : sans ancre tout passe, vecteur nul neutre");

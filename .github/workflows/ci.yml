@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check (fmt + clippy + build + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy (SoulSystem crates)
+        run: |
+          cargo clippy -p soul_entity -p soul_persistence -p soul_sandbox -p soul_gateway -p souls -p soul_openclaw -p soul_journal -p soul_forge -p soul_orchestrator -p soul_agent_runtime -p soul_evolution -p soul_planner -p neural_chaos_monkey -p neural_metacognition -p neural_clinical_console -p neural_graph_compiler -p ontological_self_healing -p ecosystem_synapse_linker -p neural_cluster_sync --all-targets -- -D warnings
+      - name: Build
+        run: cargo build --workspace
+      - name: Test
+        run: cargo test --workspace -- --test-threads=4

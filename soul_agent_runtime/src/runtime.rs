@@ -1,10 +1,9 @@
+use soul_ipc::AgentMessage;
+use soul_matrix_engine::engine::{MatrixDescriptor, MatrixEngine};
+use soul_orchestrator::SovereignOrchestrator;
 use soul_scheduler::queue::Task;
 use soul_scheduler::scheduler::AgentScheduler;
-use soul_matrix_engine::engine::{MatrixEngine, MatrixDescriptor};
-use soul_storage::index::{VectorStore, SearchResult};
-use soul_ipc::AgentMessage;
-use soul_orchestrator::SovereignOrchestrator;
-
+use soul_storage::index::{SearchResult, VectorStore};
 
 /// Structure d'exécution d'un Agent Souverain (Alignée à l'octet près)
 #[repr(align(64))]
@@ -24,7 +23,9 @@ unsafe impl Sync for CognitiveAgent {}
 /// Point d'entrée brut de la boucle cognitive.
 /// Cette fonction respecte la signature `extern "C" fn(*mut u8)` requise par le Scheduler.
 pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
-    if ctx_ptr.is_null() { return; }
+    if ctx_ptr.is_null() {
+        return;
+    }
 
     unsafe {
         let agent = &*(ctx_ptr as *const CognitiveAgent);
@@ -36,7 +37,10 @@ pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
         // 1. PHASE D'ÉCOUTE ET INTERCEPTION (IPC)
         // L'agent vérifie s'il a reçu une commande ou un token sur le bus MPMC
         if let Some(message) = orchestrator.poll(agent.agent_id) {
-            println!("[AGENT-RUN-TIME] Agent #{} : Signal 0x{:X} intercepté.", agent.agent_id, message.signal_code);
+            println!(
+                "[AGENT-RUN-TIME] Agent #{} : Signal 0x{:X} intercepté.",
+                agent.agent_id, message.signal_code
+            );
 
             // 2. PHASE DE CONTEXTUALISATION (Neural Storage Scan)
             // Encodage du signal en vecteur d'embedding : on répartit le signal_code
@@ -44,12 +48,14 @@ pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
             // la discriminativité dans l'espace de recherche KNN.
             let mut query = [0.0f32; 1024];
             let code = message.signal_code;
+            #[allow(clippy::needless_range_loop)]
             for dim in 0..32 {
                 let bit = (code >> dim) & 1;
                 query[dim] = if bit == 1 { 1.0 } else { -1.0 };
             }
             // Encodage de l'identité source sur les dimensions 32-63
             let src = message.source_agent_id;
+            #[allow(clippy::needless_range_loop)]
             for dim in 0..32 {
                 let bit = (src >> dim) & 1;
                 query[32 + dim] = if bit == 1 { 0.5 } else { -0.5 };
@@ -59,7 +65,10 @@ pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
             let found_memories = storage.knn_search(&query, 5, &mut search_buffer);
 
             if found_memories > 0 {
-                println!("[AGENT-RUN-TIME] Agent #{} : {} souvenirs pertinents extraits de la mémoire.", agent.agent_id, found_memories);
+                println!(
+                    "[AGENT-RUN-TIME] Agent #{} : {} souvenirs pertinents extraits de la mémoire.",
+                    agent.agent_id, found_memories
+                );
             }
 
             // 3. PHASE DE CALCUL INTENSIF (SIMD GEMM Execution)
@@ -68,9 +77,21 @@ pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
             let mut mat_b_data = vec![1.2f32; 64 * 64];
             let mut mat_c_data = vec![0.0f32; 64 * 64];
 
-            let a_desc = MatrixDescriptor { data: mat_a_data.as_mut_ptr(), rows: 64, cols: 64 };
-            let b_desc = MatrixDescriptor { data: mat_b_data.as_mut_ptr(), rows: 64, cols: 64 };
-            let mut c_desc = MatrixDescriptor { data: mat_c_data.as_mut_ptr(), rows: 64, cols: 64 };
+            let a_desc = MatrixDescriptor {
+                data: mat_a_data.as_mut_ptr(),
+                rows: 64,
+                cols: 64,
+            };
+            let b_desc = MatrixDescriptor {
+                data: mat_b_data.as_mut_ptr(),
+                rows: 64,
+                cols: 64,
+            };
+            let mut c_desc = MatrixDescriptor {
+                data: mat_c_data.as_mut_ptr(),
+                rows: 64,
+                cols: 64,
+            };
 
             // Exécute le produit matriciel vectorisé au niveau du processeur (AVX/Neon)
             matrix_engine.execute_gemm(&a_desc, &b_desc, &mut c_desc);
@@ -122,8 +143,14 @@ mod tests {
         let mut o = SovereignOrchestrator::new();
         o.register_agent(1);
         o.register_agent(2);
-        assert!(matches!(o.dispatch(sig(1, 0xAA)), DispatchOutcome::Delivered { .. }));
-        assert!(matches!(o.dispatch(sig(2, 0xBB)), DispatchOutcome::Delivered { .. }));
+        assert!(matches!(
+            o.dispatch(sig(1, 0xAA)),
+            DispatchOutcome::Delivered { .. }
+        ));
+        assert!(matches!(
+            o.dispatch(sig(2, 0xBB)),
+            DispatchOutcome::Delivered { .. }
+        ));
         // chaque agent ne recoit QUE le sien : ni perte, ni cross-talk, ni reordre
         let m1 = agent_intake(&o, 1).expect("message pour 1");
         assert_eq!(m1.signal_code, 0xAA);

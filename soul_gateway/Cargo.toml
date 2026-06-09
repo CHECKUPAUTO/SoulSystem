@@ -17,3 +17,8 @@ parking_lot = "0.12"
 async-trait = "0.1"
 thiserror = "1"
 tracing = "0.1"
+rustls = "0.23"
+rustls-pemfile = "1.0"
+tokio-rustls = "0.26"
+hyper = { version = "0.14", features = ["server"] }
+tokio-util = { version = "0.7", features = ["compat", "codec"] }

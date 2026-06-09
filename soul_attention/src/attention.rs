@@ -104,7 +104,10 @@ mod tests {
         }
         // actives = sink{0} + fenetre{4,5} ; query fortement alignee sur le sink
         let out = attend(&c, &[5.0, 0.0]);
-        assert!(out[0] > 90.0 && out[1] > 90.0, "le sink doit dominer apres wrap, out={out:?}");
+        assert!(
+            out[0] > 90.0 && out[1] > 90.0,
+            "le sink doit dominer apres wrap, out={out:?}"
+        );
     }
 
     #[test]

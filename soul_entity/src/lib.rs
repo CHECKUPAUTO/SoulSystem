@@ -18,7 +18,7 @@ use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use soul_gateway::{EntityEvent, EventHub};
+use soul_gateway::EntityEvent;
 use soul_llm::{LlmConfig, OllamaClient};
 use soul_openclaw::{AgentContext, AgentEvent, AgentLoopConfig, HookHub, LogHook, SkillRegistry};
 use soul_persistence::{KIND_CODE_ARTIFACT, KIND_DECISION, KIND_GOAL, KIND_OBSERVATION, KIND_PLAN, KIND_TOOL_RESULT, LongTermMemory, StampedEntry};
@@ -46,6 +46,7 @@ pub struct EntityConfig {
     pub autonomous_tick: Duration,
     pub memory_path: Option<std::path::PathBuf>,
     pub max_goal_history: usize,
+    pub event_store_path: Option<std::path::PathBuf>,
 }
 
 impl Default for EntityConfig {
@@ -57,6 +58,7 @@ impl Default for EntityConfig {
             loop_config: AgentLoopConfig::default(),
             autonomous_tick: Duration::from_millis(750),
             memory_path: None,
+            event_store_path: None,
             max_goal_history: 50,
         }
     }
@@ -69,11 +71,66 @@ pub struct PersistentGoal {
     pub id: String,
     pub description: String,
     pub priority: u8,
+    pub importance: f32,          // 0.0-1.0 importance weight
+    pub deadline: Option<DateTime<Utc>>,  // Optional deadline
+    pub depends_on: Vec<String>,  // Goal IDs this depends on
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub plan: Option<PersistentPlan>,
     pub last_evaluation: Option<Evaluation>,
     pub last_decision: Option<Decision>,
+    pub llm_prompt_tokens: usize,
+    pub llm_completion_tokens: usize,
+    pub llm_total_tokens: usize,
+    pub llm_request_count: usize,
+}
+
+impl Default for PersistentGoal {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            description: String::new(),
+            priority: 0,
+            importance: 0.5,
+            deadline: None,
+            depends_on: Vec::new(),
+            status: String::new(),
+            created_at: Utc::now(),
+            plan: None,
+            last_evaluation: None,
+            last_decision: None,
+            llm_prompt_tokens: 0,
+            llm_completion_tokens: 0,
+            llm_total_tokens: 0,
+            llm_request_count: 0,
+        }
+    }
+}
+
+impl PersistentGoal {
+    /// Calcule un score de priorité composite pour l'ordonnancement
+    pub fn priority_score(&self) -> f32 {
+        let mut score = self.priority as f32 * 10.0;
+        score += self.importance * 50.0;
+        
+        // Urgence basée sur deadline
+        if let Some(deadline) = self.deadline {
+            let now = Utc::now();
+            let hours_until = deadline.signed_duration_since(now).num_seconds() as f32 / 3600.0;
+            if hours_until > 0.0 {
+                score += 100.0 / hours_until.max(0.1); // Plus urgent = score plus élevé
+            } else {
+                score += 1000.0; // En retard = très haute priorité
+            }
+        }
+        
+        score
+    }
+
+    /// Vérifie si les dépendances sont satisfaites
+    pub fn dependencies_satisfied(&self, completed_goals: &std::collections::HashSet<String>) -> bool {
+        self.depends_on.iter().all(|dep| completed_goals.contains(dep))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,7 +160,7 @@ pub struct SoulEntity {
     pub sandbox: Arc<Sandbox>,
     pub memory: Arc<LongTermMemory>,
     pub openclaw: Arc<OpenClawFacade>,
-    pub events: EventHub,
+    pub events: PersistentEventStore,
     pub goals: Mutex<HashMap<String, PersistentGoal>>,
     pub goal_order: Mutex<VecDeque<String>>,
     pub code_artifacts: Mutex<Vec<CodeArtifact>>,
@@ -151,6 +208,7 @@ impl SoulEntity {
             .as_ref()
             .map(|p| format!("{}.journal.bin", p.display()));
         let subsystems = Arc::new(Subsystems::new(journal_path.as_deref())?);
+        let event_store_path = config.event_store_path.clone();
 
         let entity = Self {
             config,
@@ -160,7 +218,10 @@ impl SoulEntity {
             sandbox,
             memory,
             openclaw,
-            events: EventHub::new(500),
+            events: {
+                let path = event_store_path.as_deref().unwrap_or(std::path::Path::new(""));
+                PersistentEventStore::new(path, 64, 500).unwrap_or_else(|_| PersistentEventStore::new(".", 64, 500).unwrap())
+            },
             goals: Mutex::new(HashMap::new()),
             goal_order: Mutex::new(VecDeque::new()),
             code_artifacts: Mutex::new(Vec::new()),
@@ -197,15 +258,33 @@ impl SoulEntity {
     // ── Création / persistance des goals ──────────────────────
 
     pub fn create_goal(&self, description: &str, priority: u8) -> PersistentGoal {
+        self.create_goal_with_options(description, priority, 0.5, None, Vec::new())
+    }
+
+    pub fn create_goal_with_options(
+        &self,
+        description: &str,
+        priority: u8,
+        importance: f32,
+        deadline: Option<DateTime<Utc>>,
+        depends_on: Vec<String>,
+    ) -> PersistentGoal {
         let goal = PersistentGoal {
             id: Uuid::new_v4().to_string(),
             description: description.into(),
             priority,
+            importance: importance.clamp(0.0, 1.0),
+            deadline,
+            depends_on,
             status: "active".into(),
             created_at: Utc::now(),
             plan: None,
             last_evaluation: None,
             last_decision: None,
+            llm_prompt_tokens: 0,
+            llm_completion_tokens: 0,
+            llm_total_tokens: 0,
+            llm_request_count: 0,
         };
         self.goals.lock().insert(goal.id.clone(), goal.clone());
         self.goal_order.lock().push_back(goal.id.clone());
@@ -258,7 +337,7 @@ impl SoulEntity {
             .ok_or_else(|| format!("goal {} inconnu", goal_id))?;
 
         // Étapes : observe → analyse → exécute → évalue
-        let steps = vec![
+        let steps = [
             format!("observe:\"{}\"", goal.description),
             format!("analyze:\"{}\"", goal.description),
             format!("decide:\"{}\"", goal.description),
@@ -381,7 +460,7 @@ impl SoulEntity {
 
         // Subsystem : forge — évolution génétique des hyperparamètres.
         // Toutes les N exécutions, on évalue le génome.
-        if stats.tools_executed % 8 == 0 {
+        if stats.tools_executed.is_multiple_of(8) {
             self.subsystems.forge_evaluate(stats.tools_executed, stats.cycles_run);
         }
 
@@ -479,17 +558,25 @@ impl SoulEntity {
             decision: Decision,
         }
         let sync: std::result::Result<SyncOutcome, String> = (|| {
-            // 1. Observer : choisir le goal actif le plus prioritaire
-            let order = self.goal_order.lock();
+            // 1. Observer : choisir le goal actif avec le score de priorité le plus élevé
             let goals = self.goals.lock();
-            let candidate = order
-                .iter()
-                .rev()
-                .filter_map(|id| goals.get(id))
-                .find(|g| g.status == "active" || g.status == "planned")
+            let completed: std::collections::HashSet<String> = goals
+                .values()
+                .filter(|g| g.status == "completed")
+                .map(|g| g.id.clone())
+                .collect();
+            
+            let candidate = goals
+                .values()
+                .filter(|g| g.status == "active" || g.status == "planned")
+                .filter(|g| g.dependencies_satisfied(&completed))
+                .max_by(|a, b| {
+                    a.priority_score()
+                        .partial_cmp(&b.priority_score())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .cloned();
             drop(goals);
-            drop(order);
 
             let goal = match candidate {
                 Some(g) => g,
@@ -553,6 +640,12 @@ impl SoulEntity {
             Ok(SyncOutcome { goal, exec_result, eval, decision })
         })();
 
+        // ── Auto-healing: repair CRDT state and neural state ──
+        let healed = self.subsystems.heal(&mut self.subsystems.crdt_state.lock(), 0.0, 1.0);
+        if healed > 0 {
+            info!("[entity] auto-healed {} CRDT state elements", healed);
+        }
+
         let SyncOutcome { goal, exec_result, eval, decision } = match sync {
             Ok(s) => s,
             Err(e) => {
@@ -565,14 +658,33 @@ impl SoulEntity {
 
         // ── Phase async : synthèse LLM best-effort ──
         let mut llm_summary: Option<String> = None;
+        let mut llm_usage: Option<soul_llm::LlmUsage> = None;
         if self.llm.is_alive().await {
             let prompt = format!(
                 "En une phrase, résume l'état du système après ce cycle : \
                  goal=\"{}\" score={} decision={}.",
                 goal.description, eval.score, decision.action
             );
-            if let Ok(resp) = self.llm.generate(&prompt).await {
+            if let Ok(resp) = self.llm.generate_with_goal(&prompt, &goal.id).await {
                 llm_summary = Some(resp.response);
+                llm_usage = self.llm.budget().get_goal_usage(&goal.id);
+            }
+        }
+
+        // Mettre à jour le goal avec l'usage LLM
+        if let Some(ref usage) = llm_usage {
+            if let Some(g) = self.goals.lock().get_mut(&goal.id) {
+                g.llm_prompt_tokens = usage.prompt_tokens;
+                g.llm_completion_tokens = usage.completion_tokens;
+                g.llm_total_tokens = usage.total_tokens;
+                g.llm_request_count = usage.request_count;
+                
+                // Persister la mise à jour
+                if let Ok(v) = serde_json::to_value(&*g) {
+                    let mut entry = StampedEntry::new(KIND_GOAL, v).with_tags(vec![g.status.clone()]);
+                    entry.id = g.id.clone();
+                    let _ = self.memory.put(entry);
+                }
             }
         }
 
@@ -589,6 +701,7 @@ impl SoulEntity {
             "evaluation": { "score": eval.score, "feedback": eval.feedback },
             "decision": { "action": decision.action, "confidence": decision.confidence },
             "llm_summary": llm_summary,
+            "llm_tokens": llm_usage.map(|u| u.total_tokens),
         }));
 
         self.stats.lock().cycles_succeeded += 1;
@@ -612,11 +725,30 @@ impl SoulEntity {
     }
 
     pub async fn ask(&self, prompt: &str) -> std::result::Result<String, String> {
+        self.ask_with_goal(prompt, "default").await
+    }
+
+    pub async fn ask_with_goal(&self, prompt: &str, goal_id: &str) -> std::result::Result<String, String> {
         self.llm
-            .generate(prompt)
+            .generate_with_goal(prompt, goal_id)
             .await
             .map(|r| r.response)
             .map_err(|e| format!("{e}"))
+    }
+
+    /// Retourne les stats d'usage LLM pour un goal
+    pub fn llm_usage(&self, goal_id: &str) -> Option<soul_llm::LlmUsage> {
+        self.llm.budget().get_goal_usage(goal_id)
+    }
+
+    /// Retourne tous les usages LLM par goal
+    pub fn all_llm_usages(&self) -> Vec<(String, soul_llm::LlmUsage)> {
+        self.llm.budget().all_goal_usages()
+    }
+
+    /// Retourne l'usage LLM de la minute courante
+    pub fn llm_minute_usage(&self) -> soul_llm::LlmUsage {
+        self.llm.budget().get_minute_usage()
     }
 
     pub fn status(&self) -> serde_json::Value {
@@ -789,6 +921,17 @@ impl soul_gateway::EntityHandle for SoulEntity {
             .map(|g| serde_json::to_value(g).unwrap_or(json!({})))
             .collect()
     }
+    async fn replay_events(&self, n: usize) -> Vec<soul_gateway::EntityEvent> {
+        self.events.recent(n)
+    }
+    async fn alert(&self, level: &str, message: &str) -> Result<(), String> {
+        let event = soul_gateway::EntityEvent::Error {
+            message: format!("[{}] {}", level, message),
+            ts: chrono::Utc::now(),
+        };
+        self.events.publish(event);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -803,12 +946,20 @@ mod tests {
                 base_url: "http://127.0.0.1:1".into(),
                 model: "test".into(),
                 temperature: 0.0,
+                http_timeout: Duration::from_secs(30),
+                connect_timeout: Duration::from_secs(5),
+                auth_token: None,
                 max_tokens: 8,
+                goal_token_budget: 0,
+                tokens_per_minute_budget: 0,
+                pool_max_idle: 1,
+                pool_idle_timeout: Duration::from_secs(1),
             },
             sandbox_policy: SandboxPolicy::default(),
             loop_config: AgentLoopConfig::default(),
             autonomous_tick: Duration::from_millis(50),
             memory_path: None,
+            event_store_path: None,
             max_goal_history: 10,
         };
         SoulEntity::new(cfg).unwrap()
@@ -885,3 +1036,67 @@ mod tests {
         assert!(v["evaluation"]["score"].is_number());
     }
 }
+
+// ── Persistent Event Store (soul_journal) ────────────────────
+
+mod persistent_events {
+    use soul_journal::RotatingJournal;
+    use soul_gateway::EntityEvent;
+    use std::sync::{Arc, Mutex};
+    use std::path::Path;
+
+    /// Persistent event store using soul_journal (mmap + rotation)
+    pub struct PersistentEventStore {
+        journal: Arc<Mutex<RotatingJournal>>,
+        recent_cache: Arc<Mutex<Vec<EntityEvent>>>,
+        cache_capacity: usize,
+    }
+
+    impl PersistentEventStore {
+        pub fn new<P: AsRef<Path>>(path: P, segment_size_mb: usize, cache_capacity: usize) -> std::io::Result<Self> {
+            let journal = RotatingJournal::new_with_size(path.as_ref().to_str().unwrap(), segment_size_mb * 1024 * 1024)?;
+            Ok(Self {
+                journal: Arc::new(Mutex::new(journal)),
+                recent_cache: Arc::new(Mutex::new(Vec::with_capacity(cache_capacity))),
+                cache_capacity,
+            })
+        }
+
+        pub fn publish(&self, event: EntityEvent) {
+            let json = serde_json::to_vec(&event).unwrap_or_default();
+            let tag = event_tag(&event);
+            
+            let journal = self.journal.lock().unwrap();
+            journal.append_log(tag, &json);
+            
+            let mut cache = self.recent_cache.lock().unwrap();
+            cache.push(event);
+            let len = cache.len();
+            if len > self.cache_capacity {
+                cache.drain(0..len - self.cache_capacity);
+            }
+        }
+
+        pub fn recent(&self, n: usize) -> Vec<EntityEvent> {
+            let cache = self.recent_cache.lock().unwrap();
+            let start = cache.len().saturating_sub(n);
+            cache[start..].to_vec()
+        }
+    }
+
+    fn event_tag(event: &EntityEvent) -> u32 {
+        match event {
+            EntityEvent::GoalCreated { .. } => 1,
+            EntityEvent::PlanCreated { .. } => 2,
+            EntityEvent::StepExecuted { .. } => 3,
+            EntityEvent::Observation { .. } => 4,
+            EntityEvent::Decision { .. } => 5,
+            EntityEvent::CycleStarted { .. } => 6,
+            EntityEvent::CycleFinished { .. } => 7,
+            EntityEvent::Error { .. } => 8,
+            EntityEvent::Heartbeat { .. } => 9,
+        }
+    }
+}
+
+pub use persistent_events::PersistentEventStore;

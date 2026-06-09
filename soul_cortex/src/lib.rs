@@ -1,4 +1,4 @@
-use soul_matrix_engine::engine::{MatrixEngine, MatrixDescriptor};
+use soul_matrix_engine::engine::{MatrixDescriptor, MatrixEngine};
 
 const CORTEX_DIM: usize = 64;
 
@@ -10,7 +10,9 @@ pub struct RecurrentCortex {
 }
 
 impl Default for RecurrentCortex {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RecurrentCortex {
@@ -24,20 +26,55 @@ impl RecurrentCortex {
 
     /// Calcule la transition d'état de conscience par produit tensoriel :
     /// $$h_t = \text{tanh}(W_{x} \cdot x_t + W_{h} \cdot h_{t-1})$$
-    pub unsafe fn process_cognitive_cycle(&mut self, engine: &MatrixEngine, input_vector_ptr: *mut f32) {
+    ///
+    /// # Safety
+    /// Caller must ensure:
+    /// - `input_vector_ptr` points to valid memory of at least `CORTEX_DIM * CORTEX_DIM` f32 elements
+    /// - `engine` is a valid MatrixEngine instance
+    /// - No aliasing violations between input and internal buffers
+    /// - Matrix dimensions match expected CORTEX_DIM
+    pub unsafe fn process_cognitive_cycle(
+        &mut self,
+        engine: &MatrixEngine,
+        input_vector_ptr: *mut f32,
+    ) {
         let mut temp_wx = vec![0.0f32; CORTEX_DIM * CORTEX_DIM];
         let mut temp_wh = vec![0.0f32; CORTEX_DIM * CORTEX_DIM];
 
-        let desc_input = MatrixDescriptor { data: input_vector_ptr, rows: CORTEX_DIM, cols: CORTEX_DIM };
-        let desc_wx = MatrixDescriptor { data: self.weight_wx.as_mut_ptr(), rows: CORTEX_DIM, cols: CORTEX_DIM };
-        let mut desc_temp_wx = MatrixDescriptor { data: temp_wx.as_mut_ptr(), rows: CORTEX_DIM, cols: CORTEX_DIM };
+        let desc_input = MatrixDescriptor {
+            data: input_vector_ptr,
+            rows: CORTEX_DIM,
+            cols: CORTEX_DIM,
+        };
+        let desc_wx = MatrixDescriptor {
+            data: self.weight_wx.as_mut_ptr(),
+            rows: CORTEX_DIM,
+            cols: CORTEX_DIM,
+        };
+        let mut desc_temp_wx = MatrixDescriptor {
+            data: temp_wx.as_mut_ptr(),
+            rows: CORTEX_DIM,
+            cols: CORTEX_DIM,
+        };
 
         // Étape 1 : Wx * Xt
         engine.execute_gemm(&desc_input, &desc_wx, &mut desc_temp_wx);
 
-        let desc_h_old = MatrixDescriptor { data: self.hidden_state.as_mut_ptr(), rows: CORTEX_DIM, cols: CORTEX_DIM };
-        let desc_wh = MatrixDescriptor { data: self.weight_wh.as_mut_ptr(), rows: CORTEX_DIM, cols: CORTEX_DIM };
-        let mut desc_temp_wh = MatrixDescriptor { data: temp_wh.as_mut_ptr(), rows: CORTEX_DIM, cols: CORTEX_DIM };
+        let desc_h_old = MatrixDescriptor {
+            data: self.hidden_state.as_mut_ptr(),
+            rows: CORTEX_DIM,
+            cols: CORTEX_DIM,
+        };
+        let desc_wh = MatrixDescriptor {
+            data: self.weight_wh.as_mut_ptr(),
+            rows: CORTEX_DIM,
+            cols: CORTEX_DIM,
+        };
+        let mut desc_temp_wh = MatrixDescriptor {
+            data: temp_wh.as_mut_ptr(),
+            rows: CORTEX_DIM,
+            cols: CORTEX_DIM,
+        };
 
         // Étape 2 : Wh * Ht-1
         engine.execute_gemm(&desc_h_old, &desc_wh, &mut desc_temp_wh);

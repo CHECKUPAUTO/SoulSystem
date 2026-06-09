@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>SoulSystem Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --fg: #e4e8f0;
+    --accent: #4caf50;
+    --accent2: #2196f3;
+    --warn: #ff9800;
+    --err: #f44336;
+    --card: #131825;
+    --border: #1f2640;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--fg); }
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header .status { padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  header .status.connected { background: var(--accent); color: #000; }
+  header .status.disconnected { background: var(--err); color: #fff; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; padding: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 14px; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px; }
+  .stat { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .stat:last-child { border-bottom: 0; }
+  .stat .label { color: #94a3b8; }
+  .stat .value { font-weight: 600; }
+  .events { font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto; }
+  .event { padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  .event.cycle { color: var(--accent2); }
+  .event.error { color: var(--err); }
+  .event.decision { color: var(--warn); }
+  button { background: var(--accent2); color: #fff; border: 0; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  button:hover { opacity: 0.85; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧠 SoulSystem</h1>
+  <span id="conn" class="status disconnected">déconnecté</span>
+  <span id="entity-name" style="color: #94a3b8;"></span>
+  <button onclick="cycle()">▶ Run Cycle</button>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Identité</h2>
+    <div class="stat"><span class="label">Nom</span><span class="value" id="entity">—</span></div>
+    <div class="stat"><span class="label">Outils</span><span class="value" id="tools">—</span></div>
+    <div class="stat"><span class="label">Goals</span><span class="value" id="goals">—</span></div>
+    <div class="stat"><span class="label">Mémoire</span><span class="value" id="mem">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Subsystèmes</h2>
+    <div class="stat"><span class="label">Journal</span><span class="value" id="journal">—</span></div>
+    <div class="stat"><span class="label">Forge</span><span class="value" id="forge">—</span></div>
+    <div class="stat"><span class="label">Orchestrateur</span><span class="value" id="orch">—</span></div>
+    <div class="stat"><span class="label">Synapses</span><span class="value" id="syn">—</span></div>
+    <div class="stat"><span class="label">Heals</span><span class="value" id="heals">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Statistiques</h2>
+    <div class="stat"><span class="label">Cycles</span><span class="value" id="cycles">—</span></div>
+    <div class="stat"><span class="label">Goals completed</span><span class="value" id="gcomp">—</span></div>
+    <div class="stat"><span class="label">Tools executed</span><span class="value" id="tools_exec">—</span></div>
+    <div class="stat"><span class="label">Code artifacts</span><span class="value" id="code">—</span></div>
+    <div class="stat"><span class="label">Taux succès</span><span class="value" id="success_rate">—</span></div>
+  </div>
+
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>Stream d'événements (WebSocket)</h2>
+    <div class="events" id="events"></div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ws = null;
+let poll = null;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/v1/stream`);
+  ws.onopen = () => { $('conn').className = 'status connected'; $('conn').textContent = 'connecté'; };
+  ws.onclose = () => { $('conn').className = 'status disconnected'; $('conn').textContent = 'déconnecté'; setTimeout(connect, 2000); };
+  ws.onmessage = (e) => {
+    try {
+      const ev = JSON.parse(e.data);
+      addEvent(ev);
+    } catch {}
+  };
+}
+
+function addEvent(ev) {
+  const div = document.createElement('div');
+  div.className = 'event';
+  const kind = ev.kind || 'unknown';
+  if (kind === 'CycleStarted' || kind === 'CycleFinished') div.classList.add('cycle');
+  if (kind === 'Error') div.classList.add('error');
+  if (kind === 'Decision') div.classList.add('decision');
+  const ts = ev.ts ? new Date(ev.ts).toLocaleTimeString() : '';
+  div.textContent = `[${ts}] ${kind} ${JSON.stringify(ev).slice(0, 200)}`;
+  const c = $('events');
+  c.insertBefore(div, c.firstChild);
+  while (c.children.length > 100) c.removeChild(c.lastChild);
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/v1/status');
+    if (!r.ok) return;
+    const s = await r.json();
+    $('entity').textContent = s.entity || '—';
+    $('entity-name').textContent = s.entity ? `(running: ${s.running})` : '';
+    $('tools').textContent = s.tools_count ?? '—';
+    $('goals').textContent = s.goals_total ?? '—';
+    $('mem').textContent = s.memory_entries ?? '—';
+    if (s.subsystems) {
+      $('journal').textContent = s.subsystems.journal_records ?? '—';
+      $('forge').textContent = s.subsystems.forge_generation ?? '—';
+      $('orch').textContent = s.subsystems.orchestrator_agents ?? '—';
+      $('syn').textContent = s.subsystems.synapse_count ?? '—';
+      $('heals').textContent = s.subsystems.heals_performed ?? '—';
+    }
+    if (s.stats) {
+      $('cycles').textContent = s.stats.cycles_run ?? '—';
+      $('gcomp').textContent = s.stats.goals_completed ?? '—';
+      $('tools_exec').textContent = s.stats.tools_executed ?? '—';
+      $('code').textContent = s.stats.code_artifacts_generated ?? '—';
+      const sr = s.stats.cycles_run > 0 ? (s.stats.cycles_succeeded / s.stats.cycles_run * 100).toFixed(0) : 0;
+      $('success_rate').textContent = sr + '%';
+    }
+  } catch (e) {}
+}
+
+async function cycle() {
+  try { await fetch('/v1/cycle', { method: 'POST' }); } catch {}
+  setTimeout(refresh, 200);
+}
+
+connect();
+refresh();
+poll = setInterval(refresh, 1000);
+</script>
+</body>
+</html>

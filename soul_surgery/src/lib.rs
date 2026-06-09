@@ -27,7 +27,9 @@ impl NeuralSurgeon {
     /// Équation fondamentale de guidage : $x \leftarrow x + \alpha \cdot v_{steer}$
     #[inline(always)]
     pub fn steer_activations(&self, activations: &mut [f32]) {
-        if !self.is_active.load(Ordering::Acquire) { return; }
+        if !self.is_active.load(Ordering::Acquire) {
+            return;
+        }
 
         // Traitement par bloc de taille VECTOR_DIM (Auto-vectorisation SIMD forcée)
         for (idx, chunk) in activations.chunks_mut(VECTOR_DIM).enumerate() {
@@ -63,7 +65,9 @@ mod tests {
         let dim = VECTOR_DIM;
         let h_clean: Vec<f32> = (0..dim).map(|i| ((i % 7) as f32) * 0.1 - 0.3).collect();
         let out_dim = 2;
-        let w: Vec<f32> = (0..out_dim * dim).map(|i| ((i % 5) as f32 - 2.0) * 0.05).collect();
+        let w: Vec<f32> = (0..out_dim * dim)
+            .map(|i| ((i % 5) as f32 - 2.0) * 0.05)
+            .collect();
         let clean_out = linear(&w, &h_clean, out_dim);
 
         let mut surgeon = NeuralSurgeon::new(0.5);
@@ -88,13 +92,22 @@ mod tests {
                 expected += w[o * dim + i] * (0.5 * v[i]);
             }
             let delta = steered_out[o] - clean_out[o];
-            assert!((delta - expected).abs() < 1e-2, "delta[{}]={} attendu {}", o, delta, expected);
+            assert!(
+                (delta - expected).abs() < 1e-2,
+                "delta[{}]={} attendu {}",
+                o,
+                delta,
+                expected
+            );
             if delta.abs() > 1e-6 {
                 changed = true;
             }
         }
         assert!(changed, "le steering doit modifier la sortie");
-        println!("PREUVE steering : clean={:?} -> steered={:?} (delta = W*alpha*v, non nul)", clean_out, steered_out);
+        println!(
+            "PREUVE steering : clean={:?} -> steered={:?} (delta = W*alpha*v, non nul)",
+            clean_out, steered_out
+        );
     }
 
     #[test]
