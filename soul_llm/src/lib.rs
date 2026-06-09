@@ -42,11 +42,8 @@ fn default_timeout() -> u64 {
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
-            base_url: std::env::var("OLLAMA_URL")
-                .or_else(|_| std::env::var("OLLAMA_HOST"))
-                .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
-            model: std::env::var("OLLAMA_MODEL")
-                .unwrap_or_else(|_| "qwen3:8b".to_string()),
+            base_url: "http://127.0.0.1:11434".to_string(),
+            model: "qwen3:4b".to_string(),
             temperature: 0.7,
             max_tokens: 4096,
             system_prompt: None,
@@ -479,280 +476,58 @@ impl OllamaClient {
     }
 }
 
-// ── Chat Session (conversation context manager) ───────────────────────
-
-pub struct ChatSession {
-    pub messages: Vec<ChatMessage>,
-    pub system_prompt: String,
-    pub max_context_chars: usize,
+// Blocking versions for REPL and non-async contexts
+pub struct OllamaClientBlocking {
+    config: LlmConfig,
+    http: reqwest::blocking::Client,
 }
 
-impl ChatSession {
-    pub fn new(system_prompt: &str) -> Self {
+impl OllamaClientBlocking {
+    pub fn new(config: LlmConfig) -> Self {
         Self {
-            messages: Vec::new(),
-            system_prompt: system_prompt.to_string(),
-            max_context_chars: 32000,
+            config,
+            http: reqwest::blocking::Client::new(),
         }
     }
 
-    pub fn with_max_context(system_prompt: &str, max_chars: usize) -> Self {
-        Self {
-            messages: Vec::new(),
-            system_prompt: system_prompt.to_string(),
-            max_context_chars: max_chars,
-        }
+    pub fn is_alive(&self) -> bool {
+        self.http
+            .get(format!("{}/api/tags", self.config.base_url))
+            .send()
+            .is_ok()
     }
 
-    pub fn add_user_message(&mut self, content: &str) {
-        self.messages.push(ChatMessage {
-            role: Role::User,
-            content: content.to_string(),
-            tool_calls: None,
-            tool_call_id: None,
-        });
+    pub fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
+        let resp: ModelsResponse = self
+            .http
+            .get(format!("{}/api/tags", self.config.base_url))
+            .send()?
+            .json()?;
+        Ok(resp.models)
     }
 
-    pub fn add_assistant_message(&mut self, content: &str) {
-        self.messages.push(ChatMessage {
-            role: Role::Assistant,
-            content: content.to_string(),
-            tool_calls: None,
-            tool_call_id: None,
-        });
+    pub fn generate(&self, prompt: &str) -> Result<GenerateResponse, LlmError> {
+        let req = GenerateRequest {
+            model: self.config.model.clone(),
+            prompt: prompt.to_string(),
+            stream: false,
+            options: Some(GenerateOptions {
+                temperature: self.config.temperature,
+                num_predict: self.config.max_tokens,
+            }),
+        };
+
+        let resp: GenerateResponse = self
+            .http
+            .post(format!("{}/api/generate", self.config.base_url))
+            .json(&req)
+            .send()?
+            .json()?;
+
+        Ok(resp)
     }
 
-    pub fn add_tool_result(&mut self, tool_call_id: &str, content: &str) {
-        self.messages.push(ChatMessage {
-            role: Role::Tool,
-            content: content.to_string(),
-            tool_calls: None,
-            tool_call_id: Some(tool_call_id.to_string()),
-        });
+    pub fn config(&self) -> &LlmConfig {
+        &self.config
     }
-
-    pub fn add_assistant_with_tools(&mut self, content: Option<&str>, tool_calls: Vec<ToolCall>) {
-        self.messages.push(ChatMessage {
-            role: Role::Assistant,
-            content: content.unwrap_or("").to_string(),
-            tool_calls: Some(tool_calls),
-            tool_call_id: None,
-        });
-    }
-
-    /// Build the full message list with system prompt, truncating old messages if needed
-    pub fn build_messages(&self) -> Vec<ChatMessage> {
-        let mut messages = vec![ChatMessage {
-            role: Role::System,
-            content: self.system_prompt.clone(),
-            tool_calls: None,
-            tool_call_id: None,
-        }];
-
-        // Estimate total size, truncate from the front if too large
-        let mut total_chars: usize = self.system_prompt.len();
-        let mut start_idx = 0;
-
-        for (i, msg) in self.messages.iter().enumerate() {
-            let msg_chars = msg.content.len() + 50; // overhead for role/tool_calls
-            if total_chars + msg_chars > self.max_context_chars {
-                start_idx = i;
-                break;
-            }
-            total_chars += msg_chars;
-        }
-
-        if start_idx > 0 {
-            // Add a truncation marker
-            messages.push(ChatMessage {
-                role: Role::User,
-                content: format!(
-                    "[Context truncated: {} older messages removed]",
-                    start_idx
-                ),
-                tool_calls: None,
-                tool_call_id: None,
-            });
-        }
-
-        messages.extend(self.messages[start_idx..].iter().cloned());
-        messages
-    }
-
-    pub fn clear(&mut self) {
-        self.messages.clear();
-    }
-
-    pub fn history_summary(&self) -> String {
-        if self.messages.is_empty() {
-            return "No conversation history".to_string();
-        }
-        format!(
-            "{} messages, ~{} chars",
-            self.messages.len(),
-            self.messages.iter().map(|m| m.content.len()).sum::<usize>()
-        )
-    }
-}
-
-// ── Tool Schema Builder ───────────────────────────────────────────────
-
-pub fn build_tool_schemas() -> Vec<ToolSchema> {
-    vec![
-        ToolSchema {
-            schema_type: "function".to_string(),
-            function: FunctionSchema {
-                name: "execute_shell".to_string(),
-                description: "Execute a shell command and return stdout/stderr".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "command": {
-                            "type": "string",
-                            "description": "Shell command to execute"
-                        }
-                    },
-                    "required": ["command"]
-                }),
-            },
-        },
-        ToolSchema {
-            schema_type: "function".to_string(),
-            function: FunctionSchema {
-                name: "read_file".to_string(),
-                description: "Read file contents with optional line range".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "File path to read"
-                        },
-                        "start_line": {
-                            "type": "integer",
-                            "description": "Start line (1-based, optional)"
-                        },
-                        "num_lines": {
-                            "type": "integer",
-                            "description": "Number of lines to read (default 200)"
-                        }
-                    },
-                    "required": ["path"]
-                }),
-            },
-        },
-        ToolSchema {
-            schema_type: "function".to_string(),
-            function: FunctionSchema {
-                name: "write_file".to_string(),
-                description: "Write content to a file (creates or overwrites)".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "File path to write"
-                        },
-                        "content": {
-                            "type": "string",
-                            "description": "Content to write"
-                        },
-                        "mode": {
-                            "type": "string",
-                            "enum": ["overwrite", "append"],
-                            "description": "Write mode (default overwrite)"
-                        }
-                    },
-                    "required": ["path", "content"]
-                }),
-            },
-        },
-        ToolSchema {
-            schema_type: "function".to_string(),
-            function: FunctionSchema {
-                name: "patch_file".to_string(),
-                description: "Find and replace unique text in a file".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "File path"
-                        },
-                        "old_text": {
-                            "type": "string",
-                            "description": "Text to find (must be unique in file)"
-                        },
-                        "new_text": {
-                            "type": "string",
-                            "description": "Replacement text"
-                        }
-                    },
-                    "required": ["path", "old_text", "new_text"]
-                }),
-            },
-        },
-        ToolSchema {
-            schema_type: "function".to_string(),
-            function: FunctionSchema {
-                name: "list_directory".to_string(),
-                description: "List directory contents".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "Directory path (default: current)"
-                        }
-                    }
-                }),
-            },
-        },
-        ToolSchema {
-            schema_type: "function".to_string(),
-            function: FunctionSchema {
-                name: "search_files".to_string(),
-                description: "Search for files matching a pattern".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "pattern": {
-                            "type": "string",
-                            "description": "Glob pattern (e.g. '*.rs')"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "Directory to search in"
-                        }
-                    },
-                    "required": ["pattern"]
-                }),
-            },
-        },
-        ToolSchema {
-            schema_type: "function".to_string(),
-            function: FunctionSchema {
-                name: "grep_content".to_string(),
-                description: "Search file contents with regex pattern".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "pattern": {
-                            "type": "string",
-                            "description": "Regex pattern to search for"
-                        },
-                        "path": {
-                            "type": "string",
-                            "description": "File or directory to search in"
-                        },
-                        "file_pattern": {
-                            "type": "string",
-                            "description": "File filter glob (e.g. '*.rs')"
-                        }
-                    },
-                    "required": ["pattern"]
-                }),
-            },
-        },
-    ]
 }

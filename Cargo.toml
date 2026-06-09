@@ -97,28 +97,12 @@ members = [
     "soul_planner",
     "soul_tools",
     "soul_repl",
-    "soul-agent-core",
-    "soul-persist",
-    "soul-daemon",
-    "soul-sandbox",
-    "soul-browser",
-    "soul-subagents",
-    "soul-conversations",
-    "soul-goaltree",
-    "soul-automodify",
-    "soul-eventbus",
-    "soul-webfetch",
-    "soul-rag",
-    # Quality improvement crates
-    "soul-mcp",
-    "soul-skills",
-    "soul-graph-memory",
-    "soul-compaction",
-    "soul-protocol",
-    "soul-wasm",
-    "soul-designtree",
-    "soul-inference",
-    "soul-critique",
+    "soul_bridges",
+    "soul_cognitive",
+    "soul_automation",
+    "soul_security",
+    "soul_monitor",
+    "soul_api",
 ]
 
 exclude = [
@@ -256,26 +240,12 @@ soul_llm = { path = "soul_llm" }
 soul_planner = { path = "soul_planner" }
 soul_tools = { path = "soul_tools" }
 soul_repl = { path = "soul_repl" }
-soul_agent_core = { path = "soul-agent-core" }
-soul_persist = { path = "soul-persist" }
-soul_daemon = { path = "soul-daemon" }
-soul_sandbox = { path = "soul-sandbox" }
-soul_browser = { path = "soul-browser" }
-soul_subagents = { path = "soul-subagents" }
-soul_conversations = { path = "soul-conversations" }
-soul_goaltree = { path = "soul-goaltree" }
-soul_automodify = { path = "soul-automodify" }
-soul_eventbus = { path = "soul-eventbus" }
-soul-dashboard = { path = "crates/soul-dashboard" }
-soul_mcp = { path = "soul-mcp" }
-soul_skills = { path = "soul-skills" }
-soul_graph_memory = { path = "soul-graph-memory" }
-soul_compaction = { path = "soul-compaction" }
-soul_protocol = { path = "soul-protocol" }
-soul_wasm = { path = "soul-wasm" }
-soul_designtree = { path = "soul-designtree" }
-soul_inference = { path = "soul-inference" }
-soul_critique = { path = "soul-critique" }
+soul_bridges = { path = "soul_bridges" }
+soul_cognitive = { path = "soul_cognitive" }
+soul_automation = { path = "soul_automation" }
+soul_security = { path = "soul_security" }
+soul_monitor = { path = "soul_monitor" }
+soul_api = { path = "soul_api" }
 uuid = { version = "1", features = ["v4"] }
 rustyline = "14"
 colored = "2"

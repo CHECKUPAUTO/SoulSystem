@@ -16,6 +16,7 @@ use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -48,21 +49,17 @@ struct Cli {
     #[arg(long)]
     plan: Option<String>,
 
-    /// Run as background daemon (processes goals autonomously)
+    /// Start autonomous loop (observe→plan→act→evaluate→decide)
     #[arg(long)]
-    daemon: bool,
+    autonomous: bool,
 
-    /// Dashboard port (default: 9090, 0 = disabled)
-    #[arg(long, default_value = "9090")]
-    dashboard_port: u16,
+    /// Tick interval in seconds for autonomous loop (default: 30)
+    #[arg(long, default_value = "30")]
+    tick: u64,
 
-    /// Add a goal to the daemon
+    /// Serve live dashboard on this port (only with --autonomous)
     #[arg(long)]
-    goal: Option<String>,
-
-    /// List daemon goals and exit
-    #[arg(long)]
-    list_goals: bool,
+    dashboard: Option<u16>,
 }
 
 #[tokio::main]
@@ -73,6 +70,82 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // ── Autonomous modes (lightweight, no full system init) ────────────
+    if cli.repl {
+        info!("▶ Mode REPL autonome activé");
+        let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
+        soul_repl::run_repl(&mut repl_state);
+        return Ok(());
+    }
+
+    if let Some(ref question) = cli.ask {
+        info!("▶ Mode ask: {}", question);
+        let config = soul_llm::LlmConfig::default();
+        let client = soul_llm::OllamaClient::new(config);
+        match client.generate(question).await {
+            Ok(resp) => println!("{}", resp.response),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+        return Ok(());
+    }
+
+    if let Some(ref goal_desc) = cli.plan {
+        info!("▶ Mode plan: {}", goal_desc);
+        let config = soul_llm::LlmConfig::default();
+        let entity_name = hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "soulsystem".to_string());
+        let autonomous = soulsystem::autonomous::AutonomousEntity::new(config, &entity_name);
+        let goal = autonomous.create_goal(goal_desc);
+        let plan = autonomous.plan(&goal);
+        match serde_json::to_string_pretty(&plan) {
+            Ok(json) => println!("{}", json),
+            Err(e) => eprintln!("Error serializing plan: {}", e),
+        }
+        return Ok(());
+    }
+
+    if cli.autonomous {
+        info!("▶ Mode autonome activé (tick: {}s)", cli.tick);
+
+        let config = soul_llm::LlmConfig::default();
+        let entity_name = hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "soulsystem".to_string());
+        let mut entity = soulsystem::autonomous::AutonomousEntity::new(config, &entity_name);
+
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let shutdown_clone = shutdown.clone();
+
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.ok();
+            info!("Shutdown signal received");
+            shutdown_clone.store(true, Ordering::Relaxed);
+        });
+
+        #[cfg(unix)]
+        {
+            let shutdown_clone = shutdown.clone();
+            tokio::spawn(async move {
+                let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+                sigterm.recv().await;
+                info!("SIGTERM received");
+                shutdown_clone.store(true, Ordering::Relaxed);
+            });
+        }
+
+        let loop_config = soulsystem::autonomous_loop::AutonomousLoopConfig {
+            tick_interval_secs: cli.tick,
+            max_consecutive_noops: 10,
+            data_dir: "/var/lib/soulsystem/autonomous".to_string(),
+            dashboard_port: cli.dashboard,
+        };
+
+        soulsystem::autonomous_loop::run_autonomous_loop(&mut entity, loop_config, shutdown).await;
+        return Ok(());
+    }
+
+    // ── Full system initialization ─────────────────────────────────────
     // Chargement de la configuration centralisée
     let settings = soulsystem::config::Settings::new()?;
     info!(
@@ -781,272 +854,7 @@ async fn main() -> Result<()> {
 
     info!("✅ SoulSystem prêt — boucle principale");
 
-    // ── Autonomous entity ──────────────────────────────────────────────
-    let autonomous_config = soul_llm::LlmConfig::default();
-    let entity_name = hostname::get()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "soulsystem".to_string());
-    let mut autonomous = soulsystem::autonomous::AutonomousEntity::new(
-        autonomous_config,
-        &entity_name,
-    );
-
-    // ── Persistent store (sled) ───────────────────────────────────────
-    let persist_dir = settings.paths.data_dir.join("agent");
-    let persist_store = match soul_persist::PersistentStore::open(&persist_dir) {
-        Ok(store) => {
-            info!("PersistentStore: actif ({:?})", persist_dir);
-            store
-        }
-        Err(e) => {
-            tracing::warn!("PersistentStore: ouverture échouée (mode dégradé): {}", e);
-            // Fallback to temp dir
-            match tempfile::tempdir() {
-                Ok(tmp) => match soul_persist::PersistentStore::open(tmp.path()) {
-                    Ok(store) => {
-                        info!("PersistentStore: mode dégradé (tmp)");
-                        store
-                    }
-                    Err(e) => {
-                        tracing::error!("PersistentStore: impossible d'ouvrir le fallback: {}", e);
-                        return Err(e.into());
-                    }
-                },
-                Err(e) => {
-                    tracing::error!("PersistentStore: impossible de créer le répertoire temp: {}", e);
-                    return Err(e.into());
-                }
-            }
-        }
-    };
-
-    // ── Dashboard (Axum + WebSocket) ──────────────────────────────────
-    let dashboard_state = Arc::new(tokio::sync::RwLock::new(
-        soul_dashboard::DashboardState::new(),
-    ));
-    let (event_tx, _) = tokio::sync::broadcast::channel::<soul_dashboard::BusEvent>(1024);
-
-    if cli.dashboard_port > 0 || cli.dev {
-        let port = if cli.dev { 9090 } else { cli.dashboard_port };
-        let ds = dashboard_state.clone();
-        let etx = event_tx.clone();
-        tokio::spawn(async move {
-            if let Err(e) = soul_dashboard::run_server(ds, etx, port, None).await {
-                tracing::error!("Dashboard error: {}", e);
-            }
-        });
-        info!("Dashboard démarré sur 127.0.0.1:{}", port);
-    }
-
-    // ── Event Bus (agent → dashboard real-time) ────────────────────────
-    let event_bus = soul_eventbus::EventBus::new(1024);
-    let _event_bus_handle = event_bus.handle();
-
-    // Forward events to dashboard state + broadcast channel
-    {
-        let ds = dashboard_state.clone();
-        let etx = event_tx.clone();
-        let mut rx = event_bus.subscribe();
-        tokio::spawn(async move {
-            loop {
-                match rx.recv().await {
-                    Ok(event) => {
-                        let mut state = ds.write().await;
-                        // Update agent state from events
-                        match &event {
-                            soul_eventbus::AgentEvent::Thought { turn, content } => {
-                                state.agent.turn = *turn;
-                                state.agent.last_action = Some(content.clone());
-                            }
-                            soul_eventbus::AgentEvent::ToolCall { tool, input, .. } => {
-                                state.agent.last_action = Some(format!("{}: {}", tool, input));
-                                if !state.agent.tools_used.contains(tool) {
-                                    state.agent.tools_used.push(tool.clone());
-                                }
-                            }
-                            soul_eventbus::AgentEvent::ToolResult { output, .. } => {
-                                state.agent.last_result = Some(output.clone());
-                            }
-                            soul_eventbus::AgentEvent::TaskReceived { description, .. } => {
-                                state.agent.goal = description.clone();
-                                state.agent.status = "running".into();
-                            }
-                            soul_eventbus::AgentEvent::TaskCompleted { result, .. } => {
-                                state.agent.status = "idle".into();
-                                state.agent.last_result = Some(result.clone());
-                            }
-                            soul_eventbus::AgentEvent::TaskFailed { error, .. } => {
-                                state.agent.status = format!("error: {}", error);
-                            }
-                            soul_eventbus::AgentEvent::SafetyWarning { message, .. } => {
-                                state.push_turbulence(soul_dashboard::TurbulenceEntry {
-                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                    severity: "warning".into(),
-                                    message: message.clone(),
-                                });
-                            }
-                            _ => {}
-                        }
-                        // Add to event log
-                        let bus_event = soul_dashboard::BusEvent {
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                            kind: format!("{:?}", std::mem::discriminant(&event)),
-                            source: "agent".into(),
-                        };
-                        state.push_event(bus_event.clone());
-                        // Also broadcast to WebSocket clients
-                        let _ = etx.send(bus_event);
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!("EventBus: lagged {} events", n);
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-    }
-    info!("EventBus: actif (capacité: 1024)");
-
-    // ── Daemon mode ───────────────────────────────────────────────────
-    if cli.daemon {
-        info!("▶ Mode daemon activé");
-
-        // List goals
-        if cli.list_goals {
-            let goals = persist_store.load_all_goals().unwrap_or_default();
-            if goals.is_empty() {
-                println!("Aucun goal actif.");
-            } else {
-                println!("Goals:");
-                for g in &goals {
-                    println!(
-                        "  [{}] {} (priority: {}, status: {:?})",
-                        &g.id[..8], g.description, g.priority, g.status
-                    );
-                }
-            }
-            return Ok(());
-        }
-
-        // Add goal
-        if let Some(ref goal_desc) = cli.goal {
-            let daemon = soul_daemon::Daemon::new(
-                soul_daemon::DaemonConfig::default(),
-                persist_store,
-            );
-            let goal = daemon.add_goal(goal_desc, 5)?;
-            println!("Goal ajouté: {} ({})", goal.description, &goal.id[..8]);
-            return Ok(());
-        }
-
-        // Run daemon (with or without REPL)
-        let daemon = soul_daemon::Daemon::new(
-            soul_daemon::DaemonConfig::default(),
-            persist_store,
-        );
-
-        // Subscribe daemon events to dashboard
-        {
-            let ds = dashboard_state.clone();
-            let etx = event_tx.clone();
-            let mut daemon_rx = daemon.event_bus().subscribe();
-            tokio::spawn(async move {
-                while let Ok(event) = daemon_rx.recv().await {
-                    let mut state = ds.write().await;
-                    match &event {
-                        soul_eventbus::AgentEvent::Thought { turn, content } => {
-                            state.agent.turn = *turn;
-                            state.agent.last_action = Some(content.clone());
-                        }
-                        soul_eventbus::AgentEvent::ToolCall { tool, input, .. } => {
-                            state.agent.last_action = Some(format!("{}: {}", tool, input));
-                            if !state.agent.tools_used.contains(tool) {
-                                state.agent.tools_used.push(tool.clone());
-                            }
-                        }
-                        soul_eventbus::AgentEvent::TaskReceived { description, .. } => {
-                            state.agent.goal = description.clone();
-                            state.agent.status = "running (daemon)".into();
-                        }
-                        soul_eventbus::AgentEvent::TaskCompleted { result, .. } => {
-                            state.agent.status = "idle".into();
-                            state.agent.last_result = Some(result.clone());
-                        }
-                        soul_eventbus::AgentEvent::TaskFailed { error, .. } => {
-                            state.agent.status = format!("error: {}", error);
-                        }
-                        _ => {}
-                    }
-                    let bus_event = soul_dashboard::BusEvent {
-                        timestamp: chrono::Utc::now().to_rfc3339(),
-                        kind: format!("{:?}", std::mem::discriminant(&event)),
-                        source: "daemon".into(),
-                    };
-                    state.push_event(bus_event.clone());
-                    let _ = etx.send(bus_event);
-                }
-            });
-        }
-
-        // Start daemon in background
-        let _daemon_handle = {
-            let daemon = daemon;
-            tokio::spawn(async move {
-                if let Err(e) = daemon.run().await {
-                    tracing::error!("Daemon error: {}", e);
-                }
-            })
-        };
-
-        // If --repl is also set, start interactive REPL with daemon awareness
-        if cli.repl {
-            info!("▶ REPL + Daemon combiné");
-            let daemon_rx = event_tx.subscribe();
-            let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default())
-                .with_daemon_events(daemon_rx);
-            soul_repl::run_repl(&mut repl_state);
-        } else {
-            // Daemon-only: wait for SIGINT
-            tokio::signal::ctrl_c().await?;
-            info!("Signal reçu, arrêt du daemon...");
-        }
-        return Ok(());
-    }
-
-    if cli.repl {
-        info!("▶ Mode REPL autonome activé");
-        let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
-        soul_repl::run_repl(&mut repl_state);
-        return Ok(());
-    }
-
-    if let Some(ref question) = cli.ask {
-        info!("▶ Mode ask: {}", question);
-        match autonomous.ask(question).await {
-            Ok(answer) => println!("{}", answer),
-            Err(e) => eprintln!("Error: {}", e),
-        }
-        return Ok(());
-    }
-
-    if let Some(ref goal_desc) = cli.plan {
-        info!("▶ Mode plan: {}", goal_desc);
-        let goal = soul_planner::Goal {
-            id: uuid::Uuid::new_v4().to_string(),
-            description: goal_desc.to_string(),
-            priority: 5,
-            created_at: chrono::Utc::now(),
-            status: soul_planner::GoalStatus::Active,
-        };
-        let plan = autonomous.agent.planner.create_plan_llm(&goal, &[], &autonomous.agent.llm).await;
-        match serde_json::to_string_pretty(&plan) {
-            Ok(json) => println!("{}", json),
-            Err(e) => eprintln!("Error serializing plan: {}", e),
-        }
-        return Ok(());
-    }
-
-    // ── Boucle principale ──────────────────────────────────────────────────
+    // ── Default: simple loop ──────────────────────────────────────────────
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
     }

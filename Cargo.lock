@@ -2310,15 +2310,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dea2df4cf52843e0452895c455a1a2cfbb842a1e7329671acf418fdc53ed4c59"
 
 [[package]]
-name = "euclid"
-version = "0.22.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
 name = "event-listener"
 version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4574,23 +4565,10 @@ version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab2156c4fce2f8df6c499cc1c763e4394b7482525bf2a9701c9d79d215f519e4"
 dependencies = [
- "bitflags 2.13.0",
+ "bitflags 2.11.1",
  "cfg-if",
  "cfg_aliases 0.1.1",
  "libc",
-]
-
-[[package]]
-name = "nix"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
-dependencies = [
- "bitflags 2.13.0",
- "cfg-if",
- "cfg_aliases 0.2.1",
- "libc",
- "memoffset 0.9.1",
 ]
 
 [[package]]
@@ -6456,7 +6434,7 @@ version = "14.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7803e8936da37efd9b6d4478277f4b2b9bb5cdb37a113e8d63222e58da647e63"
 dependencies = [
- "bitflags 2.13.0",
+ "bitflags 2.11.1",
  "cfg-if",
  "clipboard-win",
  "fd-lock",
@@ -6470,28 +6448,6 @@ dependencies = [
  "unicode-width 0.1.14",
  "utf8parse",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rustyline"
-version = "15.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ee1e066dc922e513bda599c6ccb5f3bb2b0ea5870a579448f2622993f0a9a2f"
-dependencies = [
- "bitflags 2.13.0",
- "cfg-if",
- "clipboard-win",
- "fd-lock",
- "home",
- "libc",
- "log",
- "memchr",
- "nix 0.29.0",
- "radix_trie",
- "unicode-segmentation",
- "unicode-width 0.2.2",
- "utf8parse",
- "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7417,212 +7373,56 @@ dependencies = [
 ]
 
 [[package]]
-name = "soul-shell"
-version = "13.5.0"
-dependencies = [
- "anyhow",
- "reqwest 0.12.28",
- "rustyline 15.0.0",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "soul-top"
-version = "13.5.0"
-dependencies = [
- "anyhow",
- "chrono",
- "crossterm 0.28.1",
- "ratatui",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "soul_agent_core"
+name = "soul_api"
 version = "0.1.0"
 dependencies = [
+ "axum 0.7.9",
  "chrono",
- "colored",
- "serde",
- "serde_json",
- "soul_compaction",
- "soul_critique",
- "soul_llm",
- "soul_planner",
- "soul_tools",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "soul_automodify"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "diff",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "soul_browser"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "futures-util",
- "lazy_static",
- "regex",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror 1.0.69",
  "tokio",
- "tokio-tungstenite 0.24.0",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
  "tracing",
- "url",
 ]
 
 [[package]]
-name = "soul_compaction"
+name = "soul_automation"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "regex",
  "serde",
  "serde_json",
- "tempfile",
- "thiserror 2.0.18",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "uuid",
 ]
 
 [[package]]
-name = "soul_conversations"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "soul_critique"
+name = "soul_bridges"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "uuid",
 ]
 
 [[package]]
-name = "soul_daemon"
+name = "soul_cognitive"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "soul_agent_core",
- "soul_eventbus",
- "soul_llm",
- "soul_persist",
- "soul_planner",
- "soul_subagents",
- "soul_tools",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "soul_designtree"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "sled",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "soul_eventbus"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "soul_goaltree"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "soul_persist",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "soul_graph_memory"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "dashmap 6.2.1",
- "serde",
- "serde_json",
- "sled",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "soul_inference"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "uuid",
@@ -7630,92 +7430,36 @@ dependencies = [
 
 [[package]]
 name = "soul_llm"
-version = "0.2.0"
+version = "0.1.0"
 dependencies = [
- "futures",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
 ]
 
 [[package]]
-name = "soul_mcp"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "futures",
- "futures-util",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite 0.24.0",
- "tokio-util",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "soul_persist"
+name = "soul_monitor"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "sled",
- "tempfile",
- "thiserror 2.0.18",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
- "uuid",
 ]
 
 [[package]]
 name = "soul_planner"
-version = "0.2.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "soul_llm",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "soul_protocol"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "futures",
- "futures-util",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite 0.24.0",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "soul_rag"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
- "soul_browser",
- "soul_persist",
- "soul_webfetch",
- "tempfile",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
  "uuid",
@@ -7723,76 +7467,35 @@ dependencies = [
 
 [[package]]
 name = "soul_repl"
-version = "0.2.0"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "colored",
- "rustyline 14.0.0",
+ "rustyline",
  "serde_json",
- "soul-dashboard",
- "soul_agent_core",
- "soul_compaction",
- "soul_conversations",
- "soul_critique",
- "soul_designtree",
- "soul_eventbus",
- "soul_graph_memory",
- "soul_inference",
+ "soul_automation",
+ "soul_bridges",
+ "soul_cognitive",
  "soul_llm",
- "soul_mcp",
- "soul_persist",
+ "soul_monitor",
  "soul_planner",
- "soul_rag",
- "soul_skills",
- "soul_subagents",
+ "soul_security",
  "soul_tools",
- "soul_webfetch",
  "tokio",
  "tracing",
  "uuid",
 ]
 
 [[package]]
-name = "soul_sandbox"
-version = "0.2.0"
-dependencies = [
- "libc",
- "nix 0.29.0",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "soul_skills"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "soul_subagents"
+name = "soul_security"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "hex",
  "serde",
  "serde_json",
- "soul_agent_core",
- "soul_llm",
- "soul_tools",
- "tempfile",
- "thiserror 2.0.18",
+ "sha2",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "uuid",
@@ -7800,44 +7503,11 @@ dependencies = [
 
 [[package]]
 name = "soul_tools"
-version = "0.2.0"
-dependencies = [
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "which 8.0.2",
-]
-
-[[package]]
-name = "soul_wasm"
-version = "0.2.0"
-dependencies = [
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
- "wasmtime",
-]
-
-[[package]]
-name = "soul_webfetch"
 version = "0.1.0"
 dependencies = [
- "chrono",
- "regex",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "url",
- "uuid",
+ "which 8.0.2",
 ]
 
 [[package]]
@@ -8649,7 +8319,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "rusqlite",
- "rustyline 14.0.0",
+ "rustyline",
  "seahash",
  "serde",
  "serde_json",
@@ -8659,29 +8329,16 @@ dependencies = [
  "soul-dashboard",
  "soul-memory",
  "soul-neural-bridge",
- "soul_agent_core",
- "soul_automodify",
- "soul_browser",
- "soul_compaction",
- "soul_conversations",
- "soul_critique",
- "soul_daemon",
- "soul_designtree",
- "soul_eventbus",
- "soul_goaltree",
- "soul_graph_memory",
- "soul_inference",
+ "soul_api",
+ "soul_automation",
+ "soul_bridges",
+ "soul_cognitive",
  "soul_llm",
- "soul_mcp",
- "soul_persist",
+ "soul_monitor",
  "soul_planner",
- "soul_protocol",
  "soul_repl",
- "soul_sandbox",
- "soul_skills",
- "soul_subagents",
+ "soul_security",
  "soul_tools",
- "soul_wasm",
  "soullink-autonomy",
  "soullink-circuit",
  "soullink-memory",
@@ -10003,17 +9660,6 @@ name = "unicode-segmentation"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
-
-[[package]]
-name = "unicode-truncate"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16b380a1238663e5f8a691f9039c73e1cdae598a30e9855f541d29b08b53e9a5"
-dependencies = [
- "itertools 0.14.0",
- "unicode-segmentation",
- "unicode-width 0.2.2",
-]
 
 [[package]]
 name = "unicode-width"

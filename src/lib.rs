@@ -37,5 +37,7 @@ pub mod ws_bridge;
 
 // Autonomous entity modules
 pub mod autonomous;
+pub mod autonomous_loop;
+
 #[cfg(feature = "dev")]
 pub mod dev_dashboard;
