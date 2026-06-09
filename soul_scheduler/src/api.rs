@@ -1,5 +1,5 @@
-use crate::scheduler::AgentScheduler;
 use crate::queue::Task;
+use crate::scheduler::AgentScheduler;
 
 #[no_mangle]
 pub extern "C" fn soul_scheduler_init() -> *mut AgentScheduler {

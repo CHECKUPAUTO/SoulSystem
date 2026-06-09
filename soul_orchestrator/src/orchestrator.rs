@@ -63,7 +63,11 @@ pub enum DispatchOutcome {
     /// passer la cible de Dormant a Active.
     Delivered { woke: bool },
     /// Diffusion : compteurs sur l'ensemble des agents.
-    Broadcast { delivered: usize, full: usize, woke: usize },
+    Broadcast {
+        delivered: usize,
+        full: usize,
+        woke: usize,
+    },
     /// Aucun agent enregistre sous cet id.
     UnknownTarget,
     /// Mailbox de la cible pleine (back-pressure) : message non depose.
@@ -77,7 +81,10 @@ pub enum OrchestratorError {
     /// L'agent est deja dans l'etat demande.
     NoOpTransition,
     /// Transition non permise par la machine a etats.
-    IllegalTransition { from: AgentState, to: AgentState },
+    IllegalTransition {
+        from: AgentState,
+        to: AgentState,
+    },
 }
 
 /// Poignee interne : etat atomique + mailbox dediee.
@@ -93,7 +100,9 @@ pub struct SovereignOrchestrator {
 
 impl SovereignOrchestrator {
     pub fn new() -> Self {
-        Self { registry: HashMap::new() }
+        Self {
+            registry: HashMap::new(),
+        }
     }
 
     /// Enregistre un agent (phase de setup). `false` si l'id existe deja (pas
@@ -166,7 +175,11 @@ impl SovereignOrchestrator {
                 full += 1;
             }
         }
-        DispatchOutcome::Broadcast { delivered, full, woke }
+        DispatchOutcome::Broadcast {
+            delivered,
+            full,
+            woke,
+        }
     }
 
     /// Recupere le prochain message destine a `id` (consommateur unique : la
@@ -177,7 +190,7 @@ impl SovereignOrchestrator {
 
     /// CAS Dormant -> Active. `true` ssi c'est cet appel qui a reveille l'agent.
     pub fn wake(&self, id: u32) -> bool {
-        self.registry.get(&id).map_or(false, Self::wake_handle)
+        self.registry.get(&id).is_some_and(Self::wake_handle)
     }
 
     #[inline]
@@ -259,7 +272,10 @@ mod tests {
         let mut o = SovereignOrchestrator::new();
         o.register_agent(1);
         o.register_agent(2);
-        assert_eq!(o.dispatch(signal(1, 42)), DispatchOutcome::Delivered { woke: true });
+        assert_eq!(
+            o.dispatch(signal(1, 42)),
+            DispatchOutcome::Delivered { woke: true }
+        );
         assert_eq!(o.poll(1).expect("message pour 1").signal_code, 42);
         assert!(o.poll(2).is_none(), "2 ne recoit rien");
         assert!(o.poll(1).is_none(), "mailbox de 1 videe");
@@ -276,9 +292,15 @@ mod tests {
         let mut o = SovereignOrchestrator::new();
         o.register_agent(1);
         assert_eq!(o.state(1), Some(AgentState::Dormant));
-        assert_eq!(o.dispatch(signal(1, 1)), DispatchOutcome::Delivered { woke: true });
+        assert_eq!(
+            o.dispatch(signal(1, 1)),
+            DispatchOutcome::Delivered { woke: true }
+        );
         assert_eq!(o.state(1), Some(AgentState::Active));
-        assert_eq!(o.dispatch(signal(1, 2)), DispatchOutcome::Delivered { woke: false });
+        assert_eq!(
+            o.dispatch(signal(1, 2)),
+            DispatchOutcome::Delivered { woke: false }
+        );
     }
 
     #[test]
@@ -288,7 +310,10 @@ mod tests {
         let cap = InterAgentBus::new().capacity();
         for i in 0..cap {
             assert!(
-                matches!(o.dispatch(signal(1, i as u32)), DispatchOutcome::Delivered { .. }),
+                matches!(
+                    o.dispatch(signal(1, i as u32)),
+                    DispatchOutcome::Delivered { .. }
+                ),
                 "dispatch {i} devrait reussir"
             );
         }
@@ -303,7 +328,11 @@ mod tests {
         }
         assert_eq!(
             o.dispatch(signal(BROADCAST, 7)),
-            DispatchOutcome::Broadcast { delivered: 3, full: 0, woke: 3 }
+            DispatchOutcome::Broadcast {
+                delivered: 3,
+                full: 0,
+                woke: 3
+            }
         );
         for id in [10u32, 20, 30] {
             assert_eq!(o.poll(id).expect("copie broadcast").signal_code, 7);
@@ -326,9 +355,15 @@ mod tests {
             })
         );
         assert!(o.transition(1, AgentState::Active).is_ok());
-        assert_eq!(o.transition(1, AgentState::Active), Err(OrchestratorError::NoOpTransition));
+        assert_eq!(
+            o.transition(1, AgentState::Active),
+            Err(OrchestratorError::NoOpTransition)
+        );
         assert!(o.transition(1, AgentState::Dormant).is_ok());
-        assert_eq!(o.transition(42, AgentState::Active), Err(OrchestratorError::UnknownAgent));
+        assert_eq!(
+            o.transition(42, AgentState::Active),
+            Err(OrchestratorError::UnknownAgent)
+        );
     }
 
     #[test]
@@ -338,7 +373,8 @@ mod tests {
         assert!(!o.is_schedulable(1));
         o.wake(1);
         assert!(o.is_schedulable(1));
-        o.transition(1, AgentState::HyperFocus).expect("Active->HyperFocus");
+        o.transition(1, AgentState::HyperFocus)
+            .expect("Active->HyperFocus");
         assert!(o.is_schedulable(1));
         assert!(!o.is_schedulable(999));
     }
@@ -395,6 +431,10 @@ mod tests {
             p.join().expect("producteur");
         }
         done.store(true, Ordering::Release);
-        assert_eq!(consumer.join().expect("consommateur"), total, "aucun message perdu");
+        assert_eq!(
+            consumer.join().expect("consommateur"),
+            total,
+            "aucun message perdu"
+        );
     }
 }

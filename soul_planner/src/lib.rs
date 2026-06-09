@@ -26,7 +26,7 @@ use uuid::Uuid;
 pub struct Goal {
     pub id: String,
     pub description: String,
-    pub priority: u8,      // 1-10
+    pub priority: u8, // 1-10
     pub created_at: chrono::DateTime<Utc>,
     #[serde(default = "active_default")]
     pub status: GoalStatus,
@@ -70,7 +70,7 @@ fn default_order() -> usize {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Evaluation {
-    pub score: f32,       // 0.0 - 1.0
+    pub score: f32, // 0.0 - 1.0
     pub feedback: String,
 }
 
@@ -80,7 +80,7 @@ pub struct Evaluation {
 pub struct Decision {
     pub action: String,
     pub reasoning: String,
-    pub confidence: f32,  // 0.0 - 1.0
+    pub confidence: f32, // 0.0 - 1.0
 }
 
 // ── Mémoire de travail (buffer circulaire) ───────────────────
@@ -193,7 +193,7 @@ impl CognitiveLoop {
         }
     }
 
-    pub fn evaluate_plan(&self, plan: &Plan, outcome: &str) -> Evaluation {
+    pub fn evaluate_plan(&self, _plan: &Plan, outcome: &str) -> Evaluation {
         // Simplifié — un vrai impl ferait une analyse LLM ou heuristique
         let score = if outcome.contains("success") || outcome.contains("ok") {
             0.95

@@ -24,8 +24,16 @@ impl Default for SystemAuditor {
 
 impl SystemAuditor {
     pub fn new() -> Self {
-        let initial_frame = TelemetryFrame { timestamp_ns: 0, memory_throughput_bytes_per_sec: 0, active_synapse_count: 0, current_meta_loss: 0.0 };
-        Self { ring_buffer: Box::new([initial_frame; BUFFER_CAPACITY]), write_index: AtomicUsize::new(0) }
+        let initial_frame = TelemetryFrame {
+            timestamp_ns: 0,
+            memory_throughput_bytes_per_sec: 0,
+            active_synapse_count: 0,
+            current_meta_loss: 0.0,
+        };
+        Self {
+            ring_buffer: Box::new([initial_frame; BUFFER_CAPACITY]),
+            write_index: AtomicUsize::new(0),
+        }
     }
 
     pub fn record(&self, frame: TelemetryFrame) {
@@ -38,7 +46,8 @@ impl SystemAuditor {
     }
 
     pub fn get_latest(&self) -> TelemetryFrame {
-        let idx = (self.write_index.load(Ordering::Relaxed).wrapping_sub(1)) & (BUFFER_CAPACITY - 1);
+        let idx =
+            (self.write_index.load(Ordering::Relaxed).wrapping_sub(1)) & (BUFFER_CAPACITY - 1);
         self.ring_buffer[idx]
     }
 }

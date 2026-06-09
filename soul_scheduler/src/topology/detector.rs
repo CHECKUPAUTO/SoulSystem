@@ -124,8 +124,12 @@ impl HardwareManifest {
         let mut core_map = vec![0; total_cores];
         let mut max_socket = 0usize;
 
+        #[allow(clippy::needless_range_loop)]
         for core_id in 0..total_cores {
-            let path_str = format!("/sys/devices/system/cpu/cpu{}/topology/physical_package_id", core_id);
+            let path_str = format!(
+                "/sys/devices/system/cpu/cpu{}/topology/physical_package_id",
+                core_id
+            );
             if let Ok(id_str) = fs::read_to_string(Path::new(&path_str)) {
                 if let Ok(socket_id) = id_str.trim().parse::<usize>() {
                     core_map[core_id] = socket_id;
@@ -142,13 +146,25 @@ impl HardwareManifest {
             }
         }
 
-        let layout = if max_socket > 0 { MemoryTopology::Numa } else { MemoryTopology::Uma };
+        let layout = if max_socket > 0 {
+            MemoryTopology::Numa
+        } else {
+            MemoryTopology::Uma
+        };
         (layout, core_map)
     }
 
     fn probe_cache_hierarchy() -> CacheManifest {
-        let mut l1_data = CacheLevelInfo { level: 1, line_size: 64, total_size: 32 * 1024 };
-        let mut l2 = CacheLevelInfo { level: 2, line_size: 64, total_size: 256 * 1024 };
+        let mut l1_data = CacheLevelInfo {
+            level: 1,
+            line_size: 64,
+            total_size: 32 * 1024,
+        };
+        let mut l2 = CacheLevelInfo {
+            level: 2,
+            line_size: 64,
+            total_size: 256 * 1024,
+        };
         let mut l3: Option<CacheLevelInfo> = None;
 
         for index in 0..5 {
@@ -160,7 +176,8 @@ impl HardwareManifest {
             let level_str = fs::read_to_string(format!("{}/level", base_path)).unwrap_or_default();
             let type_str = fs::read_to_string(format!("{}/type", base_path)).unwrap_or_default();
             let size_str = fs::read_to_string(format!("{}/size", base_path)).unwrap_or_default();
-            let line_str = fs::read_to_string(format!("{}/coherency_line_size", base_path)).unwrap_or_default();
+            let line_str = fs::read_to_string(format!("{}/coherency_line_size", base_path))
+                .unwrap_or_default();
 
             let level = level_str.trim().parse::<u8>().unwrap_or(0);
             let line_size = line_str.trim().parse::<usize>().unwrap_or(64);
@@ -168,15 +185,29 @@ impl HardwareManifest {
 
             match level {
                 1 => {
-                    if type_str.trim().to_lowercase() == "data" || type_str.trim().to_lowercase() == "unified" {
-                        l1_data = CacheLevelInfo { level, line_size, total_size };
+                    if type_str.trim().to_lowercase() == "data"
+                        || type_str.trim().to_lowercase() == "unified"
+                    {
+                        l1_data = CacheLevelInfo {
+                            level,
+                            line_size,
+                            total_size,
+                        };
                     }
                 }
                 2 => {
-                    l2 = CacheLevelInfo { level, line_size, total_size };
+                    l2 = CacheLevelInfo {
+                        level,
+                        line_size,
+                        total_size,
+                    };
                 }
                 3 => {
-                    l3 = l3.or(Some(CacheLevelInfo { level, line_size, total_size }));
+                    l3 = l3.or(Some(CacheLevelInfo {
+                        level,
+                        line_size,
+                        total_size,
+                    }));
                 }
                 _ => {}
             }
@@ -218,7 +249,10 @@ mod unit_tests {
     #[test]
     fn probe_yields_valid_arch() {
         let manifest = HardwareManifest::probe();
-        assert!(matches!(manifest.arch, CpuArchitecture::X86_64 | CpuArchitecture::Aarch64));
+        assert!(matches!(
+            manifest.arch,
+            CpuArchitecture::X86_64 | CpuArchitecture::Aarch64
+        ));
     }
 
     #[test]
@@ -243,6 +277,9 @@ mod unit_tests {
     #[test]
     fn core_map_length_matches_core_count() {
         let manifest = HardwareManifest::probe();
-        assert_eq!(manifest.core_to_socket_map.len(), manifest.total_logical_cores);
+        assert_eq!(
+            manifest.core_to_socket_map.len(),
+            manifest.total_logical_cores
+        );
     }
 }

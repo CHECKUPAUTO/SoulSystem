@@ -1,8 +1,8 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::net::TcpListener;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use neural_metacognition::SystemAuditor;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 pub struct ClinicalStreamingServer {
     auditor: Arc<SystemAuditor>,
@@ -44,7 +44,11 @@ impl ClinicalStreamingServer {
                 if request.starts_with("GET /health") {
                     // Endpoint /health : retourne l'etat du systeme en JSON
                     let frame = auditor.get_latest();
-                    let status = if is_active.load(Ordering::SeqCst) { "healthy" } else { "shutting_down" };
+                    let status = if is_active.load(Ordering::SeqCst) {
+                        "healthy"
+                    } else {
+                        "shutting_down"
+                    };
                     let response = format!(
                         "{{\"status\":\"{}\",\"timestamp_ns\":{},\"memory_throughput\":{},\"active_synapses\":{},\"meta_loss\":{:.4}}}",
                         status,
@@ -75,7 +79,8 @@ impl ClinicalStreamingServer {
                         tokio::time::sleep(std::time::Duration::from_millis(16)).await;
                     }
                 } else {
-                    let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    let response =
+                        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                     let _ = socket.write_all(response.as_bytes()).await;
                 }
             });

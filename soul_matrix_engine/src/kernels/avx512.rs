@@ -9,9 +9,15 @@ use std::arch::x86_64::*;
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512cd,avx512vl,avx512dq")]
 pub unsafe extern "C" fn gemm_micro_kernel_avx512(
-    a: *const f32, b: *const f32, c: *mut f32,
-    m: usize, n: usize, k: usize,
-    ld_a: usize, ld_b: usize, ld_c: usize,
+    a: *const f32,
+    b: *const f32,
+    c: *mut f32,
+    m: usize,
+    n: usize,
+    k: usize,
+    ld_a: usize,
+    ld_b: usize,
+    ld_c: usize,
 ) {
     // === Vecteur principal : traitements par paquets de 16 colonnes et 4 lignes ===
     for i in (0..m).step_by(4) {
@@ -98,9 +104,15 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx512(
 /// Stub pour les plateformes non-x86_64 (toujours disponible via fallback)
 #[cfg(not(target_arch = "x86_64"))]
 pub unsafe extern "C" fn gemm_micro_kernel_avx512(
-    _a: *const f32, _b: *const f32, _c: *mut f32,
-    _m: usize, _n: usize, _k: usize,
-    _ld_a: usize, _ld_b: usize, _ld_c: usize,
+    _a: *const f32,
+    _b: *const f32,
+    _c: *mut f32,
+    _m: usize,
+    _n: usize,
+    _k: usize,
+    _ld_a: usize,
+    _ld_b: usize,
+    _ld_c: usize,
 ) {
     // Ne devrait jamais être appelé — le dispatcher redirige vers fallback.
 }

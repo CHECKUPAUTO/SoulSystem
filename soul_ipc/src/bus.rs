@@ -88,7 +88,9 @@ impl InterAgentBus {
                 ) {
                     Ok(_) => {
                         // Propriété exclusive de la case acquise : écriture sûre.
-                        unsafe { *cell.message.get() = message; }
+                        unsafe {
+                            *cell.message.get() = message;
+                        }
                         cell.sequence.store(pos.wrapping_add(1), Ordering::Release);
                         return true;
                     }
@@ -190,7 +192,9 @@ mod tests {
         assert!(bus.publish(msg));
         let r = bus.dequeue().expect("message attendu");
         assert_eq!(r.signal_code, 42);
-        unsafe { drop(Box::from_raw(r.payload_ptr as *mut [u8; 4])); }
+        unsafe {
+            drop(Box::from_raw(r.payload_ptr as *mut [u8; 4]));
+        }
     }
 
     #[test]
@@ -334,7 +338,13 @@ mod tests {
             all.extend(h.join().expect("consommateur paniqué"));
         }
         all.sort_unstable();
-        assert_eq!(all.len() as u32, total, "PERTE : {} reçus / {}", all.len(), total);
+        assert_eq!(
+            all.len() as u32,
+            total,
+            "PERTE : {} reçus / {}",
+            all.len(),
+            total
+        );
         let mut dd = all.clone();
         dd.dedup();
         assert_eq!(dd.len(), all.len(), "DOUBLON détecté");

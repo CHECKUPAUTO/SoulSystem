@@ -1,8 +1,8 @@
 //! Chef d'orchestre du moteur matriciel — calcule les dimensions des sous-blocs de calcul
 //! ($B_M, B_N, B_K$) d'après la taille du cache L2 disponible, puis applique le triple bouclage 3D-Tiled.
 
-use soul_scheduler::topology::HardwareManifest;
 use crate::kernels::{select_best_kernel, MicroKernelFn};
+use soul_scheduler::topology::HardwareManifest;
 
 /// Descripteur de tenseur matriciel 2D en mémoire continue (row-major).
 #[repr(C)]
@@ -43,14 +43,17 @@ impl MatrixEngine {
 
         // Alignement strict du pas de blocage sur la ligne de cache (généralement multiple de 16 ou 32 flottants)
         let elements_per_cache_line = line_size / 4;
-        let optimal_block = if elements_per_cache_line > 0 {
-            (side / elements_per_cache_line).saturating_mul(elements_per_cache_line)
-        } else {
-            side
-        };
+        let optimal_block = elements_per_cache_line
+            .checked_div(elements_per_cache_line)
+            .map(|_| side / elements_per_cache_line * elements_per_cache_line)
+            .unwrap_or(side);
 
         // Garantir des dimensions minimales stables si le cache reporté est corrompu ou restreint
-        let final_block = if optimal_block == 0 || optimal_block > side { 64 } else { optimal_block };
+        let final_block = if optimal_block == 0 || optimal_block > side {
+            64
+        } else {
+            optimal_block
+        };
 
         Self {
             kernel,
@@ -62,9 +65,25 @@ impl MatrixEngine {
 
     /// Exécute la multiplication C = C + (A × B) de manière asynchrone, parallélisée par blocs et Zéro-Allocation.
     ///
-    /// Safety: The pointers data must point to valid buffers allocated with correct alignment (≥ 64 bytes).
-    pub unsafe fn execute_gemm(&self, a: &MatrixDescriptor, b: &MatrixDescriptor, c: &mut MatrixDescriptor) {
-        assert_eq!(a.cols, b.rows, "[VM GEMM ERROR] Matrix dimension mismatch for dot product.");
+    /// # Safety
+    /// Caller must ensure:
+    /// - `a.data` points to valid memory of at least `a.rows * a.cols` f32 elements
+    /// - `b.data` points to valid memory of at least `b.rows * b.cols` f32 elements
+    /// - `c.data` points to valid writable memory of at least `c.rows * c.cols` f32 elements
+    /// - All pointers are properly aligned for f32 access (64-byte alignment recommended)
+    /// - No aliasing violations between A, B, and C buffers
+    /// - `a.cols == b.rows`, `a.rows == c.rows`, `b.cols == c.cols` (checked via assert)
+    /// - Matrix dimensions are within bounds that tile dimensions can handle
+    pub unsafe fn execute_gemm(
+        &self,
+        a: &MatrixDescriptor,
+        b: &MatrixDescriptor,
+        c: &mut MatrixDescriptor,
+    ) {
+        assert_eq!(
+            a.cols, b.rows,
+            "[VM GEMM ERROR] Matrix dimension mismatch for dot product."
+        );
         assert_eq!(a.rows, c.rows);
         assert_eq!(b.cols, c.cols);
 
@@ -89,9 +108,7 @@ impl MatrixEngine {
 
                     // Appel immédiat du micro-kernel vectorisé sélectionné au démarrage
                     (self.kernel)(
-                        ptr_a, ptr_b, ptr_c,
-                        i_len, j_len, p_len,
-                        a.cols, b.cols, c.cols,
+                        ptr_a, ptr_b, ptr_c, i_len, j_len, p_len, a.cols, b.cols, c.cols,
                     );
                 }
             }
@@ -114,9 +131,21 @@ mod tests {
         let manifest = HardwareManifest::probe();
         let engine = MatrixEngine::new(&manifest);
         let (bm, bn, bk) = engine.tile_dimensions();
-        assert!(bm > 0 && bm <= 1024, "block_m must be in [1, 1024], got {}", bm);
-        assert!(bn > 0 && bn <= 1024, "block_n must be in [1, 1024], got {}", bn);
-        assert!(bk > 0 && bk <= 256, "block_k must be in [1, 256], got {}", bk);
+        assert!(
+            bm > 0 && bm <= 1024,
+            "block_m must be in [1, 1024], got {}",
+            bm
+        );
+        assert!(
+            bn > 0 && bn <= 1024,
+            "block_n must be in [1, 1024], got {}",
+            bn
+        );
+        assert!(
+            bk > 0 && bk <= 256,
+            "block_k must be in [1, 256], got {}",
+            bk
+        );
     }
 
     #[test]
@@ -128,7 +157,12 @@ mod tests {
 
         // Le working set est: bm×bk + bk×bn × 4 bytes (f32). Doit tenir dans L2.
         let tile_bytes = (bm * bk + bk * bn) * std::mem::size_of::<f32>();
-        assert!(tile_bytes <= l2_size, "Tile working set {}B exceeds L2 {}B", tile_bytes, l2_size);
+        assert!(
+            tile_bytes <= l2_size,
+            "Tile working set {}B exceeds L2 {}B",
+            tile_bytes,
+            l2_size
+        );
     }
 
     #[test]
@@ -157,8 +191,17 @@ mod tests {
             }
         }
         for idx in 0..m * n {
-            assert!((c[idx] - expected[idx]).abs() < 1e-3, "GEMM faux a [{}]: {} != {}", idx, c[idx], expected[idx]);
+            assert!(
+                (c[idx] - expected[idx]).abs() < 1e-3,
+                "GEMM faux a [{}]: {} != {}",
+                idx,
+                c[idx],
+                expected[idx]
+            );
         }
-        println!("PREUVE GEMM neon : {}x{}x{} (M impair, N%4!=0) == reference scalaire", m, n, k);
+        println!(
+            "PREUVE GEMM neon : {}x{}x{} (M impair, N%4!=0) == reference scalaire",
+            m, n, k
+        );
     }
 }

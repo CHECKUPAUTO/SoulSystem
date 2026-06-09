@@ -51,13 +51,22 @@ impl NeuromodulatorMapper {
     /// Renvoie le MSE final (sortie clampee). NB: machinerie reelle et testee, mais
     /// un VRAI jeu (input -> cible) reste a fournir pour que ce soit utile.
     pub fn fit(&mut self, inputs: &[[f32; 3]], targets: &[[f32; 3]], ridge: f32) -> f32 {
-        assert_eq!(inputs.len(), targets.len(), "inputs/targets de meme longueur");
+        assert_eq!(
+            inputs.len(),
+            targets.len(),
+            "inputs/targets de meme longueur"
+        );
         let n = inputs.len();
         assert!(n > 0, "jeu d'entrainement vide");
 
         let mut ata = [[0.0f64; 4]; 4];
         for s in 0..n {
-            let x = [inputs[s][0] as f64, inputs[s][1] as f64, inputs[s][2] as f64, 1.0];
+            let x = [
+                inputs[s][0] as f64,
+                inputs[s][1] as f64,
+                inputs[s][2] as f64,
+                1.0,
+            ];
             for r in 0..4 {
                 for c in 0..4 {
                     ata[r][c] += x[r] * x[c];
@@ -73,7 +82,12 @@ impl NeuromodulatorMapper {
         for i in 0..3 {
             let mut rhs = [0.0f64; 4];
             for s in 0..n {
-                let x = [inputs[s][0] as f64, inputs[s][1] as f64, inputs[s][2] as f64, 1.0];
+                let x = [
+                    inputs[s][0] as f64,
+                    inputs[s][1] as f64,
+                    inputs[s][2] as f64,
+                    1.0,
+                ];
                 let y = targets[s][i] as f64;
                 for r in 0..4 {
                     rhs[r] += x[r] * y;
@@ -158,7 +172,8 @@ mod tests {
             .map(|x| {
                 let mut y = [0.0f32; 3];
                 for i in 0..3 {
-                    y[i] = (wt[i * 3] * x[0] + wt[i * 3 + 1] * x[1] + wt[i * 3 + 2] * x[2] + bt[i]).clamp(0.0, 1.0);
+                    y[i] = (wt[i * 3] * x[0] + wt[i * 3 + 1] * x[1] + wt[i * 3 + 2] * x[2] + bt[i])
+                        .clamp(0.0, 1.0);
                 }
                 y
             })
@@ -169,8 +184,17 @@ mod tests {
         assert!(mse < 1e-4, "MSE trop eleve apres fit: {}", mse);
         let w = &m.projection_matrix.data;
         for i in 0..9 {
-            assert!((w[i] - wt[i]).abs() < 0.05, "poids {} = {} (attendu {})", i, w[i], wt[i]);
+            assert!(
+                (w[i] - wt[i]).abs() < 0.05,
+                "poids {} = {} (attendu {})",
+                i,
+                w[i],
+                wt[i]
+            );
         }
-        println!("PREUVE fit : MSE={:.2e}, W recupere a +-0.05 du vrai mapping", mse);
+        println!(
+            "PREUVE fit : MSE={:.2e}, W recupere a +-0.05 du vrai mapping",
+            mse
+        );
     }
 }

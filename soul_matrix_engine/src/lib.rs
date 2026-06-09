@@ -9,5 +9,5 @@
 pub mod engine;
 pub mod kernels;
 
-pub use engine::{MatrixEngine, MatrixDescriptor};
+pub use engine::{MatrixDescriptor, MatrixEngine};
 pub use kernels::MicroKernelFn;

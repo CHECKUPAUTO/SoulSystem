@@ -105,7 +105,10 @@ mod tests {
     fn detecte_hijack_et_verrouille() {
         let g = SystemGuard::new();
         assert!(!g.verify_integrity(b"CRITICAL_ALERT: ROOT_HIJACK_ATTEMPT_DETECTED"));
-        assert!(g.is_compromised(), "une detection doit verrouiller le systeme");
+        assert!(
+            g.is_compromised(),
+            "une detection doit verrouiller le systeme"
+        );
         assert!(!g.verify_integrity(b"hello"));
         println!("PREUVE hijack : ROOT_HIJACK detecte -> refuse + verrou (latch)");
     }

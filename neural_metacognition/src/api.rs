@@ -1,1 +1,3 @@
-pub fn init_auditor() { println!("Auditor Init"); }
+pub fn init_auditor() {
+    println!("Auditor Init");
+}

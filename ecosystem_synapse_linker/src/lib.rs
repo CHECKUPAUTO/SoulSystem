@@ -1,2 +1,2 @@
-pub mod linker;
 pub mod api;
+pub mod linker;

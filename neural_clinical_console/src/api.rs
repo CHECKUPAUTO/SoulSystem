@@ -1,1 +1,3 @@
-pub fn init_console() { println!("Console Init"); }
+pub fn init_console() {
+    println!("Console Init");
+}

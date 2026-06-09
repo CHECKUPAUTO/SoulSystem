@@ -45,7 +45,9 @@ pub unsafe extern "C" fn synapse_linker_resolve_weight(
         return -1.0;
     }
     let linker = &*ptr;
-    linker.resolve_routing_weight(source, target).unwrap_or(-1.0)
+    linker
+        .resolve_routing_weight(source, target)
+        .unwrap_or(-1.0)
 }
 
 /// # Safety

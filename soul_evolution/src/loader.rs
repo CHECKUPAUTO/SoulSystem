@@ -2,17 +2,19 @@
 //! Utilise `dlopen`/`dlsym`/`dlclose` du système POSIX pour charger des modules .so compilés
 //! et les injecter dynamiquement dans le planificateur sans redémarrer le superviseur.
 
-use std::ffi::CString;
 #[allow(unused_imports)]
 use soul_scheduler::queue::Task;
 #[allow(unused_imports)]
 use soul_scheduler::scheduler::AgentScheduler;
+use std::ffi::CString;
 
 /// Chargeur de modules dynamiques — supporte le hot-swap de routines agents au runtime.
 pub struct DynamicModuleLoader;
 
 impl Default for DynamicModuleLoader {
-    fn default() -> Self { Self }
+    fn default() -> Self {
+        Self
+    }
 }
 
 impl DynamicModuleLoader {
@@ -20,7 +22,9 @@ impl DynamicModuleLoader {
     /// Le chemin du fichier doit pointer vers une bibliothèque partagée valide.
     /// Le symbole doit exister dans la bibliothèque avec la signature `extern "C" fn(*mut u8)`.
     /// La bibliothèque reste chargée en mémoire jusqu'à ce que dlclose soit appelé explicitement.
-    pub unsafe fn load_agent_routine(library_path: &str) -> Option<(*mut libc::c_void, extern "C" fn(*mut u8))> {
+    pub unsafe fn load_agent_routine(
+        library_path: &str,
+    ) -> Option<(*mut libc::c_void, extern "C" fn(*mut u8))> {
         let c_path = CString::new(library_path).ok()?;
 
         // RT_NOW : résolution immédiate de tous les symboles du binaire importé.

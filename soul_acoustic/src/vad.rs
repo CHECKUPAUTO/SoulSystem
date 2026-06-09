@@ -111,8 +111,7 @@ impl VadGate {
             return true;
         }
         // Trame non voisee -> echantillon de bruit : adaptation EMA du plancher.
-        self.noise_floor =
-            self.noise_floor * (1.0 - self.noise_adapt) + rms * self.noise_adapt;
+        self.noise_floor = self.noise_floor * (1.0 - self.noise_adapt) + rms * self.noise_adapt;
         if self.hangover_counter > 0 {
             self.hangover_counter -= 1;
             return true; // maintien : evite de couper une fin de mot
@@ -182,7 +181,10 @@ mod tests {
             assert!(!g.process_frame(&noise));
         }
         let nf = g.noise_floor();
-        assert!((nf - 0.0200).abs() < 1e-3, "plancher ~0.02 attendu, nf={nf}");
+        assert!(
+            (nf - 0.0200).abs() < 1e-3,
+            "plancher ~0.02 attendu, nf={nf}"
+        );
         assert!(nf > 0.0);
     }
 
@@ -212,8 +214,15 @@ mod tests {
         for _ in 0..30 {
             g2.process_frame(&quiet_noise);
         }
-        assert!(g2.noise_floor() > 0.004, "plancher appris, nf={}", g2.noise_floor());
-        assert!(!g2.process_frame(&probe), "plancher eleve -> meme signal rejete");
+        assert!(
+            g2.noise_floor() > 0.004,
+            "plancher appris, nf={}",
+            g2.noise_floor()
+        );
+        assert!(
+            !g2.process_frame(&probe),
+            "plancher eleve -> meme signal rejete"
+        );
     }
 }
 
@@ -241,14 +250,20 @@ impl VadGate {
             match (active, open) {
                 (true, None) => open = Some(start),
                 (false, Some(s)) => {
-                    segments.push(VoicedSegment { start: s, end: start });
+                    segments.push(VoicedSegment {
+                        start: s,
+                        end: start,
+                    });
                     open = None;
                 }
                 _ => {}
             }
         }
         if let Some(s) = open {
-            segments.push(VoicedSegment { start: s, end: n_frames * frame_len });
+            segments.push(VoicedSegment {
+                start: s,
+                end: n_frames * frame_len,
+            });
         }
         segments
     }
@@ -280,7 +295,10 @@ mod segment_tests {
         let s = [0i16; FL];
         let loud = [16384i16; FL];
         let pcm = build(&[&s, &s, &s, &loud, &loud, &s, &s, &s]); // silence x3, voix x2, silence x3
-        assert_eq!(g.segment(&pcm, FL), vec![VoicedSegment { start: 12, end: 20 }]);
+        assert_eq!(
+            g.segment(&pcm, FL),
+            vec![VoicedSegment { start: 12, end: 20 }]
+        );
     }
 
     #[test]
@@ -290,7 +308,10 @@ mod segment_tests {
         let loud = [16384i16; FL];
         let pcm = build(&[&s, &s, &s, &loud, &loud, &s, &s, &s]);
         // voix 12..20 ; hangover 2 trames -> +8 echantillons -> fin a 28
-        assert_eq!(g.segment(&pcm, FL), vec![VoicedSegment { start: 12, end: 28 }]);
+        assert_eq!(
+            g.segment(&pcm, FL),
+            vec![VoicedSegment { start: 12, end: 28 }]
+        );
     }
 
     #[test]
@@ -314,7 +335,10 @@ mod segment_tests {
         let s = [0i16; FL];
         let loud = [16384i16; FL];
         let pcm = build(&[&s, &s, &loud, &loud]); // voix jusqu'a la fin
-        assert_eq!(g.segment(&pcm, FL), vec![VoicedSegment { start: 8, end: 16 }]);
+        assert_eq!(
+            g.segment(&pcm, FL),
+            vec![VoicedSegment { start: 8, end: 16 }]
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
-use scirust::autodiff::reverse::Tape;
-use crate::affect::space::AffectiveState;
 use crate::affect::drives::DriveRegistry;
+use crate::affect::space::AffectiveState;
+use scirust::autodiff::reverse::Tape;
 
 pub struct EmotionalAutogradHook {
     pub sensitivity: f32,

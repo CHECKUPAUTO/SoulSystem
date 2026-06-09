@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 
-use soul_scheduler::queue::{Task, LockFreeTaskDeque};
+use soul_scheduler::queue::{LockFreeTaskDeque, Task};
 use soul_scheduler::scheduler::AgentScheduler;
 
 /// No-op function pointer with C ABI — used as `execute` field in test Task construction.
@@ -16,7 +16,10 @@ extern "C" fn noop_fn(_: *mut u8) {}
 
 /// Helper to build a test Task without explicit type annotations.
 fn task_noop() -> Task {
-    Task { execute: noop_fn, context: std::ptr::null_mut() }
+    Task {
+        execute: noop_fn,
+        context: std::ptr::null_mut(),
+    }
 }
 
 // ============================================================================
@@ -63,10 +66,16 @@ fn deque_push_pop_lifo_order() {
 fn deque_capacity_boundary() {
     let dq = LockFreeTaskDeque::new();
     for _ in 0..dq.capacity() {
-        assert!(dq.push(Task { execute: noop_fn, context: std::ptr::null_mut() }));
+        assert!(dq.push(Task {
+            execute: noop_fn,
+            context: std::ptr::null_mut()
+        }));
     }
     // One past capacity must fail
-    assert!(!dq.push(Task { execute: noop_fn, context: std::ptr::null_mut() }));
+    assert!(!dq.push(Task {
+        execute: noop_fn,
+        context: std::ptr::null_mut()
+    }));
 }
 
 #[test]
@@ -99,7 +108,10 @@ fn concurrent_push_steal_stress() {
         let dq_clone = Arc::clone(&dq);
         handles.push(thread::spawn(move || {
             for _ in 0..tasks_per_producer {
-                while !dq_clone.push(Task { execute: noop_fn, context: std::ptr::null_mut() }) {
+                while !dq_clone.push(Task {
+                    execute: noop_fn,
+                    context: std::ptr::null_mut(),
+                }) {
                     thread::yield_now();
                 }
             }
@@ -110,16 +122,14 @@ fn concurrent_push_steal_stress() {
     for _ in 0..num_consumers {
         let dq_clone = Arc::clone(&dq);
         let delivered_clone = Arc::clone(&delivered);
-        handles.push(thread::spawn(move || {
-            loop {
-                match dq_clone.steal() {
-                    Some(_task) => {
-                        delivered_clone.fetch_add(1, Ordering::Relaxed);
-                    }
-                    None => {
-                        thread::yield_now();
-                        break;
-                    }
+        handles.push(thread::spawn(move || loop {
+            match dq_clone.steal() {
+                Some(_task) => {
+                    delivered_clone.fetch_add(1, Ordering::Relaxed);
+                }
+                None => {
+                    thread::yield_now();
+                    break;
                 }
             }
         }));
@@ -133,7 +143,10 @@ fn concurrent_push_steal_stress() {
     let elapsed = start.elapsed();
     let final_count = delivered.load(Ordering::SeqCst);
 
-    assert_eq!(final_count, total_tasks, "Every pushed task must be delivered exactly once");
+    assert_eq!(
+        final_count, total_tasks,
+        "Every pushed task must be delivered exactly once"
+    );
     eprintln!(
         "  [STRESS] 1M tasks, {} producers + {} consumers in {:?}",
         num_producers, num_consumers, elapsed
@@ -153,7 +166,10 @@ fn concurrent_steal_with_interleaved_pushes() {
     let pusher_dq = Arc::clone(&dq);
     let pusher = thread::spawn(move || {
         for _ in 0..total_steals {
-            while !pusher_dq.push(Task { execute: noop_fn, context: std::ptr::null_mut() }) {
+            while !pusher_dq.push(Task {
+                execute: noop_fn,
+                context: std::ptr::null_mut(),
+            }) {
                 thread::yield_now();
             }
         }
@@ -163,13 +179,11 @@ fn concurrent_steal_with_interleaved_pushes() {
     for _ in 0..num_workers {
         let dq_clone = Arc::clone(&dq);
         let counter_clone = Arc::clone(&counter);
-        handles.push(thread::spawn(move || {
-            loop {
-                if let Some(_task) = dq_clone.steal() {
-                    counter_clone.fetch_add(1, Ordering::Relaxed);
-                } else {
-                    break;
-                }
+        handles.push(thread::spawn(move || loop {
+            if let Some(_task) = dq_clone.steal() {
+                counter_clone.fetch_add(1, Ordering::Relaxed);
+            } else {
+                break;
             }
         }));
     }
@@ -191,7 +205,10 @@ fn push_then_drain_full_deque() {
 
     // Fill to capacity
     for _ in 0..cap {
-        assert!(dq.push(Task { execute: noop_fn, context: std::ptr::null_mut() }));
+        assert!(dq.push(Task {
+            execute: noop_fn,
+            context: std::ptr::null_mut()
+        }));
     }
 
     // Now steal them all back
@@ -247,7 +264,10 @@ fn scheduler_launch_is_idempotent() {
     sched.launch();
 
     // Verify workers are still responsive after double-launch
-    let task = Task { execute: noop_fn, context: std::ptr::null_mut() };
+    let task = Task {
+        execute: noop_fn,
+        context: std::ptr::null_mut(),
+    };
     assert!(sched.submit_to(0, task));
 }
 
@@ -364,20 +384,18 @@ fn extreme_stress_ten_million_tasks() {
     for _ in 0..num_producers {
         let dq_clone = Arc::clone(&dq);
         let delivered_clone = Arc::clone(&delivered);
-        handles.push(thread::spawn(move || {
-            loop {
-                match dq_clone.steal() {
-                    Some(task) => {
-                        (task.execute)(task.context);
-                        unsafe {
-                            drop(Box::from_raw(task.context as *mut u64));
-                        }
-                        delivered_clone.fetch_add(1, Ordering::Relaxed);
+        handles.push(thread::spawn(move || loop {
+            match dq_clone.steal() {
+                Some(task) => {
+                    (task.execute)(task.context);
+                    unsafe {
+                        drop(Box::from_raw(task.context as *mut u64));
                     }
-                    None => {
-                        thread::yield_now();
-                        break;
-                    }
+                    delivered_clone.fetch_add(1, Ordering::Relaxed);
+                }
+                None => {
+                    thread::yield_now();
+                    break;
                 }
             }
         }));

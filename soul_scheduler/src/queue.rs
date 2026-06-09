@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::cell::UnsafeCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Ultra-compact task representation — exactly 16 bytes on both x86_64 and aarch64.
 /// Zero allocation, stable for FFI boundaries.
@@ -79,7 +79,11 @@ impl LockFreeTaskDeque {
 
             // Empty — try to empty the deque (helps stealer see it's empty)
             if h == t {
-                if self.head.compare_exchange(h, h.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed).is_err() {
+                if self
+                    .head
+                    .compare_exchange(h, h.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed)
+                    .is_err()
+                {
                     self.tail.store(t.wrapping_add(1), Ordering::Relaxed);
                     return None;
                 }
@@ -106,7 +110,11 @@ impl LockFreeTaskDeque {
 
             let slot = self.buffer[h & DEQUE_MASK].get();
 
-            if self.head.compare_exchange(h, h.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+            if self
+                .head
+                .compare_exchange(h, h.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
                 let task = unsafe { (*slot).take() };
                 return task;
             }
@@ -120,7 +128,9 @@ impl LockFreeTaskDeque {
 
     /// Approximate number of elements currently in the deque (snapshot, not atomic).
     pub fn len(&self) -> usize {
-        self.tail.load(Ordering::Acquire).wrapping_sub(self.head.load(Ordering::Acquire))
+        self.tail
+            .load(Ordering::Acquire)
+            .wrapping_sub(self.head.load(Ordering::Acquire))
     }
 
     /// Returns true if `len()` reports zero.
@@ -144,7 +154,10 @@ mod unit_tests {
 
     /// Helper to build a test Task without explicit type annotations.
     fn test_task() -> Task {
-        Task { execute: noop_fn, context: std::ptr::null_mut() }
+        Task {
+            execute: noop_fn,
+            context: std::ptr::null_mut(),
+        }
     }
 
     #[test]
@@ -161,7 +174,10 @@ mod unit_tests {
         let task = test_task();
         assert!(dq.push(task));
         assert_eq!(dq.len(), 1);
-        assert_eq!(dq.pop().map(|t| t.execute as usize), Some(noop_fn as *const () as usize));
+        assert_eq!(
+            dq.pop().map(|t| t.execute as usize),
+            Some(noop_fn as *const () as usize)
+        );
         assert!(dq.is_empty());
     }
 
@@ -172,7 +188,6 @@ mod unit_tests {
             let task = test_task();
             assert!(dq.push(task));
         }
-
 
         // LIFO order — last pushed is first popped
         for _ in 0..100 {
@@ -189,7 +204,6 @@ mod unit_tests {
             let task = test_task();
             assert!(dq.push(task));
         }
-
 
         // Steals are FIFO — first pushed out first
         for _ in 0..10 {

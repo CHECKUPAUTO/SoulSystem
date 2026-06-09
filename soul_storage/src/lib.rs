@@ -1,3 +1,3 @@
 pub mod index;
 
-pub use index::{VectorStore, VectorRecord, SearchResult};
+pub use index::{SearchResult, VectorRecord, VectorStore};

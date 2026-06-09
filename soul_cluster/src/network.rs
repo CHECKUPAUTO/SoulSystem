@@ -1,5 +1,5 @@
-use std::net::UdpSocket;
 use soul_ipc::bus::AgentMessage;
+use std::net::UdpSocket;
 
 /// Packet binaire brut réseau de taille fixe (32 octets d'en-tête + charge utile)
 #[repr(C, packed)]
@@ -26,7 +26,11 @@ impl ClusterNode {
 
     /// # Safety
     /// msg.payload_ptr must be valid for payload_size bytes if non-null.
-    pub unsafe fn transmit_remote(&self, target_node_addr: &str, msg: &AgentMessage) -> std::io::Result<usize> {
+    pub unsafe fn transmit_remote(
+        &self,
+        target_node_addr: &str,
+        msg: &AgentMessage,
+    ) -> std::io::Result<usize> {
         let mut pkt = NetworkPacket {
             magic_bytes: 0x50554C,
             src_agent: msg.source_agent_id,
@@ -52,13 +56,18 @@ impl ClusterNode {
         let mut incoming = [0u8; std::mem::size_of::<NetworkPacket>()];
 
         if let Ok((bytes_received, _remote_src)) = self.socket.recv_from(&mut incoming) {
-            if bytes_received < std::mem::size_of::<NetworkPacket>() { return None; }
+            if bytes_received < std::mem::size_of::<NetworkPacket>() {
+                return None;
+            }
 
             let pkt = unsafe { &*(incoming.as_ptr() as *const NetworkPacket) };
-            if pkt.magic_bytes != 0x50554C { return None; } // Rejet des paquets corrompus
+            if pkt.magic_bytes != 0x50554C {
+                return None;
+            } // Rejet des paquets corrompus
 
             // Copie de la charge utile réseau dans le tampon de stockage persistant
-            storage_buffer[0..pkt.payload_len as usize].copy_from_slice(&pkt.data[0..pkt.payload_len as usize]);
+            storage_buffer[0..pkt.payload_len as usize]
+                .copy_from_slice(&pkt.data[0..pkt.payload_len as usize]);
 
             Some(AgentMessage {
                 source_agent_id: pkt.src_agent,

@@ -1,0 +1,24 @@
+[package]
+name = "soul_gateway"
+version = "0.1.0"
+edition = "2021"
+description = "API HTTP/WS pour piloter l'entité autonome (style OpenClaw gateway)"
+
+[dependencies]
+axum = { version = "0.7", features = ["ws", "json", "macros"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+parking_lot = "0.12"
+async-trait = "0.1"
+thiserror = "1"
+tracing = "0.1"
+rustls = "0.23"
+rustls-pemfile = "1.0"
+tokio-rustls = "0.26"
+hyper = { version = "0.14", features = ["server"] }
+tokio-util = { version = "0.7", features = ["compat", "codec"] }

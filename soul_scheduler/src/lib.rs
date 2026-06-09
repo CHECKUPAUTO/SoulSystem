@@ -1,8 +1,11 @@
-pub mod queue;
-pub mod topology;
-pub mod scheduler;
 pub mod api;
+pub mod queue;
+pub mod scheduler;
+pub mod topology;
 
-pub use queue::{Task, LockFreeTaskDeque};
-pub use topology::{CpuTopology, HardwareManifest, CpuArchitecture, VectorExtension, MemoryTopology, CacheManifest, CacheLevelInfo};
+pub use queue::{LockFreeTaskDeque, Task};
 pub use scheduler::{AgentScheduler, WorkerContext};
+pub use topology::{
+    CacheLevelInfo, CacheManifest, CpuArchitecture, CpuTopology, HardwareManifest, MemoryTopology,
+    VectorExtension,
+};

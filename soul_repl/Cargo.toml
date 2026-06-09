@@ -8,6 +8,8 @@ description = "REPL interactif pour l'entité autonome"
 soul_llm = { path = "../soul_llm" }
 soul_planner = { path = "../soul_planner" }
 soul_tools = { path = "../soul_tools" }
+soul_sandbox = { path = "../soul_sandbox" }
+soul_persistence = { path = "../soul_persistence" }
 rustyline = "15"
 colored = "3"
 uuid = { version = "1", features = ["v4"] }
