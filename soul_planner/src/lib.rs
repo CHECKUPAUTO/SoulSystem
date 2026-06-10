@@ -101,6 +101,37 @@ impl WorkingMemory {
         self.last_updated = Utc::now();
     }
 
+    /// Set the distilled "key info" line that captures the agent's current
+    /// objective and the most important facts to keep in mind.
+    pub fn set_key_info(&mut self, info: &str) {
+        self.key_info = info.to_string();
+        self.last_updated = Utc::now();
+    }
+
+    /// Render the working memory as a prompt section that can be injected back
+    /// into the conversation to remind the model of its goal and context.
+    pub fn to_prompt_section(&self) -> String {
+        if self.key_info.is_empty() && self.observations.is_empty() {
+            return String::new();
+        }
+
+        let mut section = String::from("## Working Memory\n");
+        if !self.key_info.is_empty() {
+            section.push_str(&format!("Key info: {}\n", self.key_info));
+        }
+        if let Some(sop) = &self.related_sop {
+            section.push_str(&format!("Related procedure: {}\n", sop));
+        }
+        let recent = self.recent_observations(5);
+        if !recent.is_empty() {
+            section.push_str("Recent observations:\n");
+            for obs in recent {
+                section.push_str(&format!("- {}\n", obs));
+            }
+        }
+        section
+    }
+
     pub fn recent_observations(&self, n: usize) -> &[String] {
         let len = self.observations.len();
         let start = len.saturating_sub(n);
@@ -239,31 +270,40 @@ impl CognitiveLoop {
     }
 
     fn call_llm(&self, prompt: &str) -> Result<String, String> {
-        let client = reqwest::blocking::Client::new();
-        let req = serde_json::json!({
-            "model": "qwen3:4b",
-            "prompt": prompt,
-            "stream": false,
-            "options": {
-                "temperature": 0.3,
-                "num_predict": 1024,
-            }
-        });
+        // reqwest::blocking panics if created or dropped inside a tokio
+        // runtime, and this synchronous API is called from both sync (REPL)
+        // and async (autonomous loop) contexts. Running the blocking HTTP
+        // call on a dedicated thread makes it safe in both.
+        let prompt = prompt.to_string();
+        std::thread::spawn(move || {
+            let client = reqwest::blocking::Client::new();
+            let req = serde_json::json!({
+                "model": "qwen3:4b",
+                "prompt": prompt,
+                "stream": false,
+                "options": {
+                    "temperature": 0.3,
+                    "num_predict": 1024,
+                }
+            });
 
-        let resp = client
-            .post("http://127.0.0.1:11434/api/generate")
-            .json(&req)
-            .send()
-            .map_err(|e| format!("LLM request failed: {}", e))?;
+            let resp = client
+                .post("http://127.0.0.1:11434/api/generate")
+                .json(&req)
+                .send()
+                .map_err(|e| format!("LLM request failed: {}", e))?;
 
-        let body: serde_json::Value = resp
-            .json()
-            .map_err(|e| format!("LLM response parse failed: {}", e))?;
+            let body: serde_json::Value = resp
+                .json()
+                .map_err(|e| format!("LLM response parse failed: {}", e))?;
 
-        body["response"]
-            .as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| "Empty LLM response".to_string())
+            body["response"]
+                .as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| "Empty LLM response".to_string())
+        })
+        .join()
+        .map_err(|_| "LLM thread panicked".to_string())?
     }
 
     fn parse_steps_from_llm(&self, response: &str) -> Vec<Step> {
@@ -334,8 +374,10 @@ impl CognitiveLoop {
     }
 
     fn fallback_evaluate(&self, plan: &Plan, outcome: &str) -> Evaluation {
-        let success = outcome.to_lowercase().contains("success")
-            || outcome.to_lowercase().contains("done");
+        let lower = outcome.to_lowercase();
+        let success = lower.contains("success")
+            || lower.contains("done")
+            || lower.contains("completed");
         Evaluation {
             plan_id: plan.id.clone(),
             success,
@@ -400,18 +442,6 @@ impl CognitiveLoop {
         }
     }
 
-    pub fn evaluate_plan(&self, plan: &Plan, outcome: &str) -> Evaluation {
-        let success = outcome.to_lowercase().contains("success")
-            || outcome.to_lowercase().contains("done")
-            || outcome.to_lowercase().contains("completed");
-        Evaluation {
-            plan_id: plan.id.clone(),
-            success,
-            score: if success { 1.0 } else { 0.0 },
-            feedback: outcome.to_string(),
-            timestamp: Utc::now(),
-        }
-    }
 }
 
 impl Default for CognitiveLoop {

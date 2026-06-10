@@ -88,7 +88,7 @@ impl KnowledgeGraph {
         self.relations.insert(id.clone(), relation);
         self.adjacency
             .entry(source_id.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(target_id.to_string());
         id
     }
@@ -243,9 +243,24 @@ impl LearningSystem {
     }
 
     pub fn suggest(&self, context: &str) -> Vec<(String, f32)> {
+        let context_lower = context.to_lowercase();
+        let context_words: Vec<&str> = context_lower
+            .split_whitespace()
+            .filter(|w| w.len() > 2)
+            .collect();
+
         let mut suggestions: Vec<(String, f32)> = self.patterns
             .iter()
-            .map(|(action, score)| (action.clone(), *score))
+            .map(|(action, score)| {
+                // Boost actions lexically related to the current context.
+                let action_lower = action.to_lowercase();
+                let overlap = context_words
+                    .iter()
+                    .filter(|w| action_lower.contains(**w))
+                    .count() as f32;
+                let relevance = 1.0 + (overlap * 0.25).min(1.0);
+                (action.clone(), *score * relevance)
+            })
             .collect();
         suggestions.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         suggestions
@@ -304,28 +319,29 @@ pub struct MultiModelRouter {
 
 impl MultiModelRouter {
     pub fn new() -> Self {
-        let mut models = Vec::new();
-        models.push(ModelConfig {
-            name: "qwen3:4b".to_string(),
-            endpoint: "http://127.0.0.1:11434".to_string(),
-            capabilities: vec!["general".to_string(), "code".to_string()],
-            max_tokens: 2048,
-            cost_per_1k: 0.0,
-        });
-        models.push(ModelConfig {
-            name: "qwen3.6:35b".to_string(),
-            endpoint: "http://127.0.0.1:11434".to_string(),
-            capabilities: vec!["general".to_string(), "code".to_string(), "reasoning".to_string()],
-            max_tokens: 4096,
-            cost_per_1k: 0.0,
-        });
-        models.push(ModelConfig {
-            name: "gemma4:31b".to_string(),
-            endpoint: "http://127.0.0.1:11434".to_string(),
-            capabilities: vec!["general".to_string(), "code".to_string(), "vision".to_string()],
-            max_tokens: 4096,
-            cost_per_1k: 0.0,
-        });
+        let models = vec![
+            ModelConfig {
+                name: "qwen3:4b".to_string(),
+                endpoint: "http://127.0.0.1:11434".to_string(),
+                capabilities: vec!["general".to_string(), "code".to_string()],
+                max_tokens: 2048,
+                cost_per_1k: 0.0,
+            },
+            ModelConfig {
+                name: "qwen3.6:35b".to_string(),
+                endpoint: "http://127.0.0.1:11434".to_string(),
+                capabilities: vec!["general".to_string(), "code".to_string(), "reasoning".to_string()],
+                max_tokens: 4096,
+                cost_per_1k: 0.0,
+            },
+            ModelConfig {
+                name: "gemma4:31b".to_string(),
+                endpoint: "http://127.0.0.1:11434".to_string(),
+                capabilities: vec!["general".to_string(), "code".to_string(), "vision".to_string()],
+                max_tokens: 4096,
+                cost_per_1k: 0.0,
+            },
+        ];
 
         Self {
             models,

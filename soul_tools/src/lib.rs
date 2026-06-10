@@ -131,7 +131,7 @@ pub fn execute_shell(command: &str) -> Result<String, String> {
 }
 
 pub fn execute_tool(tool: &Tool, args: &str) -> Result<String, String> {
-    let mut cmd = Command::new(&tool.path);
+    let mut cmd = std::process::Command::new(&tool.path);
     if !args.is_empty() {
         for arg in args.split_whitespace() {
             cmd.arg(arg);
