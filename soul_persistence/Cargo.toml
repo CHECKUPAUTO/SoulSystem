@@ -2,7 +2,11 @@
 name = "soul_persistence"
 version = "0.1.0"
 edition = "2021"
-description = "Mémoire persistante de SoulSystem : Sled (KV store) + Lineage Registry (parent tracking)"
+description = "Persistent memory layer using Sled KV store with lineage registry for parent tracking and event sourcing"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["persistence", "sled", "kv-store", "lineage", "event-sourcing", "memory"]
+categories = ["database", "embedded", "data-structures"]
 
 [dependencies]
 sled = "0.34"

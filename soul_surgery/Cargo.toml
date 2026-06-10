@@ -2,3 +2,8 @@
 name = "soul_surgery"
 version = "0.1.0"
 edition = "2021"
+description = "Runtime structural modification and hot-patching capabilities for cognitive agent internals"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["surgery", "hot-patch", "runtime-modification", "structural", "cognitive", "live-update"]
+categories = ["embedded", "os", "development-tools"]

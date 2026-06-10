@@ -16,6 +16,15 @@ pub struct CoreMetrics {
     pub thermal_backoff_events: AtomicUsize,
 }
 
+/// Snapshot non-atomique des métriques d'un cœur (pour export / debug).
+pub struct CoreMetricsSnapshot {
+    pub core_id: usize,
+    pub tasks_executed: u64,
+    pub tasks_stolen: u64,
+    pub total_cycles: u64,
+    pub thermal_backoff_events: usize,
+}
+
 /// Hub de diagnostic non-bloquant de SoulSystem.
 ///
 /// La temperature est echantillonnee HORS du chemin chaud par un thread dedie
@@ -98,6 +107,21 @@ impl TelemetryHub {
             total_cycles += core.total_cycles.load(Ordering::Relaxed);
         }
         (total_tasks, total_cycles)
+    }
+
+    /// Snapshot des métriques de tous les cœurs pour l'export Prometheus.
+    pub fn get_core_metrics(&self) -> Vec<CoreMetricsSnapshot> {
+        self.cores_data
+            .iter()
+            .enumerate()
+            .map(|(id, core)| CoreMetricsSnapshot {
+                core_id: id,
+                tasks_executed: core.tasks_executed.load(Ordering::Relaxed),
+                tasks_stolen: core.tasks_stolen.load(Ordering::Relaxed),
+                total_cycles: core.total_cycles.load(Ordering::Relaxed),
+                thermal_backoff_events: core.thermal_backoff_events.load(Ordering::Relaxed),
+            })
+            .collect()
     }
 
     /// Demarre l'echantillonneur thermique : lit le capteur sysfs toutes les

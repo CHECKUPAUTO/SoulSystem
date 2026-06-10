@@ -2,6 +2,14 @@
 name = "soul_orchestrator"
 version = "0.1.0"
 edition = "2021"
+description = "Event-driven agent orchestrator with identity-based routing, MPSC mailboxes per agent, and lifecycle management"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["orchestrator", "agent", "routing", "mpsc", "lifecycle", "event-driven"]
+categories = ["embedded", "os", "concurrency"]
 
 [dependencies]
 soul_ipc = { path = "../soul_ipc" }
+soul_telemetry = { path = "../soul_telemetry" }
+prometheus = "0.13"
+lazy_static = "1.4"

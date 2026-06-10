@@ -2,7 +2,11 @@
 name = "soul_llm"
 version = "0.1.0"
 edition = "2021"
-description = "Client HTTP pur Rust vers Ollama — le cerveau de SoulSystem"
+description = "Pure Rust HTTP client for Ollama LLM inference with connection pooling, token budgeting, and streaming support"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["llm", "ollama", "http-client", "streaming", "token-budget", "connection-pool"]
+categories = ["machine-learning", "api-client", "async", "network-programming"]
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json", "stream"] }

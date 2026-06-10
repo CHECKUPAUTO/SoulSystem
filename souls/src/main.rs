@@ -26,6 +26,7 @@ use soul_gateway::{serve as serve_gateway, GatewayState};
 use soul_llm::LlmConfig;
 use soul_openclaw::{Skill, SkillVersion};
 use soul_sandbox::SandboxPolicy;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -69,6 +70,10 @@ struct Cli {
     /// Nom de l'entité.
     #[arg(long, default_value = "soul")]
     name: String,
+
+    /// Adresse du serveur métriques Prometheus.
+    #[arg(long, env = "SOUL_METRICS_ADDR", default_value = "127.0.0.1:9090")]
+    metrics: String,
 }
 
 #[tokio::main]
@@ -82,6 +87,10 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     print_banner(&cli);
+
+    // Init telemetry
+    let telemetry_hub = Arc::new(soul_telemetry::TelemetryHub::new(num_cpus::get()));
+    info!("telemetry hub initialisé pour {} cœurs", num_cpus::get());
 
     // 1. Construire l'entité
     let sandbox_policy = if cli.strict_sandbox {
@@ -166,7 +175,41 @@ async fn main() -> anyhow::Result<()> {
     });
     info!("gateway HTTP/WS sur http://{gw_addr}");
 
-    // Serveur clinique (TCP HTTP léger) sur port+1 — partage l'auditor.
+    // 6. Serveur métriques Prometheus
+    let metrics_addr: SocketAddr = cli
+        .metrics
+        .parse()
+        .map_err(|e| anyhow::anyhow!("adresse metrics invalide: {e}"))?;
+
+    let hub_for_metrics = telemetry_hub.clone();
+    let exporter = Arc::new(soul_telemetry::PrometheusExporter::new().expect("Failed to create exporter"));
+    let metrics_handle = tokio::spawn(async move {
+        let app = axum::Router::new()
+            .route("/metrics", axum::routing::get({
+                let exporter = exporter.clone();
+                move || {
+                    let exporter = exporter.clone();
+                    let hub = hub_for_metrics.clone();
+                    async move {
+                        exporter.update_from_hub(&hub);
+                        soul_telemetry::gather_metrics()
+                    }
+                }
+            }))
+            .route("/health", axum::routing::get(|| async { "OK" }));
+
+        let listener = tokio::net::TcpListener::bind(metrics_addr)
+            .await
+            .expect("Failed to bind metrics server");
+        
+        info!("serveur métriques Prometheus sur http://{metrics_addr}/metrics");
+        
+        if let Err(e) = axum::serve(listener, app).await {
+            tracing::error!("metrics server crashed: {e}");
+        }
+    });
+
+    // 7. Serveur clinique (TCP HTTP léger) sur port+1 — partage l'auditor.
     let clinical_handle = match entity.subsystems.start_clinical_console({
         let mut p = gw_addr.port();
         p = p.saturating_add(1);
@@ -182,7 +225,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // 6. REPL optionnel (bloque si actif)
+    // 8. REPL optionnel (bloque si actif)
     if cli.repl {
         info!("démarrage du REPL interactif");
         let llm_cfg = LlmConfig {
@@ -200,12 +243,10 @@ async fn main() -> anyhow::Result<()> {
         };
         let mut repl_state = soul_repl::ReplState::new(llm_cfg);
         repl_state.entity_name = cli.name.clone();
-        // Connecter la repl à l'entité (un seul tool, status, etc.)
-        // Pour ne pas casser l'API REPL existante, on l'utilise en mode indépendant.
         soul_repl::run_repl(&mut repl_state).await;
     }
 
-    // 7. Attendre Ctrl+C
+    // 9. Attendre Ctrl+C
     match tokio::signal::ctrl_c().await {
         Ok(()) => info!("Ctrl+C reçu, arrêt en cours..."),
         Err(e) => tracing::error!("impossible d'installer ctrl_c: {e}"),
@@ -213,6 +254,7 @@ async fn main() -> anyhow::Result<()> {
 
     entity.stop();
     gateway_handle.abort();
+    metrics_handle.abort();
     if let Some(h) = clinical_handle {
         h.shutdown();
     }
@@ -234,6 +276,7 @@ fn print_banner(cli: &Cli) {
 ║   Framework : openclaw (openclaw.ai)                        ║
 ║   Nom       : {:<47} ║
 ║   Gateway   : {:<47} ║
+║   Métriques : {:<47} ║
 ║   Ollama    : {:<47} ║
 ║   Modèle    : {:<47} ║
 ║   Mémoire   : {:<47} ║
@@ -242,6 +285,7 @@ fn print_banner(cli: &Cli) {
 ",
         cli.name,
         cli.gateway,
+        cli.metrics,
         cli.ollama_url,
         cli.model,
         cli.memory.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "/tmp".into()),

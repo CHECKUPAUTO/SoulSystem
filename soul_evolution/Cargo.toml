@@ -2,6 +2,11 @@
 name = "soul_evolution"
 version = "0.1.0"
 edition = "2021"
+description = "Evolutionary computation primitives integrated with scheduler for population-based optimization and agent adaptation"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["evolution", "genetic-algorithm", "optimization", "scheduler", "adaptation"]
+categories = ["algorithms", "machine-learning", "embedded"]
 
 [dependencies]
 libc = "0.2.155"

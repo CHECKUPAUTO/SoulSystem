@@ -38,9 +38,12 @@ members = [
     "soul_gateway",
     "soul_openclaw",
     "soul_entity",
-    "souls",
+    "souls", "test_telemetry",
 ]
 resolver = "2"
+
+[workspace.dependencies]
+soul_telemetry = { path = "soul_telemetry" }
 
 [profile.release]
 opt-level = 3

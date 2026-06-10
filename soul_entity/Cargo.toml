@@ -2,7 +2,11 @@
 name = "soul_entity"
 version = "0.1.0"
 edition = "2021"
-description = "L'entité numérique autonome de SoulSystem : agrège LLM, planner, tools, sandbox, persistence, openclaw"
+description = "Autonomous digital entity aggregating LLM, planner, tools, sandbox, persistence, OpenClaw, and cognitive subsystems"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["entity", "autonomous", "digital", "llm", "planner", "tools", "sandbox", "persistence", "opencawl"]
+categories = ["machine-learning", "embedded", "os"]
 
 [dependencies]
 soul_llm = { path = "../soul_llm" }

@@ -2,3 +2,8 @@
 name = "soul_ipc"
 version = "0.1.0"
 edition = "2021"
+description = "Lock-free MPMC inter-agent bus using Vyukov's bounded ring buffer algorithm with zero-copy message passing"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["ipc", "lock-free", "mpmc", "ring-buffer", "zero-copy"]
+categories = ["concurrency", "ipc", "embedded"]

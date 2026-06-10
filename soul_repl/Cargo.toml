@@ -2,7 +2,11 @@
 name = "soul_repl"
 version = "0.1.0"
 edition = "2021"
-description = "REPL interactif pour l'entité autonome"
+description = "Interactive REPL for autonomous entity with LLM integration, planning, tool execution, and sandboxed environment"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["repl", "interactive", "llm", "autonomous", "entity", "planning", "tools", "sandbox"]
+categories = ["development-tools", "machine-learning", "embedded"]
 
 [dependencies]
 soul_llm = { path = "../soul_llm" }

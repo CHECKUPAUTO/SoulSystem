@@ -2,6 +2,11 @@
 name = "semantic_neuromodulator"
 version = "0.1.0"
 edition = "2021"
+description = "Neuromodulation daemon mapping PAD affective states to dopamine/noradrenaline/serotonin levels via ridge regression; drives algorithmic parameters"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["neuromodulation", "affective", "pad", "dopamine", "serotonin", "ridge-regression"]
+categories = ["machine-learning", "neuroscience", "embedded"]
 
 [dependencies]
 scirust = { package = "scirust-core", path = "../../scirust/scirust-core" }

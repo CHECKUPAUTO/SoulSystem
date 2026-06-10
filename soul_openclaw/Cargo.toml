@@ -2,7 +2,11 @@
 name = "soul_openclaw"
 version = "0.1.0"
 edition = "2021"
-description = "Bridge conceptuel vers openclaw (openclaw.ai) : agent loop, skills, memory host"
+description = "OpenClaw (openclaw.ai) bridge providing agent loop, skill registry, and memory host integration for SoulSystem"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["opencawl", "bridge", "agent-loop", "skills", "memory", "registry", "integration"]
+categories = ["machine-learning", "embedded", "api"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
