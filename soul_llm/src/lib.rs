@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use std::time::Duration;
+use soullink_circuit::{CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitState};
 
 #[derive(Error, Debug)]
 pub enum LlmError {
@@ -20,6 +21,7 @@ pub enum LlmError {
 pub struct LlmConfig {
     pub base_url: String,
     pub model: String,
+    pub fallback_models: Vec<String>,
     pub temperature: f32,
     pub max_tokens: usize,
     pub system_prompt: Option<String>,
@@ -47,6 +49,12 @@ impl Default for LlmConfig {
                 .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
             model: std::env::var("OLLAMA_MODEL")
                 .unwrap_or_else(|_| "qwen3:8b".to_string()),
+            fallback_models: std::env::var("OLLAMA_FALLBACK_MODELS")
+                .unwrap_or_else(|_| "tinyllama:latest,codellama:7b".to_string())
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
             temperature: 0.7,
             max_tokens: 4096,
             system_prompt: None,
@@ -60,6 +68,11 @@ impl Default for LlmConfig {
 impl LlmConfig {
     pub fn with_model(mut self, model: &str) -> Self {
         self.model = model.into();
+        self
+    }
+
+    pub fn with_fallback_models(mut self, models: Vec<String>) -> Self {
+        self.fallback_models = models;
         self
     }
 
@@ -227,6 +240,7 @@ pub struct StreamMessage {
 pub struct OllamaClient {
     config: LlmConfig,
     http: reqwest::Client,
+    circuit_breaker: CircuitBreaker,
 }
 
 impl OllamaClient {
@@ -236,7 +250,10 @@ impl OllamaClient {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
-        Self { config, http }
+        let circuit_config = CircuitBreakerConfig::llm_provider("ollama");
+        let circuit_breaker = CircuitBreaker::new("ollama-llm", circuit_config);
+
+        Self { config, http, circuit_breaker }
     }
 
     pub async fn is_alive(&self) -> bool {
@@ -247,43 +264,89 @@ impl OllamaClient {
             .is_ok()
     }
 
-    /// Execute an HTTP request with exponential backoff retry on transport errors.
+    /// Get the current circuit breaker state
+    pub async fn circuit_state(&self) -> CircuitState {
+        self.circuit_breaker.state().await
+    }
+
+    /// Get circuit breaker stats
+    pub async fn circuit_stats(&self) -> soullink_circuit::CircuitStats {
+        self.circuit_breaker.stats().await
+    }
+
+    /// Manually record a success (for admin/recovery)
+    pub async fn record_circuit_success(&self) {
+        self.circuit_breaker.record_success().await;
+    }
+
+    /// Manually record a failure (for testing)
+    pub async fn record_circuit_failure(&self) {
+        self.circuit_breaker.record_failure().await;
+    }
+
+    /// Execute an HTTP request with circuit breaker + exponential backoff retry on transport errors.
     /// Does NOT retry on 4xx responses or JSON parse failures.
     async fn execute_with_retry<F, Fut, T>(&self, request_fn: F) -> Result<T, LlmError>
     where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<T, LlmError>>,
     {
-        let mut last_error = None;
-        let max_attempts = self.config.max_retries + 1;
+        // Use circuit breaker to execute with protection
+        let result = self
+            .circuit_breaker
+            .call(|| async {
+                let mut last_error = None;
+                let max_attempts = self.config.max_retries + 1;
 
-        for attempt in 1..=max_attempts {
-            match request_fn().await {
-                Ok(val) => return Ok(val),
-                Err(e) => {
-                    let is_transport = matches!(&e, LlmError::Http(err) if err.is_timeout() || err.is_connect());
-                    if !is_transport {
-                        return Err(e);
+                for attempt in 1..=max_attempts {
+                    match request_fn().await {
+                        Ok(val) => return Ok(val),
+                        Err(e) => {
+                            let is_transport = matches!(&e, LlmError::Http(err) if err.is_timeout() || err.is_connect());
+                            if !is_transport {
+                                return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
+                            }
+                            if attempt == max_attempts {
+                                return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
+                            }
+                            last_error = Some(e);
+                            let delay_ms = self.config.retry_base_delay_ms
+                                .saturating_mul(2u64.saturating_pow(attempt - 1))
+                                .min(10_000);
+                            tracing::warn!(
+                                "LLM request failed (attempt {}/{}), retrying in {}ms",
+                                attempt,
+                                max_attempts,
+                                delay_ms
+                            );
+                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        }
                     }
-                    if attempt == max_attempts {
-                        return Err(e);
-                    }
-                    last_error = Some(e);
-                    let delay_ms = self.config.retry_base_delay_ms
-                        .saturating_mul(2u64.saturating_pow(attempt - 1))
-                        .min(10_000);
-                    tracing::warn!(
-                        "LLM request failed (attempt {}/{}), retrying in {}ms",
-                        attempt,
-                        max_attempts,
-                        delay_ms
-                    );
-                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                 }
-            }
-        }
 
-        Err(last_error.unwrap_or_else(|| LlmError::NotReachable("max retries exceeded".into())))
+                Err(Box::new(last_error.unwrap_or_else(|| LlmError::NotReachable("max retries exceeded".into()))) as Box<dyn std::error::Error + Send + Sync>)
+            })
+            .await;
+
+        match result {
+            Ok(val) => Ok(val),
+            Err(e) => match e {
+                soullink_circuit::CircuitBreakerError::Open { .. } => {
+                    Err(LlmError::NotReachable("Circuit breaker is OPEN - service unavailable".into()))
+                }
+                soullink_circuit::CircuitBreakerError::Timeout { .. } => {
+                    Err(LlmError::Timeout(self.config.timeout_secs))
+                }
+                soullink_circuit::CircuitBreakerError::Call { source, .. } => {
+                    // Try to downcast to LlmError
+                    if let Some(llm_err) = source.downcast_ref::<LlmError>() {
+                        Err(LlmError::NotReachable(llm_err.to_string()))
+                    } else {
+                        Err(LlmError::NotReachable(source.to_string()))
+                    }
+                }
+            },
+        }
     }
 
     pub async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
@@ -476,6 +539,93 @@ impl OllamaClient {
 
     pub fn config(&self) -> &LlmConfig {
         &self.config
+    }
+
+    pub fn fallback_models(&self) -> &[String] {
+        &self.config.fallback_models
+    }
+
+    async fn chat_with_model(&self, messages: &[ChatMessage], tools: Option<&[ToolSchema]>, model: &str) -> Result<ChatResponse, LlmError> {
+        let req = ChatRequest {
+            model: model.to_string(),
+            messages: messages.to_vec(),
+            stream: false,
+            tools: tools.map(|t| t.to_vec()),
+            options: Some(GenerateOptions {
+                temperature: self.config.temperature,
+                num_predict: self.config.max_tokens,
+            }),
+        };
+
+        self.execute_with_retry(|| async {
+            Ok(self
+                .http
+                .post(format!("{}/api/chat", self.config.base_url))
+                .json(&req)
+                .send()
+                .await?
+                .json::<ChatResponse>()
+                .await?)
+        })
+        .await
+    }
+
+    pub async fn chat_with_fallback(&self, messages: &[ChatMessage], tools: Option<&[ToolSchema]>) -> Result<ChatResponse, LlmError> {
+        match self.chat_with_model(messages, tools, &self.config.model).await {
+            Ok(resp) => return Ok(resp),
+Err(e) => {
+                    tracing::warn!("Primary model '{}' failed: {}", self.config.model, e);
+                    for fallback in &self.config.fallback_models {
+                        tracing::info!("Trying fallback model: {}", fallback);
+                        match self.chat_with_model(messages, tools, fallback).await {
+                            Ok(resp) => return Ok(resp),
+                            Err(e2) => tracing::warn!("Fallback model '{}' failed: {}", fallback, e2),
+                        }
+                    }
+                    Err(e)
+                }
+        }
+    }
+
+    async fn generate_with_model(&self, prompt: &str, model: &str) -> Result<GenerateResponse, LlmError> {
+        let req = GenerateRequest {
+            model: model.to_string(),
+            prompt: prompt.to_string(),
+            stream: false,
+            options: Some(GenerateOptions {
+                temperature: self.config.temperature,
+                num_predict: self.config.max_tokens,
+            }),
+        };
+
+        self.execute_with_retry(|| async {
+            Ok(self
+                .http
+                .post(format!("{}/api/generate", self.config.base_url))
+                .json(&req)
+                .send()
+                .await?
+                .json::<GenerateResponse>()
+                .await?)
+        })
+        .await
+    }
+
+    pub async fn generate_with_fallback(&self, prompt: &str) -> Result<GenerateResponse, LlmError> {
+        match self.generate_with_model(prompt, &self.config.model).await {
+            Ok(resp) => return Ok(resp),
+Err(e) => {
+                    tracing::warn!("Primary model '{}' failed: {}", self.config.model, e);
+                    for fallback in &self.config.fallback_models {
+                        tracing::info!("Trying fallback model: {}", fallback);
+                        match self.generate_with_model(prompt, fallback).await {
+                            Ok(resp) => return Ok(resp),
+                            Err(e2) => tracing::warn!("Fallback model '{}' failed: {}", fallback, e2),
+                        }
+                    }
+                    Err(e)
+                }
+        }
     }
 }
 
