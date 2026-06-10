@@ -2,6 +2,11 @@
 name = "semantic_firewall"
 version = "0.1.0"
 edition = "2021"
+description = "Semantic firewall using cosine similarity against forbidden concept anchors to block pathological activation vectors"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["semantic", "firewall", "cosine-similarity", "safety", "guardrails", "embeddings"]
+categories = ["machine-learning", "security", "embedded"]
 
 [dependencies]
 scirust = { package = "scirust-core", path = "../../scirust/scirust-core" }

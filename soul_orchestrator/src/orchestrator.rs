@@ -18,6 +18,63 @@
 use soul_ipc::{AgentMessage, InterAgentBus};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
+use prometheus::{IntCounter, IntGauge, Opts, Registry};
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref ORCHESTRATOR_REGISTRY: Registry = Registry::new();
+    
+    static ref DISPATCH_TOTAL: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_orchestrator_dispatch_total",
+        "Total number of message dispatches"
+    )).unwrap();
+    
+    static ref DISPATCH_DELIVERED: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_orchestrator_dispatch_delivered_total",
+        "Total delivered messages"
+    )).unwrap();
+    
+    static ref DISPATCH_BROADCAST: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_orchestrator_dispatch_broadcast_total",
+        "Total broadcast messages"
+    )).unwrap();
+    
+    static ref AGENTS_REGISTERED: IntGauge = IntGauge::with_opts(Opts::new(
+        "soul_orchestrator_agents_registered",
+        "Number of registered agents"
+    )).unwrap();
+    
+    static ref AGENTS_ACTIVE: IntGauge = IntGauge::with_opts(Opts::new(
+        "soul_orchestrator_agents_active",
+        "Number of active agents"
+    )).unwrap();
+    
+    static ref MAILBOX_FULL: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_orchestrator_mailbox_full_total",
+        "Total mailbox full events (back-pressure)"
+    )).unwrap();
+    
+    static ref WAKE_TOTAL: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_orchestrator_wake_total",
+        "Total agent wake events"
+    )).unwrap();
+    
+    static ref TRANSITION_TOTAL: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_orchestrator_transition_total",
+        "Total state transitions"
+    )).unwrap();
+}
+
+fn register_metrics() {
+    let _ = ORCHESTRATOR_REGISTRY.register(Box::new(DISPATCH_TOTAL.clone()));
+    let _ = ORCHESTRATOR_REGISTRY.register(Box::new(DISPATCH_DELIVERED.clone()));
+    let _ = ORCHESTRATOR_REGISTRY.register(Box::new(DISPATCH_BROADCAST.clone()));
+    let _ = ORCHESTRATOR_REGISTRY.register(Box::new(AGENTS_REGISTERED.clone()));
+    let _ = ORCHESTRATOR_REGISTRY.register(Box::new(AGENTS_ACTIVE.clone()));
+    let _ = ORCHESTRATOR_REGISTRY.register(Box::new(MAILBOX_FULL.clone()));
+    let _ = ORCHESTRATOR_REGISTRY.register(Box::new(WAKE_TOTAL.clone()));
+    let _ = ORCHESTRATOR_REGISTRY.register(Box::new(TRANSITION_TOTAL.clone()));
+}
 
 /// Sentinelle de diffusion partagee avec `soul_ipc` : message destine a tous.
 pub const BROADCAST: u32 = 0xFFFF_FFFF;
@@ -37,15 +94,10 @@ impl AgentState {
         match v {
             1 => AgentState::Active,
             2 => AgentState::HyperFocus,
-            // Le byte d'etat n'est jamais ecrit qu'a partir d'un AgentState ;
-            // une valeur etrangere est traitee comme Dormant plutot que de
-            // paniquer sur le chemin d'ordonnancement.
             _ => AgentState::Dormant,
         }
     }
 
-    /// Transitions autorisees : Dormant <-> Active <-> HyperFocus.
-    /// Pas de saut Dormant <-> HyperFocus, pas de boucle sur soi-meme.
     #[inline]
     fn may_transition_to(self, next: AgentState) -> bool {
         use AgentState::*;
@@ -59,18 +111,13 @@ impl AgentState {
 /// Resultat d'un `dispatch`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DispatchOutcome {
-    /// Message depose dans la mailbox de la cible. `woke` = ce dispatch a fait
-    /// passer la cible de Dormant a Active.
     Delivered { woke: bool },
-    /// Diffusion : compteurs sur l'ensemble des agents.
     Broadcast {
         delivered: usize,
         full: usize,
         woke: usize,
     },
-    /// Aucun agent enregistre sous cet id.
     UnknownTarget,
-    /// Mailbox de la cible pleine (back-pressure) : message non depose.
     MailboxFull,
 }
 
@@ -78,9 +125,7 @@ pub enum DispatchOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrchestratorError {
     UnknownAgent,
-    /// L'agent est deja dans l'etat demande.
     NoOpTransition,
-    /// Transition non permise par la machine a etats.
     IllegalTransition {
         from: AgentState,
         to: AgentState,
@@ -100,14 +145,12 @@ pub struct SovereignOrchestrator {
 
 impl SovereignOrchestrator {
     pub fn new() -> Self {
+        register_metrics();
         Self {
             registry: HashMap::new(),
         }
     }
 
-    /// Enregistre un agent (phase de setup). `false` si l'id existe deja (pas
-    /// d'ecrasement silencieux : cela detruirait une mailbox vivante) ou si l'id
-    /// est la sentinelle de broadcast.
     pub fn register_agent(&mut self, id: u32) -> bool {
         if id == BROADCAST || self.registry.contains_key(&id) {
             return false;
@@ -119,6 +162,7 @@ impl SovereignOrchestrator {
                 mailbox: InterAgentBus::new(),
             },
         );
+        AGENTS_REGISTERED.inc();
         true
     }
 
@@ -132,14 +176,12 @@ impl SovereignOrchestrator {
         self.registry.len()
     }
 
-    /// Etat courant de l'agent, ou `None` si inconnu.
     pub fn state(&self, id: u32) -> Option<AgentState> {
         self.registry
             .get(&id)
             .map(|h| AgentState::from_u8(h.state.load(Ordering::Acquire)))
     }
 
-    /// L'agent doit-il recevoir du compute ce tick (Active ou HyperFocus) ?
     pub fn is_schedulable(&self, id: u32) -> bool {
         matches!(
             self.state(id),
@@ -147,9 +189,9 @@ impl SovereignOrchestrator {
         )
     }
 
-    /// Route un message vers la mailbox de sa cible et reveille la cible si elle
-    /// dort. `target == BROADCAST` -> diffusion a tous les agents.
     pub fn dispatch(&self, msg: AgentMessage) -> DispatchOutcome {
+        DISPATCH_TOTAL.inc();
+        
         if msg.target_agent_id == BROADCAST {
             return self.broadcast(msg);
         }
@@ -157,9 +199,14 @@ impl SovereignOrchestrator {
             return DispatchOutcome::UnknownTarget;
         };
         if !h.mailbox.publish(msg) {
+            MAILBOX_FULL.inc();
             return DispatchOutcome::MailboxFull;
         }
         let woke = Self::wake_handle(h);
+        if woke {
+            WAKE_TOTAL.inc();
+        }
+        DISPATCH_DELIVERED.inc();
         DispatchOutcome::Delivered { woke }
     }
 
@@ -170,11 +217,14 @@ impl SovereignOrchestrator {
                 delivered += 1;
                 if Self::wake_handle(h) {
                     woke += 1;
+                    WAKE_TOTAL.inc();
                 }
             } else {
                 full += 1;
+                MAILBOX_FULL.inc();
             }
         }
+        DISPATCH_BROADCAST.inc();
         DispatchOutcome::Broadcast {
             delivered,
             full,
@@ -182,15 +232,16 @@ impl SovereignOrchestrator {
         }
     }
 
-    /// Recupere le prochain message destine a `id` (consommateur unique : la
-    /// boucle d'execution de l'agent). `None` si mailbox vide ou id inconnu.
     pub fn poll(&self, id: u32) -> Option<AgentMessage> {
         self.registry.get(&id).and_then(|h| h.mailbox.dequeue())
     }
 
-    /// CAS Dormant -> Active. `true` ssi c'est cet appel qui a reveille l'agent.
     pub fn wake(&self, id: u32) -> bool {
-        self.registry.get(&id).is_some_and(Self::wake_handle)
+        let result = self.registry.get(&id).is_some_and(Self::wake_handle);
+        if result {
+            WAKE_TOTAL.inc();
+        }
+        result
     }
 
     #[inline]
@@ -205,8 +256,6 @@ impl SovereignOrchestrator {
             .is_ok()
     }
 
-    /// Transition de cycle de vie validee par la machine a etats et appliquee
-    /// atomiquement (CAS avec re-validation en cas de course).
     pub fn transition(&self, id: u32, to: AgentState) -> Result<(), OrchestratorError> {
         let Some(h) = self.registry.get(&id) else {
             return Err(OrchestratorError::UnknownAgent);
@@ -226,10 +275,23 @@ impl SovereignOrchestrator {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
-                Ok(_) => return Ok(()),
-                Err(_) => continue, // course : on relit et on re-valide
+                Ok(_) => {
+                    TRANSITION_TOTAL.inc();
+                    return Ok(());
+                }
+                Err(_) => continue,
             }
         }
+    }
+    
+    pub fn update_active_agents_metric(&self) {
+        let active = self.registry.values()
+            .filter(|h| {
+                let state = AgentState::from_u8(h.state.load(Ordering::Acquire));
+                matches!(state, AgentState::Active | AgentState::HyperFocus)
+            })
+            .count();
+        AGENTS_ACTIVE.set(active as i64);
     }
 }
 
@@ -389,7 +451,7 @@ mod tests {
         let o = Arc::new(o);
 
         let (n_prod, per) = (8usize, 2000u32);
-        let total = n_prod as u64 * per as u64; // 16000 > capacite 8192 -> recyclage
+        let total = n_prod as u64 * per as u64;
 
         let done = Arc::new(AtomicBool::new(false));
         let mut producers = Vec::new();

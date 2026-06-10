@@ -2,6 +2,11 @@
 name = "neural_metacognition"
 version = "0.1.0"
 edition = "2021"
+description = "Metacognitive monitoring and self-audit capabilities for cognitive agents; tracks decision confidence and error patterns"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["metacognition", "self-audit", "monitoring", "confidence", "error-detection", "introspection"]
+categories = ["machine-learning", "neuroscience", "embedded", "safety"]
 
 [dependencies]
 parking_lot = "0.12.3"

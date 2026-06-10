@@ -2,6 +2,11 @@
 name = "soul_cortex"
 version = "0.1.0"
 edition = "2021"
+description = "Recurrent cortex module for working memory management and cognitive cycle execution using matrix engine"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["cortex", "recurrent", "working-memory", "cognitive-cycle", "matrix-engine"]
+categories = ["machine-learning", "neuroscience", "embedded"]
 
 [dependencies]
 soul_matrix_engine = { path = "../soul_matrix_engine" }

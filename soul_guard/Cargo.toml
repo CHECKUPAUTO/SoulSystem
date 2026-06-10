@@ -2,3 +2,8 @@
 name = "soul_guard"
 version = "0.1.0"
 edition = "2021"
+description = "Runtime integrity guards and invariant checking for cognitive system health monitoring"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["guard", "integrity", "invariant", "health", "monitoring", "runtime"]
+categories = ["safety", "embedded", "monitoring"]

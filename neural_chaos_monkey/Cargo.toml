@@ -2,3 +2,8 @@
 name = "neural_chaos_monkey"
 version = "0.1.0"
 edition = "2021"
+description = "Deterministic fault injection (chaos engineering) with seeded PRNG for reproducible cognitive system perturbation testing"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["chaos-engineering", "fault-injection", "deterministic", "testing", "prng"]
+categories = ["testing", "embedded", "simulation"]

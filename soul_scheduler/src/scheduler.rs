@@ -2,13 +2,69 @@ use crate::queue::{LockFreeTaskDeque, Task};
 use crate::topology::{CpuTopology, HardwareManifest, MemoryTopology};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use prometheus::{IntCounter, IntGauge, Histogram, HistogramOpts, Opts, Registry};
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref SCHEDULER_REGISTRY: Registry = Registry::new();
+    
+    static ref TASKS_SUBMITTED: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_scheduler_tasks_submitted_total",
+        "Total tasks submitted to scheduler"
+    )).unwrap();
+    
+    static ref TASKS_COMPLETED: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_scheduler_tasks_completed_total",
+        "Total tasks completed by workers"
+    )).unwrap();
+    
+    static ref STEAL_ATTEMPTS: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_scheduler_steal_attempts_total",
+        "Total work-stealing attempts"
+    )).unwrap();
+    
+    static ref STEAL_SUCCESSES: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_scheduler_steal_successes_total",
+        "Successful work-stealing attempts"
+    )).unwrap();
+    
+    static ref TASK_EXECUTION_TIME: Histogram = Histogram::with_opts(HistogramOpts::new(
+        "soul_scheduler_task_execution_seconds",
+        "Task execution time in seconds"
+    ).buckets(vec![0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1])).unwrap();
+    
+    static ref QUEUE_DEPTH_TOTAL: IntGauge = IntGauge::with_opts(Opts::new(
+        "soul_scheduler_queue_depth_total",
+        "Total queue depth across all cores"
+    )).unwrap();
+    
+    static ref WORKER_IDLE_CYCLES: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_scheduler_worker_idle_cycles_total",
+        "Total worker idle cycles (spin loops)"
+    )).unwrap();
+    
+    static ref THERMAL_THROTTLE_EVENTS: IntCounter = IntCounter::with_opts(Opts::new(
+        "soul_scheduler_thermal_throttle_total",
+        "Total thermal throttle events"
+    )).unwrap();
+}
+
+fn register_scheduler_metrics() {
+    let _ = SCHEDULER_REGISTRY.register(Box::new(TASKS_SUBMITTED.clone()));
+    let _ = SCHEDULER_REGISTRY.register(Box::new(TASKS_COMPLETED.clone()));
+    let _ = SCHEDULER_REGISTRY.register(Box::new(STEAL_ATTEMPTS.clone()));
+    let _ = SCHEDULER_REGISTRY.register(Box::new(STEAL_SUCCESSES.clone()));
+    let _ = SCHEDULER_REGISTRY.register(Box::new(TASK_EXECUTION_TIME.clone()));
+    let _ = SCHEDULER_REGISTRY.register(Box::new(QUEUE_DEPTH_TOTAL.clone()));
+    let _ = SCHEDULER_REGISTRY.register(Box::new(WORKER_IDLE_CYCLES.clone()));
+    let _ = SCHEDULER_REGISTRY.register(Box::new(THERMAL_THROTTLE_EVENTS.clone()));
+}
 
 /// Pin the calling thread to a specific CPU core via sched_setaffinity.
 fn enforce_cpu_affinity(core_id: usize) -> bool {
     unsafe {
         let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
         libc::CPU_SET(core_id, &mut cpuset);
-        // pid=0 targets the calling thread
         libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) == 0
     }
 }
@@ -22,11 +78,6 @@ pub struct WorkerContext {
 }
 
 /// Cooperative lock-free work-stealing scheduler with NUMA awareness.
-///
-/// The scheduler probes hardware at construction time and configures its workers
-/// to respect cache hierarchy boundaries: local L1/L2 first, then same-socket
-/// peers (fast), then cross-socket peers (slow). Stealing across sockets is
-/// disabled on UMA platforms (e.g., Jetson) where all memory has uniform latency.
 pub struct AgentScheduler {
     workers: Arc<Vec<WorkerContext>>,
     running: Arc<AtomicBool>,
@@ -41,8 +92,8 @@ impl Default for AgentScheduler {
 }
 
 impl AgentScheduler {
-    /// Construct a new scheduler instance. Probes hardware topology.
     pub fn new() -> Self {
+        register_scheduler_metrics();
         let manifest = HardwareManifest::probe();
         let total_cores = manifest.total_logical_cores;
         let mut workers = Vec::with_capacity(total_cores);
@@ -63,16 +114,14 @@ impl AgentScheduler {
         }
     }
 
-    /// Submit a task to a specific core's local queue. Returns false if full or invalid core.
     pub fn submit_to(&self, core_id: usize, task: Task) -> bool {
         if core_id >= self.workers.len() {
             return false;
         }
+        TASKS_SUBMITTED.inc();
         self.workers[core_id].queue.push(task)
     }
 
-    /// Launch all worker threads. Each is pinned to its assigned core.
-    /// Idempotent — calling twice is a no-op after the first launch.
     pub fn launch(&self) {
         if self.running.swap(true, Ordering::SeqCst) {
             return;
@@ -87,13 +136,11 @@ impl AgentScheduler {
             self.manifest.cache_hierarchy.l1_data.line_size
         );
 
-        // Echantillonneur thermique : sort la lecture du capteur sysfs du chemin
-        // chaud. Les workers ne font plus qu'un load atomique (check_thermal_status).
         match self
             .telemetry
             .spawn_thermal_sampler(std::time::Duration::from_millis(100))
         {
-            Ok(_handle) => { /* detache : le Weak l'eteint a la liberation du hub */ }
+            Ok(_handle) => {}
             Err(e) => eprintln!(
                 "[CRITICAL] echec spawn thermal-sampler: {e} -> protection thermique inactive"
             ),
@@ -119,31 +166,37 @@ impl AgentScheduler {
                     let is_numa = local_worker.topology.memory_layout == MemoryTopology::Numa;
 
                     while running_ref.load(Ordering::Relaxed) {
-                        // THERMAL SAFETY CHECK
                         if telemetry_ref.check_thermal_status(local_worker.core_id) {
+                            THERMAL_THROTTLE_EVENTS.inc();
                             std::thread::yield_now();
                         }
 
-                        // PRIORITY 1: Local LIFO consumption (hot cache in L1/L2)
+                        // PRIORITY 1: Local LIFO consumption
                         if let Some(task) = local_worker.queue.pop() {
                             let start = std::time::Instant::now();
                             (task.execute)(task.context);
-                            let elapsed = start.elapsed().as_nanos() as u64;
+                            let elapsed = start.elapsed();
 
-                            telemetry_ref.record_execution(local_worker.core_id, elapsed, false);
+                            TASKS_COMPLETED.inc();
+                            TASK_EXECUTION_TIME.observe(elapsed.as_secs_f64());
+                            telemetry_ref.record_execution(local_worker.core_id, elapsed.as_nanos() as u64, false);
                             spin_counter = 0;
                             continue;
                         }
 
-                        // PRIORITY 2: Steal from same-socket peers (FIFO, proximity cache)
+                        // PRIORITY 2: Steal from same-socket peers
                         let mut stolen = false;
                         for &peer_id in &local_worker.topology.intra_socket_peers {
+                            STEAL_ATTEMPTS.inc();
                             if let Some(task) = workers_ref[peer_id].queue.steal() {
                                 let start = std::time::Instant::now();
                                 (task.execute)(task.context);
-                                let elapsed = start.elapsed().as_nanos() as u64;
+                                let elapsed = start.elapsed();
 
-                                telemetry_ref.record_execution(local_worker.core_id, elapsed, true);
+                                TASKS_COMPLETED.inc();
+                                STEAL_SUCCESSES.inc();
+                                TASK_EXECUTION_TIME.observe(elapsed.as_secs_f64());
+                                telemetry_ref.record_execution(local_worker.core_id, elapsed.as_nanos() as u64, true);
                                 stolen = true;
                                 break;
                             }
@@ -156,14 +209,18 @@ impl AgentScheduler {
                         // PRIORITY 3: Cross-socket steal (disabled on UMA)
                         if is_numa {
                             for &peer_id in &local_worker.topology.inter_socket_peers {
+                                STEAL_ATTEMPTS.inc();
                                 if let Some(task) = workers_ref[peer_id].queue.steal() {
                                     let start = std::time::Instant::now();
                                     (task.execute)(task.context);
-                                    let elapsed = start.elapsed().as_nanos() as u64;
+                                    let elapsed = start.elapsed();
 
+                                    TASKS_COMPLETED.inc();
+                                    STEAL_SUCCESSES.inc();
+                                    TASK_EXECUTION_TIME.observe(elapsed.as_secs_f64());
                                     telemetry_ref.record_execution(
                                         local_worker.core_id,
-                                        elapsed,
+                                        elapsed.as_nanos() as u64,
                                         true,
                                     );
                                     stolen = true;
@@ -176,8 +233,9 @@ impl AgentScheduler {
                             }
                         }
 
-                        // Micro-timed back-off to avoid busy-wait thrashing
+                        // Back-off
                         spin_counter += 1;
+                        WORKER_IDLE_CYCLES.inc();
                         if spin_counter > 1000 {
                             std::thread::yield_now();
                             spin_counter = 0;
@@ -190,13 +248,18 @@ impl AgentScheduler {
         }
     }
 
-    /// Signal all workers to stop. Does not join them — caller must use a separate sync mechanism if needed.
     pub fn shutdown(&self) {
         self.running.store(false, Ordering::SeqCst);
     }
 
-    /// Return the number of worker threads configured.
     pub fn worker_count(&self) -> usize {
         self.workers.len()
+    }
+
+    pub fn update_queue_depth_metric(&self) {
+        let total_depth: i64 = self.workers.iter()
+            .map(|w| w.queue.len() as i64)
+            .sum();
+        QUEUE_DEPTH_TOTAL.set(total_depth);
     }
 }

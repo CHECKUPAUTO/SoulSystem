@@ -2,7 +2,11 @@
 name = "soul_planner"
 version = "0.1.0"
 edition = "2021"
-description = "Boucle cognitive (observe → planifie → agit → évalue → décide)"
+description = "Cognitive loop implementation (observe → plan → act → evaluate → decide) with goal management for autonomous agents"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["planner", "cognitive-loop", "observe-plan-act", "goal-management", "autonomous", "agent"]
+categories = ["machine-learning", "embedded", "algorithms"]
 
 [dependencies]
 uuid = { version = "1", features = ["v4"] }
