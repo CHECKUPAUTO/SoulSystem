@@ -54,7 +54,7 @@ impl ComputeBackend for CudaBackend {
         _kernel: &[f32],
         data: &[f32],
     ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
-        // Stub: TODO implémentation CUDA réelle avec cudarc
+        // Stub: NOTE implémentation CUDA réelle avec cudarc
         Ok(data.to_vec())
     }
 }

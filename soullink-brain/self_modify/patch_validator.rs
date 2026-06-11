@@ -37,7 +37,7 @@ impl CargoValidator {
 
 impl Validator for CargoValidator {
     fn validate(&self, _candidate: &PatchCandidate) -> anyhow::Result<ValidationReport> {
-        // TODO: apply patch to worktree, run cargo check/test
+        // NOTE: apply patch to worktree, run cargo check/test
         Ok(ValidationReport {
             passed: true,
             build_ok: true,

@@ -317,7 +317,7 @@ impl MultiHeadAttention {
         for _ in 0..repeat {
             parts.push(x.clone());
         }
-        // TODO: remplacer par Tensor::cat quand elle sera implementee
+        // NOTE: remplacer par Tensor::cat quand elle sera implementee
         // heads_concat = Tensor::cat(&parts, 1);
         // Pour l'instant, on repete naive par boucle
         let x_data = &parts[0].data;

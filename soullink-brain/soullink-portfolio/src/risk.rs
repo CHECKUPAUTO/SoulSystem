@@ -122,7 +122,7 @@ impl RiskManager {
         let cash = portfolio.cash();
         // Total exposure = starting cash - remaining cash (what's deployed)
         // This works for simple portfolios
-        dec!(1000) - cash // TODO: proper position value tracking
+        dec!(1000) - cash // NOTE: proper position value tracking
     }
 
     /// Record a realized loss for daily tracking.

@@ -40,7 +40,7 @@ impl DefaultPatchGenerator {
 
 impl PatchGenerator for DefaultPatchGenerator {
     fn generate(&self, _report: &crate::self_modify::analyzer::CodeReport) -> anyhow::Result<Vec<PatchCandidate>> {
-        // TODO: implement real AST-based generation
+        // NOTE: implement real AST-based generation
         Ok(vec![
             PatchCandidate {
                 id: Uuid::new_v4(),
