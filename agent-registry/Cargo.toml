@@ -17,16 +17,8 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
 
-# Bridges (PHASE 5 — wire-up central)
-orchestrator-bridge = { path = "../orchestrator-bridge" }
-avid-bridge = { path = "../avid-bridge" }
-openevolve-bridge = { path = "../openevolve-bridge" }
-mesh-bridge = { path = "../mesh-bridge" }
-services-bridge = { path = "../services-bridge" }
-organs-bridge = { path = "../organs-bridge" }
-brain-bridge = { path = "../brain-bridge" }
-soul-neural-bridge = { path = "../soul-neural-bridge" }
-synergie-bridge = { path = "../synergie-bridge" }
+# Bridges unifiés — soul-bridge remplace 9 bridges individuels
+soul-bridge = { path = "../soul-bridge" }
 forge-bridge = { path = "../forges/forge-bridge" }
 
 [[bin]]

@@ -2,7 +2,7 @@
 
 use crate::bus::{Bus, Message};
 #[cfg(feature = "avid")]
-use avid_bridge::{Scout, Vision};
+use soul_bridge::avid::{Scout, Vision};
 use std::sync::Arc;
 use tracing::info;
 

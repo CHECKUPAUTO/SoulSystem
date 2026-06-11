@@ -197,7 +197,13 @@ impl SleepCycle {
             "rag_active": hub.rag_config.is_some(),
         });
 
-        let _ = tokio::fs::write(&stats_path, serde_json::to_string_pretty(&stats).unwrap()).await;
+        let _ = match serde_json::to_string_pretty(&stats) {
+            Ok(json) => tokio::fs::write(&stats_path, json).await,
+            Err(e) => {
+                tracing::warn!("SleepCycle: failed to serialize stats: {}", e);
+                return count;
+            }
+        };
         count
     }
 

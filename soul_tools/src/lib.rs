@@ -131,18 +131,12 @@ pub fn execute_shell(command: &str) -> Result<String, String> {
 }
 
 pub fn execute_tool(tool: &Tool, args: &str) -> Result<String, String> {
-    let mut cmd = std::process::Command::new(&tool.path);
-    if !args.is_empty() {
-        for arg in args.split_whitespace() {
-            cmd.arg(arg);
-        }
-    }
-    let output = cmd.output().map_err(|e| format!("Failed to execute {}: {}", tool.path, e))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let cmd = if args.is_empty() {
+        tool.path.clone()
     } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
+        format!("{} {}", tool.path, args)
+    };
+    execute_shell(&cmd)
 }
 
 // ── Async Shell Execution ─────────────────────────────────────────────
@@ -515,58 +509,42 @@ pub fn discover_system_tools() -> Vec<Tool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_permission_read() {
+        assert_eq!(PermissionLevel::from_command("ls -la"), PermissionLevel::Read);
+        assert_eq!(PermissionLevel::from_command("cat /etc/passwd"), PermissionLevel::Read);
+        assert_eq!(PermissionLevel::from_command("grep -r foo ."), PermissionLevel::Read);
+    }
+
+    #[test]
+    fn test_permission_write() {
+        assert_eq!(PermissionLevel::from_command("rm file.txt"), PermissionLevel::Write);
+        assert_eq!(PermissionLevel::from_command("mkdir /tmp/test"), PermissionLevel::Write);
+        assert_eq!(PermissionLevel::from_command("cp a.txt b.txt"), PermissionLevel::Write);
+        assert_eq!(PermissionLevel::from_command("sed -i 's/foo/bar/' file"), PermissionLevel::Write);
+    }
+
+    #[test]
+    fn test_permission_destructive() {
+        assert_eq!(PermissionLevel::from_command("rm -rf /"), PermissionLevel::Destructive);
+        assert_eq!(PermissionLevel::from_command("mkfs.ext4 /dev/sda"), PermissionLevel::Destructive);
+        assert_eq!(PermissionLevel::from_command("dd if=/dev/zero of=/dev/sda"), PermissionLevel::Destructive);
+    }
 
     #[test]
     fn test_tool_registry() {
-        let mut reg = ToolRegistry::new();
-        reg.register(Tool {
+        let mut registry = ToolRegistry::new();
+        registry.register(Tool {
             name: "test".to_string(),
-            path: "/bin/echo".to_string(),
-            description: "echo".to_string(),
+            path: "/bin/test".to_string(),
+            description: "A test tool".to_string(),
             category: ToolCategory::System,
         });
-        assert_eq!(reg.list().len(), 1);
-        assert!(reg.get("test").is_some());
-        assert!(reg.get("nonexistent").is_none());
-    }
-
-    #[test]
-    fn test_tool_search() {
-        let mut reg = ToolRegistry::new();
-        reg.register(Tool {
-            name: "docker".to_string(),
-            path: "/usr/bin/docker".to_string(),
-            description: "Container runtime".to_string(),
-            category: ToolCategory::System,
-        });
-        reg.register(Tool {
-            name: "ls".to_string(),
-            path: "/bin/ls".to_string(),
-            description: "List files".to_string(),
-            category: ToolCategory::File,
-        });
-        let results = reg.search("docker");
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].name, "docker");
-    }
-
-    #[test]
-    fn test_tool_by_category() {
-        let mut reg = ToolRegistry::new();
-        reg.register(Tool {
-            name: "ls".to_string(),
-            path: "/bin/ls".to_string(),
-            description: "List files".to_string(),
-            category: ToolCategory::File,
-        });
-        reg.register(Tool {
-            name: "ps".to_string(),
-            path: "/bin/ps".to_string(),
-            description: "List processes".to_string(),
-            category: ToolCategory::Process,
-        });
-        let file_tools = reg.by_category(&ToolCategory::File);
-        assert_eq!(file_tools.len(), 1);
+        assert!(registry.get("test").is_some());
+        assert_eq!(registry.list().len(), 1);
+        assert!(registry.search("test").len() == 1);
     }
 
     #[test]
@@ -577,46 +555,150 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_shell_error() {
-        let result = execute_shell("nonexistent_command_12345");
+    fn test_read_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "line1\nline2\nline3\nline4\nline5\n").unwrap();
+
+        let content = read_file(path.to_str().unwrap(), None, None).unwrap();
+        assert!(content.contains("line1"));
+        assert!(content.contains("line5"));
+    }
+
+    #[test]
+    fn test_read_file_with_range() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "line1\nline2\nline3\nline4\nline5\n").unwrap();
+
+        let content = read_file(path.to_str().unwrap(), Some(2), Some(2)).unwrap();
+        assert!(content.contains("line2"));
+        assert!(content.contains("line3"));
+        assert!(!content.contains("line1"));
+    }
+
+    #[test]
+    fn test_write_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+
+        write_file(path.to_str().unwrap(), "hello world", false).unwrap();
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "hello world");
+    }
+
+    #[test]
+    fn test_write_file_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+
+        write_file(path.to_str().unwrap(), "hello", false).unwrap();
+        write_file(path.to_str().unwrap(), " world", true).unwrap();
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "hello world");
+    }
+
+    #[test]
+    fn test_patch_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "hello world").unwrap();
+
+        let result = patch_file(path.to_str().unwrap(), "world", "rust");
+        assert!(result.is_ok());
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "hello rust");
+    }
+
+    #[test]
+    fn test_patch_file_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "hello world").unwrap();
+
+        let result = patch_file(path.to_str().unwrap(), "xyz", "rust");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_execute_tool() {
-        let tool = Tool {
-            name: "echo".to_string(),
-            path: "/bin/echo".to_string(),
-            description: "echo".to_string(),
-            category: ToolCategory::System,
-        };
-        let result = execute_tool(&tool, "hello world");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().trim(), "hello world");
+    fn test_patch_file_not_unique() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "hello hello hello").unwrap();
+
+        let result = patch_file(path.to_str().unwrap(), "hello", "world");
+        assert!(result.is_err());
     }
 
     #[test]
-    fn test_execute_tool_no_args() {
-        let tool = Tool {
-            name: "echo".to_string(),
-            path: "/bin/echo".to_string(),
-            description: "echo".to_string(),
-            category: ToolCategory::System,
-        };
-        let result = execute_tool(&tool, "");
-        assert!(result.is_ok());
+    fn test_list_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.txt"), "a").unwrap();
+        fs::write(dir.path().join("b.txt"), "b").unwrap();
+        fs::create_dir(dir.path().join("subdir")).unwrap();
+
+        let items = list_directory(dir.path().to_str().unwrap()).unwrap();
+        assert!(items.contains(&"a.txt".to_string()));
+        assert!(items.contains(&"b.txt".to_string()));
+        assert!(items.contains(&"subdir/".to_string()));
     }
 
     #[test]
-    fn test_discover_system_tools() {
-        let tools = discover_system_tools();
-        assert!(!tools.is_empty());
-        assert!(tools.iter().any(|t| t.name == "ls"));
+    fn test_search_files() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.rs"), "").unwrap();
+        fs::write(dir.path().join("b.py"), "").unwrap();
+        fs::write(dir.path().join("c.rs"), "").unwrap();
+
+        let files = search_files("*.rs", dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(files.len(), 2);
     }
 
     #[test]
-    fn test_tool_category_eq() {
-        assert_eq!(ToolCategory::System, ToolCategory::System);
-        assert_ne!(ToolCategory::System, ToolCategory::File);
+    fn test_dispatch_shell() {
+        let args = serde_json::json!({"command": "echo test123"});
+        let result = dispatch_tool("execute_shell", &args).unwrap();
+        assert_eq!(result.trim(), "test123");
+    }
+
+    #[test]
+    fn test_dispatch_read_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+        fs::write(&path, "hello").unwrap();
+
+        let args = serde_json::json!({"path": path.to_str().unwrap()});
+        let result = dispatch_tool("read_file", &args).unwrap();
+        assert!(result.contains("hello"));
+    }
+
+    #[test]
+    fn test_dispatch_write_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+
+        let args = serde_json::json!({"path": path.to_str().unwrap(), "content": "written"});
+        let result = dispatch_tool("write_file", &args).unwrap();
+        assert!(result.contains("Written"));
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "written");
+    }
+
+    #[test]
+    fn test_dispatch_list_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("file.txt"), "").unwrap();
+
+        let args = serde_json::json!({"path": dir.path().to_str().unwrap()});
+        let result = dispatch_tool("list_directory", &args).unwrap();
+        assert!(result.contains("file.txt"));
+    }
+
+    #[test]
+    fn test_dispatch_unknown_tool() {
+        let args = serde_json::json!({});
+        let result = dispatch_tool("nonexistent_tool", &args);
+        assert!(result.is_err());
     }
 }

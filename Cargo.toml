@@ -2,9 +2,7 @@
 resolver = "2"
 members = [
     "crates/soulsystem-common",
-    "soulsystem-gepa",
     "soulsystem-multiagent",
-    "soulsystem-memory-extract",
     "openclaw-u",
     "soullink-brain/soullink-core",
     "soullink-brain/soullink-nvml",
@@ -74,40 +72,66 @@ members = [
     "synergie",
     "soullink-orchestrator-standalone",
     "openevolve",
-    # Bridges (PHASE 2 — re-included 2026-06-02)
-    "avid-bridge",
-    "openevolve-bridge",
-    "mesh-bridge",
-    "services-bridge",
-    "organs-bridge",
-    "brain-bridge",
-    "soul-neural-bridge",
-    "synergie-bridge",
-    "orchestrator-bridge",
+    # Unified bridge (replaces 9 individual bridges)
+    "soul-bridge",
     "forges/forge-core",
     "forges/forge",
     "forges/forge-bridge",
     # forge-bridge (now in forges/forge-bridge)
-    "agent-registry",
-    "bridge-integration-tests",
-    "soullink-circuit-breaker",
-    "soullink-sanitizer",
     # Autonomous entity crates
     "soul_llm",
     "soul_planner",
     "soul_tools",
     "soul_repl",
-    "soul_bridges",
-    "soul_cognitive",
-    "soul_automation",
-    "soul_security",
-    "soul_monitor",
-    "soul_api",
+    "soul-agent-core",
+    "soul-memory",
+    "soul-daemon",
+    "soul-sandbox",
+    "soul-browser",
+    "soul-subagents",
+    "soul-goaltree",
+    "soul-automodify",
+    "soul-eventbus",
+    "soul-webfetch",
+    "soul-scheduler",
+    # Quality improvement crates
+    "soul-mcp",
+    "soul-skills",
+    "soul-compaction",
+    "soul-protocol",
+    "soul-wasm",
+    "soul-designtree",
+    "soul-inference",
+    "soul-critique",
+    # AVID ecosystem (24 crates)
+    "avid/crates/avid-anticlone",
+    "avid/crates/avid-cli",
+    "avid/crates/avid-cobalt",
+    "avid/crates/avid-core",
+    "avid/crates/avid-cortex",
+    "avid/crates/avid-critic",
+    "avid/crates/avid-db",
+    "avid/crates/avid-forge",
+    "avid/crates/avid-gomogo",
+    "avid/crates/avid-hnn",
+    "avid/crates/avid-intel",
+    "avid/crates/avid-k8s",
+    "avid/crates/avid-knowledge-graph",
+    "avid/crates/avid-mimic",
+    "avid/crates/avid-model-router",
+    "avid/crates/avid-orchestrator",
+    "avid/crates/avid-sandbox",
+    "avid/crates/avid-scout",
+    "avid/crates/avid-security",
+    "avid/crates/avid-server",
+    "avid/crates/avid-skills",
+    "avid/crates/avid-tokenjuice",
+    "avid/crates/avid-tui",
+    "avid/crates/avid-vision",
 ]
 
 exclude = [
     "soul-neural",
-    "avid",
     "soullink-node",
     "turboquant",
 ]
@@ -143,7 +167,7 @@ wiremock = "0.6"
 criterion = { version = "0.5", default-features = false, features = ["async_tokio", "html_reports"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "tokio", "tower-log"] }
 tower = { version = "0.5", default-features = false, features = ["util"] }
-tower-http = { version = "0.6", default-features = false, features = ["trace", "cors", "limit"] }
+tower-http = { version = "0.6", default-features = false, features = ["trace", "cors", "limit", "set-header"] }
 hyper = { version = "1", features = ["server", "http1", "http2"] }
 nvml-wrapper = { version = "0.9", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
@@ -163,6 +187,7 @@ local-skills = { path = "local-skills" }
 model-router = { path = "model-router" }
 pty-terminal = { path = "pty-terminal" }
 soul-memory = { path = "soul-memory" }
+soul-bridge = { path = "soul-bridge" }
 spinner = { path = "spinner" }
 terminal-stream = { path = "terminal-stream" }
 scirust-autodiff = { path = "scirust-autodiff" }
@@ -175,11 +200,12 @@ soulsystem-common = { path = "crates/soulsystem-common" }
 name = "soulsystem"
 version = "0.6.0"
 edition = "2021"
-description = "SoulSystem — Écosystème d'agent numérique autonome"
+description = "SoulSystem — Autonomous digital agent ecosystem"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
 bus = { workspace = true }
+soul-bridge = { workspace = true }
 soul-memory = { workspace = true }
 soulsystem-common = { workspace = true }
 bound-system = { workspace = true }
@@ -205,6 +231,7 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 regex = { workspace = true }
 rand = "0.8"
+ed25519-dalek = { version = "2", optional = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
 which = "8"
 sysinfo = "0.31"
@@ -219,15 +246,7 @@ soullink-rag = { path = "soullink-brain/soullink-rag" }
 soullink-autonomy = { path = "soullink-brain/soullink-autonomy" }
 soullink-circuit = { path = "soullink-brain/soullink-circuit" }
 
-# Ponts d'intégration optionnels
-avid-bridge = { path = "avid-bridge", optional = true }
-synergie-bridge = { path = "synergie-bridge", optional = true }
-openevolve-bridge = { path = "openevolve-bridge", optional = true }
-brain-bridge = { path = "brain-bridge", optional = true }
-soul-neural-bridge = { path = "soul-neural-bridge", optional = true }
-organs-bridge = { path = "organs-bridge", optional = true }
-mesh-bridge = { path = "mesh-bridge", optional = true }
-services-bridge = { path = "services-bridge", optional = true }
+# Ponts d'intégration (unified)
 
 portable-pty = "0.8"
 libc = "0.2"
@@ -241,12 +260,23 @@ soul_agent_core = { path = "soul-agent-core" }
 soul_planner = { path = "soul_planner" }
 soul_tools = { path = "soul_tools" }
 soul_repl = { path = "soul_repl" }
-soul_bridges = { path = "soul_bridges" }
-soul_cognitive = { path = "soul_cognitive" }
-soul_automation = { path = "soul_automation" }
-soul_security = { path = "soul_security" }
-soul_monitor = { path = "soul_monitor" }
-soul_api = { path = "soul_api" }
+soul_daemon = { path = "soul-daemon" }
+soul_sandbox = { path = "soul-sandbox" }
+soul_browser = { path = "soul-browser" }
+soul_subagents = { path = "soul-subagents" }
+soul_goaltree = { path = "soul-goaltree" }
+soul_automodify = { path = "soul-automodify" }
+soul_eventbus = { path = "soul-eventbus" }
+soul-dashboard = { path = "crates/soul-dashboard" }
+soul_mcp = { path = "soul-mcp" }
+soul_skills = { path = "soul-skills" }
+soul_compaction = { path = "soul-compaction" }
+soul_protocol = { path = "soul-protocol" }
+soul_wasm = { path = "soul-wasm" }
+soul_designtree = { path = "soul-designtree" }
+soul_inference = { path = "soul-inference" }
+soul_critique = { path = "soul-critique" }
+soul_scheduler = { path = "soul-scheduler" }
 uuid = { version = "1", features = ["v4"] }
 rustyline = "14"
 colored = "2"
@@ -254,15 +284,8 @@ colored = "2"
 [features]
 dev = []
 gpu = []
-avid = ["avid-bridge"]
-synergie = ["synergie-bridge"]
-openevolve = ["openevolve-bridge"]
-brain_system = ["brain-bridge"]
-soul_neural = ["soul-neural-bridge"]
-organs = ["organs-bridge"]
-mesh = ["mesh-bridge"]
-services = ["services-bridge"]
-default = []
+ed25519 = ["dep:ed25519-dalek"]
+default = ["ed25519"]
 
 [profile.release]
 lto = "fat"

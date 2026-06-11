@@ -1,9 +1,9 @@
 [package]
 name = "avid-gomogo"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
 description = "API Reverse Engineering (HTTP Scanner, MITM Proxy, Captcha Farm) — integrated into AVID"
 repository = "https://github.com/CHECKUPAUTO/AVID"
 

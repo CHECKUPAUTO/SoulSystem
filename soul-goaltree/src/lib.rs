@@ -9,7 +9,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use soul_persist::{GoalStatus, PersistentGoal, PersistentStore};
+use soul_memory::{GoalStatus, PersistentGoal, PersistentStore};
 use std::sync::Arc;
 use thiserror::Error;
 use uuid::Uuid;
@@ -23,7 +23,7 @@ pub enum GoalTreeError {
     #[error("Invalid decomposition: {0}")]
     InvalidDecomposition(String),
     #[error("Persist error: {0}")]
-    Persist(#[from] soul_persist::PersistError),
+    Persist(#[from] soul_memory::PersistError),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

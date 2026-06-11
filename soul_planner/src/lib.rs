@@ -101,52 +101,40 @@ impl WorkingMemory {
         self.last_updated = Utc::now();
     }
 
-    /// Set the distilled "key info" line that captures the agent's current
-    /// objective and the most important facts to keep in mind.
-    pub fn set_key_info(&mut self, info: &str) {
-        self.key_info = info.to_string();
-        self.last_updated = Utc::now();
-    }
-
-    /// Render the working memory as a prompt section that can be injected back
-    /// into the conversation to remind the model of its goal and context.
-    pub fn to_prompt_section(&self) -> String {
-        if self.key_info.is_empty() && self.observations.is_empty() {
-            return String::new();
-        }
-
-        let mut section = String::from("## Working Memory\n");
-        if !self.key_info.is_empty() {
-            section.push_str(&format!("Key info: {}\n", self.key_info));
-        }
-        if let Some(sop) = &self.related_sop {
-            section.push_str(&format!("Related procedure: {}\n", sop));
-        }
-        let recent = self.recent_observations(5);
-        if !recent.is_empty() {
-            section.push_str("Recent observations:\n");
-            for obs in recent {
-                section.push_str(&format!("- {}\n", obs));
-            }
-        }
-        section
-    }
-
     pub fn recent_observations(&self, n: usize) -> &[String] {
         let len = self.observations.len();
         let start = len.saturating_sub(n);
         &self.observations[start..]
     }
 
-    pub fn save(&self, path: &str) -> Result<(), String> {
-        let data = serde_json::to_string(self).map_err(|e| e.to_string())?;
-        std::fs::write(path, data).map_err(|e| e.to_string())?;
-        Ok(())
+    pub fn set_key_info(&mut self, info: &str) {
+        self.key_info = info.to_string();
+        self.last_updated = Utc::now();
     }
 
-    pub fn load(path: &str) -> Result<Self, String> {
-        let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&data).map_err(|e| e.to_string())
+    /// Build the anchor prompt injected into every turn
+    pub fn to_prompt_section(&self) -> String {
+        let mut parts = Vec::new();
+
+        if !self.key_info.is_empty() {
+            parts.push(format!("<key_info>\n{}\n</key_info>", self.key_info));
+        }
+
+        if let Some(sop) = &self.related_sop {
+            parts.push(format!("<related_sop>\n{}\n</related_sop>", sop));
+        }
+
+        let recent = self.recent_observations(5);
+        if !recent.is_empty() {
+            let obs_text = recent.join("\n  - ");
+            parts.push(format!("<recent_observations>\n  - {}\n</recent_observations>", obs_text));
+        }
+
+        if parts.is_empty() {
+            String::new()
+        } else {
+            format!("\n## Working Context\n{}\n", parts.join("\n"))
+        }
     }
 }
 
@@ -192,15 +180,14 @@ impl ActionHistory {
         successes / self.actions.len() as f32
     }
 
-    pub fn save(&self, path: &str) -> Result<(), String> {
-        let data = serde_json::to_string(self).map_err(|e| e.to_string())?;
-        std::fs::write(path, data).map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
-    pub fn load(path: &str) -> Result<Self, String> {
-        let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&data).map_err(|e| e.to_string())
+    pub fn recent_summaries(&self, n: usize) -> Vec<String> {
+        self.recent(n)
+            .iter()
+            .map(|a| {
+                let status = if a.success { "OK" } else { "FAIL" };
+                format!("[{}] {} → {}", status, a.action, truncate(&a.result, 100))
+            })
+            .collect()
     }
 }
 
@@ -227,213 +214,117 @@ impl CognitiveLoop {
         }
     }
 
-    pub fn create_plan(&self, goal: &Goal, available_tools: &[String]) -> Plan {
-        let tool_list = if available_tools.is_empty() {
-            "No tools available".to_string()
+    /// Create a plan by asking the LLM to decompose the goal into steps
+    pub async fn create_plan_llm(
+        &self,
+        goal: &Goal,
+        available_tools: &[String],
+        llm: &soul_llm::OllamaClient,
+    ) -> Plan {
+        let tools_list = available_tools.join(", ");
+        let history = self.history.recent_summaries(5);
+        let history_section = if history.is_empty() {
+            String::new()
         } else {
-            available_tools.join(", ")
+            format!("\nRecent actions:\n{}", history.join("\n"))
         };
 
         let prompt = format!(
-            "You are an autonomous planning system. Decompose this goal into concrete steps.\n\n\
-             Goal: {}\n\n\
-             Available tools: {}\n\n\
-             Respond with a JSON array of steps. Each step should have:\n\
-             - \"action\": what to do (be specific)\n\
-             - \"tool\": which tool to use (from available tools, or null for general actions)\n\
-             - \"args\": arguments for the tool (or null)\n\n\
-             Example response:\n\
-             [{{\"action\": \"Check disk usage\", \"tool\": \"df\", \"args\": \"-h\"}},\n\
-              {{\"action\": \"Analyze results\", \"tool\": null, \"args\": null}}]\n\n\
-             Steps (JSON array only, no explanation):",
-            goal.description,
-            tool_list,
+            r#"You are a planning engine. Break this goal into concrete, actionable steps.
+
+GOAL: {goal}
+AVAILABLE TOOLS: {tools}{history}
+
+Return a JSON array of steps. Each step is: {{"action": "description", "tool": "tool_name_or_null", "args": {{}}}}
+Only return the JSON array, no explanation.
+Example: [{{"action": "list files in /tmp", "tool": "ls", "args": {{"path": "/tmp"}}}}]"#,
+            goal = goal.description,
+            tools = tools_list,
+            history = history_section,
         );
 
-        let steps = match self.call_llm(&prompt) {
-            Ok(response) => self.parse_steps_from_llm(&response),
-            Err(_) => vec![Step {
+        match llm.generate(&prompt).await {
+            Ok(resp) => {
+                let steps = parse_plan_steps(&resp.response);
+                Plan {
+                    id: Uuid::new_v4().to_string(),
+                    goal_id: goal.id.clone(),
+                    steps,
+                    created_at: Utc::now(),
+                }
+            }
+            Err(e) => {
+                tracing::warn!("LLM planning failed, falling back to single step: {}", e);
+                Plan {
+                    id: Uuid::new_v4().to_string(),
+                    goal_id: goal.id.clone(),
+                    steps: vec![Step {
+                        id: Uuid::new_v4().to_string(),
+                        action: format!("Execute: {}", goal.description),
+                        tool: None,
+                        args: None,
+                        status: StepStatus::Pending,
+                    }],
+                    created_at: Utc::now(),
+                }
+            }
+        }
+    }
+
+    /// Fallback: create plan without LLM
+    pub fn create_plan(&self, goal: &Goal, _available_tools: &[String]) -> Plan {
+        Plan {
+            id: Uuid::new_v4().to_string(),
+            goal_id: goal.id.clone(),
+            steps: vec![Step {
                 id: Uuid::new_v4().to_string(),
                 action: format!("Execute: {}", goal.description),
                 tool: None,
                 args: None,
                 status: StepStatus::Pending,
             }],
-        };
-
-        Plan {
-            id: Uuid::new_v4().to_string(),
-            goal_id: goal.id.clone(),
-            steps,
             created_at: Utc::now(),
         }
     }
 
-    fn call_llm(&self, prompt: &str) -> Result<String, String> {
-        // reqwest::blocking panics if created or dropped inside a tokio
-        // runtime, and this synchronous API is called from both sync (REPL)
-        // and async (autonomous loop) contexts. Running the blocking HTTP
-        // call on a dedicated thread makes it safe in both.
-        let prompt = prompt.to_string();
-        std::thread::spawn(move || {
-            let client = reqwest::blocking::Client::new();
-            let req = serde_json::json!({
-                "model": "qwen3:4b",
-                "prompt": prompt,
-                "stream": false,
-                "options": {
-                    "temperature": 0.3,
-                    "num_predict": 1024,
-                }
-            });
-
-            let resp = client
-                .post("http://127.0.0.1:11434/api/generate")
-                .json(&req)
-                .send()
-                .map_err(|e| format!("LLM request failed: {}", e))?;
-
-            let body: serde_json::Value = resp
-                .json()
-                .map_err(|e| format!("LLM response parse failed: {}", e))?;
-
-            body["response"]
-                .as_str()
-                .map(|s| s.to_string())
-                .ok_or_else(|| "Empty LLM response".to_string())
-        })
-        .join()
-        .map_err(|_| "LLM thread panicked".to_string())?
-    }
-
-    fn parse_steps_from_llm(&self, response: &str) -> Vec<Step> {
-        let cleaned = response.trim();
-        let json_start = cleaned.find('[').unwrap_or(0);
-        let json_end = cleaned.rfind(']').map(|i| i + 1).unwrap_or(cleaned.len());
-        let json_str = &cleaned[json_start..json_end];
-
-        let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(json_str);
-        match parsed {
-            Ok(items) => items
-                .into_iter()
-                .map(|item| Step {
-                    id: Uuid::new_v4().to_string(),
-                    action: item["action"]
-                        .as_str()
-                        .unwrap_or("unknown action")
-                        .to_string(),
-                    tool: item["tool"].as_str().map(|s| s.to_string()),
-                    args: item.get("args").cloned(),
-                    status: StepStatus::Pending,
-                })
-                .collect(),
-            Err(_) => vec![Step {
-                id: Uuid::new_v4().to_string(),
-                action: response.lines().next().unwrap_or("parse error").to_string(),
-                tool: None,
-                args: None,
-                status: StepStatus::Pending,
-            }],
-        }
-    }
-
-    pub fn evaluate_plan(&self, plan: &Plan, outcome: &str) -> Evaluation {
+    /// Ask the LLM to decide what to do next
+    pub async fn decide_llm(
+        &self,
+        context: &str,
+        llm: &soul_llm::OllamaClient,
+    ) -> Decision {
+        let history = self.history.recent_summaries(5);
         let prompt = format!(
-            "Evaluate this plan execution:\n\
-             Plan steps: {}\n\
-             Outcome: {}\n\n\
-             Respond with JSON: {{\"success\": true/false, \"score\": 0.0-1.0, \"feedback\": \"your analysis\"}}",
-            plan.steps.len(),
-            outcome,
+            r#"You are a decision engine for an autonomous agent.
+
+CURRENT CONTEXT: {context}
+
+RECENT ACTIONS:
+{history}
+
+Decide what to do next. Return JSON:
+{{"action": "what to do", "reasoning": "why", "confidence": 0.0-1.0, "alternatives": ["alt1", "alt2"]}}
+Only return the JSON, no explanation."#,
+            context = context,
+            history = history.join("\n"),
         );
 
-        match self.call_llm(&prompt) {
-            Ok(response) => {
-                let cleaned = response.trim();
-                let json_start = cleaned.find('{').unwrap_or(0);
-                let json_end = cleaned.rfind('}').map(|i| i + 1).unwrap_or(cleaned.len());
-                let json_str = &cleaned[json_start..json_end];
-
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    Evaluation {
-                        plan_id: plan.id.clone(),
-                        success: val["success"].as_bool().unwrap_or(false),
-                        score: val["score"].as_f64().unwrap_or(0.0) as f32,
-                        feedback: val["feedback"]
-                            .as_str()
-                            .unwrap_or("no feedback")
-                            .to_string(),
-                        timestamp: Utc::now(),
-                    }
-                } else {
-                    self.fallback_evaluate(plan, outcome)
+        match llm.generate(&prompt).await {
+            Ok(resp) => parse_decision(&resp.response),
+            Err(e) => {
+                tracing::warn!("LLM decision failed: {}", e);
+                Decision {
+                    action: "continue".to_string(),
+                    reasoning: format!("LLM unavailable: {}", e),
+                    confidence: 0.5,
+                    alternatives: vec!["retry".to_string(), "abort".to_string()],
                 }
             }
-            Err(_) => self.fallback_evaluate(plan, outcome),
-        }
-    }
-
-    fn fallback_evaluate(&self, plan: &Plan, outcome: &str) -> Evaluation {
-        let lower = outcome.to_lowercase();
-        let success = lower.contains("success")
-            || lower.contains("done")
-            || lower.contains("completed");
-        Evaluation {
-            plan_id: plan.id.clone(),
-            success,
-            score: if success { 1.0 } else { 0.0 },
-            feedback: outcome.to_string(),
-            timestamp: Utc::now(),
         }
     }
 
     /// Fallback: decide without LLM
     pub fn decide(&self, context: &str) -> Decision {
-        let prompt = format!(
-            "You are an autonomous agent. Based on this context, decide the best action.\n\n\
-             Context: {}\n\n\
-             Respond with JSON: {{\"action\": \"what to do\", \"reasoning\": \"why\", \"confidence\": 0.0-1.0, \"alternatives\": [\"other options\"]}}",
-            context,
-        );
-
-        match self.call_llm(&prompt) {
-            Ok(response) => {
-                let cleaned = response.trim();
-                let json_start = cleaned.find('{').unwrap_or(0);
-                let json_end = cleaned.rfind('}').map(|i| i + 1).unwrap_or(cleaned.len());
-                let json_str = &cleaned[json_start..json_end];
-
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    let alts = val["alternatives"]
-                        .as_array()
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-
-                    Decision {
-                        action: val["action"]
-                            .as_str()
-                            .unwrap_or("continue")
-                            .to_string(),
-                        reasoning: val["reasoning"]
-                            .as_str()
-                            .unwrap_or("no reasoning")
-                            .to_string(),
-                        confidence: val["confidence"].as_f64().unwrap_or(0.5) as f32,
-                        alternatives: alts,
-                    }
-                } else {
-                    self.fallback_decide(context)
-                }
-            }
-            Err(_) => self.fallback_decide(context),
-        }
-    }
-
-    fn fallback_decide(&self, context: &str) -> Decision {
         Decision {
             action: "continue".to_string(),
             reasoning: format!("Based on context: {}", context),
@@ -442,6 +333,18 @@ impl CognitiveLoop {
         }
     }
 
+    pub fn evaluate_plan(&self, plan: &Plan, outcome: &str) -> Evaluation {
+        let success = outcome.to_lowercase().contains("success")
+            || outcome.to_lowercase().contains("done")
+            || outcome.to_lowercase().contains("completed");
+        Evaluation {
+            plan_id: plan.id.clone(),
+            success,
+            score: if success { 1.0 } else { 0.0 },
+            feedback: outcome.to_string(),
+            timestamp: Utc::now(),
+        }
+    }
 }
 
 impl Default for CognitiveLoop {
@@ -450,134 +353,236 @@ impl Default for CognitiveLoop {
     }
 }
 
+// ── JSON Parsing Helpers ──────────────────────────────────────────────
+
+fn parse_plan_steps(response: &str) -> Vec<Step> {
+    // Try to extract JSON array from response
+    let json_str = extract_json_array(response);
+
+    match serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+        Ok(values) => values
+            .into_iter()
+            .map(|v| Step {
+                id: Uuid::new_v4().to_string(),
+                action: v
+                    .get("action")
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
+                tool: v
+                    .get("tool")
+                    .and_then(|t| t.as_str())
+                    .filter(|t| *t != "null" && !t.is_empty())
+                    .map(|t| t.to_string()),
+                args: v.get("args").cloned(),
+                status: StepStatus::Pending,
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!("Failed to parse plan JSON: {}", e);
+            vec![Step {
+                id: Uuid::new_v4().to_string(),
+                action: response.to_string(),
+                tool: None,
+                args: None,
+                status: StepStatus::Pending,
+            }]
+        }
+    }
+}
+
+fn parse_decision(response: &str) -> Decision {
+    let json_str = extract_json_object(response);
+
+    match serde_json::from_str::<serde_json::Value>(&json_str) {
+        Ok(v) => Decision {
+            action: v
+                .get("action")
+                .and_then(|a| a.as_str())
+                .unwrap_or("continue")
+                .to_string(),
+            reasoning: v
+                .get("reasoning")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string(),
+            confidence: v
+                .get("confidence")
+                .and_then(|c| c.as_f64())
+                .unwrap_or(0.5) as f32,
+            alternatives: v
+                .get("alternatives")
+                .and_then(|a| a.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        },
+        Err(e) => {
+            tracing::warn!("Failed to parse decision JSON: {}", e);
+            Decision {
+                action: "continue".to_string(),
+                reasoning: response.to_string(),
+                confidence: 0.5,
+                alternatives: vec![],
+            }
+        }
+    }
+}
+
+fn extract_json_array(text: &str) -> String {
+    // Find [ ... ] in the text
+    if let Some(start) = text.find('[') {
+        if let Some(end) = text.rfind(']') {
+            return text[start..=end].to_string();
+        }
+    }
+    text.to_string()
+}
+
+fn extract_json_object(text: &str) -> String {
+    // Find { ... } in the text
+    if let Some(start) = text.find('{') {
+        if let Some(end) = text.rfind('}') {
+            return text[start..=end].to_string();
+        }
+    }
+    text.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_working_memory() {
-        let mut mem = WorkingMemory::new();
-        mem.observe("obs1".to_string());
-        mem.observe("obs2".to_string());
-        assert_eq!(mem.observations.len(), 2);
-        let recent = mem.recent_observations(1);
-        assert_eq!(recent.len(), 1);
-        assert_eq!(recent[0], "obs2");
+        let mut wm = WorkingMemory::new();
+        assert!(wm.observations.is_empty());
+
+        wm.observe("test observation".to_string());
+        assert_eq!(wm.observations.len(), 1);
+        assert_eq!(wm.recent_observations(10)[0], "test observation");
+    }
+
+    #[test]
+    fn test_working_memory_key_info() {
+        let mut wm = WorkingMemory::new();
+        wm.set_key_info("important context");
+        assert_eq!(wm.key_info, "important context");
+    }
+
+    #[test]
+    fn test_working_memory_to_prompt() {
+        let mut wm = WorkingMemory::new();
+        wm.set_key_info("task: explore server");
+        wm.observe("found 10 files".to_string());
+        let prompt = wm.to_prompt_section();
+        assert!(prompt.contains("key_info"));
+        assert!(prompt.contains("explore server"));
+        assert!(prompt.contains("found 10 files"));
     }
 
     #[test]
     fn test_action_history() {
-        let mut hist = ActionHistory::new(5);
-        hist.record("action1".to_string(), "result1".to_string(), true);
-        hist.record("action2".to_string(), "result2".to_string(), false);
-        assert_eq!(hist.actions.len(), 2);
-        assert_eq!(hist.success_rate(), 0.5);
+        let mut h = ActionHistory::new(3);
+        h.record("cmd1".to_string(), "out1".to_string(), true);
+        h.record("cmd2".to_string(), "out2".to_string(), false);
+        h.record("cmd3".to_string(), "out3".to_string(), true);
+
+        assert_eq!(h.actions.len(), 3);
+        assert!((h.success_rate() - 0.667).abs() < 0.01);
+
+        // Should evict oldest
+        h.record("cmd4".to_string(), "out4".to_string(), true);
+        assert_eq!(h.actions.len(), 3);
+        assert_eq!(h.actions[0].action, "cmd2");
     }
 
     #[test]
-    fn test_action_history_max_size() {
-        let mut hist = ActionHistory::new(3);
-        for i in 0..5 {
-            hist.record(format!("a{}", i), format!("r{}", i), true);
-        }
-        assert_eq!(hist.actions.len(), 3);
+    fn test_action_history_summaries() {
+        let mut h = ActionHistory::new(10);
+        h.record("ls /tmp".to_string(), "file1\nfile2".to_string(), true);
+        h.record("rm bad".to_string(), "permission denied".to_string(), false);
+
+        let summaries = h.recent_summaries(5);
+        assert_eq!(summaries.len(), 2);
+        assert!(summaries[0].contains("OK"));
+        assert!(summaries[1].contains("FAIL"));
     }
 
     #[test]
-    fn test_action_history_recent() {
-        let mut hist = ActionHistory::new(100);
-        for i in 0..5 {
-            hist.record(format!("a{}", i), format!("r{}", i), true);
-        }
-        let recent = hist.recent(3);
-        assert_eq!(recent.len(), 3);
-        assert_eq!(recent[0].action, "a2");
-    }
-
-    #[test]
-    fn test_action_history_empty() {
-        let hist = ActionHistory::new(100);
-        assert_eq!(hist.success_rate(), 1.0);
-    }
-
-    #[test]
-    fn test_goal_creation() {
-        let goal = Goal {
-            id: "test-id".to_string(),
-            description: "Test goal".to_string(),
-            priority: 5,
-            created_at: Utc::now(),
-            status: GoalStatus::Active,
-        };
-        assert_eq!(goal.description, "Test goal");
-        assert_eq!(goal.priority, 5);
-    }
-
-    #[test]
-    fn test_plan_creation() {
+    fn test_cognitive_loop_fallback() {
+        let loop_ = CognitiveLoop::new();
         let goal = Goal {
             id: "g1".to_string(),
-            description: "test".to_string(),
+            description: "test goal".to_string(),
             priority: 5,
             created_at: Utc::now(),
             status: GoalStatus::Active,
         };
-        let loop_ = CognitiveLoop::new();
         let plan = loop_.create_plan(&goal, &[]);
-        assert_eq!(plan.goal_id, "g1");
-        assert!(!plan.steps.is_empty());
+        assert_eq!(plan.steps.len(), 1);
+        assert!(plan.steps[0].action.contains("test goal"));
+
+        let decision = loop_.decide("context");
+        assert_eq!(decision.action, "continue");
     }
 
     #[test]
-    fn test_plan_with_tools() {
-        let goal = Goal {
-            id: "g1".to_string(),
-            description: "check disk".to_string(),
-            priority: 5,
-            created_at: Utc::now(),
-            status: GoalStatus::Active,
-        };
+    fn test_evaluate_plan() {
         let loop_ = CognitiveLoop::new();
-        let plan = loop_.create_plan(&goal, &["df".to_string(), "ls".to_string()]);
-        assert!(!plan.steps.is_empty());
-    }
-
-    #[test]
-    fn test_decision_creation() {
-        let decision = Decision {
-            action: "test".to_string(),
-            reasoning: "because".to_string(),
-            confidence: 0.9,
-            alternatives: vec!["alt1".to_string()],
+        let plan = Plan {
+            id: "p1".to_string(),
+            goal_id: "g1".to_string(),
+            steps: vec![],
+            created_at: Utc::now(),
         };
-        assert_eq!(decision.action, "test");
-        assert_eq!(decision.confidence, 0.9);
+        let eval = loop_.evaluate_plan(&plan, "Task completed successfully");
+        assert!(eval.success);
+        assert_eq!(eval.score, 1.0);
+
+        let eval2 = loop_.evaluate_plan(&plan, "something went wrong");
+        assert!(!eval2.success);
     }
 
     #[test]
-    fn test_working_memory_save_load() {
-        let mut mem = WorkingMemory::new();
-        mem.observe("obs1".to_string());
-        mem.observe("obs2".to_string());
-        let path = "/tmp/soulsystem_test_wm.json";
-        mem.save(path).unwrap();
-        let loaded = WorkingMemory::load(path).unwrap();
-        assert_eq!(loaded.observations.len(), 2);
-        assert_eq!(loaded.observations[0], "obs1");
-        assert_eq!(loaded.observations[1], "obs2");
-        let _ = std::fs::remove_file(path);
+    fn test_parse_plan_steps() {
+        let response = r#"[{"action": "list files", "tool": "ls", "args": {"path": "/tmp"}}]"#;
+        let steps = parse_plan_steps(response);
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].action, "list files");
+        assert_eq!(steps[0].tool.as_deref(), Some("ls"));
     }
 
     #[test]
-    fn test_action_history_save_load() {
-        let mut hist = ActionHistory::new(100);
-        hist.record("action1".to_string(), "result1".to_string(), true);
-        hist.record("action2".to_string(), "result2".to_string(), false);
-        let path = "/tmp/soulsystem_test_ah.json";
-        hist.save(path).unwrap();
-        let loaded = ActionHistory::load(path).unwrap();
-        assert_eq!(loaded.actions.len(), 2);
-        assert_eq!(loaded.success_rate(), 0.5);
-        let _ = std::fs::remove_file(path);
+    fn test_parse_plan_steps_no_json() {
+        let response = "Just do the thing";
+        let steps = parse_plan_steps(response);
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].action, "Just do the thing");
+    }
+
+    #[test]
+    fn test_parse_decision() {
+        let response = r#"{"action": "run tests", "reasoning": "to verify", "confidence": 0.9, "alternatives": ["skip"]}"#;
+        let d = parse_decision(response);
+        assert_eq!(d.action, "run tests");
+        assert_eq!(d.confidence, 0.9);
+        assert_eq!(d.alternatives, vec!["skip"]);
+    }
+
+    #[test]
+    fn test_extract_json() {
+        let text = "Here is the result: [{\"a\": 1}] done.";
+        let arr = extract_json_array(text);
+        assert!(arr.starts_with('['));
+        assert!(arr.ends_with(']'));
+
+        let text2 = "Result: {\"key\": \"value\"} end.";
+        let obj = extract_json_object(text2);
+        assert!(obj.starts_with('{'));
+        assert!(obj.ends_with('}'));
     }
 }

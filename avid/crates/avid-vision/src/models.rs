@@ -9,6 +9,7 @@ impl ModelManager {
     pub fn new() -> Self { Self {} }
 
     /// Load a model from file.
+    #[allow(dead_code)]
     pub fn load_model<P: AsRef<Path>>(&self, path: P) -> Result<Session, anyhow::Error> {
         let session = Session::builder()
             .map_err(|e| anyhow::anyhow!("{:?}", e))?

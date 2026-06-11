@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use soul_agent_core::{AgentEvent, AutonomousAgent};
 use soul_eventbus::{AgentEvent as BusEvent, EventBus};
 use soul_llm::{LlmConfig, OllamaClient};
-use soul_persist::{GoalStatus, PersistentGoal, PersistentStore};
+use soul_memory::{GoalStatus, PersistentGoal, PersistentStore};
 use soul_subagents::SubAgentManager;
 use soul_tools::AsyncShellExecutor;
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ pub enum DaemonError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Persist error: {0}")]
-    Persist(#[from] soul_persist::PersistError),
+    Persist(#[from] soul_memory::PersistError),
     #[error("Agent error: {0}")]
     Agent(String),
     #[error("LLM error: {0}")]
@@ -199,19 +199,45 @@ impl Daemon {
         })
     }
 
-    /// Run the daemon main loop
+    /// Run the daemon main loop with periodic checkpoint and auto-rollback on failures.
     pub async fn run(&self) -> Result<(), DaemonError> {
         info!("🚀 SoulDaemon starting...");
 
         let mut shutdown_rx = self.shutdown_tx.subscribe();
         let mut interval =
             tokio::time::interval(tokio::time::Duration::from_secs(self.config.poll_interval_secs));
+        let mut checkpoint_tick = tokio::time::interval(tokio::time::Duration::from_secs(300));
+        let mut consecutive_failures: u64 = 0;
+        let mut rollback_checkpoint: Option<String> = None;
 
         loop {
             tokio::select! {
                 _ = interval.tick() => {
                     if let Err(e) = self.process_goals().await {
-                        error!("Error processing goals: {}", e);
+                        consecutive_failures += 1;
+                        error!("Error processing goals ({} consecutive): {}", consecutive_failures, e);
+                        if consecutive_failures >= 5 {
+                            warn!("Too many consecutive failures, triggering rollback");
+                            if let Some(ref cp) = rollback_checkpoint {
+                                let _ = self.store.save_config("rollback_needed",
+                                    &serde_json::json!({"checkpoint": cp, "timestamp": Utc::now().to_rfc3339()}));
+                            }
+                            consecutive_failures = 0;
+                        }
+                    } else {
+                        consecutive_failures = 0;
+                    }
+                }
+                _ = checkpoint_tick.tick() => {
+                    // Save periodic checkpoint
+                    if let Ok(goals) = self.store.load_all_goals() {
+                        let cp_id = uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("cp").to_string();
+                        if self.store.save_config("last_checkpoint",
+                            &serde_json::json!({"id": &cp_id, "goals": goals, "ts": Utc::now().timestamp_millis()})).is_ok()
+                        {
+                            info!("Checkpoint saved: {}", &cp_id);
+                            rollback_checkpoint = Some(cp_id);
+                        }
                     }
                 }
                 _ = shutdown_rx.changed() => {

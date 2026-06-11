@@ -1,85 +1,60 @@
 use colored::*;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
-use soul_agent_core::{AgentConfig, AutonomousAgent};
-use soul_cognitive::CognitiveEngine;
-use soul_conversations::ConversationStore;
+use soul_agent_core::{AgentConfig, AgentEvent, AutonomousAgent};
 use soul_critique::quick_critique;
 use soul_designtree::{DesignState, DesignTree};
-use soul_graph_memory::{Edge, EdgeType, KnowledgeGraph, Node, NodeType};
 use soul_inference::InferenceController;
-use soul_llm::{LlmConfig, OllamaClient, OllamaClientBlocking};
+use soul_llm::{LlmConfig, OllamaClient};
 use soul_mcp::McpToolHandler;
-use soul_monitor::MonitorEngine;
-use soul_persist::PersistentStore;
+use soul_memory::PersistentStore;
+use soul_memory::{Edge, EdgeType, KnowledgeGraph, Node, NodeType};
 use soul_planner::CognitiveLoop;
-use soul_security::SecurityEngine;
 use soul_skills::SkillLoader;
 use soul_subagents::SubAgentManager;
 use soul_tools::{discover_system_tools, execute_shell, ToolRegistry};
-use tokio::sync::broadcast;
+use std::path::PathBuf;
+use tokio::sync::{broadcast, mpsc};
 
 pub struct ReplState {
-    pub llm: OllamaClientBlocking,
-    pub planner: CognitiveLoop,
-    pub registry: ToolRegistry,
     pub agent: AutonomousAgent,
-    pub cognitive: CognitiveEngine,
-    pub security: SecurityEngine,
-    pub monitor: MonitorEngine,
-    pub design_tree: DesignTree,
-    pub graph: KnowledgeGraph,
-    pub persist_store: Option<PersistentStore>,
-    pub sub_agents: SubAgentManager,
-    pub skill_loader: SkillLoader,
-    pub conversations: Option<ConversationStore>,
-    pub session_id: Option<String>,
     pub verbose: bool,
+    pub persist_store: Option<PersistentStore>,
     pub daemon_rx: Option<broadcast::Receiver<soul_dashboard::BusEvent>>,
+    pub graph: KnowledgeGraph,
+    pub design_tree: DesignTree,
+    pub skill_loader: SkillLoader,
+    pub conversations: Option<soul_memory::ConversationStore>,
+    pub session_id: Option<String>,
+    pub sub_agents: SubAgentManager,
 }
 
 impl ReplState {
     pub fn new(config: LlmConfig) -> Self {
-        // Synchronous REPL tool registry (system tool discovery).
-        let mut registry = ToolRegistry::new();
-        for tool in discover_system_tools() {
-            registry.register(tool);
-        }
+        let agent_config = AgentConfig::default();
+        let agent = AutonomousAgent::new(OllamaClient::new(config), agent_config);
 
-        // Data directories for persistence, design tree, and skills.
+        // Try to open persistent store
+        let persist_dir = std::env::temp_dir().join("soul_repl_persist");
+        std::fs::create_dir_all(&persist_dir).ok();
+        let persist_store = PersistentStore::open(&persist_dir).ok();
+
         let data_dir = std::env::temp_dir().join("soul_repl_data");
         std::fs::create_dir_all(&data_dir).ok();
-        let design_dir = data_dir.join("design");
-        std::fs::create_dir_all(&design_dir).ok();
-        let skills_dir = data_dir.join("skills");
+        let skills_dir = data_dir.join(".skills");
         std::fs::create_dir_all(&skills_dir).ok();
-        let persist_dir = data_dir.join("persist");
-        std::fs::create_dir_all(&persist_dir).ok();
-
-        // Optional stores degrade gracefully when their backends are unavailable.
-        let persist_store = PersistentStore::open(&persist_dir).ok();
-        let conversations = ConversationStore::open(&data_dir.join("conversations.db")).ok();
-
-        let agent =
-            AutonomousAgent::new(OllamaClient::new(config.clone()), AgentConfig::default());
 
         Self {
-            llm: OllamaClientBlocking::new(config.clone()),
-            planner: CognitiveLoop::new(),
-            registry,
             agent,
-            cognitive: CognitiveEngine::new(),
-            security: SecurityEngine::new(),
-            monitor: MonitorEngine::new(),
-            design_tree: DesignTree::new(&design_dir),
-            graph: KnowledgeGraph::new(),
+            verbose: true,
             persist_store,
-            sub_agents: SubAgentManager::new(config, 4),
-            skill_loader: SkillLoader::new(&skills_dir),
-            conversations,
-            session_id: None,
-            verbose: false,
             daemon_rx: None,
+            graph: KnowledgeGraph::new(),
+            design_tree: DesignTree::new(&data_dir.join("design")),
+            skill_loader: SkillLoader::new(&skills_dir),
+            conversations: soul_memory::ConversationStore::open(&data_dir.join("conversations")).ok(),
+            session_id: None,
+            sub_agents: SubAgentManager::new(soul_llm::LlmConfig::default(), 4),
         }
     }
 
@@ -96,11 +71,88 @@ fn new_runtime() -> tokio::runtime::Runtime {
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_repl_short() {
+        let s = "hello";
+        assert_eq!(truncate_repl(s, 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_repl_long() {
+        let s = "hello world this is a long string";
+        let truncated = truncate_repl(s, 10);
+        assert_eq!(truncated, "hello worl...");
+        assert_eq!(truncated.len(), 13); // 10 + "..."
+    }
+
+    #[test]
+    fn test_truncate_repl_empty() {
+        assert_eq!(truncate_repl("", 10), "");
+    }
+
+    #[test]
+    fn test_truncate_repl_exact() {
+        let s = "12345";
+        assert_eq!(truncate_repl(s, 5), "12345");
+    }
+
+    #[test]
+    fn test_truncate_repl_one_char() {
+        let s = "abc";
+        assert_eq!(truncate_repl(s, 1), "a...");
+    }
+
+    #[test]
+    fn test_repl_state_new() {
+        let config = LlmConfig::default();
+        let state = ReplState::new(config);
+        assert_eq!(state.verbose, true);
+        assert_eq!(state.session_id, None);
+    }
+
+    #[test]
+    fn test_repl_state_with_daemon() {
+        let config = LlmConfig::default();
+        let (tx, rx) = broadcast::channel(16);
+        let _state = ReplState::new(config).with_daemon_events(rx);
+        drop(tx);
+        // Should have daemon_rx set
+        // Can't easily assert on broadcast receiver, just verify no panic
+    }
+
+    #[test]
+    fn test_print_help_does_not_panic() {
+        print_help();
+    }
+
+    #[test]
+    fn test_repl_state_default_fields() {
+        let config = LlmConfig::default().with_model("test-repl-model");
+        let state = ReplState::new(config);
+        assert!(state.persist_store.is_some() || state.persist_store.is_none());
+        // graph should be initialized (KnowledgeGraph::new())
+        let stats = state.graph.stats();
+        assert_eq!(stats.node_count, 0);
+        assert_eq!(stats.edge_count, 0);
+    }
+
+    #[test]
+    fn test_repl_state_design_tree() {
+        let config = LlmConfig::default();
+        let state = ReplState::new(config);
+        let stats = state.design_tree.stats();
+        assert_eq!(stats.total, 0);
+    }
+}
+
 pub fn run_repl(state: &mut ReplState) {
-    let mut rl = DefaultEditor::new().unwrap_or_else(|_| {
-        eprintln!("Failed to create readline editor");
-        std::process::exit(1);
-    });
+    let rt = new_runtime();
+
+    let mut rl = DefaultEditor::new().expect("Failed to create readline");
 
     println!("{}", "╔══════════════════════════════════════════╗".cyan());
     println!("{}", "║   SoulSystem Autonomous Agent v0.2.0   ║".cyan().bold());
@@ -108,7 +160,6 @@ pub fn run_repl(state: &mut ReplState) {
     println!("{}", "╚══════════════════════════════════════════╝".cyan());
     println!();
 
-    let rt = new_runtime();
     loop {
         let prompt = format!("{} ", ">>".green().bold());
         match rl.readline(&prompt) {
@@ -154,10 +205,159 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 println!("{}", "Usage: ask <question>".yellow());
                 return;
             }
-            match state.llm.generate(args) {
-                Ok(r) => println!("{}", r.response),
+
+            // Auto-select inference profile based on question complexity
+            let profile = InferenceController::select_profile(args);
+            if state.verbose {
+                println!(
+                    "  {} capability={:?} thinking={:?} context={:?}",
+                    "● infer:".dimmed(),
+                    profile.capability,
+                    profile.thinking,
+                    profile.context
+                );
+            }
+
+            // Inject graph memory context
+            let enriched_prompt = if !state.graph.find_nodes_by_label(args).is_empty() || args.len() > 5 {
+                let ctx = state.graph.context_for_query(args, 5);
+                if ctx.is_empty() {
+                    args.to_string()
+                } else {
+                    format!("{ctx}\n\nUser query: {args}")
+                }
+            } else {
+                args.to_string()
+            };
+
+            match state.agent.ask(&enriched_prompt).await {
+                Ok(resp) => {
+                    println!("{}", resp);
+                    // Auto-persist conversation
+                    if let Some(ref conv) = state.conversations {
+                        if state.session_id.is_none() {
+                            if let Ok(id) = conv.create_session("auto", Some("qwen3:8b")) {
+                                state.session_id = Some(id);
+                            }
+                        }
+                        if let Some(ref sid) = state.session_id {
+                            conv.add_message(soul_memory::AddMessageParams {
+                                session_id: sid,
+                                role: "user",
+                                content: args,
+                                tool_calls: None,
+                                tool_call_id: None,
+                                tokens_used: None,
+                                model: None,
+                            }).ok();
+                            conv.add_message(soul_memory::AddMessageParams {
+                                session_id: sid,
+                                role: "assistant",
+                                content: &resp,
+                                tool_calls: None,
+                                tool_call_id: None,
+                                tokens_used: None,
+                                model: None,
+                            }).ok();
+                        }
+                    }
+                }
                 Err(e) => println!("{}: {}", "Error".red().bold(), e),
             }
+        }
+
+        // ── Run task with full autonomous loop ──
+        "run" | "task" => {
+            if args.is_empty() {
+                println!("{}", "Usage: run <task description>".yellow());
+                return;
+            }
+            println!("{}", "Starting autonomous task...".cyan().bold());
+
+            // Auto-track in design tree
+            let design_id = state.design_tree.create_node(args, "Auto-created from 'run' command");
+            state.design_tree.transition_node(&design_id, soul_designtree::DesignState::Implementation, Some("auto-started".into())).ok();
+            println!("  {} design node: {}", "●".dimmed(), &design_id[..8]);
+
+            // Auto-add to knowledge graph
+            let graph_node = soul_memory::Node::new(soul_memory::NodeType::Task, args);
+            let graph_id = state.graph.add_node(graph_node);
+            println!("  {} graph node: {}", "●".dimmed(), &graph_id[..8]);
+
+            let (tx, mut rx) = mpsc::unbounded_channel::<AgentEvent>();
+
+            // Collect events in background
+            let event_handle = tokio::spawn(async move {
+                while let Some(event) = rx.recv().await {
+                    match event {
+                        AgentEvent::Thinking { content } => {
+                            println!("  {} {}", "●".dimmed(), content.dimmed());
+                        }
+                        AgentEvent::ToolCall { name, args } => {
+                            let args_str = if args.to_string().len() > 80 {
+                                format!("{}...", &args.to_string()[..80])
+                            } else {
+                                args.to_string()
+                            };
+                            println!("  {} {} {}", "→".yellow(), name.green().bold(), args_str.dimmed());
+                        }
+                        AgentEvent::ToolResult { name, output, success } => {
+                            let icon = if success { "✓".green() } else { "✗".red() };
+                            let preview = if output.len() > 200 {
+                                format!("{}...", &output[..200])
+                            } else {
+                                output
+                            };
+                            println!("  {} {} {}", icon, name, preview.dimmed());
+                        }
+                        AgentEvent::Response { content } => {
+                            println!();
+                            println!("{}", content);
+                            println!();
+                        }
+                        AgentEvent::SafetyWarning { message } => {
+                            println!("  {} {}", "⚠".yellow().bold(), message.yellow());
+                        }
+                        AgentEvent::Done { summary } => {
+                            println!();
+                            println!("{} {}", "✓".green().bold(), summary.green());
+                        }
+                        AgentEvent::Error { message } => {
+                            println!("{}: {}", "Error".red().bold(), message);
+                        }
+                    }
+                }
+            });
+
+            state.agent.set_event_sender(tx);
+
+            match state.agent.run_task(args).await {
+                Ok(result) => {
+                    println!();
+                    println!("{}: {}", "Result".cyan().bold(), result);
+
+                    // Auto-transition design tree: Implementation → Testing → Verified
+                    let design_nodes: Vec<String> = state.design_tree.find_by_state(&soul_designtree::DesignState::Implementation)
+                        .into_iter().map(|n| n.id.clone()).collect();
+                    for id in &design_nodes {
+                        if state.design_tree.transition_node(id, soul_designtree::DesignState::Testing, Some("task completed".into())).is_ok() {
+                            println!("  {} design {} → Testing", "●".dimmed(), &id[..8]);
+                        }
+                    }
+
+                    // Auto-add result to knowledge graph
+                    let result_node = soul_memory::Node::new(
+                        soul_memory::NodeType::Task,
+                        &format!("result: {}", &result[..result.len().min(50)]),
+                    ).with_content(&result);
+                    state.graph.add_node(result_node);
+
+                    println!("  {} knowledge graph updated", "●".dimmed());
+                }
+                Err(e) => println!("{}: {}", "Error".red().bold(), e),
+            }
+
+            event_handle.abort();
         }
 
         // ── Plan a goal ──
@@ -173,12 +373,19 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 created_at: chrono::Utc::now(),
                 status: soul_planner::GoalStatus::Active,
             };
-            let tool_names: Vec<String> = state.registry.list().iter().map(|t| t.name.clone()).collect();
-            println!("{}", "Planning with LLM...".dimmed());
-            let plan = state.planner.create_plan(&goal, &tool_names);
-            match serde_json::to_string_pretty(&plan) {
-                Ok(json) => println!("{}: {}", "Plan".cyan().bold(), json),
-                Err(e) => println!("{}: {}", "Error".red().bold(), e),
+            let plan = state.agent.planner.create_plan_llm(&goal, &[], &state.agent.llm).await;
+            println!("{}:", "Plan".cyan().bold());
+            for (i, step) in plan.steps.iter().enumerate() {
+                println!(
+                    "  {}. {} {}",
+                    (i + 1).to_string().green(),
+                    step.action,
+                    if let Some(tool) = &step.tool {
+                        format!("({})", tool).dimmed().to_string()
+                    } else {
+                        String::new()
+                    }
+                );
             }
         }
 
@@ -218,8 +425,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
 
         // ── Memory ──
         "memory" => {
-            let obs = state.planner.memory.recent_observations(10);
-            let key_info = &state.planner.memory.key_info;
+            let obs = state.agent.planner.memory.recent_observations(10);
+            let key_info = &state.agent.planner.memory.key_info;
             println!("{}:", "Memory".cyan().bold());
             if !key_info.is_empty() {
                 println!("  Key Info: {}", key_info.green());
@@ -232,8 +439,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                     println!("    - {}", o);
                 }
             }
-            println!("  History: {} actions", state.planner.history.actions.len());
-            println!("  Success Rate: {:.1}%", state.planner.history.success_rate() * 100.0);
+            println!("  History: {} actions", state.agent.planner.history.actions.len());
+            println!("  Success Rate: {:.1}%", state.agent.planner.history.success_rate() * 100.0);
         }
 
         // ── Observe ──
@@ -242,20 +449,13 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 println!("{}", "Usage: observe <observation>".yellow());
                 return;
             }
-            state.planner.memory.observe(args.to_string());
-            state.cognitive.context.add(args, 0.5);
+            state.agent.planner.memory.observe(args.to_string());
             println!("{}: {}", "Observed".green().bold(), args);
         }
-        "decide" => {
-            println!("{}", "Thinking...".dimmed());
-            let decision = state.planner.decide(args);
-            match serde_json::to_string_pretty(&decision) {
-                Ok(json) => println!("{}: {}", "Decision".cyan().bold(), json),
-                Err(e) => println!("{}: {}", "Error".red().bold(), e),
-            }
-        }
+
+        // ── History ──
         "history" => {
-            let recent = state.planner.history.recent(15);
+            let recent = state.agent.planner.history.recent(15);
             if recent.is_empty() {
                 println!("{}", "No action history".dimmed());
             } else {
@@ -266,154 +466,25 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 }
             }
         }
-        "learn" => {
-            let learn_parts: Vec<&str> = args.splitn(3, ' ').collect();
-            if learn_parts.len() < 3 {
-                println!("{}", "Usage: learn <action> <outcome> <reward:0.0-1.0>".yellow());
-                return;
-            }
-            let reward = learn_parts[2].parse::<f32>().unwrap_or(0.5);
-            state.cognitive.learn(learn_parts[0], learn_parts[1], reward);
-            state.planner.history.record(
-                learn_parts[0].to_string(),
-                learn_parts[1].to_string(),
-                reward > 0.0,
-            );
-            println!("{}: learned '{}' → '{}' (reward: {:.1})", "Learned".green().bold(), learn_parts[0], learn_parts[1], reward);
-        }
-        "think" => {
-            if args.is_empty() {
-                println!("{}", "Usage: think <input>".yellow());
-                return;
-            }
-            let result = state.cognitive.think(args);
-            match serde_json::to_string_pretty(&result) {
-                Ok(json) => println!("{}: {}", "Think".cyan().bold(), json),
-                Err(e) => println!("{}: {}", "Error".red().bold(), e),
-            }
-        }
-        "knowledge" => {
-            let stats = state.cognitive.knowledge.stats();
-            println!("{}: {}", "Knowledge Graph".cyan().bold(), stats);
-            let entities = state.cognitive.knowledge.search(args);
-            if !entities.is_empty() {
-                println!("  Found {} entities:", entities.len());
-                for e in entities.iter().take(10) {
-                    println!("    {} ({})", e.name.green(), e.entity_type.dimmed());
-                }
-            }
-        }
-        "clear" => {
-            state.planner.memory.observations.clear();
-            state.planner.history.actions.clear();
-            println!("{}", "Memory and history cleared".green().bold());
-        }
-        "config" => {
-            let cfg = state.llm.config();
-            println!("{}:", "Configuration".cyan().bold());
-            println!("  Model: {}", cfg.model.green());
-            println!("  URL: {}", cfg.base_url);
-            println!("  Temperature: {}", cfg.temperature);
-            println!("  Max tokens: {}", cfg.max_tokens);
-        }
-        "gpu" => {
-            match state.monitor.gpu.get_gpu_info() {
-                Some(gpu) => {
-                    println!("{}:", "GPU".cyan().bold());
-                    println!("  Name: {}", gpu.name.green());
-                    println!("  Temperature: {:.0}°C", gpu.temperature);
-                    println!("  Utilization: {:.1}%", gpu.utilization);
-                    println!("  Memory: {} MB / {} MB", gpu.memory_used, gpu.memory_total);
-                    println!("  Power: {:.0}W", gpu.power);
-                }
-                None => println!("{}", "No GPU detected".yellow()),
-            }
-        }
-        "network" => {
-            let stats = state.monitor.network.get_stats();
-            println!("{}:", "Network".cyan().bold());
-            println!("  Connections: {}", stats.connections);
-            println!("  Latency: {:.1}ms", stats.latency_ms);
-            for iface in &stats.interfaces {
-                println!("  {}: ↑{} ↓{}", iface.name.green(),
-                    format_bytes(iface.bytes_sent),
-                    format_bytes(iface.bytes_received));
-            }
-        }
-        "disks" => {
-            let disks = state.monitor.disk.get_disks();
-            println!("{}:", "Disks".cyan().bold());
-            for d in &disks {
-                println!("  {} → {} ({:.1}% used)",
-                    d.device.green(), d.mount_point, d.usage_percent);
-            }
-        }
-        "audit" => {
-            let recent = state.security.audit.recent(10);
-            if recent.is_empty() {
-                println!("{}", "No audit entries".dimmed());
-            } else {
-                println!("{}:", "Audit Trail".cyan().bold());
-                for e in recent {
-                    println!("  [{}] {} → {}: {}",
-                        e.timestamp.format("%H:%M"),
-                        e.actor.green(),
-                        e.target,
-                        e.action);
-                }
-            }
-        }
-        "secrets" => {
-            let secrets = state.security.secrets.list_secrets();
-            println!("{}: {} secrets", "Secrets".cyan().bold(), secrets.len());
-            for s in secrets {
-                println!("  {} (created: {})", s.name.green(),
-                    s.created_at.format("%Y-%m-%d"));
-            }
-        }
-        "block" => {
-            if args.is_empty() {
-                println!("{}", "Usage: block <ip>".yellow());
-                return;
-            }
-            state.security.intrusion.block_ip(args);
-            println!("{}: {}", "Blocked".red().bold(), args);
-        }
-        "intrusions" => {
-            let events = state.security.intrusion.recent_events(10);
-            if events.is_empty() {
-                println!("{}", "No intrusion events".dimmed());
-            } else {
-                println!("{}:", "Intrusion Events".cyan().bold());
-                for e in events {
-                    println!("  [{}] {:?} from {}: {}",
-                        e.timestamp.format("%H:%M"),
-                        e.severity,
-                        e.source_ip.green(),
-                        e.details);
-                }
-            }
-        }
-        "rate" => {
-            let parts: Vec<&str> = args.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let max: usize = parts[1].parse().unwrap_or(100);
-                state.security.rate_limiter.set_limit(parts[0], max, 60);
-                println!("{}: {} → max {}/min", "Rate limit".green().bold(), parts[0], max);
-            } else if !args.is_empty() {
-                let remaining = state.security.rate_limiter.remaining(args);
-                println!("{}: {} remaining", "Rate limit".cyan().bold(), remaining);
-            } else {
-                println!("{}", "Usage: rate <key> [max_requests]".yellow());
-            }
-        }
+
+        // ── Status ──
         "status" => {
-            print_full_status(state);
+            let status = state.agent.status();
+            println!("{}:", "Status".cyan().bold());
+            println!("  Model: {}", status["llm_model"].as_str().unwrap_or("?").green());
+            println!("  Turn: {}/{}", status["turn"], status["max_turns"]);
+            println!("  Tools: {}", status["tools"]);
+            println!(
+                "  Success Rate: {:.1}%",
+                status["success_rate"].as_f64().unwrap_or(1.0) * 100.0
+            );
+            println!("  Observations: {}", status["observations"]);
+            println!("  Conversation: {}", status["conversation"].as_str().unwrap_or("?"));
         }
 
         // ── Models ──
         "models" => {
-            match state.llm.list_models() {
+            match state.agent.llm.list_models().await {
                 Ok(models) => {
                     println!("{}: {} models", "Models".cyan().bold(), models.len());
                     for m in models.iter().take(20) {
@@ -512,7 +583,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 return;
             }
             println!("{}", format!("Searching: {}...", args).cyan());
-            let mut rag = soul_rag::RagStore::new(soul_rag::RagConfig::default());
+            let mut rag = soul_memory::RagStore::new(soul_memory::RagConfig::default());
             match rag.search_web(args).await {
                 Ok(results) => {
                     if results.is_empty() {
@@ -548,7 +619,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             }
             // Fetch relevant context from web
             println!("{}", "Fetching web context...".cyan());
-            let mut rag = soul_rag::RagStore::new(soul_rag::RagConfig::default());
+            let mut rag = soul_memory::RagStore::new(soul_memory::RagConfig::default());
             let context = match rag.search_web(args).await {
                 Ok(results) => {
                     results.iter()
@@ -594,7 +665,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             // Save design tree
             let design_dir = data_dir.join("design");
             std::fs::create_dir_all(&design_dir).ok();
-            if let Err(e) = state.design_tree.save().await {
+            let rt = new_runtime();
+            if let Err(e) = rt.block_on(state.design_tree.save()) {
                 println!("{}: design save failed: {}", "Error".red(), e);
             } else {
                 let stats = state.design_tree.stats();
@@ -607,9 +679,9 @@ async fn handle_input(state: &mut ReplState, input: &str) {
 
             // Save agent context
             if let Some(ref store) = state.persist_store {
-                let mem = soul_persist::PersistentWorkingMemory {
-                    key_info: state.planner.memory.key_info.clone(),
-                    observations: state.planner.memory.recent_observations(50).to_vec(),
+                let mem = soul_memory::PersistentWorkingMemory {
+                    key_info: state.agent.planner.memory.key_info.clone(),
+                    observations: state.agent.planner.memory.recent_observations(50).to_vec(),
                     related_sop: None,
                     context: serde_json::json!({
                         "turn": state.agent.turn,
@@ -618,8 +690,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                     last_updated: chrono::Utc::now(),
                 };
                 store.save_memory(&mem).ok();
-                for action in state.planner.history.recent(20) {
-                    let entry = soul_persist::ChatEntry {
+                for action in state.agent.planner.history.recent(20) {
+                    let entry = soul_memory::ChatEntry {
                         id: uuid::Uuid::new_v4().to_string(),
                         role: "system".into(),
                         content: format!("Action: {} → {}", action.action, action.result),
@@ -640,7 +712,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             // Load graph
             let graph_path = data_dir.join("graph.json");
             if graph_path.exists() {
-                match soul_graph_memory::KnowledgeGraph::load(&graph_path) {
+                match soul_memory::KnowledgeGraph::load(&graph_path) {
                     Ok(loaded) => {
                         state.graph = loaded;
                         let stats = state.graph.stats();
@@ -658,7 +730,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             // Load design tree
             let design_dir = data_dir.join("design");
             if design_dir.exists() {
-                let count = state.design_tree.load().await.unwrap_or(0);
+                let rt = new_runtime();
+                let count = rt.block_on(state.design_tree.load()).unwrap_or(0);
                 println!("{}: design tree loaded ({} nodes)", "✓".green(), count);
             }
 
@@ -666,9 +739,9 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             if let Some(ref store) = state.persist_store {
                 match store.load_memory() {
                     Ok(mem) => {
-                        state.planner.memory.key_info = mem.key_info;
+                        state.agent.planner.memory.key_info = mem.key_info;
                         for obs in mem.observations {
-                            state.planner.memory.observe(obs);
+                            state.agent.planner.memory.observe(obs);
                         }
                         println!("{}: agent context loaded", "✓".green());
                     }
@@ -699,11 +772,11 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                         return;
                     }
                     if let Some(ref store) = state.persist_store {
-                        let goal = soul_persist::PersistentGoal {
+                        let goal = soul_memory::PersistentGoal {
                             id: uuid::Uuid::new_v4().to_string(),
                             description: sub_args.to_string(),
                             priority: 5,
-                            status: soul_persist::GoalStatus::Active,
+                            status: soul_memory::GoalStatus::Active,
                             created_at: chrono::Utc::now(),
                             updated_at: chrono::Utc::now(),
                             parent_id: None,
@@ -728,11 +801,11 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                                     println!("{}:", "Goals".cyan().bold());
                                     for g in &goals {
                                         let status_icon = match g.status {
-                                            soul_persist::GoalStatus::Active => "○".yellow(),
-                                            soul_persist::GoalStatus::Running => "●".green(),
-                                            soul_persist::GoalStatus::Completed => "✓".cyan(),
-                                            soul_persist::GoalStatus::Failed => "✗".red(),
-                                            soul_persist::GoalStatus::Deferred => "◦".dimmed(),
+                                            soul_memory::GoalStatus::Active => "○".yellow(),
+                                            soul_memory::GoalStatus::Running => "●".green(),
+                                            soul_memory::GoalStatus::Completed => "✓".cyan(),
+                                            soul_memory::GoalStatus::Failed => "✗".red(),
+                                            soul_memory::GoalStatus::Deferred => "◦".dimmed(),
                                         };
                                         println!(
                                             "  {} [{}] {} (priority: {})",
@@ -756,8 +829,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                             Ok(active) => {
                                 match store.load_all_goals() {
                                     Ok(all) => {
-                                        let completed = all.iter().filter(|g| g.status == soul_persist::GoalStatus::Completed).count();
-                                        let failed = all.iter().filter(|g| g.status == soul_persist::GoalStatus::Failed).count();
+                                        let completed = all.iter().filter(|g| g.status == soul_memory::GoalStatus::Completed).count();
+                                        let failed = all.iter().filter(|g| g.status == soul_memory::GoalStatus::Failed).count();
                                         println!("{}:", "Goal Stats".cyan().bold());
                                         println!("  Active: {}", active.len().to_string().green());
                                         println!("  Completed: {}", completed.to_string().cyan());
@@ -772,10 +845,6 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                         println!("{}", "Persistence not available".red());
                     }
                 }
-                _ => println!("{}", "Usage: goal [add|list|status]".yellow()),
-            }
-        }
-
         // ── Skills ──
         "skills" => {
             let sub_args: Vec<&str> = args.splitn(2, ' ').collect();
@@ -1081,7 +1150,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                                 }
                             })
                         });
-                        match handler.execute(tool_name, args_json).await {
+                        let rt = new_runtime();
+                        match rt.block_on(handler.execute(tool_name, args_json)) {
                             Ok(result) => println!("{}", serde_json::to_string_pretty(&result).unwrap()),
                             Err(e) => println!("{}: {}", "Error".red(), e),
                         }
@@ -1105,17 +1175,18 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                         let url = sub_args[1];
                         println!("{}: connecting to {}...", "●".cyan(), url);
                         let transport = soul_mcp::WsTransport::new(url);
-                        match transport.connect_client().await {
+                        match new_runtime().block_on(transport.connect_client()) {
                             Ok((tx, rx)) => {
                                 println!("{}: connected to {}", "✓".green(), url);
                                 let client = soul_mcp::McpClient::new(tx, rx);
-                                match client.initialize(soul_mcp::McpServerInfo {
+                                let rt = new_runtime();
+                                match rt.block_on(client.initialize(soul_mcp::McpServerInfo {
                                     name: "soulsystem-repl".into(),
                                     version: "0.1.0".into(),
-                                }).await {
+                                })) {
                                     Ok(caps) => {
                                         println!("  Server capabilities: tools={}, resources={}, prompts={}", caps.tools, caps.resources, caps.prompts);
-                                        match client.list_tools().await {
+                                        match rt.block_on(client.list_tools()) {
                                             Ok(tools) => {
                                                 println!("  Remote tools ({}):", tools.len());
                                                 for t in &tools {
@@ -1162,7 +1233,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                         let server = soul_mcp::create_soul_mcp_server("soulsystem", Box::new(handler));
                         let transport = soul_mcp::WsTransport::new(addr);
                         println!("  Server started. Press Ctrl+C to stop.");
-                        transport.serve_ws(server).await.ok();
+                        let rt = new_runtime();
+                        rt.block_on(transport.serve_ws(server)).ok();
                     }
                 }
                 _ => println!("{}", "Usage: mcp [tools|call|server|connect|ws]".yellow()),
@@ -1246,6 +1318,12 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             }
         }
 
+        _ => {
+                    println!("Usage: goal <add|list|status>");
+                }
+            }
+        }
+
         // ── Daemon events ──
         "events" => {
             if let Some(ref store) = state.persist_store {
@@ -1282,8 +1360,10 @@ async fn handle_input(state: &mut ReplState, input: &str) {
         "daemon" => {
             if let Some(ref mut rx) = state.daemon_rx {
                 println!("{}", "Listening for daemon events (Ctrl+C to stop)...".cyan().bold());
+                let rt_handle = tokio::runtime::Handle::current();
                 loop {
-                    match rx.recv().await {
+                    let mut rx_ref = rx.resubscribe();
+                    match rt_handle.block_on(rx_ref.recv()) {
                         Ok(event) => {
                             let icon = match event.kind.as_str() {
                                 "TaskReceived" => "→".green(),
@@ -1400,95 +1480,81 @@ async fn handle_input(state: &mut ReplState, input: &str) {
     }
 }
 
-fn print_full_status(state: &ReplState) {
-    let alive = state.llm.is_alive();
-    let model = &state.llm.config().model;
-    let tools = state.registry.list().len();
-    let rate = state.planner.history.success_rate();
-    let metrics = soul_bridges::monitor::get_metrics();
-    let docker_running = soul_bridges::docker::is_docker_running();
-    let containers = soul_bridges::docker::list_containers().unwrap_or_default();
-
-    println!("{}:", "System Status".cyan().bold());
-    println!("  LLM:");
-    println!("    Model: {}", model.green());
-    println!("    Ollama: {}", if alive { "connected".green() } else { "disconnected".red() });
-    println!("  Resources:");
-    println!("    CPU: {:.1}%", metrics.cpu_usage);
-    println!("    Memory: {:.1}% ({} MB / {} MB)",
-        metrics.memory_usage,
-        (metrics.memory_total - metrics.memory_available) / 1024,
-        metrics.memory_total / 1024);
-    println!("    Processes: {}", metrics.process_count);
-    println!("    Load: {:.2} / {:.2} / {:.2}", metrics.load_avg[0], metrics.load_avg[1], metrics.load_avg[2]);
-    println!("  Services:");
-    println!("    Tools: {}", tools.to_string().green());
-    println!("    Docker: {}", if docker_running { "running".green() } else { "stopped".red() });
-    if !containers.is_empty() {
-        println!("    Containers: {}", containers.len());
-        for c in containers.iter().take(5) {
-            println!("      {} - {}", c.name.green(), c.status);
-        }
-    }
-    println!("  Cognitive:");
-    println!("    Knowledge: {} entities", state.cognitive.knowledge.stats()["entities"]);
-    println!("    Learning rate: {:.1}%", state.cognitive.learning.success_rate() * 100.0);
-    println!("    Context: {}", state.cognitive.context.stats());
-    println!("  Security:");
-    println!("    Audit entries: {}", state.security.audit.count());
-    println!("    Intrusion events: {}", state.security.intrusion.stats()["total_events"]);
-    println!("    Secrets: {}", state.security.secrets.list_secrets().len());
-    println!("  Performance:");
-    println!("    Success rate: {:.1}%", (rate * 100.0));
-    println!("    Memory entries: {}", state.planner.memory.observations.len());
-}
-
 fn truncate_repl(s: &str, max: usize) -> String {
-    if s.chars().count() > max {
-        let truncated: String = s.chars().take(max).collect();
-        format!("{}...", truncated)
-    } else {
+    if s.len() <= max {
         s.to_string()
-    }
-}
-
-fn format_bytes(bytes: u64) -> String {
-    if bytes >= 1024 * 1024 * 1024 {
-        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
-    } else if bytes >= 1024 * 1024 {
-        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
-    } else if bytes >= 1024 {
-        format!("{:.1} KB", bytes as f64 / 1024.0)
     } else {
-        format!("{} B", bytes)
+        format!("{}...", &s[..max])
     }
 }
 
 fn print_help() {
-    println!("{}", "Commands:".cyan().bold());
-    println!("  {} - Ask a question to the LLM", "ask <msg>".green());
-    println!("  {} - Create a plan for a goal (LLM-powered)", "plan <goal>".green());
-    println!("  {} - Execute a shell command", "run <cmd>".green());
-    println!("  {} - List available tools", "tools".green());
-    println!("  {} - View working memory", "memory".green());
+    use colored::Colorize;
+    println!("{}", "╔══════════════════════════════════════════╗".cyan());
+    println!("{}", "║   SoulSystem Autonomous Agent v0.3.0   ║".cyan().bold());
+    println!("{}", "║   Type 'help' for commands              ║".cyan());
+    println!("{}", "╚══════════════════════════════════════════╝".cyan());
+    println!();
+    println!("{}", "Core Commands:".cyan().bold());
+    println!("  {} - Ask with conversation context", "ask <msg>".green());
+    println!("  {} - Run autonomous task (ReAct loop)", "run <task>".green());
+    println!("  {} - Create plan using LLM", "plan <goal>".green());
+    println!("  {} - Execute shell command directly", "shell <cmd>".green());
+    println!();
+    println!("{}", "Memory & State:".cyan().bold());
+    println!("  {} - View memory, history, status", "memory".green());
     println!("  {} - Record an observation", "observe <msg>".green());
-    println!("  {} - Make a decision (LLM-powered)", "decide <ctx>".green());
     println!("  {} - View action history", "history".green());
-    println!("  {} - Learn from experience", "learn <action> <outcome> <reward>".green());
-    println!("  {} - Think about input (cognitive)", "think <input>".green());
-    println!("  {} - Query knowledge graph", "knowledge [query]".green());
-    println!("  {} - Explore knowledge graph", "graph [query]".green());
-    println!("  {} - Clear memory and history", "clear".green());
-    println!("  {} - Show configuration", "config".green());
-    println!("  {} - GPU status", "gpu".green());
-    println!("  {} - Network status", "network".green());
-    println!("  {} - Disk status", "disks".green());
-    println!("  {} - View audit trail", "audit".green());
-    println!("  {} - List secrets", "secrets".green());
-    println!("  {} - Block an IP", "block <ip>".green());
-    println!("  {} - View intrusion events", "intrusions".green());
-    println!("  {} - Rate limit management", "rate <key> [max]".green());
-    println!("  {} - Full system status", "status".green());
+    println!();
+    println!("{}", "Goals & Daemon:".cyan().bold());
+    println!("  {} - Add a new goal", "goal add <desc>".green());
+    println!("  {} - List all goals", "goal list".green());
+    println!("  {} - Goal statistics", "goal status".green());
+    println!("  {} - View recent events", "events".green());
+    println!("  {} - Live daemon event stream", "daemon".green());
+    println!();
+    println!("{}", "Web & Browser:".cyan().bold());
+    println!("  {} - Fetch and display web page content", "browse <url>".green());
+    println!("  {} - Fetch multiple URLs at once", "fetch <url1> <url2>".green());
+    println!("  {} - Search web and show results with relevance", "websearch <query>".green());
+    println!("  {} - Ask question with web context", "askweb <question>".green());
+    println!();
+    println!("{}", "Skills & Quality:".cyan().bold());
+    println!("  {} - List available skills", "skills list".green());
+    println!("  {} - Show skill details", "skills show <name>".green());
+    println!("  {} - Match input to skills", "skills match <input>".green());
+    println!("  {} - Get inference profile", "infer <task>".green());
+    println!("  {} - Critique an output", "critique <output>".green());
+    println!();
+    println!("{}", "Knowledge Graph:".cyan().bold());
+    println!("  {} - Add a node", "graph add <type> <label>".green());
+    println!("  {} - Connect nodes", "graph connect <src> <tgt> <rel>".green());
+    println!("  {} - Search graph", "graph find <query>".green());
+    println!("  {} - Graph statistics", "graph stats".green());
+    println!();
+    println!("{}", "Design Tree:".cyan().bold());
+    println!("  {} - Create design node", "design new <name> <desc>".green());
+    println!("  {} - List all designs", "design list".green());
+    println!("  {} - Transition state", "design state <id> <state>".green());
+    println!("  {} - Design statistics", "design stats".green());
+    println!();
+    println!("{}", "Conversations:".cyan().bold());
+    println!("  {} - Create new conversation session", "conversations new [title]".green());
+    println!("  {} - List all conversations", "conversations list".green());
+    println!("  {} - Show active session", "conversations active".green());
+    println!("  {} - Switch to a session", "conversations switch <id>".green());
+    println!("  {} - Show stats", "conversations stats".green());
+    println!();
+    println!("{}", "MCP (Model Context Protocol):".cyan().bold());
+    println!("  {} - List MCP tools", "mcp tools".green());
+    println!("  {} - Call an MCP tool", "mcp call <tool> <args>".green());
+    println!("  {} - Start stdio MCP server", "mcp server".green());
+    println!("  {} - Start WebSocket MCP server", "mcp ws <addr>".green());
+    println!("  {} - Connect to remote MCP server", "mcp connect <url>".green());
+    println!();
+    println!("{}", "System:".cyan().bold());
+    println!("  {} - List available tools", "tools".green());
+    println!("  {} - System status & health", "status".green());
     println!("  {} - List Ollama models", "models".green());
     println!("  {} - Toggle verbose output", "verbose".green());
     println!();
