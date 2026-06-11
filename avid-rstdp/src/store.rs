@@ -25,7 +25,7 @@ pub struct PatternStats {
 
 impl PatternStats {
     #[must_use]
-    pub fn success_rate(&self) -> f32 {
+    pub fn pattern_success_rate(&self) -> f32 {
         if self.seen_count == 0 {
             0.0
         } else {
