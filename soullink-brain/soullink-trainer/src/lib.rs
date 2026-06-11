@@ -528,7 +528,7 @@ mod tests {
         assert_eq!(recorder.count(), 2);
 
         // Verify file content
-        let content = std::std::fs::read_to_string(&path).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
         assert_eq!(lines.len(), 2);
     }

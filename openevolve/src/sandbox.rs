@@ -4,7 +4,6 @@
 use anyhow::Result;
 use std::path::Path;
 use std::process::Output;
-use tracing::warn;
 
 /// Configuration de la sandbox (backward compat)
 #[derive(Debug, Clone)]
