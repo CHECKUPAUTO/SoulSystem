@@ -73,7 +73,7 @@ impl BridgeStore {
         version: Option<&str>,
         error: Option<&str>,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let now = chrono::Utc::now().timestamp();
         // Update or insert
         let prev_failures: i32 = conn
@@ -116,7 +116,7 @@ impl BridgeStore {
 
     /// Renvoie l'historique récent d'un bridge.
     pub fn history(&self, name: &str, limit: u32) -> Result<Vec<BridgeStatusRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn
             .prepare(
                 "SELECT name, reachable, version, ts
@@ -145,7 +145,7 @@ impl BridgeStore {
 
     /// Renvoie le statut actuel de tous les bridges.
     pub fn all(&self) -> Result<Vec<BridgeStatusRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn
             .prepare(
                 "SELECT name, reachable, version, last_check, consecutive_failures, last_error

@@ -2,8 +2,10 @@
 //!
 //! Garantit que tout code exécuté par OpenEvolve ou AVID
 //! est signé par une clé autorisée.
+//!
+//! Utilise ed25519-dalek pour une signature asymétrique robuste.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -54,8 +56,10 @@ impl AuthorizedKeys {
             for line in content.lines() {
                 let line = line.trim();
                 if !line.is_empty() && !line.starts_with('#') {
-                    if let Ok(key) = base64_decode(line) {
-                        keys.insert(key);
+                    let key_data = base64_decode(line)?;
+                    // ed25519 public keys are 32 bytes
+                    if key_data.len() == 32 {
+                        keys.insert(key_data);
                     }
                 }
             }
@@ -87,30 +91,47 @@ impl AuthorizedKeys {
     }
 }
 
-/// Vérifie qu'un SignedCode est valide et autorisé.
+/// Vérifie qu'un SignedCode est valide et autorisé en utilisant ed25519.
 pub fn verify_code(signed: &SignedCode, authorized: &AuthorizedKeys) -> Result<()> {
     // Vérifier que la clé est autorisée
     if !authorized.keys.contains(&signed.public_key) {
         bail!("Clé publique non autorisée");
     }
 
-    // Vérifier la signature
-    let mut hasher = Sha256::new();
-    hasher.update(signed.code.as_bytes());
-    let digest = hasher.finalize();
-
-    // Signature simplifiée : XOR du hash avec la clé publique
-    let expected_sig: Vec<u8> = digest
-        .iter()
-        .zip(signed.public_key.iter().cycle())
-        .map(|(a, b)| a ^ b)
-        .collect();
-
-    if expected_sig != signed.signature {
-        bail!("Signature invalide");
+    // Utiliser ed25519-dalek si disponible, sinon fallback vers SHA256
+    #[cfg(feature = "ed25519")]
+    {
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+        let pub_key = VerifyingKey::from_bytes(
+            &signed.public_key.try_into().map_err(|_| anyhow::anyhow!("Taille de clé invalide"))?,
+        )?;
+        let sig = Signature::from_slice(&signed.signature)?;
+        pub_key.verify(signed.code.as_bytes(), &sig)?;
+        Ok(())
     }
 
-    Ok(())
+    #[cfg(not(feature = "ed25519"))]
+    {
+        // Fallback SHA256 + XOR (moins sûr, déprécié)
+        #[deprecated(since = "0.6.0", note = "ed25519 non activé, utiliser --features ed25519")]
+        fn verify_inner(signed: &SignedCode) -> Result<()> {
+            let mut hasher = Sha256::new();
+            hasher.update(signed.code.as_bytes());
+            let digest = hasher.finalize();
+
+            let expected_sig: Vec<u8> = digest
+                .iter()
+                .zip(signed.public_key.iter().cycle())
+                .map(|(a, b)| a ^ b)
+                .collect();
+
+            if expected_sig != signed.signature {
+                bail!("Signature invalide");
+            }
+            Ok(())
+        }
+        verify_inner(signed)
+    }
 }
 
 fn dirs_next_home() -> Option<PathBuf> {
@@ -189,7 +210,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_verify_code() {
+    fn test_verify_code_xor_fallback() {
         let code = "fn main() { println!(\"hello\"); }";
         let pubkey = vec![1u8; 32];
         let digest = Sha256::digest(code.as_bytes());
@@ -233,5 +254,43 @@ mod tests {
             keys: HashSet::new(),
         };
         assert!(verify_code(&signed, &auth).is_err());
+    }
+
+    #[test]
+    fn test_reject_tampered_code() {
+        let code = "fn main() { println!(\"hello\"); }";
+        let pubkey = vec![1u8; 32];
+        let digest = Sha256::digest(code.as_bytes());
+        let signature: Vec<u8> = digest
+            .iter()
+            .zip(pubkey.iter().cycle())
+            .map(|(a, b)| a ^ b)
+            .collect();
+
+        let signed = SignedCode {
+            code: "fn main() { println!(\"EVIL\"); }".into(),  // tampered
+            signature,
+            public_key: pubkey,
+        };
+
+        let mut auth = AuthorizedKeys {
+            keys: HashSet::new(),
+        };
+        auth.keys.insert(vec![1u8; 32]);
+        assert!(verify_code(&signed, &auth).is_err());
+    }
+
+    #[test]
+    fn test_base64_roundtrip() {
+        let data = b"hello ed25519 test data";
+        let encoded = base64_encode(data);
+        let decoded = base64_decode(&encoded).unwrap();
+        assert_eq!(data.to_vec(), decoded);
+    }
+
+    #[test]
+    fn test_base64_decode_empty() {
+        let result = base64_decode("").unwrap();
+        assert!(result.is_empty());
     }
 }

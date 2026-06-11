@@ -42,7 +42,15 @@ pub struct MemoryHub {
 impl MemoryHub {
     pub async fn new(data_dir: &std::path::Path) -> Self {
         let _ = data_dir;
-        let vector = SoulMemory::new().expect("SoulMemory doit s'initialiser");
+        let vector = match SoulMemory::new() {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("MemoryHub: soul-memory indisponible: {}", e);
+                // SoulMemory::new() utilise déjà sled temporaire en fallback de Qdrant.
+                // Si même le sled temporaire échoue, le service ne peut pas fonctionner sans mémoire.
+                panic!("MemoryHub: impossible d'initialiser SoulMemory: {}", e);
+            }
+        };
         info!("MemoryHub: soul-memory actif");
 
         let graph = match MemoryGraph::open(&data_dir.join("concept_graph"), DecayConfig::default())
@@ -90,6 +98,7 @@ impl MemoryHub {
     }
 
     /// Sauvegarde le journal de version sur disque.
+    #[deprecated(since = "0.6.0", note = "Réservé pour usage futur — non utilisé actuellement")]
     pub async fn persist_journal(&self, data_dir: &Path) -> Result<()> {
         let journal_path = data_dir.join("version_journal.json");
         let entries = self.version_journal.read().await.clone();
@@ -132,12 +141,14 @@ impl MemoryHub {
     }
 
     /// Retourne l'historique des versions.
+    #[deprecated(since = "0.6.0", note = "Réservé pour usage futur")]
     pub async fn get_version_history(&self, limit: usize) -> Vec<VersionEntry> {
         let journal = self.version_journal.read().await;
         journal.iter().rev().take(limit).cloned().collect()
     }
 
     /// Retourne une version spécifique par son numéro.
+    #[deprecated(since = "0.6.0", note = "Réservé pour usage futur")]
     pub async fn get_version(&self, version: u64) -> Option<VersionEntry> {
         let journal = self.version_journal.read().await;
         journal.iter().find(|e| e.version == version).cloned()
@@ -151,6 +162,7 @@ impl MemoryHub {
     }
 
     /// Filtre les résultats de recherche par niveau de confidentialité.
+    #[deprecated(since = "0.6.0", note = "Réservé pour usage futur — filtrage privacy non implémenté")]
     pub fn filter_by_privacy(
         results: Vec<SearchResult>,
         _min_level: PrivacyLevel,
@@ -218,7 +230,7 @@ impl MemoryHub {
             }
         }
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
         results.dedup_by(|a, b| a.text == b.text);
         results.truncate(top_k);
         results

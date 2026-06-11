@@ -11,6 +11,22 @@ skip = [
 ]
 skip-tree = [
     { name = "criterion" },
+    # These crates have many versions due to transitive deps via multiple major framework versions
+    { name = "windows-sys" },
+    { name = "nix" },
+    { name = "tungstenite" },
+    { name = "hashbrown" },
+    { name = "itertools" },
+    { name = "tokio-tungstenite" },
+    { name = "rand" },
+    { name = "hyper" },
+    { name = "h2" },
+    { name = "reqwest" },
+    { name = "rustls" },
+    { name = "base64" },
+    { name = "shlex" },
+    { name = "teloxide" },
+    { name = "actix-web" },
 ]
 
 [advisories]
@@ -37,7 +53,9 @@ default = "deny"
 confidence-threshold = 0.92
 
 [bans]
-multiple-versions = "deny"
+# Warn on multiple versions instead of deny, since many are transitive
+# and can't be resolved without upstream changes
+multiple-versions = "warn"
 wildcards = "allow"
 highlight = "all"
 deny = []
@@ -45,4 +63,17 @@ skip = [
     { name = "ahash" },
     { name = "getrandom" },
     { name = "cpufeatures" },
+    { name = "windows-sys" },
+    { name = "nix" },
+    { name = "tungstenite" },
+    { name = "hashbrown" },
+    { name = "itertools" },
+    { name = "tokio-tungstenite" },
+    { name = "rand" },
+    { name = "hyper" },
+    { name = "h2" },
+    { name = "reqwest" },
+    { name = "rustls" },
+    { name = "base64" },
+    { name = "shlex" },
 ]
