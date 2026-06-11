@@ -102,9 +102,9 @@ pub fn verify_code(signed: &SignedCode, authorized: &AuthorizedKeys) -> Result<(
     #[cfg(feature = "ed25519")]
     {
         use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-        let pub_key = VerifyingKey::from_bytes(
-            &signed.public_key.try_into().map_err(|_| anyhow::anyhow!("Taille de clé invalide"))?,
-        )?;
+        let pk_bytes: &[u8; 32] = signed.public_key.as_slice().try_into()
+            .map_err(|_| anyhow::anyhow!("Taille de clé invalide"))?;
+        let pub_key = VerifyingKey::from_bytes(pk_bytes)?;
         let sig = Signature::from_slice(&signed.signature)?;
         pub_key.verify(signed.code.as_bytes(), &sig)?;
         Ok(())
@@ -209,6 +209,7 @@ fn base64_decode(s: &str) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
 
+    #[cfg(not(feature = "ed25519"))]
     #[test]
     fn test_verify_code_xor_fallback() {
         let code = "fn main() { println!(\"hello\"); }";
@@ -233,6 +234,7 @@ mod tests {
         assert!(verify_code(&signed, &auth).is_ok());
     }
 
+    #[cfg(not(feature = "ed25519"))]
     #[test]
     fn test_reject_unauthorized() {
         let code = "fn main() {}";
@@ -256,6 +258,7 @@ mod tests {
         assert!(verify_code(&signed, &auth).is_err());
     }
 
+    #[cfg(not(feature = "ed25519"))]
     #[test]
     fn test_reject_tampered_code() {
         let code = "fn main() { println!(\"hello\"); }";
@@ -277,6 +280,79 @@ mod tests {
             keys: HashSet::new(),
         };
         auth.keys.insert(vec![1u8; 32]);
+        assert!(verify_code(&signed, &auth).is_err());
+    }
+
+    #[cfg(feature = "ed25519")]
+    #[test]
+    fn test_ed25519_sign_and_verify() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let signing_key = SigningKey::from_bytes(&[42u8; 32]);
+        let verifying_key = signing_key.verifying_key();
+
+        let code = "fn main() { println!(\"hello\"); }";
+        let signature = signing_key.sign(code.as_bytes());
+
+        let signed = SignedCode {
+            code: code.into(),
+            signature: signature.to_bytes().to_vec(),
+            public_key: verifying_key.to_bytes().to_vec(),
+        };
+
+        let mut auth = AuthorizedKeys {
+            keys: HashSet::new(),
+        };
+        auth.keys.insert(verifying_key.to_bytes().to_vec());
+        assert!(verify_code(&signed, &auth).is_ok());
+    }
+
+    #[cfg(feature = "ed25519")]
+    #[test]
+    fn test_ed25519_rejects_tampered() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let signing_key = SigningKey::from_bytes(&[42u8; 32]);
+        let verifying_key = signing_key.verifying_key();
+
+        let code = "fn main() { println!(\"hello\"); }";
+        let signature = signing_key.sign(code.as_bytes());
+
+        // Tamper with the code
+        let signed = SignedCode {
+            code: "fn main() { println!(\"EVIL\"); }".into(),
+            signature: signature.to_bytes().to_vec(),
+            public_key: verifying_key.to_bytes().to_vec(),
+        };
+
+        let mut auth = AuthorizedKeys {
+            keys: HashSet::new(),
+        };
+        auth.keys.insert(verifying_key.to_bytes().to_vec());
+        assert!(verify_code(&signed, &auth).is_err());
+    }
+
+    #[cfg(feature = "ed25519")]
+    #[test]
+    fn test_ed25519_rejects_unauthorized() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let signing_key = SigningKey::from_bytes(&[42u8; 32]);
+        let verifying_key = signing_key.verifying_key();
+
+        let code = "fn main() { println!(\"hello\"); }";
+        let signature = signing_key.sign(code.as_bytes());
+
+        let signed = SignedCode {
+            code: code.into(),
+            signature: signature.to_bytes().to_vec(),
+            public_key: verifying_key.to_bytes().to_vec(),
+        };
+
+        // Empty authorized keys — should reject
+        let auth = AuthorizedKeys {
+            keys: HashSet::new(),
+        };
         assert!(verify_code(&signed, &auth).is_err());
     }
 

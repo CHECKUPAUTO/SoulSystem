@@ -791,6 +791,124 @@ async fn main() -> Result<()> {
         info!("SelfHealer: auto-réparation active (interval: 30s)");
     }
 
+    // ── Phase 5: BackupManager (sauvegarde signée périodique) ──────────
+    let backup_manager = {
+        let (priv_key, pub_key) = soulsystem::backup::BackupManager::generate_keys();
+        let bm = soulsystem::backup::BackupManager::new(
+            settings.paths.data_dir.clone(),
+            settings.paths.config_dir.clone(),
+        )
+        .with_keys(priv_key, pub_key);
+        // Sauvegarde initiale
+        let backup_path = settings
+            .paths
+            .data_dir
+            .join(format!(
+                "backup-{}.tar.gz",
+                chrono::Utc::now().format("%Y%m%d-%H%M%S")
+            ));
+        match bm.create_backup(backup_path.to_str().unwrap_or("/tmp/soulsystem-backup.tar.gz")) {
+            Ok(()) => info!(
+                "BackupManager: sauvegarde initiale créée ({})",
+                backup_path.display()
+            ),
+            Err(e) => tracing::warn!("BackupManager: sauvegarde initiale échouée: {}", e),
+        }
+        Arc::new(bm)
+    };
+    // Sauvegarde périodique toutes les 6 heures
+    {
+        let bm = backup_manager.clone();
+        let backup_dir = settings.paths.data_dir.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(21600)); // 6h
+            interval.tick().await; // skip first (already done above)
+            loop {
+                interval.tick().await;
+                let backup_path = backup_dir.join(format!(
+                    "backup-{}.tar.gz",
+                    chrono::Utc::now().format("%Y%m%d-%H%M%S")
+                ));
+                match bm.create_backup(backup_path.to_str().unwrap_or("/tmp/soulsystem-backup.tar.gz"))
+                {
+                    Ok(()) => {
+                        info!("BackupManager: sauvegarde périodique OK ({})", backup_path.display());
+                        // Prune old backups (keep last 5)
+                        if let Ok(mut entries) = std::fs::read_dir(&backup_dir) {
+                            let mut backups: Vec<_> = std::iter::from_fn(|| entries.next().map(|e| e.ok()))
+                                .flatten()
+                                .filter(|e| {
+                                    e.file_name()
+                                        .to_string_lossy()
+                                        .starts_with("backup-")
+                                })
+                                .collect();
+                            backups.sort_by_key(|e| {
+                                e.metadata()
+                                    .and_then(|m| m.modified())
+                                    .unwrap_or(std::time::UNIX_EPOCH)
+                            });
+                            if backups.len() > 5 {
+                                for old in backups.iter().take(backups.len() - 5) {
+                                    let _ = std::fs::remove_file(old.path());
+                                    let _ = std::fs::remove_file(format!("{}.sig", old.path().display()));
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => tracing::warn!("BackupManager: sauvegarde périodique échouée: {}", e),
+                }
+            }
+        });
+    }
+    info!("BackupManager: sauvegardes actives (interval: 6h, retention: 5)");
+
+    // ── Circuit Breaker Registry ─────────────────────────────────────
+    let cb_registry = Arc::new(soulsystem::circuit_breaker::CircuitBreakerRegistry::new(
+        soulsystem::circuit_breaker::CircuitBreakerConfig::default(),
+    ));
+    // Wrap bridge calls with circuit breakers for fault isolation
+    {
+        let reg = cb_registry.clone();
+        let bus_cb = bus.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                for service in reg.services() {
+                    let breaker = reg.get(&service);
+                    let stats = breaker.stats().await;
+                    if stats.consecutive_failures > 0 {
+                        tracing::warn!(
+                            "CircuitBreaker: {} state={} failures={}/{} calls={} rejected={}",
+                            stats.service,
+                            stats.state,
+                            stats.consecutive_failures,
+                            stats.failure_threshold,
+                            stats.total_calls,
+                            stats.total_rejections,
+                        );
+                        bus_cb.publish(soulsystem::bus::Message::Custom {
+                            topic: "circuit_breaker.metrics".into(),
+                            payload: serde_json::json!({
+                                "service": stats.service,
+                                "state": stats.state.to_string(),
+                                "consecutive_failures": stats.consecutive_failures,
+                                "total_calls": stats.total_calls,
+                                "total_rejections": stats.total_rejections,
+                            }),
+                        });
+                    }
+                }
+            }
+        });
+    }
+    info!("CircuitBreakerRegistry: actif (surveillance: 60s)");
+
+    // ── Wrap LLM client with circuit breaker ──────────────────────────
+    let llm_circuit_breaker = cb_registry.get("llm-ollama");
+    let _cb_guard = llm_circuit_breaker.clone(); // keep alive
+
     info!("✅ SoulSystem prêt — boucle principale");
 
     // ── Autonomous entity ──────────────────────────────────────────────

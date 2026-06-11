@@ -167,7 +167,7 @@ wiremock = "0.6"
 criterion = { version = "0.5", default-features = false, features = ["async_tokio", "html_reports"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "tokio", "tower-log"] }
 tower = { version = "0.5", default-features = false, features = ["util"] }
-tower-http = { version = "0.6", default-features = false, features = ["trace", "cors", "limit"] }
+tower-http = { version = "0.6", default-features = false, features = ["trace", "cors", "limit", "set-header"] }
 hyper = { version = "1", features = ["server", "http1", "http2"] }
 nvml-wrapper = { version = "0.9", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
@@ -231,6 +231,7 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 regex = { workspace = true }
 rand = "0.8"
+ed25519-dalek = { version = "2", optional = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
 which = "8"
 sysinfo = "0.31"
@@ -283,7 +284,8 @@ colored = "2"
 [features]
 dev = []
 gpu = []
-default = []
+ed25519 = ["dep:ed25519-dalek"]
+default = ["ed25519"]
 
 [profile.release]
 lto = "fat"
