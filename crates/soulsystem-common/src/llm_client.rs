@@ -226,6 +226,7 @@ impl OllamaClient {
     }
 
     /// Demande une sortie structurée JSON au LLM.
+    #[allow(dead_code)]
     pub async fn structured_output<T: serde::de::DeserializeOwned>(
         &self,
         system_prompt: &str,

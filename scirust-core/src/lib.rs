@@ -36,6 +36,7 @@ pub use symbolic::{
 pub mod dispatch {
     /// GPU or CPU fallback — dispatches work sequentially (rayon optional).
     /// When rayon is available, use par_chunks_mut for parallel execution.
+    #[allow(dead_code)]
     pub fn gpu_or_cpu<F>(data: &mut [f32], kernel: F)
     where
         F: Fn(&mut [f32]),
