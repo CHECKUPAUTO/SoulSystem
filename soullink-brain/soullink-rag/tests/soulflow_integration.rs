@@ -50,28 +50,46 @@ fn read_test_document() -> String {
     // dépendance à un fichier absolu sur la machine de dev). ~12 Ko, plusieurs
     // sections, mentionne « guardian module » pour les recherches.
     let sections = [
-        ("Guardian Module", "The guardian module supervises GPU thermals and SM clock health. \
+        (
+            "Guardian Module",
+            "The guardian module supervises GPU thermals and SM clock health. \
          It performs hang detection by tracking the SM clock against a 500 MHz floor and an \
          adaptive boost range, then triggers a controlled reset when a stall persists past the \
          configured threshold. The guardian also paces power limits to keep the device inside a \
-         safe thermal envelope."),
-        ("Mesh Orchestrator", "The orchestrator routes queries across the organ mesh, selecting \
+         safe thermal envelope.",
+        ),
+        (
+            "Mesh Orchestrator",
+            "The orchestrator routes queries across the organ mesh, selecting \
          the cheapest capable model for each request. It maintains a service registry, applies \
          circuit breakers around flaky providers, and aggregates streaming responses back to the \
-         caller over the internal bus."),
-        ("Memory Hierarchy", "Working, episodic and semantic stores form a tiered memory. \
+         caller over the internal bus.",
+        ),
+        (
+            "Memory Hierarchy",
+            "Working, episodic and semantic stores form a tiered memory. \
          Consolidation decays low-importance episodic entries, clusters similar ones, and promotes \
-         durable clusters into the semantic store for long-term recall."),
-        ("Inference Engine", "The inference engine picks an execution target — GPU, NUMA-pinned \
+         durable clusters into the semantic store for long-term recall.",
+        ),
+        (
+            "Inference Engine",
+            "The inference engine picks an execution target — GPU, NUMA-pinned \
          CPU, or an Ollama fallback — based on a hardware snapshot and the requested quantization. \
-         TurboQuant compresses the KV cache to fit larger contexts in limited VRAM."),
-        ("Autonomy Loop", "The autonomy loop observes system metrics, plans an action, executes it \
+         TurboQuant compresses the KV cache to fit larger contexts in limited VRAM.",
+        ),
+        (
+            "Autonomy Loop",
+            "The autonomy loop observes system metrics, plans an action, executes it \
          through the tool registry, evaluates the outcome, and decides whether to continue. \
          Self-healing actions remediate common faults such as high CPU, memory pressure, and full \
-         disks."),
-        ("Security Layer", "The security layer audits every privileged action into an immutable \
+         disks.",
+        ),
+        (
+            "Security Layer",
+            "The security layer audits every privileged action into an immutable \
          hash chain, rate-limits sensitive endpoints, blocks known-bad IPs, and scans content for \
-         leaked secrets using both pattern and entropy detectors."),
+         leaked secrets using both pattern and entropy detectors.",
+        ),
     ];
 
     let mut doc = String::with_capacity(16 * 1024);
