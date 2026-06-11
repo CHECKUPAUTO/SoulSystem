@@ -18,7 +18,7 @@ use tracing::{info, warn};
 use crate::api::ApiState;
 
 pub async fn webhook_handler(
-    State(state): State<ApiState>,
+    State(_state): State<ApiState>,
     Path(provider): Path<String>,
     headers: HeaderMap,
     body: Json<Value>,
@@ -82,7 +82,6 @@ fn serialize_headers(headers: &HeaderMap) -> Vec<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::HeaderName;
 
     #[test]
     fn test_serialize_headers_filters_sensitive() {

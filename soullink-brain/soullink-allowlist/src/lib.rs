@@ -42,7 +42,7 @@ impl DomainPattern {
 }
 
 /// Network allowlist with domain patterns and blocked domains.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NetworkAllowlist {
     /// Allowed domain patterns.
     allowed: Vec<DomainPattern>,
@@ -52,17 +52,6 @@ pub struct NetworkAllowlist {
     allow_localhost: bool,
     /// Whether to allow private IP ranges.
     allow_private_ips: bool,
-}
-
-impl Default for NetworkAllowlist {
-    fn default() -> Self {
-        Self {
-            allowed: Vec::new(),
-            blocked: HashSet::new(),
-            allow_localhost: false,
-            allow_private_ips: false,
-        }
-    }
 }
 
 impl NetworkAllowlist {

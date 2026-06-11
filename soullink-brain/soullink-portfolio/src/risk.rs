@@ -38,7 +38,7 @@ impl RiskManager {
     pub fn check(
         &self,
         portfolio: &Portfolio,
-        symbol: &Symbol,
+        _symbol: &Symbol,
         side: Side,
         price: Decimal,
         quantity: Decimal,

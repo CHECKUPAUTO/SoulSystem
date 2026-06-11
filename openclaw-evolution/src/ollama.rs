@@ -82,6 +82,7 @@ pub struct OllamaEngine {
 }
 
 impl OllamaEngine {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         base_url: &str,
         model_fast: &str,

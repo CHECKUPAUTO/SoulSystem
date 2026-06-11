@@ -1,4 +1,7 @@
 //! Config — Configuration runtime modifiable sans recompilation
+//!
+//! NOTE: pas encore câblé au binaire — allow(dead_code) en attendant.
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;

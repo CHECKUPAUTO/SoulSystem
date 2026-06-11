@@ -300,10 +300,11 @@ impl SimdBackend for ScalarBackend {
                 }
             }
         }
-        // Nettoyage de la partie supérieure
-        for i in 0..n {
-            for a_row in a.iter_mut().take(n).skip(i + 1) {
-                a_row[i] = 0.0;
+        // Nettoyage de la partie supérieure : L est triangulaire inférieure,
+        // donc on annule a[i][j] pour j > i (au-dessus de la diagonale).
+        for (i, a_row) in a.iter_mut().enumerate() {
+            for x in a_row.iter_mut().skip(i + 1) {
+                *x = 0.0;
             }
         }
         Some(())

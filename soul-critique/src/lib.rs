@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -135,10 +134,7 @@ impl CritiqueResult {
             let status = if score.is_passing(7.0) { "✓" } else { "✗" };
             parts.push(format!(
                 "  {} {:?}: {:.1}/10 — {}",
-                status,
-                score.dimension,
-                score.score,
-                score.reasoning
+                status, score.dimension, score.score, score.reasoning
             ));
             for sug in &score.suggestions {
                 parts.push(format!("    → {sug}"));
@@ -199,12 +195,7 @@ impl CritiqueEngine {
             let failed: Vec<String> = result
                 .failed_dimensions(self.threshold)
                 .iter()
-                .map(|s| {
-                    format!(
-                        "{:?}: {:.1}/10 — {}",
-                        s.dimension, s.score, s.reasoning
-                    )
-                })
+                .map(|s| format!("{:?}: {:.1}/10 — {}", s.dimension, s.score, s.reasoning))
                 .collect();
             result.feedback = format!(
                 "Failed dimensions (threshold {}):\n{}",
@@ -227,9 +218,7 @@ impl CritiqueEngine {
         for score in result.failed_dimensions(self.threshold) {
             prompt.push_str(&format!(
                 "- {:?}: {:.1}/10 — {}\n",
-                score.dimension,
-                score.score,
-                score.reasoning
+                score.dimension, score.score, score.reasoning
             ));
             for sug in &score.suggestions {
                 prompt.push_str(&format!("  → {sug}\n"));
@@ -245,14 +234,12 @@ impl CritiqueEngine {
 
 pub struct ReflexionLoop {
     engine: CritiqueEngine,
-    max_rounds: usize,
 }
 
 impl ReflexionLoop {
     pub fn new(threshold: f64, max_rounds: usize) -> Self {
         Self {
             engine: CritiqueEngine::new(threshold).with_max_iterations(max_rounds),
-            max_rounds,
         }
     }
 
@@ -285,11 +272,7 @@ impl ReflexionLoop {
                 if result.passed { "PASS" } else { "FAIL" }
             ));
             for score in &result.scores {
-                report.push_str(&format!(
-                    "  {:?}: {:.1}\n",
-                    score.dimension,
-                    score.score
-                ));
+                report.push_str(&format!("  {:?}: {:.1}\n", score.dimension, score.score));
             }
         }
 
@@ -384,7 +367,11 @@ pub async fn llm_critique_with_fallback(task: &str, output: &str, model: &str) -
 }
 
 /// Evaluate output using an LLM (Ollama). Returns a CritiqueResult with scores.
-pub async fn llm_critique(task: &str, output: &str, model: &str) -> std::result::Result<CritiqueResult, String> {
+pub async fn llm_critique(
+    task: &str,
+    output: &str,
+    model: &str,
+) -> std::result::Result<CritiqueResult, String> {
     let prompt = format!(
         r#"You are a code quality reviewer. Evaluate this output on 6 dimensions (0-10).
 
@@ -422,9 +409,7 @@ Rate each dimension with a score (0-10) and brief reasoning. Return ONLY valid J
         .await
         .map_err(|e| format!("JSON parse error: {e}"))?;
 
-    let response_text = body["response"]
-        .as_str()
-        .unwrap_or("");
+    let response_text = body["response"].as_str().unwrap_or("");
 
     // Extract JSON from response (handle markdown code blocks)
     let json_str = if let Some(start) = response_text.find('{') {
@@ -453,7 +438,10 @@ Rate each dimension with a score (0-10) and brief reasoning. Return ONLY valid J
     for (key, dimension) in &dimensions {
         if let Some(obj) = scores_map.get(key) {
             let score = obj["score"].as_f64().unwrap_or(5.0);
-            let reasoning = obj["reasoning"].as_str().unwrap_or("LLM evaluated").to_string();
+            let reasoning = obj["reasoning"]
+                .as_str()
+                .unwrap_or("LLM evaluated")
+                .to_string();
             scores.push(QualityScore::new(*dimension, score, &reasoning));
         }
     }
@@ -525,12 +513,8 @@ mod tests {
     #[test]
     fn test_retry_prompt() {
         let engine = CritiqueEngine::new(8.0);
-        let scores = vec![QualityScore::new(
-            QualityDimension::Safety,
-            3.0,
-            "insecure",
-        )
-        .with_suggestion("use HTTPS")];
+        let scores = vec![QualityScore::new(QualityDimension::Safety, 3.0, "insecure")
+            .with_suggestion("use HTTPS")];
 
         let result = engine.critique("task", "output", scores, 1);
         let prompt = engine.generate_retry_prompt(&result);

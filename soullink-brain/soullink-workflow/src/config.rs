@@ -73,11 +73,11 @@ impl WorkflowConfig {
     /// Load a workflow config from a YAML file.
     pub fn from_file(path: &Path) -> Result<Self, ConfigError> {
         let content = std::fs::read_to_string(path)?;
-        Self::from_str(&content)
+        Self::from_yaml(&content)
     }
 
     /// Parse a workflow config from a YAML string.
-    pub fn from_str(yaml: &str) -> Result<Self, ConfigError> {
+    pub fn from_yaml(yaml: &str) -> Result<Self, ConfigError> {
         let config: WorkflowConfig = serde_yaml::from_str(yaml)?;
         config.validate()?;
         Ok(config)
@@ -186,7 +186,7 @@ nodes:
   - id: step1
     prompt: "do something"
 "#;
-        let config = WorkflowConfig::from_str(yaml).unwrap();
+        let config = WorkflowConfig::from_yaml(yaml).unwrap();
         assert_eq!(config.name, "test");
         assert_eq!(config.nodes.len(), 1);
     }
@@ -201,7 +201,7 @@ nodes:
   - id: x
     prompt: "b"
 "#;
-        assert!(WorkflowConfig::from_str(yaml).is_err());
+        assert!(WorkflowConfig::from_yaml(yaml).is_err());
     }
 
     #[test]
@@ -215,6 +215,6 @@ nodes:
     depends_on: [a, missing]
     prompt: "b"
 "#;
-        assert!(WorkflowConfig::from_str(yaml).is_err());
+        assert!(WorkflowConfig::from_yaml(yaml).is_err());
     }
 }

@@ -10,4 +10,6 @@ pub mod channel;
 pub mod error;
 pub mod hnsw_index;
 
-pub use hnsw_index::{HnswIndex, HnswParams, HybridSearch, VectorError, VectorSearchResult, VectorStore};
+pub use hnsw_index::{
+    HnswIndex, HnswParams, HybridSearch, VectorError, VectorSearchResult, VectorStore,
+};

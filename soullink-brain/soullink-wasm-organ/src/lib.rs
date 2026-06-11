@@ -11,12 +11,9 @@
 //! - CircuitBreaker integration for organ health monitoring
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
 
 use soullink_circuit::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 

@@ -27,14 +27,13 @@
 //!   recent episodic memories, clusters similar ones, and promotes
 //!   important patterns to semantic storage.
 
-use anyhow::Result;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::info;
 
 // ── Memory Types ────────────────────────────────────────────────────────
 
@@ -220,7 +219,8 @@ impl EpisodicStore {
 
     /// Get recent episodic memories.
     pub fn recent(&self, limit: usize) -> Vec<MemoryEntry> {
-        let mut entries: Vec<MemoryEntry> = self.entries.iter().map(|e| e.value().clone()).collect();
+        let mut entries: Vec<MemoryEntry> =
+            self.entries.iter().map(|e| e.value().clone()).collect();
         entries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         entries.truncate(limit);
         entries
@@ -285,6 +285,11 @@ impl EpisodicStore {
     pub fn len(&self) -> usize {
         self.entries.len()
     }
+
+    /// True si le store est vide.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 }
 
 // ── Semantic Store ──────────────────────────────────────────────────────
@@ -338,10 +343,7 @@ impl SemanticStore {
         let id = entry.id.clone();
         self.entries.insert(id.clone(), entry);
 
-        self.by_type
-            .entry(concept_type)
-            .or_default()
-            .push(id);
+        self.by_type.entry(concept_type).or_default().push(id);
     }
 
     /// Search semantic memory by text.
@@ -422,6 +424,11 @@ impl SemanticStore {
     pub fn len(&self) -> usize {
         self.entries.len()
     }
+
+    /// True si le store est vide.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 }
 
 // ── Consolidation Engine ────────────────────────────────────────────────
@@ -485,10 +492,11 @@ impl ConsolidationEngine {
 
     /// Run a single consolidation cycle.
     pub async fn consolidate(&self) -> ConsolidationResult {
-        let mut result = ConsolidationResult::default();
-
-        // 1. Decay episodic memories
-        result.decayed = self.episodic.decay();
+        let mut result = ConsolidationResult {
+            // 1. Decay episodic memories
+            decayed: self.episodic.decay(),
+            ..Default::default()
+        };
 
         // 2. Get recent episodic entries above threshold
         let candidates: Vec<MemoryEntry> = self
@@ -510,8 +518,7 @@ impl ConsolidationEngine {
             if cluster.len() >= self.config.min_cluster_size {
                 // Merge cluster into a single semantic entry
                 let merged = self.merge_cluster(cluster);
-                self.semantic
-                    .store(merged, ConceptType::Fact);
+                self.semantic.store(merged, ConceptType::Fact);
                 result.promoted += cluster.len();
 
                 // Remove promoted entries from episodic
@@ -595,10 +602,7 @@ impl ConsolidationEngine {
             .unwrap();
 
         // Combine text: use the longest text as the representative
-        let representative = cluster
-            .iter()
-            .max_by_key(|e| e.text.len())
-            .unwrap();
+        let representative = cluster.iter().max_by_key(|e| e.text.len()).unwrap();
 
         // Combine tags
         let mut all_tags: Vec<String> = Vec::new();
@@ -675,8 +679,7 @@ impl HierarchicalMemory {
                 self.episodic.store(entry);
             }
             MemoryLayer::Semantic => {
-                self.semantic
-                    .store(entry, ConceptType::Fact);
+                self.semantic.store(entry, ConceptType::Fact);
             }
         }
     }
@@ -856,7 +859,7 @@ mod tests {
 
         let result = engine.consolidate().await;
         assert!(result.promoted >= 3);
-        assert!(episodic.len() == 0);
-        assert!(semantic.len() >= 1);
+        assert!(episodic.is_empty());
+        assert!(!semantic.is_empty());
     }
 }

@@ -1,9 +1,7 @@
 //! Integration test : démarre le serveur monitor en vrai, fait des requêtes
 //! HTTP, vérifie le SSE.
 
-use scirust_trading_core::{
-    Bar, BarKind, CodifiedEvent, EventBus, EventTiming, Exchange, SourceId, Symbol,
-};
+use scirust_trading_core::{Bar, CodifiedEvent, EventBus, EventTiming, Exchange, Symbol};
 use scirust_trading_monitor::{MonitorConfig, MonitorServer};
 use scirust_trading_persistence::QueryApi;
 use std::sync::Arc;
@@ -70,7 +68,7 @@ async fn sse_news_delivers_event() {
     let bus_emit = bus.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        let mut ev = CodifiedEvent::builder(SourceId::new("test"), "Hello world")
+        let mut ev = CodifiedEvent::builder("test", "Hello world")
             .reliability(0.9)
             .timing(EventTiming::Observed(chrono::Utc::now()))
             .build();
@@ -128,18 +126,12 @@ async fn sse_bars_delivers_event() {
         let bar = Bar {
             exchange: Exchange::Binance,
             symbol: Symbol::new("BTC", "USDT"),
-            kind: BarKind::Tick { ticks_per_bar: 500 },
-            start: now,
-            end: now,
+            timestamp: now,
             open: 50_000.0,
             high: 50_100.0,
             low: 49_950.0,
             close: 50_050.0,
             volume: 1.5,
-            trade_count: 500,
-            buy_volume: 0.8,
-            sell_volume: 0.7,
-            vwap: 50_025.0,
         };
         let _ = bus_emit.bars.send(bar);
     });
@@ -161,7 +153,10 @@ async fn sse_bars_delivers_event() {
         let mut stream = resp.bytes_stream();
         while let Some(chunk) = stream.next().await {
             buf.extend_from_slice(&chunk.unwrap());
-            if buf.len() > 256 {
+            // Un seul event `bar` suffit : on s'arrête dès qu'il est arrivé
+            // (sa taille est inférieure à un éventuel seuil d'octets fixe).
+            let text = String::from_utf8_lossy(&buf);
+            if text.contains("event: bar") || text.contains("BTC/USDT") {
                 break;
             }
         }

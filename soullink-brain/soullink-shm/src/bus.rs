@@ -60,8 +60,8 @@ const BUS_MAGIC: u64 = 0x534F554C5F425553; // "SOUL_BUS"
 /// A slot header for each subscriber.
 #[repr(C)]
 struct SlotHeader {
-    active: u64,      // 1 = active, 0 = inactive
-    reader_seq: u64,  // last sequence number read by this slot
+    active: u64,     // 1 = active, 0 = inactive
+    reader_seq: u64, // last sequence number read by this slot
     _reserved: [u8; 16],
 }
 
@@ -111,9 +111,13 @@ impl ShmBus {
     }
 
     /// Open an existing bus from a received mmap fd.
+    ///
+    /// # Safety
+    /// `fd` doit référencer une région mmap valide de `total_size` octets,
+    /// initialisée par un `Bus::create` côté producteur.
     pub unsafe fn open(fd: OwnedFd, total_size: usize) -> Result<Self> {
-        let region = ShmRegion::from_fd(fd, total_size)
-            .context("failed to open bus shared memory")?;
+        let region =
+            ShmRegion::from_fd(fd, total_size).context("failed to open bus shared memory")?;
 
         let header = region.as_mut_ptr() as *const BusHeader;
         if (*header).magic != BUS_MAGIC {
@@ -147,9 +151,12 @@ impl ShmBus {
 
             let new_mask = mask | (1u64 << idx);
             if unsafe {
-                (*header)
-                    .active_mask
-                    .compare_exchange_weak(mask, new_mask, Ordering::AcqRel, Ordering::Relaxed)
+                (*header).active_mask.compare_exchange_weak(
+                    mask,
+                    new_mask,
+                    Ordering::AcqRel,
+                    Ordering::Relaxed,
+                )
             }
             .is_ok()
             {

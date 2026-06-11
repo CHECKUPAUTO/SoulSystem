@@ -286,9 +286,11 @@ mod tests {
     #[test]
     fn test_memory_persistence() {
         let store = test_store();
-        let mut mem = PersistentWorkingMemory::default();
-        mem.key_info = "test task".to_string();
-        mem.observations.push("obs1".to_string());
+        let mem = PersistentWorkingMemory {
+            key_info: "test task".to_string(),
+            observations: vec!["obs1".to_string()],
+            ..Default::default()
+        };
         store.save_memory(&mem).unwrap();
 
         let loaded = store.load_memory().unwrap();
@@ -362,7 +364,9 @@ mod tests {
     #[test]
     fn test_config() {
         let store = test_store();
-        store.save_config("model", &serde_json::json!("qwen3:8b")).unwrap();
+        store
+            .save_config("model", &serde_json::json!("qwen3:8b"))
+            .unwrap();
         let val = store.load_config("model").unwrap().unwrap();
         assert_eq!(val.as_str().unwrap(), "qwen3:8b");
     }

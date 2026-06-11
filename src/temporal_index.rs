@@ -247,7 +247,7 @@ mod tests {
         index
             .insert(&TimeIndexEntry {
                 id: "old".into(),
-                timestamp_ms: now - 3600_000, // 1h ago
+                timestamp_ms: now - 3_600_000, // 1h ago
                 tag: "historique".into(),
                 summary: "Vieux souvenir".into(),
                 metadata: "{}".into(),
@@ -305,7 +305,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let index = TemporalIndex::open(&dir.path().to_path_buf()).unwrap();
 
-        let old_ts = Utc::now().timestamp_millis() - 10 * 24 * 3600_000; // 10 days ago
+        let old_ts = Utc::now().timestamp_millis() - 10 * 24 * 3_600_000; // 10 days ago
         index
             .insert(&TimeIndexEntry {
                 id: "old".into(),

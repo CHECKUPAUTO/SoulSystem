@@ -106,6 +106,11 @@ impl Metabolism {
         })
     }
 
+    /// Durée écoulée depuis le démarrage du métabolisme.
+    pub fn uptime(&self) -> Duration {
+        self.start_time.elapsed()
+    }
+
     /// Get a snapshot of current system resources.
     pub fn resource_snapshot(&self) -> ResourceSnapshot {
         let (cpu, mem, disk) = Self::read_resources();

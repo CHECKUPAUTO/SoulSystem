@@ -7,7 +7,7 @@
 //!   GET  /stats                 → compression + usage stats
 //!   GET  /v1/models             → proxy to llama-server
 
-use crate::turboquant::proxy::server::{ProxyConfig, ProxyStats, TurboQuantProxy};
+use crate::turboquant::proxy::server::{ProxyStats, TurboQuantProxy};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -160,6 +160,7 @@ async fn proxy_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::turboquant::proxy::server::ProxyConfig;
 
     #[test]
     fn router_builds() {

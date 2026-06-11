@@ -11,8 +11,15 @@ use chrono::{DateTime, Utc};
 use scirust_trading_persistence::OutcomeConfig;
 use serde::{Deserialize, Serialize};
 
+/// Dashboard HTML statique (embarqué dans le binaire).
+async fn dashboard() -> impl IntoResponse {
+    axum::response::Html(include_str!("../static/dashboard.html"))
+}
+
 pub fn build_router(state: MonitorState) -> Router {
     Router::new()
+        // Dashboard
+        .route("/", get(dashboard))
         // SSE streams
         .route("/stream/market", get(sse::stream_market))
         .route("/stream/news", get(sse::stream_news))
@@ -218,10 +225,9 @@ async fn performance_stats(
         Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     };
     let stats = state.api.aggregate_stats(&outcomes);
-    let by_gate = serde_json::to_value(&serialize_group_map(&stats.by_gate)).unwrap_or_default();
-    let by_bias = serde_json::to_value(&serialize_group_map(&stats.by_bias)).unwrap_or_default();
-    let by_symbol =
-        serde_json::to_value(&serialize_group_map(&stats.by_symbol)).unwrap_or_default();
+    let by_gate = serde_json::to_value(serialize_group_map(&stats.by_gate)).unwrap_or_default();
+    let by_bias = serde_json::to_value(serialize_group_map(&stats.by_bias)).unwrap_or_default();
+    let by_symbol = serde_json::to_value(serialize_group_map(&stats.by_symbol)).unwrap_or_default();
     Ok(Json(PerformanceResponse {
         window_from: from,
         window_to: to,

@@ -312,32 +312,6 @@ impl WarmStandby {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{GpuStatus, NumaNodeStatus};
-
-    fn make_snap(vram_free: f64, numa_free: &[f64]) -> HardwareSnapshot {
-        HardwareSnapshot {
-            numa_nodes: numa_free
-                .iter()
-                .enumerate()
-                .map(|(i, f)| NumaNodeStatus {
-                    node_id: i as u32,
-                    cpu_cores: vec![],
-                    memory_total_gb: 64.0,
-                    memory_free_gb: *f,
-                    l3_cache_kb: 30720,
-                })
-                .collect(),
-            gpu: GpuStatus {
-                vram_total_gb: 8.0,
-                vram_free_gb: vram_free,
-                gpu_temp_c: 70,
-                sm_clock_mhz: 2100,
-                max_sm_clock_mhz: 2790,
-                throttle_active: false,
-            },
-            timestamp_ms: 0,
-        }
-    }
 
     #[tokio::test]
     async fn mark_loaded_and_check() {

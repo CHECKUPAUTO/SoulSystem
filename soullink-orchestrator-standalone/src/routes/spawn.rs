@@ -1,10 +1,8 @@
 //! Route: Spawn
 
-use crate::models::types::BrainConfig;
 use crate::state::AppState;
 use axum::{extract::State, Json};
 use serde_json::{json, Value};
-use std::sync::atomic::Ordering;
 use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};
@@ -37,8 +35,8 @@ pub async fn route_spawn(State(state): State<AppState>, Json(body): Json<Value>)
 
     let brain_dir = state.brain_dir.clone();
     let domain_c = domain.clone();
-    let domain_for_config = domain.clone();
-    let speciality = body
+    // TODO: transmettre la speciality au brain lancé (ignorée pour le moment).
+    let _speciality = body
         .get("speciality")
         .and_then(|v| v.as_array())
         .map(|arr| {

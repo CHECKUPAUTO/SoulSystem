@@ -72,7 +72,7 @@ impl Adam {
     }
 
     /// Adam standard
-    pub fn adam(dim: usize) -> Self {
+    pub fn standard(dim: usize) -> Self {
         Self::new(
             dim,
             AdamConfig {
@@ -96,7 +96,7 @@ impl Adam {
 
         let dim = params.len();
         self.state.t += 1;
-        let t = self.state.t as f32;
+        let _t = self.state.t as f32;
 
         // Gradient clipping
         let grads = if let Some(max_norm) = self.config.grad_clip {
@@ -211,7 +211,7 @@ mod tests {
     fn test_adam_converges() {
         // Minimiser f(x) = x² → minimum à x=0
         let mut params = vec![5.0];
-        let mut opt = Adam::adam(1);
+        let mut opt = Adam::standard(1);
         opt.config.lr = 0.1;
 
         for _ in 0..200 {

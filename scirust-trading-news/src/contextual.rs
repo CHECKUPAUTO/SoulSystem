@@ -353,12 +353,12 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use scirust_trading_core::{Category, EventTiming, SourceId};
+    use scirust_trading_core::{Category, EventTiming};
     use std::collections::HashMap;
     use tokio::sync::Mutex;
 
     fn make_event(text: &str, tags: &[&str], level: EnrichmentLevel) -> CodifiedEvent {
-        let mut e = CodifiedEvent::builder(SourceId::new("test"), text)
+        let mut e = CodifiedEvent::builder("test", text)
             .category(Category::Macro)
             .timing(EventTiming::Observed(Utc::now()))
             .reliability(0.9)
@@ -433,7 +433,7 @@ mod tests {
         let d = vec![1.0_f32, 1.0, 0.0];
         // (1×1 + 0×1) / (1 × √2) = 1/√2 ≈ 0.707
         let s = cosine_similarity(&a, &d);
-        assert!((s - 0.7071).abs() < 1e-3);
+        assert!((s - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-3);
     }
 
     #[test]
@@ -466,6 +466,7 @@ mod tests {
                 delta_60min_bps: 120.0,
                 delta_60min_std_bps: 35.0,
                 volume_spike_ratio: 2.5,
+                ..Default::default()
             }),
         });
 
@@ -512,6 +513,7 @@ mod tests {
                     delta_60min_bps: 3.0,
                     delta_60min_std_bps: 4.0,
                     volume_spike_ratio: 1.5,
+                    ..Default::default()
                 }),
             })),
         );
@@ -547,6 +549,7 @@ mod tests {
                     delta_60min_bps: 30.0,
                     delta_60min_std_bps: 5.0,
                     volume_spike_ratio: 1.2,
+                    ..Default::default()
                 }),
             })),
         );

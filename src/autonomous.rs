@@ -1,13 +1,13 @@
 use soul_agent_core::{AgentConfig, AutonomousAgent};
-use soul_llm::{LlmConfig, OllamaClient};
-use soul_planner::{CognitiveLoop, Goal, Plan};
-use soul_tools::{discover_system_tools, execute_shell, Tool, ToolRegistry};
+use soul_api::ApiEngine;
+use soul_automation::AutomationEngine;
 use soul_bridges::orchestrator::SoulOrchestrator;
 use soul_cognitive::CognitiveEngine;
-use soul_automation::AutomationEngine;
-use soul_security::SecurityEngine;
+use soul_llm::{LlmConfig, OllamaClient};
 use soul_monitor::MonitorEngine;
-use soul_api::ApiEngine;
+use soul_planner::{CognitiveLoop, Goal, Plan};
+use soul_security::SecurityEngine;
+use soul_tools::{discover_system_tools, execute_shell, Tool, ToolRegistry};
 
 pub struct AutonomousEntity {
     pub llm: OllamaClient,
@@ -61,7 +61,10 @@ impl AutonomousEntity {
     }
 
     pub async fn ask(&mut self, prompt: &str) -> Result<String, soul_llm::LlmError> {
-        self.agent.ask(prompt).await.map_err(soul_llm::LlmError::Stream)
+        self.agent
+            .ask(prompt)
+            .await
+            .map_err(soul_llm::LlmError::Stream)
     }
 
     pub async fn run_task(&mut self, task: &str) -> Result<String, String> {
@@ -81,8 +84,12 @@ impl AutonomousEntity {
 
     /// Produce an executable plan for a goal using the currently available tools.
     pub fn plan(&self, goal: &Goal) -> Plan {
-        let tool_names: Vec<String> =
-            self.registry.list().iter().map(|t| t.name.clone()).collect();
+        let tool_names: Vec<String> = self
+            .registry
+            .list()
+            .iter()
+            .map(|t| t.name.clone())
+            .collect();
         self.planner.create_plan(goal, &tool_names)
     }
 
@@ -92,19 +99,23 @@ impl AutonomousEntity {
             let result = match &step.tool {
                 Some(tool_name) => {
                     if let Some(tool) = self.registry.get(tool_name) {
-                        let args = step.args.as_ref().map(|a| a.to_string()).unwrap_or_default();
+                        let args = step
+                            .args
+                            .as_ref()
+                            .map(|a| a.to_string())
+                            .unwrap_or_default();
                         soul_tools::execute_tool(tool, &args)?
                     } else {
                         format!("Tool '{}' not found", tool_name)
                     }
                 }
-                None => {
-                    execute_shell(&step.action)?
-                }
+                None => execute_shell(&step.action)?,
             };
             let success = !result.is_empty() && !result.to_lowercase().contains("error");
             results.push(result.clone());
-            self.planner.history.record(step.action.clone(), result, success);
+            self.planner
+                .history
+                .record(step.action.clone(), result, success);
         }
         Ok(results.join("\n"))
     }
@@ -117,13 +128,25 @@ impl AutonomousEntity {
         self.planner.memory.observe(observation.to_string());
         self.orchestrator.observe(observation);
         self.cognitive.context.add(observation, 0.5);
-        self.security.audit.log("observe", &self.name, "memory", serde_json::json!({"text": observation}));
+        self.security.audit.log(
+            "observe",
+            &self.name,
+            "memory",
+            serde_json::json!({"text": observation}),
+        );
     }
 
     pub fn learn(&mut self, action: &str, outcome: &str, reward: f32) {
         self.cognitive.learn(action, outcome, reward);
-        self.planner.history.record(action.to_string(), outcome.to_string(), reward > 0.0);
-        self.security.audit.log("learn", &self.name, "cognitive", serde_json::json!({"action": action, "outcome": outcome, "reward": reward}));
+        self.planner
+            .history
+            .record(action.to_string(), outcome.to_string(), reward > 0.0);
+        self.security.audit.log(
+            "learn",
+            &self.name,
+            "cognitive",
+            serde_json::json!({"action": action, "outcome": outcome, "reward": reward}),
+        );
     }
 
     pub fn think(&mut self, input: &str) -> serde_json::Value {
@@ -138,27 +161,47 @@ impl AutonomousEntity {
         let mut triggered = Vec::new();
         let metrics = soul_bridges::monitor::get_metrics();
 
-        let cpu_alerts = self.automation.alerts.check("cpu", metrics.cpu_usage as f64);
+        let cpu_alerts = self
+            .automation
+            .alerts
+            .check("cpu", metrics.cpu_usage as f64);
         for alert in &cpu_alerts {
             triggered.push(format!("[{:?}] {}", alert.severity, alert.message));
-            self.security.audit.log("alert", "system", "cpu", serde_json::json!({"alert": alert.message}));
+            self.security.audit.log(
+                "alert",
+                "system",
+                "cpu",
+                serde_json::json!({"alert": alert.message}),
+            );
         }
 
-        let mem_alerts = self.automation.alerts.check("memory", metrics.memory_usage as f64);
+        let mem_alerts = self
+            .automation
+            .alerts
+            .check("memory", metrics.memory_usage as f64);
         for alert in &mem_alerts {
             triggered.push(format!("[{:?}] {}", alert.severity, alert.message));
         }
 
         if let Some(gpu) = self.monitor.gpu.get_gpu_info() {
-            let gpu_alerts = self.automation.alerts.check("gpu_temp", gpu.temperature as f64);
+            let gpu_alerts = self
+                .automation
+                .alerts
+                .check("gpu_temp", gpu.temperature as f64);
             for alert in &gpu_alerts {
                 triggered.push(format!("[{:?}] {}", alert.severity, alert.message));
             }
-            self.monitor.predictive.record("gpu_temp", gpu.temperature as f64);
+            self.monitor
+                .predictive
+                .record("gpu_temp", gpu.temperature as f64);
         }
 
-        self.monitor.predictive.record("cpu", metrics.cpu_usage as f64);
-        self.monitor.predictive.record("memory", metrics.memory_usage as f64);
+        self.monitor
+            .predictive
+            .record("cpu", metrics.cpu_usage as f64);
+        self.monitor
+            .predictive
+            .record("memory", metrics.memory_usage as f64);
 
         triggered
     }
@@ -215,7 +258,10 @@ impl AutonomousEntity {
         }
 
         if !symptoms.is_empty() {
-            let actions: Vec<(String, String, String)> = self.automation.healer.diagnose(&symptoms)
+            let actions: Vec<(String, String, String)> = self
+                .automation
+                .healer
+                .diagnose(&symptoms)
                 .iter()
                 .map(|a| (a.id.clone(), a.action.clone(), a.description.clone()))
                 .collect();
@@ -228,7 +274,9 @@ impl AutonomousEntity {
                     Err(e) => e.clone(),
                 };
 
-                self.automation.healer.record_healing(&action_id, success, &details);
+                self.automation
+                    .healer
+                    .record_healing(&action_id, success, &details);
                 self.security.audit.log(
                     "heal",
                     &self.name,
@@ -262,7 +310,10 @@ impl AutonomousEntity {
 
     pub fn tick_workflows(&mut self) -> Vec<String> {
         let mut results = Vec::new();
-        let running: Vec<String> = self.automation.workflows.list_running()
+        let running: Vec<String> = self
+            .automation
+            .workflows
+            .list_running()
             .iter()
             .map(|w| w.id.clone())
             .collect();
@@ -283,10 +334,16 @@ impl AutonomousEntity {
                     serde_json::json!({"step_id": step_id, "success": success, "details": details}),
                 );
 
-                if let Some(next_action) = self.automation.workflows.advance_workflow(wf_id, success) {
+                if let Some(next_action) =
+                    self.automation.workflows.advance_workflow(wf_id, success)
+                {
                     results.push(format!("Step OK: {} → next: {}", action, next_action));
                 } else {
-                    results.push(format!("Step {}: {}", if success { "OK" } else { "FAIL" }, action));
+                    results.push(format!(
+                        "Step {}: {}",
+                        if success { "OK" } else { "FAIL" },
+                        action
+                    ));
                 }
             }
         }
@@ -300,9 +357,15 @@ impl AutonomousEntity {
 
     pub fn save_state(&self, dir: &str) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        self.cognitive.knowledge.save(&format!("{}/knowledge.json", dir))?;
-        self.cognitive.learning.save(&format!("{}/learning.json", dir))?;
-        self.planner.history.save(&format!("{}/history.json", dir))?;
+        self.cognitive
+            .knowledge
+            .save(&format!("{}/knowledge.json", dir))?;
+        self.cognitive
+            .learning
+            .save(&format!("{}/learning.json", dir))?;
+        self.planner
+            .history
+            .save(&format!("{}/history.json", dir))?;
         self.planner.memory.save(&format!("{}/memory.json", dir))?;
         self.security.audit.save(&format!("{}/audit.json", dir))?;
         Ok(())
@@ -345,22 +408,32 @@ impl AutonomousEntity {
                 "success_rate": self.planner.history.success_rate(),
                 "knowledge_entities": self.cognitive.knowledge.stats()["entities"],
             }),
-            alerts: self.automation.alerts.active_alerts()
+            alerts: self
+                .automation
+                .alerts
+                .active_alerts()
                 .iter()
-                .map(|a| serde_json::json!({
-                    "message": a.message,
-                    "severity": format!("{:?}", a.severity),
-                    "time": a.timestamp.to_rfc3339(),
-                }))
+                .map(|a| {
+                    serde_json::json!({
+                        "message": a.message,
+                        "severity": format!("{:?}", a.severity),
+                        "time": a.timestamp.to_rfc3339(),
+                    })
+                })
                 .collect(),
-            recent_activity: self.planner.history.recent(10)
+            recent_activity: self
+                .planner
+                .history
+                .recent(10)
                 .iter()
-                .map(|a| serde_json::json!({
-                    "action": a.action,
-                    "result": a.result,
-                    "success": a.success,
-                    "time": a.timestamp.to_rfc3339(),
-                }))
+                .map(|a| {
+                    serde_json::json!({
+                        "action": a.action,
+                        "result": a.result,
+                        "success": a.success,
+                        "time": a.timestamp.to_rfc3339(),
+                    })
+                })
                 .collect(),
         });
         self.api.dashboard.html()

@@ -219,10 +219,7 @@ impl DesignTree {
     }
 
     pub fn find_by_state(&self, state: &DesignState) -> Vec<&DesignNode> {
-        self.nodes
-            .values()
-            .filter(|n| n.state == *state)
-            .collect()
+        self.nodes.values().filter(|n| n.state == *state).collect()
     }
 
     pub fn find_by_name(&self, name: &str) -> Vec<&DesignNode> {
@@ -364,7 +361,7 @@ mod tests {
         let mut node = DesignNode::new("test", "desc");
         assert!(node.transition(DesignState::Research, None).is_ok());
         assert!(node.transition(DesignState::Decision, None).is_ok());
-        assert!(!node.transition(DesignState::Idea, None).is_ok());
+        assert!(node.transition(DesignState::Idea, None).is_err());
     }
 
     #[test]
@@ -381,7 +378,8 @@ mod tests {
         let mut tree = DesignTree::new(dir.path());
         let id1 = tree.create_node("A", "desc A");
         let id2 = tree.create_node("B", "desc B");
-        tree.transition_node(&id1, DesignState::Research, None).unwrap();
+        tree.transition_node(&id1, DesignState::Research, None)
+            .unwrap();
 
         let ideas = tree.find_by_state(&DesignState::Idea);
         assert_eq!(ideas.len(), 1);
@@ -408,7 +406,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut tree = DesignTree::new(dir.path());
         let id = tree.create_node("A", "desc");
-        tree.transition_node(&id, DesignState::Research, None).unwrap();
+        tree.transition_node(&id, DesignState::Research, None)
+            .unwrap();
         let stats = tree.stats();
         assert_eq!(stats.total, 1);
         assert_eq!(stats.active, 1);
@@ -445,6 +444,6 @@ mod tests {
     fn test_abandoned_blocks_further_transitions() {
         let mut node = DesignNode::new("test", "desc");
         node.transition(DesignState::Abandoned, None).unwrap();
-        assert!(!node.transition(DesignState::Research, None).is_ok());
+        assert!(node.transition(DesignState::Research, None).is_err());
     }
 }

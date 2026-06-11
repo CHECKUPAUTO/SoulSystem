@@ -32,7 +32,10 @@ impl EventBus {
         self.inner.subscribe()
     }
 
-    pub fn subscribe_filtered(&self, _kinds: Vec<BusEventKind>) -> tokio::sync::broadcast::Receiver<BusEvent> {
+    pub fn subscribe_filtered(
+        &self,
+        _kinds: Vec<BusEventKind>,
+    ) -> tokio::sync::broadcast::Receiver<BusEvent> {
         self.inner.subscribe()
     }
 

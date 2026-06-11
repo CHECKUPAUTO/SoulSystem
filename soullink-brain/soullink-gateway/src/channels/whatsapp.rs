@@ -14,6 +14,12 @@ pub struct WhatsAppChannel {
     pub phone_number_id: Option<String>,
 }
 
+impl Default for WhatsAppChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WhatsAppChannel {
     pub fn new() -> Self {
         Self {

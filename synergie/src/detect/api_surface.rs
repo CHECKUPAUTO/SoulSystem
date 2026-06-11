@@ -91,7 +91,7 @@ fn classify(name: &str) -> Option<(Role, String)> {
 }
 
 fn stem_of(name: &str, verb: &str) -> String {
-    let stripped = name.replace(verb, "").replace('_', "").replace('-', "");
+    let stripped = name.replace(verb, "").replace(['_', '-'], "");
     stripped.trim_matches('_').to_string()
 }
 

@@ -31,6 +31,6 @@ pub mod llm;
 pub use candidate::{fnv1a, Candidate, CandidateId};
 pub use domain::{Domain, Score};
 pub use error::{ForgeError, Result};
-pub use evolve::{Config, Engine, Individual, Report};
+pub use evolve::{Checkpoint, Config, Engine, Individual, Report};
 pub use isolation::run_with_timeout;
 pub use trial::Trial;

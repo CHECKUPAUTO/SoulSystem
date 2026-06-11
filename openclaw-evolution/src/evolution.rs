@@ -1,11 +1,10 @@
 use crate::agent::Population;
-use crate::audit::{AuditAction, AuditInput, AuditVerdict, Auditor};
+use crate::audit::{AuditAction, AuditInput, Auditor};
 use crate::batch_embed::BatchEmbedder;
 use crate::concept::ConceptEngine;
 use crate::concept_graph::LiveConceptGraph;
 use crate::config::Config;
 use crate::crawler::Crawler;
-use crate::il::{ILExecutionResult, ILProgram, OpCode, StepStatus};
 use crate::memory::Memory;
 use crate::meta_language::MetaLanguage;
 use crate::ollama::{InferenceMode, OllamaEngine};
@@ -185,7 +184,7 @@ impl EvolutionSystem {
 
         // ── 3. Crawler web ─────
         let crawl_results = self.crawler.crawl_batch(&self.config.seed_urls, 4).await;
-        let crawl_count = crawl_results.len();
+        let _crawl_count = crawl_results.len();
         for cr in &crawl_results {
             let key = format!("crawl:{}:{}", self.cycle, cr.url);
             self.memory.store(key, cr.content.clone(), 0.5);
@@ -238,7 +237,7 @@ impl EvolutionSystem {
             .iter()
             .map(|cr| (cr.url.clone(), cr.content.clone()))
             .collect();
-        let graph_added = self
+        let _graph_added = self
             .concept_graph
             .ingest_from_crawl(&crawl_pairs, &mut self.batch_embedder)
             .await
@@ -253,7 +252,7 @@ impl EvolutionSystem {
 
         // ── 6. MoE Organ Network — propager le stimulus ─────
         let global_embedding = self.concept_graph.global_embedding();
-        if !global_embedding.is_empty() && self.organ_network.organs.len() > 0 {
+        if !global_embedding.is_empty() && !self.organ_network.organs.is_empty() {
             self.organ_network.propagate(0, &global_embedding);
         }
 
@@ -423,7 +422,10 @@ impl EvolutionSystem {
         }
 
         // ── 13. Snapshot ─────
-        if self.cycle % self.config.snapshot_interval as u64 == 0 {
+        if self
+            .cycle
+            .is_multiple_of(self.config.snapshot_interval as u64)
+        {
             let snap = SnapshotManager::create_snapshot(
                 self.cycle,
                 &self.population,

@@ -70,6 +70,11 @@ impl Orchestrator {
         self.agents.insert(agent.id.clone(), agent);
     }
 
+    /// Résultat en cache pour une tâche identique déjà exécutée avec succès.
+    pub fn cached_result(&self, task: &AgentTask) -> Option<TaskResult> {
+        self.cache.get(&format!("{}:{}", task.task_type, task.name))
+    }
+
     /// Submit a task for processing. Returns immediately; the task is queued.
     pub async fn submit_task(self: &Arc<Self>, task: AgentTask) -> Result<()> {
         info!("Submitting task {} ({})", task.id, task.name);

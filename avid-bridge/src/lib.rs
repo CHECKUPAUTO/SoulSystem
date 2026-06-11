@@ -63,3 +63,21 @@ impl Default for Vision {
         }
     }
 }
+
+impl Vision {
+    /// Analyse une image via l'API AVID Vision et renvoie le résultat JSON.
+    pub async fn analyze(&self, image_url: &str) -> Result<serde_json::Value> {
+        let resp = self
+            .client
+            .post(format!("{}/api/vision/analyze", self.base_url))
+            .json(&serde_json::json!({"url": image_url}))
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("AVID Vision analyze failed: {}", resp.status());
+        }
+        let body = resp.json().await?;
+        tracing::info!("👁 AVID Vision analyzed: {}", image_url);
+        Ok(body)
+    }
+}

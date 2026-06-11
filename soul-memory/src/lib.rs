@@ -5,7 +5,7 @@
 //! sont definis dans `soulsystem-common::embedder` et re-exportes ici.
 
 pub use soulsystem_common::embedder::{
-    cosine_similarity, compute_initial_importance, Embedder, NGramEmbedder, SciRustEmbedder,
+    compute_initial_importance, cosine_similarity, Embedder, NGramEmbedder, SciRustEmbedder,
 };
 
 use anyhow::Result;

@@ -11,14 +11,13 @@
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
     Frame,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
 
 // ── Data Model ──────────────────────────────────────────────────────────
 
@@ -98,10 +97,10 @@ pub fn render_dashboard(f: &mut Frame, state: &DashboardState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // header
-            Constraint::Length(5),  // gauges
+            Constraint::Length(3), // header
+            Constraint::Length(5), // gauges
             Constraint::Min(8),    // organs + events
-            Constraint::Length(6),  // turbulence
+            Constraint::Length(6), // turbulence
         ])
         .split(f.area());
 
@@ -138,7 +137,11 @@ fn render_header(f: &mut Frame, area: Rect, state: &DashboardState) {
 fn render_gauges(f: &mut Frame, area: Rect, state: &DashboardState) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(33), Constraint::Percentage(33), Constraint::Percentage(34)])
+        .constraints([
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+            Constraint::Percentage(34),
+        ])
         .split(area);
 
     // Health gauge
@@ -163,7 +166,11 @@ fn render_gauges(f: &mut Frame, area: Rect, state: &DashboardState) {
 
     // Bus events gauge
     let bus_gauge = Gauge::default()
-        .block(Block::default().title("Bus Events/min").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("Bus Events/min")
+                .borders(Borders::ALL),
+        )
         .gauge_style(Style::default().fg(Color::Cyan))
         .ratio((state.bus_events_per_min / 100.0).min(1.0))
         .label(format!("{:.0}", state.bus_events_per_min));
@@ -201,17 +208,16 @@ fn render_organs_and_events(f: &mut Frame, area: Rect, state: &DashboardState) {
         .organs
         .iter()
         .map(|o| {
-            let color = if o.healthy {
-                Color::Green
-            } else {
-                Color::Red
-            };
+            let color = if o.healthy { Color::Green } else { Color::Red };
             let status = if o.healthy { "♥" } else { "✗" };
             ListItem::new(Line::from(vec![
                 Span::styled(format!("{} ", status), Style::default().fg(color)),
                 Span::styled(&o.name, Style::default().fg(Color::White)),
                 Span::styled(
-                    format!("  {}ms  {}MiB VRAM", o.avg_latency_ms as u64, o.vram_used_mib),
+                    format!(
+                        "  {}ms  {}MiB VRAM",
+                        o.avg_latency_ms as u64, o.vram_used_mib
+                    ),
                     Style::default().fg(Color::DarkGray),
                 ),
             ]))
@@ -277,10 +283,7 @@ fn render_turbulence(f: &mut Frame, area: Rect, state: &DashboardState) {
                     format!("[{}] ", &t.timestamp[..8.min(t.timestamp.len())]),
                     Style::default().fg(Color::DarkGray),
                 ),
-                Span::styled(
-                    format!("{:8}", t.severity),
-                    Style::default().fg(color),
-                ),
+                Span::styled(format!("{:8}", t.severity), Style::default().fg(color)),
                 Span::raw(format!(" {}", t.message)),
             ]))
         })

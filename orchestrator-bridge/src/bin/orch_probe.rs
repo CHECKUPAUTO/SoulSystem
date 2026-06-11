@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     let s = client.mesh_status().await?;
     println!(
         "\n  📊 mesh : {}/{} online, total_N = {}",
-        s.online, s.total_brains, s.total_N
+        s.online, s.total_brains, s.total_n
     );
 
     // 3. Brains (registered)

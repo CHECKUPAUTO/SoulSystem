@@ -99,9 +99,10 @@ impl Detector for ConfigDriftDetector {
                             weight: jac,
                         },
                     ],
-                    suggested_action: Some(format!(
+                    suggested_action: Some(
                         "Extraire un schéma commun (`commons-config`) chargé par les deux projets"
-                    )),
+                            .to_string(),
+                    ),
                     fingerprint: blake3::hash(format!("cfg:{}:{}", id, inter).as_bytes())
                         .to_string(),
                     ..Default::default()

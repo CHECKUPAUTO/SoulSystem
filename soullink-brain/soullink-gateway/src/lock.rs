@@ -39,6 +39,11 @@ pub struct GatewayLock {
 }
 
 impl GatewayLock {
+    /// PID enregistré dans le fichier de verrou.
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
     /// Try to acquire the lock. Checks port liveness and existing PID file.
     ///
     /// If the PID file exists and the process is alive, returns

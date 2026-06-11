@@ -167,7 +167,7 @@ impl Agent {
             0.0
         };
 
-        let old_fitness = self.fitness;
+        let _old_fitness = self.fitness;
         self.fitness = performance * 0.4
             + stability * 0.3
             + self.creativity * 0.2
@@ -213,7 +213,7 @@ impl Agent {
         let mut rng = rand::thread_rng();
 
         // Le parent avec la meilleure fitness donne son code
-        let (code_donor, trait_donor) = if parent_a.fitness >= parent_b.fitness {
+        let (code_donor, _trait_donor) = if parent_a.fitness >= parent_b.fitness {
             (parent_a, parent_b)
         } else {
             (parent_b, parent_a)
@@ -259,7 +259,7 @@ pub enum MutationType {
 
 impl MutationType {
     pub fn random() -> Self {
-        let types = vec![
+        let types = [
             MutationType::Structural,
             MutationType::Performance,
             MutationType::Stability,

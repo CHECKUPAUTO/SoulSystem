@@ -12,7 +12,6 @@ use tracing::{debug, error, info, warn};
 use super::protocol::*;
 use super::session::SessionStore;
 use crate::api::ApiState;
-use crate::rpc::{RpcError, RpcRegistry, RpcState};
 
 /// Thread-safe error type for WS handler.
 type HandlerResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -132,8 +131,10 @@ async fn handle_message(
         }
 
         WsMessage::Ping => {
-            ws.send(Message::Text(serde_json::to_string(&WsMessage::Pong)?.into()))
-                .await?;
+            ws.send(Message::Text(
+                serde_json::to_string(&WsMessage::Pong)?.into(),
+            ))
+            .await?;
         }
 
         WsMessage::Pong => {
@@ -378,7 +379,8 @@ async fn send_event(
         event: event.to_string(),
         payload: Some(payload),
     });
-    ws.send(Message::Text(serde_json::to_string(&msg)?.into())).await?;
+    ws.send(Message::Text(serde_json::to_string(&msg)?.into()))
+        .await?;
     Ok(())
 }
 

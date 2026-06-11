@@ -295,7 +295,6 @@ fn small_svd(b: &[Vec<f32>], r: usize, n: usize) -> (Vec<Vec<f32>>, Vec<f32>, Ve
         }
 
         // σ = u^T B v
-        let mut s = 0.0f32;
         let mut u_final = vec![0.0; r];
         for i in 0..r {
             for j in 0..n {
@@ -303,7 +302,7 @@ fn small_svd(b: &[Vec<f32>], r: usize, n: usize) -> (Vec<Vec<f32>>, Vec<f32>, Ve
             }
         }
         let u_norm: f32 = u_final.iter().map(|x| x * x).sum::<f32>().sqrt();
-        s = u_norm;
+        let s = u_norm;
         if s > 1e-10 {
             u_final.iter_mut().for_each(|x| *x /= s);
         }

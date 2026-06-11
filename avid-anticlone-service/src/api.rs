@@ -14,12 +14,12 @@ use tracing::error;
 use crate::corpus::Corpus;
 
 #[derive(Clone)]
-pub struct AppState {
+pub(crate) struct AppState {
     pub corpus: Arc<Corpus>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CheckRequest {
+pub(crate) struct CheckRequest {
     pub submission: crate::corpus::Submission,
     #[serde(default = "default_threshold")]
     pub threshold: f32,
@@ -30,12 +30,12 @@ const fn default_threshold() -> f32 {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SubmitRequest {
+pub(crate) struct SubmitRequest {
     pub label: Option<String>,
     pub submission: crate::corpus::Submission,
 }
 
-pub fn build_router(state: AppState) -> Router {
+pub(crate) fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { (StatusCode::OK, "ok") }))
         .route("/v1/check", post(check_handler))

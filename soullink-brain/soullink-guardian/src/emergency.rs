@@ -143,26 +143,39 @@ impl Core {
             self.max_sm_clock_mhz > 0 && sm_clock >= (self.max_sm_clock_mhz * 80 / 100);
         let plausibly_hung = sm_clock < MIN_HANG_CLOCK_MHZ && sm_clock > 0;
 
-        let outcome = if sm_clock == self.prev_sm_clock && !in_boost_range && plausibly_hung {
-            match self.stall_start {
-                None => {
-                    self.stall_start = Some(now);
-                    ScanOutcome::HangTracking
-                }
-                Some(start) => {
-                    let elapsed_ms = now.duration_since(start).as_millis() as u64;
-                    if elapsed_ms >= self.hang_threshold_ms {
-                        if let Some(last) = self.last_reset_at {
-                            if now.duration_since(last) < RESET_RATE_LIMIT {
-                                return ScanOutcome::ResetSuppressedByRateLimit;
-                            }
-                        }
-                        self.stall_start = None;
-                        ScanOutcome::HangTriggered
-                    } else {
+        let outcome = if !in_boost_range && plausibly_hung {
+            // L'horloge est dans la plage « hang » (basse, hors boost).
+            if sm_clock == self.prev_sm_clock {
+                // Valeur basse confirmée (identique à la lecture précédente) :
+                // on fait courir le chronomètre de stall.
+                match self.stall_start {
+                    None => {
+                        self.stall_start = Some(now);
                         ScanOutcome::HangTracking
                     }
+                    Some(start) => {
+                        let elapsed_ms = now.duration_since(start).as_millis() as u64;
+                        if elapsed_ms >= self.hang_threshold_ms {
+                            if let Some(last) = self.last_reset_at {
+                                if now.duration_since(last) < RESET_RATE_LIMIT {
+                                    return ScanOutcome::ResetSuppressedByRateLimit;
+                                }
+                            }
+                            self.stall_start = None;
+                            ScanOutcome::HangTriggered
+                        } else {
+                            ScanOutcome::HangTracking
+                        }
+                    }
                 }
+            } else {
+                // Première lecture basse (ou l'horloge vient de chuter vers une
+                // nouvelle valeur basse) : on la signale comme HangTracking mais
+                // on n'arme le chronomètre qu'une fois la valeur confirmée au
+                // prochain échantillon identique. Un changement de valeur
+                // réinitialise donc tout stall en cours.
+                self.stall_start = None;
+                ScanOutcome::HangTracking
             }
         } else {
             self.stall_start = None;
@@ -423,7 +436,7 @@ mod tests {
         let mut core = Core::new(30_000);
         let t0 = Instant::now();
         for i in 0..60u32 {
-            let sm_clock = 1800 + (i % 3) as u32 * 10; // varying — never stalled
+            let sm_clock = 1800 + (i % 3) * 10; // varying — never stalled
             let throttle_bits = 0x20 | (i as u64 & 0x7F); // chaotic noise
             let outcome = core.scan_step(sm_clock, throttle_bits, t(t0, i as u64 * 100));
             assert_ne!(

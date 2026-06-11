@@ -5,7 +5,7 @@ use tokio::sync::broadcast;
 
 pub enum TradingEvent {
     Market(MarketState),
-    News(CodifiedEvent),
+    News(Box<CodifiedEvent>),
     Trade(Trade),
     OrderUpdate(Order),
     Bar(Bar),
@@ -18,6 +18,12 @@ pub struct EventBus {
     pub trades: broadcast::Sender<Trade>,
     pub orders: broadcast::Sender<Order>,
     pub bars: broadcast::Sender<Bar>,
+}
+
+impl Default for EventBus {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EventBus {

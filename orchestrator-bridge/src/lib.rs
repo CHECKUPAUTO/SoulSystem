@@ -36,8 +36,8 @@ pub struct OrganStatus {
     pub energy_avg: f64,
     #[serde(default)]
     pub spikes: u64,
-    #[serde(default)]
-    pub N: u64,
+    #[serde(default, rename = "N")]
+    pub n: u64,
     #[serde(default)]
     pub attractor: String,
 }
@@ -46,7 +46,8 @@ pub struct OrganStatus {
 pub struct MeshStatus {
     pub online: usize,
     pub total_brains: usize,
-    pub total_N: u64,
+    #[serde(rename = "total_N")]
+    pub total_n: u64,
     pub mesh: HashMap<String, OrganStatus>,
 }
 
@@ -139,14 +140,14 @@ impl OrchestratorClient {
         let status = self.mesh_status().await?;
         let mut out = format!(
             "mesh: {}/{} online, total_N={}\n",
-            status.online, status.total_brains, status.total_N
+            status.online, status.total_brains, status.total_n
         );
         let mut organs: Vec<_> = status.mesh.iter().collect();
         organs.sort_by(|a, b| a.0.cmp(b.0));
         for (name, s) in organs {
             out.push_str(&format!(
                 "  {:<10} port={:<6} state={:<10} hz={:.2} N={}\n",
-                name, s.port, s.state, s.hz, s.N
+                name, s.port, s.state, s.hz, s.n
             ));
         }
         Ok(out)

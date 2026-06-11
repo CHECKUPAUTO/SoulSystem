@@ -8,12 +8,10 @@
 //! - Task queue with abort support
 //! - Memory distillation
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use soul_llm::{ChatSession, OllamaClient, ToolCall, ToolSchema, build_tool_schemas};
-use soul_planner::{CognitiveLoop, Goal, GoalStatus, WorkingMemory};
-use soul_tools::{AsyncShellExecutor, async_dispatch_tool, dispatch_tool, discover_system_tools, ToolRegistry};
-use std::collections::HashMap;
+use chrono::Utc;
+use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolSchema};
+use soul_planner::{CognitiveLoop, Goal, GoalStatus};
+use soul_tools::{async_dispatch_tool, discover_system_tools, AsyncShellExecutor, ToolRegistry};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use uuid::Uuid;
@@ -51,23 +49,49 @@ impl Default for AgentConfig {
 
 #[derive(Debug, Clone)]
 pub enum StepOutcome {
-    Continue { next_prompt: Option<String> },
-    Done { result: String },
-    Interrupt { question: String, candidates: Vec<String> },
-    Error { message: String },
+    Continue {
+        next_prompt: Option<String>,
+    },
+    Done {
+        result: String,
+    },
+    Interrupt {
+        question: String,
+        candidates: Vec<String>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 // ── Agent Event (for streaming) ──────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
-    Thinking { content: String },
-    ToolCall { name: String, args: serde_json::Value },
-    ToolResult { name: String, output: String, success: bool },
-    Response { content: String },
-    SafetyWarning { message: String },
-    Done { summary: String },
-    Error { message: String },
+    Thinking {
+        content: String,
+    },
+    ToolCall {
+        name: String,
+        args: serde_json::Value,
+    },
+    ToolResult {
+        name: String,
+        output: String,
+        success: bool,
+    },
+    Response {
+        content: String,
+    },
+    SafetyWarning {
+        message: String,
+    },
+    Done {
+        summary: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 // ── Autonomous Agent ─────────────────────────────────────────────────
@@ -177,20 +201,14 @@ impl AutonomousAgent {
                 content: format!("Turn {}/{}", self.turn, self.config.max_turns),
             });
 
-            let response = match self
-                .llm
-                .chat(&messages, Some(&self.tool_schemas))
-                .await
-            {
+            let response = match self.llm.chat(&messages, Some(&self.tool_schemas)).await {
                 Ok(resp) => resp,
                 Err(e) => {
                     self.consecutive_failures += 1;
                     let repairs = self.auto_repair();
                     if !repairs.is_empty() {
                         for r in &repairs {
-                            self.emit_event(AgentEvent::SafetyWarning {
-                                message: r.clone(),
-                            });
+                            self.emit_event(AgentEvent::SafetyWarning { message: r.clone() });
                         }
                     }
                     return Err(format!("LLM error: {}", e));
@@ -205,16 +223,19 @@ impl AutonomousAgent {
                 if !tool_calls.is_empty() {
                     // Assistant made tool calls
                     self.chat_session.add_assistant_with_tools(
-                        if content.is_empty() { None } else { Some(&content) },
+                        if content.is_empty() {
+                            None
+                        } else {
+                            Some(&content)
+                        },
                         tool_calls.clone(),
                     );
 
                     // Execute each tool call
                     for tc in tool_calls {
                         let name = tc.function.name.clone();
-                        let args: serde_json::Value =
-                            serde_json::from_str(&tc.function.arguments)
-                                .unwrap_or(serde_json::json!({}));
+                        let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+                            .unwrap_or(serde_json::json!({}));
 
                         self.emit_event(AgentEvent::ToolCall {
                             name: name.clone(),
@@ -248,9 +269,7 @@ impl AutonomousAgent {
                                 truncate_output(&args.to_string(), 100)
                             );
                             tracing::warn!("{}", audit_msg);
-                            self.emit_event(AgentEvent::SafetyWarning {
-                                message: audit_msg,
-                            });
+                            self.emit_event(AgentEvent::SafetyWarning { message: audit_msg });
                         }
 
                         // Execute tool
@@ -289,7 +308,8 @@ impl AutonomousAgent {
                             true,
                         );
 
-                        self.chat_session.add_tool_result(&tc.id, &truncate_output(&result, 3000));
+                        self.chat_session
+                            .add_tool_result(&tc.id, &truncate_output(&result, 3000));
                     }
 
                     continue;
@@ -386,7 +406,12 @@ impl AutonomousAgent {
     // ── Context Compaction (4-pass: Reclaim → Shrink → Collapse → Evict) ──
 
     fn compact_if_needed(&mut self) {
-        let total_chars: usize = self.chat_session.messages.iter().map(|m| m.content.len()).sum();
+        let total_chars: usize = self
+            .chat_session
+            .messages
+            .iter()
+            .map(|m| m.content.len())
+            .sum();
         let max_chars = self.chat_session.max_context_chars;
 
         if total_chars <= max_chars * 80 / 100 {
@@ -408,8 +433,7 @@ impl AutonomousAgent {
                     soul_llm::Role::Assistant => soul_compaction::Role::Assistant,
                     soul_llm::Role::Tool => soul_compaction::Role::Tool,
                 };
-                soul_compaction::Message::new(role, &m.content)
-                    .with_tokens(m.content.len() / 4)
+                soul_compaction::Message::new(role, &m.content).with_tokens(m.content.len() / 4)
             })
             .collect();
 
@@ -444,7 +468,10 @@ impl AutonomousAgent {
             Err(e) => {
                 tracing::warn!("Compaction failed, truncating oldest messages: {e}");
                 // Fallback: truncate oldest non-system messages
-                let sys_count = self.chat_session.messages.iter()
+                let sys_count = self
+                    .chat_session
+                    .messages
+                    .iter()
                     .filter(|m| matches!(m.role, soul_llm::Role::System))
                     .count();
                 let target = sys_count + (self.chat_session.messages.len() - sys_count) / 2;
@@ -473,28 +500,26 @@ Only return the JSON, no explanation."#,
         );
 
         match self.llm.generate(&prompt).await {
-            Ok(resp) => {
-                match serde_json::from_str::<serde_json::Value>(&resp.response) {
-                    Ok(val) => {
-                        if let Some(info) = val.get("key_info").and_then(|v| v.as_str()) {
-                            self.planner.memory.set_key_info(info);
-                        }
-                        if let Some(facts) = val.get("facts").and_then(|v| v.as_array()) {
-                            for fact in facts {
-                                if let Some(f) = fact.as_str() {
-                                    self.planner.memory.observe(f.to_string());
-                                }
+            Ok(resp) => match serde_json::from_str::<serde_json::Value>(&resp.response) {
+                Ok(val) => {
+                    if let Some(info) = val.get("key_info").and_then(|v| v.as_str()) {
+                        self.planner.memory.set_key_info(info);
+                    }
+                    if let Some(facts) = val.get("facts").and_then(|v| v.as_array()) {
+                        for fact in facts {
+                            if let Some(f) = fact.as_str() {
+                                self.planner.memory.observe(f.to_string());
                             }
                         }
-                        if let Some(skills) = val.get("skills").and_then(|v| v.as_array()) {
-                            tracing::info!("Distilled {} new skills", skills.len());
-                        }
                     }
-                    Err(e) => {
-                        tracing::warn!("Self-distillation JSON parse failed: {e}");
+                    if let Some(skills) = val.get("skills").and_then(|v| v.as_array()) {
+                        tracing::info!("Distilled {} new skills", skills.len());
                     }
                 }
-            }
+                Err(e) => {
+                    tracing::warn!("Self-distillation JSON parse failed: {e}");
+                }
+            },
             Err(e) => {
                 tracing::warn!("Self-distillation LLM call failed: {e}");
             }
@@ -508,14 +533,19 @@ Only return the JSON, no explanation."#,
     }
 
     pub fn auto_repair(&mut self) -> Vec<String> {
-        if !self.config.auto_repair || self.consecutive_failures < self.config.max_consecutive_failures {
+        if !self.config.auto_repair
+            || self.consecutive_failures < self.config.max_consecutive_failures
+        {
             return Vec::new();
         }
 
         let mut repairs = Vec::new();
 
         // Reset conversation context (preserve system prompt)
-        let system_messages: Vec<soul_llm::ChatMessage> = self.chat_session.messages.iter()
+        let system_messages: Vec<soul_llm::ChatMessage> = self
+            .chat_session
+            .messages
+            .iter()
             .filter(|m| matches!(m.role, soul_llm::Role::System))
             .cloned()
             .collect();
@@ -630,6 +660,21 @@ impl TaskQueue {
         });
         (id, response_rx)
     }
+
+    /// Traite la prochaine tâche en attente avec l'agent fourni.
+    /// Retourne `false` si la file est vide.
+    pub async fn process_next(&self, agent: &mut AutonomousAgent) -> bool {
+        let req = self.rx.write().await.try_recv().ok();
+        match req {
+            Some(req) => {
+                tracing::info!("Processing queued task {}: {}", req.id, req.task);
+                let result = agent.run_task(&req.task).await;
+                let _ = req.response_tx.send(result);
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 impl Default for TaskQueue {
@@ -678,7 +723,10 @@ impl AutonomousLoop {
                 // Check for active goals
                 let goal = {
                     let goals = goals.read().await;
-                    goals.iter().find(|g| g.status == GoalStatus::Active).cloned()
+                    goals
+                        .iter()
+                        .find(|g| g.status == GoalStatus::Active)
+                        .cloned()
                 };
 
                 if let Some(goal) = goal {

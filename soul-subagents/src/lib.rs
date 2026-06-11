@@ -8,11 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::RwLock;
 use uuid::Uuid;
-
-use soul_agent_core::AgentEvent;
-use soul_llm::LlmConfig;
 
 #[derive(Error, Debug)]
 pub enum SubAgentError {
@@ -98,10 +95,7 @@ impl SubAgentManager {
             progress: 0.0,
         };
 
-        self.tasks
-            .write()
-            .await
-            .insert(task_id.clone(), task);
+        self.tasks.write().await.insert(task_id.clone(), task);
 
         // Spawn the worker task
         let tasks = self.tasks.clone();
@@ -207,8 +201,7 @@ impl SubAgentManager {
         task_id: &str,
         timeout_secs: u64,
     ) -> Result<SubAgentTask, SubAgentError> {
-        let deadline = std::time::Instant::now()
-            + std::time::Duration::from_secs(timeout_secs);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
 
         loop {
             let task = self.get_task(task_id).await?;
@@ -226,7 +219,10 @@ impl SubAgentManager {
     }
 }
 
-async fn execute_simple_task(llm_config: &soul_llm::LlmConfig, description: &str) -> Result<String, String> {
+async fn execute_simple_task(
+    llm_config: &soul_llm::LlmConfig,
+    description: &str,
+) -> Result<String, String> {
     use soul_llm::{ChatMessage, Role};
 
     let messages = vec![
@@ -245,10 +241,7 @@ async fn execute_simple_task(llm_config: &soul_llm::LlmConfig, description: &str
     ];
 
     let llm = soul_llm::OllamaClient::new(llm_config.clone());
-    let response = llm
-        .chat(&messages, None)
-        .await
-        .map_err(|e| e.to_string())?;
+    let response = llm.chat(&messages, None).await.map_err(|e| e.to_string())?;
 
     Ok(response.message.content.unwrap_or_default())
 }

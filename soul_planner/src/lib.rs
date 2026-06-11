@@ -204,14 +204,6 @@ impl ActionHistory {
     }
 }
 
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len - 3])
-    }
-}
-
 // ── Cognitive Loop (LLM-powered) ─────────────────────────────────────
 
 pub struct CognitiveLoop {
@@ -246,8 +238,7 @@ impl CognitiveLoop {
              [{{\"action\": \"Check disk usage\", \"tool\": \"df\", \"args\": \"-h\"}},\n\
               {{\"action\": \"Analyze results\", \"tool\": null, \"args\": null}}]\n\n\
              Steps (JSON array only, no explanation):",
-            goal.description,
-            tool_list,
+            goal.description, tool_list,
         );
 
         let steps = match self.call_llm(&prompt) {
@@ -375,9 +366,8 @@ impl CognitiveLoop {
 
     fn fallback_evaluate(&self, plan: &Plan, outcome: &str) -> Evaluation {
         let lower = outcome.to_lowercase();
-        let success = lower.contains("success")
-            || lower.contains("done")
-            || lower.contains("completed");
+        let success =
+            lower.contains("success") || lower.contains("done") || lower.contains("completed");
         Evaluation {
             plan_id: plan.id.clone(),
             success,
@@ -414,10 +404,7 @@ impl CognitiveLoop {
                         .unwrap_or_default();
 
                     Decision {
-                        action: val["action"]
-                            .as_str()
-                            .unwrap_or("continue")
-                            .to_string(),
+                        action: val["action"].as_str().unwrap_or("continue").to_string(),
                         reasoning: val["reasoning"]
                             .as_str()
                             .unwrap_or("no reasoning")
@@ -441,7 +428,6 @@ impl CognitiveLoop {
             alternatives: vec!["retry".to_string(), "abort".to_string()],
         }
     }
-
 }
 
 impl Default for CognitiveLoop {

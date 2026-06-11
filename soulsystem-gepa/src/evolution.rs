@@ -167,6 +167,12 @@ fn skill_stats_from_path(path: &Path) -> usize {
 
 pub struct ImprovementTransformer;
 
+impl Default for ImprovementTransformer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ImprovementTransformer {
     pub fn new() -> Self {
         Self
@@ -208,7 +214,7 @@ fn remove_duplicate_comments(code: &str) -> String {
 
 fn simplify_clone(code: &str) -> String {
     let re = regex::Regex::new(r"(?P<var>\w+)\.clone\(\)").unwrap();
-    re.replace_all(&code, |caps: &regex::Captures| {
+    re.replace_all(code, |caps: &regex::Captures| {
         let var = &caps["var"];
         if ["id", "count", "flag", "index", "len", "n"].contains(&var) {
             var.to_string()

@@ -30,6 +30,8 @@ async fn get_status(State(brain): State<SharedState>) -> Json<serde_json::Value>
 
 #[derive(serde::Deserialize)]
 struct StimulusPayload {
+    // Miroir du schéma API ; le texte n'est pas encore exploité par le handler.
+    #[allow(dead_code)]
     text: String,
     intensity: Option<f64>,
 }

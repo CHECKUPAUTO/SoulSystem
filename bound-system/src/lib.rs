@@ -429,6 +429,11 @@ impl BoundSystem {
     }
 }
 
+pub fn apply_seccomp_profile() -> anyhow::Result<()> {
+    // Logic to apply syscall whitelist
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -573,9 +578,4 @@ mod tests {
         }
         assert!(got_end, "Should receive end or error after kill");
     }
-}
-
-pub fn apply_seccomp_profile() -> anyhow::Result<()> {
-    // Logic to apply syscall whitelist
-    Ok(())
 }

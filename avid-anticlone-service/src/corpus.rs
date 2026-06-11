@@ -2,10 +2,9 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
-pub enum CorpusError {
+pub(crate) enum CorpusError {
     #[error("sqlite: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error("pool: {0}")]
@@ -15,30 +14,30 @@ pub enum CorpusError {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Fingerprint {
+pub(crate) struct Fingerprint {
     pub ast_hash: String,
     pub structure: serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]
-pub struct OriginalityReport {
+pub(crate) struct OriginalityReport {
     pub score: f32,
     pub verdict: String,
     pub closest_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Submission {
+pub(crate) struct Submission {
     pub files: std::collections::HashMap<String, String>,
     pub entrypoint: String,
 }
 
-pub struct Corpus {
+pub(crate) struct Corpus {
     pool: Pool<SqliteConnectionManager>,
 }
 
 impl Corpus {
-    pub fn open(db_path: &str) -> Result<Self, CorpusError> {
+    pub(crate) fn open(db_path: &str) -> Result<Self, CorpusError> {
         let manager = SqliteConnectionManager::file(db_path);
         let pool = Pool::builder().max_size(8).build(manager)?;
         let conn = pool.get()?;
@@ -63,15 +62,13 @@ impl Corpus {
         Ok(Self { pool })
     }
 
-    pub fn check(
+    pub(crate) fn check(
         &self,
         tenant_id: i64,
         submission: &Submission,
         threshold: f32,
     ) -> Result<OriginalityReport, CorpusError> {
         let candidate_fp = fingerprint_submission(submission);
-        let candidate_json = serde_json::to_string(&candidate_fp)?;
-
         let conn = self.pool.get()?;
         let mut stmt =
             conn.prepare("SELECT id, fingerprint FROM submissions WHERE tenant_id = ?1")?;
@@ -104,7 +101,7 @@ impl Corpus {
         })
     }
 
-    pub fn submit(
+    pub(crate) fn submit(
         &self,
         tenant_id: i64,
         label: Option<&str>,
@@ -124,7 +121,7 @@ impl Corpus {
         Ok(conn.last_insert_rowid())
     }
 
-    pub fn tenant_by_api_key(&self, api_key: &str) -> Result<Option<i64>, CorpusError> {
+    pub(crate) fn tenant_by_api_key(&self, api_key: &str) -> Result<Option<i64>, CorpusError> {
         use sha2::Digest;
         let mut h = sha2::Sha256::new();
         h.update(api_key.as_bytes());

@@ -134,7 +134,9 @@ async fn main() -> Result<()> {
         {
             let shutdown_clone = shutdown.clone();
             tokio::spawn(async move {
-                let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+                let mut sigterm =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                        .unwrap();
                 sigterm.recv().await;
                 info!("SIGTERM received");
                 shutdown_clone.store(true, Ordering::Relaxed);

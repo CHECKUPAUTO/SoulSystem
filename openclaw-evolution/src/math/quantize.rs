@@ -49,7 +49,7 @@ impl Default for QuantConfig {
 pub fn quantize(data: &[f32], config: &QuantConfig) -> QuantizedVector {
     let n = data.len();
     let bs = config.block_size;
-    let n_blocks = (n + bs - 1) / bs;
+    let n_blocks = n.div_ceil(bs);
 
     let mut scales = Vec::with_capacity(n_blocks);
     let mut zero_points = Vec::with_capacity(n_blocks);
@@ -158,7 +158,7 @@ pub fn quantization_error(original: &[f32], qv: &QuantizedVector) -> f32 {
 /// Emballer des codes 3-bit en octets
 /// Layout : chaque octet contient 2 valeurs 3-bit (6 bits utilisés, 2 de padding)
 fn pack_3bit(codes: &[u8]) -> Vec<u8> {
-    let mut packed = Vec::with_capacity((codes.len() + 1) / 2);
+    let mut packed = Vec::with_capacity(codes.len().div_ceil(2));
     let mut i = 0;
     while i < codes.len() {
         let a = codes[i] & 0x07;

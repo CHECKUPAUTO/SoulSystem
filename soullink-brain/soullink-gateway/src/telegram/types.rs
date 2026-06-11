@@ -4,7 +4,6 @@
 //! message editing, and HTML parse mode.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 /// Top-level envelope for every Bot API response.
 #[derive(Debug, Deserialize)]
@@ -137,7 +136,6 @@ pub struct SendMessage<'a> {
     pub parse_mode: Option<ParseMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_markup: Option<&'a InlineKeyboardMarkup>,
-    #[serde(default = "default_true")]
     pub disable_web_page_preview: bool,
 }
 
@@ -189,10 +187,6 @@ pub struct AnswerCallbackQuery<'a> {
 pub struct SendChatAction<'a> {
     pub chat_id: i64,
     pub action: &'a str,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────

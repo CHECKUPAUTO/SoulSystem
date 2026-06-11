@@ -18,6 +18,12 @@ pub struct SecretVerifier {
     checked: HashSet<String>, // avoid double-checking
 }
 
+impl Default for SecretVerifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SecretVerifier {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()

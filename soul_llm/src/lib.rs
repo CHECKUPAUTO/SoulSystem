@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use std::time::Duration;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum LlmError {
@@ -31,9 +31,13 @@ pub struct LlmConfig {
     pub retry_base_delay_ms: u64,
 }
 
-fn default_max_retries() -> u32 { 3 }
+fn default_max_retries() -> u32 {
+    3
+}
 
-fn default_retry_base_delay_ms() -> u64 { 1000 }
+fn default_retry_base_delay_ms() -> u64 {
+    1000
+}
 
 fn default_timeout() -> u64 {
     120
@@ -481,7 +485,8 @@ impl OllamaClient {
             match request_fn().await {
                 Ok(val) => return Ok(val),
                 Err(e) => {
-                    let is_transport = matches!(&e, LlmError::Http(err) if err.is_timeout() || err.is_connect());
+                    let is_transport =
+                        matches!(&e, LlmError::Http(err) if err.is_timeout() || err.is_connect());
                     if !is_transport {
                         return Err(e);
                     }
@@ -489,7 +494,9 @@ impl OllamaClient {
                         return Err(e);
                     }
                     last_error = Some(e);
-                    let delay_ms = self.config.retry_base_delay_ms
+                    let delay_ms = self
+                        .config
+                        .retry_base_delay_ms
                         .saturating_mul(2u64.saturating_pow(attempt - 1))
                         .min(10_000);
                     tracing::warn!(

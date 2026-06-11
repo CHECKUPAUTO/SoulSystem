@@ -286,16 +286,20 @@ impl RateLimiter {
     }
 
     pub fn set_limit(&mut self, key: &str, max_requests: usize, window_seconds: u64) {
-        self.limits.insert(key.to_string(), (max_requests, window_seconds));
+        self.limits
+            .insert(key.to_string(), (max_requests, window_seconds));
     }
 
     pub fn check(&mut self, key: &str) -> bool {
         let (max_requests, window_seconds) = self.limits.get(key).copied().unwrap_or((100, 60));
         let now = chrono::Utc::now();
-        let entry = self.requests.entry(key.to_string()).or_insert(RateLimitEntry {
-            count: 0,
-            window_start: now,
-        });
+        let entry = self
+            .requests
+            .entry(key.to_string())
+            .or_insert(RateLimitEntry {
+                count: 0,
+                window_start: now,
+            });
 
         if (now - entry.window_start).num_seconds() > window_seconds as i64 {
             entry.count = 0;
@@ -411,7 +415,12 @@ mod tests {
     #[test]
     fn test_audit_trail() {
         let mut audit = AuditTrail::new(100);
-        audit.log("test", "user", "system", serde_json::json!({"detail": "test"}));
+        audit.log(
+            "test",
+            "user",
+            "system",
+            serde_json::json!({"detail": "test"}),
+        );
         assert_eq!(audit.count(), 1);
         let recent = audit.recent(10);
         assert_eq!(recent.len(), 1);
@@ -459,7 +468,12 @@ mod tests {
     #[test]
     fn test_audit_trail_save_load() {
         let mut audit = AuditTrail::new(100);
-        audit.log("test_action", "user1", "target1", serde_json::json!({"key": "value"}));
+        audit.log(
+            "test_action",
+            "user1",
+            "target1",
+            serde_json::json!({"key": "value"}),
+        );
         audit.log("other_action", "user2", "target2", serde_json::json!({}));
         let path = "/tmp/soulsystem_test_audit.json";
         audit.save(path).unwrap();

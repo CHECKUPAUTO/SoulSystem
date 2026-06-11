@@ -367,13 +367,19 @@ mod tests {
     #[test]
     fn test_strip_code_fences_json() {
         let input = "```json\n{\"key\": \"value\"}\n```";
-        assert_eq!(OllamaClient::strip_code_fences(input), "{\"key\": \"value\"}");
+        assert_eq!(
+            OllamaClient::strip_code_fences(input),
+            "{\"key\": \"value\"}"
+        );
     }
 
     #[test]
     fn test_strip_code_fences_plain() {
         let input = "{\"key\": \"value\"}";
-        assert_eq!(OllamaClient::strip_code_fences(input), "{\"key\": \"value\"}");
+        assert_eq!(
+            OllamaClient::strip_code_fences(input),
+            "{\"key\": \"value\"}"
+        );
     }
 
     #[test]

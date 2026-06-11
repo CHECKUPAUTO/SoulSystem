@@ -15,6 +15,8 @@ use std::path::Path;
 pub struct TrtEngine {
     config: TrtConfig,
     model_path: String,
+    // Lu uniquement par le chemin TRT (feature trt-llm) ; mort en mode stub.
+    #[allow(dead_code)]
     loaded: bool,
     // In TRT mode, this holds the opaque C++ runtime pointer:
     // #[cfg(feature = "trt-llm")]

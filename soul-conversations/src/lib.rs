@@ -83,10 +83,16 @@ impl ConversationStore {
     }
 
     fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>, ConversationError> {
-        self.conn.lock().map_err(|_| ConversationError::LockPoisoned)
+        self.conn
+            .lock()
+            .map_err(|_| ConversationError::LockPoisoned)
     }
 
-    pub fn create_session(&self, title: &str, model: Option<&str>) -> Result<String, ConversationError> {
+    pub fn create_session(
+        &self,
+        title: &str,
+        model: Option<&str>,
+    ) -> Result<String, ConversationError> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -111,10 +117,7 @@ pub struct AddMessageParams<'a> {
 }
 
 impl ConversationStore {
-    pub fn add_message(
-        &self,
-        params: AddMessageParams<'_>,
-    ) -> Result<String, ConversationError> {
+    pub fn add_message(&self, params: AddMessageParams<'_>) -> Result<String, ConversationError> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -133,7 +136,10 @@ impl ConversationStore {
         Ok(id)
     }
 
-    pub fn get_messages(&self, session_id: &str) -> Result<Vec<ConversationEntry>, ConversationError> {
+    pub fn get_messages(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<ConversationEntry>, ConversationError> {
         let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp, tool_calls, tool_call_id, tokens_used, model 
@@ -189,7 +195,10 @@ impl ConversationStore {
         Ok(sessions)
     }
 
-    pub fn search_messages(&self, query: &str) -> Result<Vec<ConversationEntry>, ConversationError> {
+    pub fn search_messages(
+        &self,
+        query: &str,
+    ) -> Result<Vec<ConversationEntry>, ConversationError> {
         let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp, tool_calls, tool_call_id, tokens_used, model 
@@ -247,9 +256,7 @@ impl ConversationStore {
         let conn = self.lock_conn()?;
 
         // Get IDs of sessions to delete
-        let mut stmt = conn.prepare(
-            "SELECT id FROM sessions WHERE created_at < ?1",
-        )?;
+        let mut stmt = conn.prepare("SELECT id FROM sessions WHERE created_at < ?1")?;
         let ids: Vec<String> = stmt
             .query_map(params![cutoff], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -261,9 +268,9 @@ impl ConversationStore {
                 conn.execute("DELETE FROM messages WHERE session_id = ?1", params![id])?;
             }
             // Delete the sessions
-for id in &ids {
-                    conn.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
-                }
+            for id in &ids {
+                conn.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
+            }
         }
 
         Ok(count)
@@ -277,8 +284,7 @@ for id in &ids {
     ) -> Result<usize, ConversationError> {
         let conn = self.lock_conn()?;
 
-        let total: i64 =
-            conn.query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))?;
+        let total: i64 = conn.query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))?;
         if (total as usize) <= max_sessions {
             return Ok(0);
         }
@@ -286,9 +292,7 @@ for id in &ids {
         let to_remove = (total as usize) - max_sessions;
 
         // Get the IDs of the oldest sessions to delete
-        let mut stmt = conn.prepare(
-            "SELECT id FROM sessions ORDER BY updated_at ASC LIMIT ?1",
-        )?;
+        let mut stmt = conn.prepare("SELECT id FROM sessions ORDER BY updated_at ASC LIMIT ?1")?;
         let ids: Vec<String> = stmt
             .query_map(params![to_remove as i64], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -409,7 +413,10 @@ mod tests {
 
         let messages = store.get_messages(&session_id).unwrap();
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].tool_calls.as_deref(), Some("{\"fn\":\"search\"}"));
+        assert_eq!(
+            messages[0].tool_calls.as_deref(),
+            Some("{\"fn\":\"search\"}")
+        );
         assert_eq!(messages[0].tool_call_id.as_deref(), Some("call_1"));
         assert_eq!(messages[0].tokens_used, Some(50));
         assert_eq!(messages[0].model.as_deref(), Some("qwen3:8b"));
@@ -420,15 +427,17 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = ConversationStore::open(&dir.path().join("test.db")).unwrap();
         let session_id = store.create_session("Search Test", None).unwrap();
-        store.add_message(AddMessageParams {
-            session_id: &session_id,
-            role: "user",
-            content: "Hello world",
-            tool_calls: None,
-            tool_call_id: None,
-            tokens_used: None,
-            model: None,
-        }).unwrap();
+        store
+            .add_message(AddMessageParams {
+                session_id: &session_id,
+                role: "user",
+                content: "Hello world",
+                tool_calls: None,
+                tool_call_id: None,
+                tokens_used: None,
+                model: None,
+            })
+            .unwrap();
 
         let results = store.search_messages("nonexistent").unwrap();
         assert!(results.is_empty());
@@ -439,24 +448,28 @@ mod tests {
         let dir = tempdir().unwrap();
         let store = ConversationStore::open(&dir.path().join("test.db")).unwrap();
         let session_id = store.create_session("Export Test", None).unwrap();
-        store.add_message(AddMessageParams {
-            session_id: &session_id,
-            role: "user",
-            content: "Hello",
-            tool_calls: None,
-            tool_call_id: None,
-            tokens_used: None,
-            model: None,
-        }).unwrap();
-        store.add_message(AddMessageParams {
-            session_id: &session_id,
-            role: "assistant",
-            content: "Hi!",
-            tool_calls: None,
-            tool_call_id: None,
-            tokens_used: None,
-            model: None,
-        }).unwrap();
+        store
+            .add_message(AddMessageParams {
+                session_id: &session_id,
+                role: "user",
+                content: "Hello",
+                tool_calls: None,
+                tool_call_id: None,
+                tokens_used: None,
+                model: None,
+            })
+            .unwrap();
+        store
+            .add_message(AddMessageParams {
+                session_id: &session_id,
+                role: "assistant",
+                content: "Hi!",
+                tool_calls: None,
+                tool_call_id: None,
+                tokens_used: None,
+                model: None,
+            })
+            .unwrap();
 
         let export = store.export_session(&session_id).unwrap();
         assert!(export.contains("user: Hello"));
@@ -467,18 +480,20 @@ mod tests {
     fn test_list_sessions_ordering() {
         let dir = tempdir().unwrap();
         let store = ConversationStore::open(&dir.path().join("test.db")).unwrap();
-        let s1 = store.create_session("First", None).unwrap();
+        let _s1 = store.create_session("First", None).unwrap();
         let s2 = store.create_session("Second", None).unwrap();
 
-        store.add_message(AddMessageParams {
-            session_id: &s2,
-            role: "user",
-            content: "newer",
-            tool_calls: None,
-            tool_call_id: None,
-            tokens_used: None,
-            model: None,
-        }).unwrap();
+        store
+            .add_message(AddMessageParams {
+                session_id: &s2,
+                role: "user",
+                content: "newer",
+                tool_calls: None,
+                tool_call_id: None,
+                tokens_used: None,
+                model: None,
+            })
+            .unwrap();
 
         let sessions = store.list_sessions().unwrap();
         assert_eq!(sessions.len(), 2);
@@ -500,7 +515,7 @@ mod tests {
     fn test_create_session_without_model() {
         let dir = tempdir().unwrap();
         let store = ConversationStore::open(&dir.path().join("test.db")).unwrap();
-        let session_id = store.create_session("No Model", None).unwrap();
+        let _session_id = store.create_session("No Model", None).unwrap();
 
         let sessions = store.list_sessions().unwrap();
         assert_eq!(sessions[0].model, None);

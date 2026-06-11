@@ -3,10 +3,7 @@
 //! Connects the news enrichment engine to the decision engine,
 //! forming a complete pipeline from raw events to trade signals.
 
-use scirust_trading_core::{
-    Category, CodifiedEvent, EnrichmentLevel, EventTiming, MarketReaction, MarketState, Polarity,
-    Reliability, Side, Symbol, Target,
-};
+use scirust_trading_core::{CodifiedEvent, MarketState, Symbol};
 use serde::{Deserialize, Serialize};
 
 // ── Decision Types ──────────────────────────────────────────────────────
@@ -66,16 +63,18 @@ pub struct TradingPipeline {
     processed: std::collections::HashSet<uuid::Uuid>,
 }
 
+impl Default for TradingPipeline {
+    fn default() -> Self {
+        Self::new(PipelineConfig::default())
+    }
+}
+
 impl TradingPipeline {
     pub fn new(config: PipelineConfig) -> Self {
         Self {
             config,
             processed: std::collections::HashSet::new(),
         }
-    }
-
-    pub fn default() -> Self {
-        Self::new(PipelineConfig::default())
     }
 
     /// Process a single enriched event into a decision.
@@ -197,7 +196,10 @@ impl TradingPipeline {
         action: DecisionAction,
     ) -> String {
         let category = format!("{:?}", event.category);
-        let polarity = event.polarity.map(|p| format!("{:+.2}", p.value())).unwrap_or_default();
+        let polarity = event
+            .polarity
+            .map(|p| format!("{:+.2}", p.value()))
+            .unwrap_or_default();
         let magnitude = event
             .magnitude
             .map(|m| format!("{:.2}", m))
@@ -209,7 +211,9 @@ impl TradingPipeline {
             .map(|r| {
                 format!(
                     "historical Δ60m: {:+.1}bps (n={}, significant={})",
-                    r.delta_60min_bps, r.n_samples, r.is_significant()
+                    r.delta_60min_bps,
+                    r.n_samples,
+                    r.is_significant()
                 )
             })
             .unwrap_or_default();
@@ -237,6 +241,7 @@ impl TradingPipeline {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use scirust_trading_core::{Category, EventTiming, Polarity};
 
     fn make_event(score: f64) -> CodifiedEvent {
         let mut event = CodifiedEvent::builder("test", "test event")

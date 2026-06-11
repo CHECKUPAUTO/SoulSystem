@@ -9,10 +9,7 @@ use tracing::{info, warn};
 
 use crate::provider::ollama::OllamaProvider;
 use crate::provider::openai::OpenAIProvider;
-use crate::provider::{
-    ChatRequest, ChatResponse, CompletionRequest, CompletionResponse, Provider, ProviderConfig,
-    ProviderError,
-};
+use crate::provider::{Provider, ProviderConfig, ProviderError};
 
 /// Wrapper around a provider with circuit breaker state.
 struct ProviderEntry {
@@ -27,6 +24,12 @@ pub struct ProviderRegistry {
     /// Ordered list of provider names for round-robin iteration.
     ordered: RwLock<Vec<String>>,
     rr_index: RwLock<usize>,
+}
+
+impl Default for ProviderRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProviderRegistry {
@@ -110,7 +113,7 @@ impl ProviderRegistry {
 
         // Round-robin across all non-circuit-broken providers
         let n = ordered.len();
-        let mut idx = self.rr_index.read().await.clone();
+        let mut idx = *self.rr_index.read().await;
         for _ in 0..n {
             let name = &ordered[idx % n];
             idx = (idx + 1) % n;
@@ -173,6 +176,10 @@ impl ProviderRegistry {
     /// Number of registered providers.
     pub async fn len(&self) -> usize {
         self.providers.read().await.len()
+    }
+
+    pub async fn is_empty(&self) -> bool {
+        self.providers.read().await.is_empty()
     }
 }
 

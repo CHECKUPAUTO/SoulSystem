@@ -466,7 +466,7 @@ nodes:
     depends_on: [b]
     prompt: "step c"
 "#;
-        let config = WorkflowConfig::from_str(yaml).unwrap();
+        let config = WorkflowConfig::from_yaml(yaml).unwrap();
         let nodes = config.build_nodes().unwrap();
         let order = WorkflowEngine::build_dag(&nodes).unwrap();
 
@@ -493,7 +493,7 @@ nodes:
     depends_on: [left, right]
     prompt: "merge"
 "#;
-        let config = WorkflowConfig::from_str(yaml).unwrap();
+        let config = WorkflowConfig::from_yaml(yaml).unwrap();
         let nodes = config.build_nodes().unwrap();
         let order = WorkflowEngine::build_dag(&nodes).unwrap();
 
@@ -520,7 +520,7 @@ nodes:
     depends_on: [step1]
     bash: "echo hello"
 "#;
-        let config = WorkflowConfig::from_str(yaml).unwrap();
+        let config = WorkflowConfig::from_yaml(yaml).unwrap();
         let mut engine = WorkflowEngine::new();
         engine.register_workflow(config);
         let result = engine.run("simple", "test input").await.unwrap();
@@ -529,7 +529,6 @@ nodes:
 
     #[tokio::test]
     async fn run_dynamic_workflow() {
-        use crate::agent_registry::AgentRegistry;
         use crate::graph_router::{
             AgentGraphNode, AgentGraphOutput, GraphOutput, GraphParam, UserInputNode,
         };
@@ -629,7 +628,7 @@ nodes:
         let engine = WorkflowEngine::new();
         let order = WorkflowEngine::build_dag(&nodes).unwrap();
 
-        let ctx = WorkflowContext::new("Review /tmp/test");
+        let _ctx = WorkflowContext::new("Review /tmp/test");
         let mut outputs: HashMap<String, String> = HashMap::new();
 
         for idx in &order {

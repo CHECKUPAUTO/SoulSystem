@@ -7,11 +7,11 @@
 //! - Network request interception
 //! - Tab management
 
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
-use futures_util::{SinkExt, StreamExt};
 use tracing::info;
 
 #[derive(Error, Debug)]
@@ -114,9 +114,7 @@ pub struct BrowserController {
     chrome_url: String,
     ws_url: Option<String>,
     msg_id: std::sync::atomic::AtomicU64,
-    ws_sender: Option<
-        tokio::sync::mpsc::UnboundedSender<tokio_tungstenite::tungstenite::Message>,
-    >,
+    ws_sender: Option<tokio::sync::mpsc::UnboundedSender<tokio_tungstenite::tungstenite::Message>>,
     response_map: Arc<
         tokio::sync::Mutex<
             std::collections::HashMap<u64, tokio::sync::oneshot::Sender<serde_json::Value>>,
@@ -171,9 +169,8 @@ impl BrowserController {
         let (mut write, mut read) = ws_stream.split();
 
         // Create channel for sending messages
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<
-            tokio_tungstenite::tungstenite::Message,
-        >();
+        let (tx, mut rx) =
+            tokio::sync::mpsc::unbounded_channel::<tokio_tungstenite::tungstenite::Message>();
         self.ws_sender = Some(tx);
 
         // Spawn task to forward messages to WebSocket
@@ -237,8 +234,8 @@ impl BrowserController {
         }
 
         // Send message
-        let text = serde_json::to_string(&msg)
-            .map_err(|e| BrowserError::WebSocket(e.to_string()))?;
+        let text =
+            serde_json::to_string(&msg).map_err(|e| BrowserError::WebSocket(e.to_string()))?;
         sender
             .send(tokio_tungstenite::tungstenite::Message::Text(text))
             .map_err(|e| BrowserError::WebSocket(e.to_string()))?;
@@ -265,11 +262,8 @@ impl BrowserController {
 
     /// Navigate to a URL
     pub async fn navigate(&self, url: &str) -> Result<(), BrowserError> {
-        self.send_command(
-            "Page.navigate",
-            serde_json::json!({"url": url}),
-        )
-        .await?;
+        self.send_command("Page.navigate", serde_json::json!({"url": url}))
+            .await?;
         Ok(())
     }
 
@@ -396,7 +390,9 @@ impl BrowserController {
 
     /// Get full HTML
     pub async fn get_html(&self) -> Result<String, BrowserError> {
-        let result = self.evaluate_js("document.documentElement.outerHTML").await?;
+        let result = self
+            .evaluate_js("document.documentElement.outerHTML")
+            .await?;
         Ok(result.as_str().unwrap_or("").to_string())
     }
 
@@ -413,10 +409,26 @@ impl BrowserController {
         Ok(targets
             .iter()
             .map(|t| TabInfo {
-                id: t.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                title: t.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                url: t.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                tab_type: t.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                id: t
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                title: t
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                url: t
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                tab_type: t
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             })
             .collect())
     }
@@ -551,12 +563,12 @@ mod tests {
         };
         let controller = BrowserController::new(config);
 
-        assert_eq!(controller.config.headless, false);
+        assert!(!controller.config.headless);
         assert_eq!(controller.config.viewport_width, 800);
         assert_eq!(controller.config.viewport_height, 600);
         assert_eq!(controller.config.user_agent, Some("test-agent".into()));
         assert_eq!(controller.config.timeout_ms, 5000);
-        assert_eq!(controller.config.disable_javascript, true);
+        assert!(controller.config.disable_javascript);
         assert_eq!(controller.config.proxy, Some("http://proxy:8080".into()));
     }
 
@@ -593,14 +605,15 @@ mod tests {
         let config = BrowserConfig::default();
         assert_eq!(config.viewport_height, 720);
         assert_eq!(config.timeout_ms, 30000);
-        assert!(config.disable_javascript == false);
+        assert!(!config.disable_javascript);
         assert!(config.proxy.is_none());
         assert!(config.user_agent.is_none());
     }
 
     #[test]
     fn test_content_extractor_strips_script_blocks_across_lines() {
-        let html = "<html>\n<script>\n  alert('test');\n</script>\n<p>Content after script</p>\n</html>";
+        let html =
+            "<html>\n<script>\n  alert('test');\n</script>\n<p>Content after script</p>\n</html>";
         let content = ContentExtractor::extract_content(html);
         assert!(content.contains("Content after script"));
         assert!(!content.contains("alert"));

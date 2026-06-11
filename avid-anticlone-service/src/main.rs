@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![warn(clippy::pedantic, clippy::nursery, unreachable_pub)]
+#![warn(unreachable_pub)]
 
 mod api;
 mod auth;

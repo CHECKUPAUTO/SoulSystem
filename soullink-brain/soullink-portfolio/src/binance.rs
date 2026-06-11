@@ -23,6 +23,7 @@ struct BinanceTrade {
     #[serde(rename = "v")]
     volume: String,
     #[serde(rename = "T")]
+    #[allow(dead_code)]
     trade_time: i64,
 }
 
@@ -30,6 +31,7 @@ struct BinanceTrade {
 #[derive(Debug, Deserialize)]
 struct BinanceTicker {
     #[serde(rename = "s")]
+    #[allow(dead_code)]
     symbol: String,
     #[serde(rename = "P")]
     price_change_percent: String,

@@ -1,5 +1,10 @@
 //! SoulLink Orchestrateur v3 — Rust Native
 //!
+//! NOTE: les structs d'API mesh (QueryRequest, BrainStats...) sont
+//! l'échafaudage du protocole v3, pas encore toutes câblées — d'où le
+//! allow(dead_code) global en attendant.
+#![allow(dead_code)]
+//!
 //! Remplace brain_orchestrator.py
 //! Architecture: axum + tokio + dashmap + reqwest
 //!

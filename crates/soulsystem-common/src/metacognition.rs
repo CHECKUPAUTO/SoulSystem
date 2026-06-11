@@ -146,10 +146,7 @@ mod tests {
 
     #[test]
     fn test_quality_category_from_score() {
-        assert_eq!(
-            QualityCategory::from_score(0.9),
-            QualityCategory::Excellent
-        );
+        assert_eq!(QualityCategory::from_score(0.9), QualityCategory::Excellent);
         assert_eq!(QualityCategory::from_score(0.7), QualityCategory::Good);
         assert_eq!(QualityCategory::from_score(0.5), QualityCategory::Neutral);
         assert_eq!(QualityCategory::from_score(0.3), QualityCategory::Poor);

@@ -113,9 +113,7 @@ impl Detector for PortOverlapDetector {
                             Evidence { project: a.project.clone(), path: a.path.clone(), line: None, fragment: format!("port {} via {}", a.port, a.source), weight: 1.0 },
                             Evidence { project: b.project.clone(), path: b.path.clone(), line: None, fragment: format!("port {} via {}", b.port, b.source), weight: 1.0 },
                         ],
-                        suggested_action: Some(format!(
-                            "1. Réattribuer un port unique\n2. Si interaction prévue : bus (NATS/MQTT) commun\n3. Centraliser dans `/etc/synergie/ports.toml`",
-                        )),
+                        suggested_action: Some("1. Réattribuer un port unique\n2. Si interaction prévue : bus (NATS/MQTT) commun\n3. Centraliser dans `/etc/synergie/ports.toml`".to_string()),
                         fingerprint: blake3::hash(format!("portconflict:{}:{}", a.project, b.project).as_bytes()).to_string(),
                         ..Default::default()
                     });
@@ -218,8 +216,11 @@ impl Detector for PortOverlapDetector {
     }
 }
 
-fn project_owning(ctx: &DetectContext, path: &PathBuf) -> Option<String> {
-    let canon = path.canonicalize().ok().unwrap_or_else(|| path.clone());
+fn project_owning(ctx: &DetectContext, path: &std::path::Path) -> Option<String> {
+    let canon = path
+        .canonicalize()
+        .ok()
+        .unwrap_or_else(|| path.to_path_buf());
     for p in ctx.ecosystem.iter() {
         let pcanon = p.path.canonicalize().ok().unwrap_or_else(|| p.path.clone());
         if canon.starts_with(&pcanon) {

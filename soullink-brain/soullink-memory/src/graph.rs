@@ -407,8 +407,10 @@ mod tests {
 
     #[test]
     fn decay_applied_to_edges() {
-        let mut cfg = DecayConfig::default();
-        cfg.half_life_secs = 1.0; // 1 second half-life for testing
+        let cfg = DecayConfig {
+            half_life_secs: 1.0, // 1 second half-life for testing
+            ..Default::default()
+        };
         let dir = TempDir::new().unwrap();
         let g = MemoryGraph::open(dir.path(), cfg).unwrap();
 

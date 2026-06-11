@@ -349,7 +349,10 @@ impl Compactor {
 
 // ─── Convenience: Auto-compactor with default settings ───────────────────────
 
-pub fn auto_compact(messages: &[Message], max_tokens: usize) -> Result<(Vec<Message>, CompactionStats)> {
+pub fn auto_compact(
+    messages: &[Message],
+    max_tokens: usize,
+) -> Result<(Vec<Message>, CompactionStats)> {
     Compactor::new(max_tokens).compact(messages)
 }
 
@@ -363,7 +366,11 @@ mod tests {
         (0..n)
             .map(|i| {
                 Message::new(
-                    if i % 2 == 0 { Role::User } else { Role::Assistant },
+                    if i % 2 == 0 {
+                        Role::User
+                    } else {
+                        Role::Assistant
+                    },
                     &format!("Message {i}: {}", "x".repeat(100)),
                 )
             })
@@ -430,14 +437,8 @@ mod tests {
     fn test_full_pipeline() {
         let mut msgs = make_messages(30);
         // Add some tool messages
-        msgs.insert(
-            5,
-            Message::new(Role::Tool, &"result ".repeat(100)),
-        );
-        msgs.insert(
-            6,
-            Message::new(Role::Tool, &"result ".repeat(100)),
-        );
+        msgs.insert(5, Message::new(Role::Tool, &"result ".repeat(100)));
+        msgs.insert(6, Message::new(Role::Tool, &"result ".repeat(100)));
 
         let c = Compactor::new(500);
         let (result, stats) = c.compact(&msgs).unwrap();
@@ -478,15 +479,25 @@ mod tests {
     #[test]
     fn test_realistic_conversation() {
         // Simulate a real coding conversation with tool calls
-        let mut msgs = Vec::new();
-        msgs.push(Message::new(Role::User, "Help me debug this function"));
-        msgs.push(Message::new(Role::Assistant, "I'll look at the code"));
-        msgs.push(Message::new(Role::Tool, "fn broken() { panic!(\"oops\") }"));
-        msgs.push(Message::new(Role::Assistant, "Found the issue! The function panics because..."));
-        msgs.push(Message::new(Role::User, "Fix it please"));
-        msgs.push(Message::new(Role::Assistant, "I've patched it with proper error handling"));
-        msgs.push(Message::new(Role::Tool, "src/lib.rs patched successfully"));
-        msgs.push(Message::new(Role::Assistant, "Done. The fix adds Result<(), Error> return type."));
+        let msgs = vec![
+            Message::new(Role::User, "Help me debug this function"),
+            Message::new(Role::Assistant, "I'll look at the code"),
+            Message::new(Role::Tool, "fn broken() { panic!(\"oops\") }"),
+            Message::new(
+                Role::Assistant,
+                "Found the issue! The function panics because...",
+            ),
+            Message::new(Role::User, "Fix it please"),
+            Message::new(
+                Role::Assistant,
+                "I've patched it with proper error handling",
+            ),
+            Message::new(Role::Tool, "src/lib.rs patched successfully"),
+            Message::new(
+                Role::Assistant,
+                "Done. The fix adds Result<(), Error> return type.",
+            ),
+        ];
 
         let c = Compactor::new(1000);
         let (result, _) = c.compact(&msgs).unwrap();
@@ -498,21 +509,31 @@ mod tests {
     fn test_massive_tool_output() {
         let mut msgs = vec![Message::new(Role::User, "search the codebase")];
         for i in 0..20 {
-            msgs.push(Message::new(Role::Tool, &format!("Line {i}: {}", "x".repeat(500))));
+            msgs.push(Message::new(
+                Role::Tool,
+                &format!("Line {i}: {}", "x".repeat(500)),
+            ));
         }
-        msgs.push(Message::new(Role::Assistant, "Found 20 matches across 5 files."));
+        msgs.push(Message::new(
+            Role::Assistant,
+            "Found 20 matches across 5 files.",
+        ));
 
         let c = Compactor::new(2000);
         let (result, _) = c.compact(&msgs).unwrap();
-        let tool_count = result.iter().filter(|m| matches!(m.role, Role::Tool)).count();
+        let tool_count = result
+            .iter()
+            .filter(|m| matches!(m.role, Role::Tool))
+            .count();
         assert!(tool_count < 20, "should compress tool messages");
     }
 
     #[test]
     fn test_preserves_system_prompt() {
-        let mut msgs = vec![
-            Message::new(Role::System, "You are a helpful coding assistant. Always follow Rust best practices."),
-        ];
+        let mut msgs = vec![Message::new(
+            Role::System,
+            "You are a helpful coding assistant. Always follow Rust best practices.",
+        )];
         msgs.extend(make_messages(30));
 
         let c = Compactor::new(1000);

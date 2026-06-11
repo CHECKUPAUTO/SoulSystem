@@ -257,7 +257,7 @@ fn split_sentences(text: &str) -> Vec<&str> {
         } else if matches!(b, b'.' | b'!' | b'?') {
             // Check if followed by whitespace or end of string
             let next = bytes.get(i + 1);
-            if next.map_or(true, |&c| c.is_ascii_whitespace()) {
+            if next.is_none_or(|&c| c.is_ascii_whitespace()) {
                 let end = i + 1; // include punctuation
                 if end > start {
                     sentences.push(&text[start..end]);

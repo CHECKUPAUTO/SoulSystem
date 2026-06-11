@@ -50,6 +50,12 @@ pub struct SessionStore {
     idle_timeout: Duration,
 }
 
+impl Default for SessionStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionStore {
     pub fn new() -> Self {
         Self {
@@ -84,8 +90,21 @@ impl SessionStore {
     }
 
     /// Count active sessions.
+    /// Évince les sessions inactives depuis plus que `idle_timeout`.
+    /// Retourne le nombre de sessions supprimées.
+    pub async fn evict_idle(&self) -> usize {
+        let mut sessions = self.sessions.write().await;
+        let before = sessions.len();
+        sessions.retain(|_, s| s.last_activity.elapsed() < self.idle_timeout);
+        before - sessions.len()
+    }
+
     pub async fn len(&self) -> usize {
         self.sessions.read().await.len()
+    }
+
+    pub async fn is_empty(&self) -> bool {
+        self.sessions.read().await.is_empty()
     }
 
     /// Build HelloOk for a session.

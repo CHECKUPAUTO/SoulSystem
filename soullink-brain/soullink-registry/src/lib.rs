@@ -24,9 +24,7 @@
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use std::time::Duration;
 use tracing::{info, warn};
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -145,6 +143,27 @@ impl Registry {
     }
 
     /// Unregister a service.
+    /// Purge les services dont l'enregistrement a dépassé le TTL.
+    /// Un service reste vivant en se ré-enregistrant périodiquement
+    /// (le `register` agit comme heartbeat). Retourne le nombre purgé.
+    pub fn purge_expired(&self) -> usize {
+        let now = chrono::Utc::now();
+        let ttl = chrono::Duration::from_std(self.ttl).unwrap_or(chrono::Duration::seconds(60));
+        let before = self.services.len();
+        self.services.retain(|_, svc| {
+            match chrono::DateTime::parse_from_rfc3339(&svc.registered_at) {
+                Ok(ts) => now.signed_duration_since(ts.with_timezone(&chrono::Utc)) < ttl,
+                // Timestamp illisible : on conserve plutôt que de purger à tort.
+                Err(_) => true,
+            }
+        });
+        let purged = before - self.services.len();
+        if purged > 0 {
+            warn!("Registry: purged {} expired service(s)", purged);
+        }
+        purged
+    }
+
     pub fn unregister(&self, name: &str, node_id: &str, port: u16) -> Option<ServiceInstance> {
         let key = format!("{}:{}:{}", name, node_id, port);
         self.services.remove(&key).map(|(_, v)| v)
@@ -163,12 +182,7 @@ impl Registry {
     pub fn lookup_by_capability(&self, capability: &str) -> Vec<ServiceInstance> {
         self.services
             .iter()
-            .filter(|e| {
-                e.value()
-                    .capabilities
-                    .iter()
-                    .any(|c| c == capability)
-            })
+            .filter(|e| e.value().capabilities.iter().any(|c| c == capability))
             .map(|e| e.value().clone())
             .collect()
     }
@@ -220,8 +234,7 @@ impl Registry {
     /// Remove a node (and optionally its services).
     pub fn remove_node(&self, node_id: &str, remove_services: bool) -> Option<NodeInfo> {
         if remove_services {
-            self.services
-                .retain(|_, v| v.node_id != node_id);
+            self.services.retain(|_, v| v.node_id != node_id);
         }
         self.nodes.remove(node_id).map(|(_, v)| v)
     }
@@ -261,12 +274,7 @@ impl Default for Registry {
 // ── Convenience builders ────────────────────────────────────────────────
 
 /// Create a ServiceInstance for a brain.
-pub fn brain_instance(
-    domain: &str,
-    host: &str,
-    port: u16,
-    node_id: &str,
-) -> ServiceInstance {
+pub fn brain_instance(domain: &str, host: &str, port: u16, node_id: &str) -> ServiceInstance {
     ServiceInstance {
         name: format!("brain-{}", domain),
         host: host.to_string(),
@@ -280,12 +288,7 @@ pub fn brain_instance(
 }
 
 /// Create a ServiceInstance for an organ.
-pub fn organ_instance(
-    name: &str,
-    host: &str,
-    port: u16,
-    node_id: &str,
-) -> ServiceInstance {
+pub fn organ_instance(name: &str, host: &str, port: u16, node_id: &str) -> ServiceInstance {
     ServiceInstance {
         name: format!("organ-{}", name),
         host: host.to_string(),

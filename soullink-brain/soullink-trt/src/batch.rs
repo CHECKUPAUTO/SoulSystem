@@ -4,7 +4,7 @@
 //! Dream requests are CPU-bound and low priority.
 //! Embed requests are GPU-bound but small and batchable.
 
-use crate::types::{BatchItem, BatchPriority, GenerationConfig, GenerationResult, TrtError};
+use crate::types::{BatchItem, BatchPriority};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -96,6 +96,7 @@ impl BatchScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::GenerationConfig;
 
     fn make_item(priority: BatchPriority) -> BatchItem {
         BatchItem {

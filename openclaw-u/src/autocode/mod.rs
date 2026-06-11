@@ -252,7 +252,7 @@ fn fix_stubs(file_path: &str) -> Result<String, String> {
     let content = std::fs::read_to_string(file_path)
         .map_err(|e| format!("Cannot read {}: {}", file_path, e))?;
 
-    let mut fixed = content
+    let fixed = content
         .replace("todo!()", "Err(anyhow::anyhow!(\"Not yet implemented\"))")
         .replace(
             "unimplemented!()",
@@ -293,7 +293,7 @@ fn fix_panics(file_path: &str) -> Result<String, String> {
     let content = std::fs::read_to_string(file_path)
         .map_err(|e| format!("Cannot read {}: {}", file_path, e))?;
 
-    let mut lines: Vec<String> = content
+    let lines: Vec<String> = content
         .lines()
         .map(|l| {
             if l.trim().starts_with("panic!") {

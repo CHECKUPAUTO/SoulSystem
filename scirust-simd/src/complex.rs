@@ -59,12 +59,16 @@ impl Complex<f32> {
 //  Helpers — transmuter slice de Complex en slice de scalaires        //
 // ------------------------------------------------------------------ //
 
+// Utilisés uniquement par les chemins SIMD ; sans la feature ils seraient
+// signalés comme code mort par `-D warnings`.
+#[cfg(feature = "portable-simd")]
 #[inline]
 fn as_f32(s: &[Complex<f32>]) -> &[f32] {
     // SAFETY : Complex<f32> est #[repr(C)] avec 2 f32 contigus
     unsafe { std::slice::from_raw_parts(s.as_ptr() as *const f32, s.len() * 2) }
 }
 
+#[cfg(feature = "portable-simd")]
 #[inline]
 fn as_f32_mut(s: &mut [Complex<f32>]) -> &mut [f32] {
     unsafe { std::slice::from_raw_parts_mut(s.as_mut_ptr() as *mut f32, s.len() * 2) }

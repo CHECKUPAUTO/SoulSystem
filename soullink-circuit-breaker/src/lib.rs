@@ -4,14 +4,14 @@
 
 pub use soullink_circuit::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitBreakerRegistry,
-    CircuitStats, CircuitState, StateChangeCallback,
+    CircuitState, CircuitStats, StateChangeCallback,
 };
 
 /// Re-export du type Config historique pour compatibilité.
 pub struct Config {
     pub max_failures: u32,
     pub reset_timeout_secs: u64,
-    pub on_state_change: Option<Box<dyn Fn(&str, CircuitState, u32, Option<&str>) + Send + Sync>>,
+    pub on_state_change: Option<StateChangeCallback>,
 }
 
 impl Default for Config {

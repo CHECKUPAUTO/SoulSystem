@@ -2888,8 +2888,15 @@ impl<'t> Var<'t> {
                         for kw in 0..kernel {
                             for ih in 0..h {
                                 for iw in 0..w {
-                                    let oh = ih * stride + kh - pad;
-                                    let ow = iw * stride + kw - pad;
+                                    // Bornes calculées avant la soustraction du
+                                    // padding pour éviter un underflow usize.
+                                    let oh_base = ih * stride + kh;
+                                    let ow_base = iw * stride + kw;
+                                    if oh_base < pad || ow_base < pad {
+                                        continue;
+                                    }
+                                    let oh = oh_base - pad;
+                                    let ow = ow_base - pad;
                                     if oh < h_out && ow < w_out {
                                         let w_idx = ci * out_c * kernel * kernel
                                             + co * kernel * kernel

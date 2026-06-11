@@ -4,9 +4,7 @@
 //! When used inside soullink-inference, replaces raw attention with compressed attention.
 
 use crate::turboquant::cache::TurboQuantKVCache;
-use crate::turboquant::polar::PolarQuant;
-use crate::turboquant::qjl::QJLQuantizer;
-use nalgebra::{DMatrix, DVector};
+use nalgebra::DMatrix;
 
 /// Attention layer with integrated TurboQuant KV cache.
 pub struct TurboQuantAttention {

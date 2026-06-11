@@ -84,7 +84,10 @@ mod tests {
     #[test]
     fn test_degraded_score() {
         let score = compute_health_score(0.5, 70.0, 70.0, 0.2, 3);
-        assert!(score >= 0.3 && score < 0.8, "Expected [0.3, 0.8), got {score}");
+        assert!(
+            (0.3..0.8).contains(&score),
+            "Expected [0.3, 0.8), got {score}"
+        );
     }
 
     #[test]

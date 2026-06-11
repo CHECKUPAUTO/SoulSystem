@@ -19,10 +19,10 @@ pub mod rust_ast;
 
 // ─── Re-exports pour les détecteurs ─────────────────────────────────────
 
-pub use deps::{Dependency, ProjectDeps};
+pub use deps::ProjectDeps;
 pub use fs::FileIndex;
 pub use git::CoCommitMatrix;
-pub use runtime::{ListeningPort, RuntimeSnapshot, SystemdUnit};
+pub use runtime::RuntimeSnapshot;
 
 // ─── Types AST communs ──────────────────────────────────────────────────
 

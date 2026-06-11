@@ -11,7 +11,7 @@ use crate::node::NodeId;
 use crate::pulse::AutonomyPulse;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 
 /// A message received from OpenClaw.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -3,7 +3,6 @@ pub mod evolution;
 pub mod fitness;
 
 use anyhow::Result;
-use std::path::PathBuf;
 use tracing::info;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -25,7 +24,7 @@ impl Default for GepaConfig {
     }
 }
 
-pub fn run(config: GepaConfig, project_root: &PathBuf) -> Result<()> {
+pub fn run(config: GepaConfig, project_root: &std::path::Path) -> Result<()> {
     info!("Starting GEPA evolution with config: {:?}", config);
     let mut engine = evolution::EvolutionEngine::new(config.clone());
     engine.evolve(project_root)?;

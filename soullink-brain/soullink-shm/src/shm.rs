@@ -1,8 +1,8 @@
 //! Shared memory primitives — memfd_create + mmap for zero-copy IPC.
 
 use anyhow::{Context, Result};
-use nix::sys::mman::{mmap, munmap, MapFlags, ProtFlags};
 use nix::sys::memfd::MemFdCreateFlag;
+use nix::sys::mman::{mmap, munmap, MapFlags, ProtFlags};
 use nix::unistd::ftruncate;
 use std::num::NonZeroUsize;
 use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
@@ -87,6 +87,11 @@ impl ShmRegion {
         self.len
     }
 
+    /// True si la région est de taille nulle.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// Get the raw fd (for passing via UDS SCM_RIGHTS).
     pub fn raw_fd(&self) -> RawFd {
         self._fd.as_raw_fd()
@@ -165,8 +170,13 @@ pub fn recv_fd(sockfd: RawFd) -> Result<OwnedFd> {
     let mut iov = [IoSliceMut::new(&mut buf)];
     let mut cmsg_buffer = nix::cmsg_space!([RawFd; 1]);
 
-    let msg = recvmsg::<nix::sys::socket::UnixAddr>(sockfd, &mut iov, Some(&mut cmsg_buffer), MsgFlags::empty())
-        .context("recvmsg failed")?;
+    let msg = recvmsg::<nix::sys::socket::UnixAddr>(
+        sockfd,
+        &mut iov,
+        Some(&mut cmsg_buffer),
+        MsgFlags::empty(),
+    )
+    .context("recvmsg failed")?;
 
     let cmsgs = msg.cmsgs().context("failed to parse cmsgs")?;
     for cmsg in cmsgs {

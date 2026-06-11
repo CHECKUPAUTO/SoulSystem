@@ -12,7 +12,7 @@ use tracing::{debug, warn};
 
 use crate::provider::{
     ChatDelta, ChatMessage, ChatRequest, ChatResponse, CompletionRequest, CompletionResponse,
-    Provider, ProviderConfig, ProviderError, TokenUsage,
+    Provider, ProviderConfig, ProviderError,
 };
 
 pub struct OllamaProvider {

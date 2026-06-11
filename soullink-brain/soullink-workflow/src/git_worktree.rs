@@ -137,7 +137,6 @@ impl WorktreeManager {
 
 #[cfg(test)]
 mod tests {
-    use super::{WorktreeHandle, WorktreeManager};
 
     #[test]
     fn branch_naming_format() {

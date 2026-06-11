@@ -24,10 +24,10 @@ use axum::{
     routing::get,
     Router,
 };
-use std::net::SocketAddr;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
@@ -271,9 +271,7 @@ async fn organs_handler(
     Ok(Json(s.organs.clone()))
 }
 
-async fn events_handler(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<BusEvent>>, StatusCode> {
+async fn events_handler(State(state): State<AppState>) -> Result<Json<Vec<BusEvent>>, StatusCode> {
     let s = state.dashboard.read().await;
     Ok(Json(s.events.iter().rev().take(50).cloned().collect()))
 }
@@ -285,16 +283,12 @@ async fn turbulence_handler(
     Ok(Json(s.turbulence.iter().rev().take(20).cloned().collect()))
 }
 
-async fn agent_handler(
-    State(state): State<AppState>,
-) -> Result<Json<AgentState>, StatusCode> {
+async fn agent_handler(State(state): State<AppState>) -> Result<Json<AgentState>, StatusCode> {
     let s = state.dashboard.read().await;
     Ok(Json(s.agent.clone()))
 }
 
-async fn costs_handler(
-    State(state): State<AppState>,
-) -> Result<Json<CostSummary>, StatusCode> {
+async fn costs_handler(State(state): State<AppState>) -> Result<Json<CostSummary>, StatusCode> {
     let s = state.dashboard.read().await;
     Ok(Json(s.costs.clone()))
 }

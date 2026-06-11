@@ -60,8 +60,7 @@ impl ReplState {
         let persist_store = PersistentStore::open(&persist_dir).ok();
         let conversations = ConversationStore::open(&data_dir.join("conversations.db")).ok();
 
-        let agent =
-            AutonomousAgent::new(OllamaClient::new(config.clone()), AgentConfig::default());
+        let agent = AutonomousAgent::new(OllamaClient::new(config.clone()), AgentConfig::default());
 
         Self {
             llm: OllamaClientBlocking::new(config.clone()),
@@ -103,7 +102,10 @@ pub fn run_repl(state: &mut ReplState) {
     });
 
     println!("{}", "╔══════════════════════════════════════════╗".cyan());
-    println!("{}", "║   SoulSystem Autonomous Agent v0.2.0   ║".cyan().bold());
+    println!(
+        "{}",
+        "║   SoulSystem Autonomous Agent v0.2.0   ║".cyan().bold()
+    );
     println!("{}", "║   Type 'help' for commands              ║".cyan());
     println!("{}", "╚══════════════════════════════════════════╝".cyan());
     println!();
@@ -173,7 +175,12 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 created_at: chrono::Utc::now(),
                 status: soul_planner::GoalStatus::Active,
             };
-            let tool_names: Vec<String> = state.registry.list().iter().map(|t| t.name.clone()).collect();
+            let tool_names: Vec<String> = state
+                .registry
+                .list()
+                .iter()
+                .map(|t| t.name.clone())
+                .collect();
             println!("{}", "Planning with LLM...".dimmed());
             let plan = state.planner.create_plan(&goal, &tool_names);
             match serde_json::to_string_pretty(&plan) {
@@ -233,7 +240,10 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 }
             }
             println!("  History: {} actions", state.planner.history.actions.len());
-            println!("  Success Rate: {:.1}%", state.planner.history.success_rate() * 100.0);
+            println!(
+                "  Success Rate: {:.1}%",
+                state.planner.history.success_rate() * 100.0
+            );
         }
 
         // ── Observe ──
@@ -261,7 +271,11 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             } else {
                 println!("{}:", "Action History".cyan().bold());
                 for a in recent {
-                    let status = if a.success { "✓".green() } else { "✗".red() };
+                    let status = if a.success {
+                        "✓".green()
+                    } else {
+                        "✗".red()
+                    };
                     println!("  {} {} → {}", status, a.action, a.result);
                 }
             }
@@ -269,17 +283,28 @@ async fn handle_input(state: &mut ReplState, input: &str) {
         "learn" => {
             let learn_parts: Vec<&str> = args.splitn(3, ' ').collect();
             if learn_parts.len() < 3 {
-                println!("{}", "Usage: learn <action> <outcome> <reward:0.0-1.0>".yellow());
+                println!(
+                    "{}",
+                    "Usage: learn <action> <outcome> <reward:0.0-1.0>".yellow()
+                );
                 return;
             }
             let reward = learn_parts[2].parse::<f32>().unwrap_or(0.5);
-            state.cognitive.learn(learn_parts[0], learn_parts[1], reward);
+            state
+                .cognitive
+                .learn(learn_parts[0], learn_parts[1], reward);
             state.planner.history.record(
                 learn_parts[0].to_string(),
                 learn_parts[1].to_string(),
                 reward > 0.0,
             );
-            println!("{}: learned '{}' → '{}' (reward: {:.1})", "Learned".green().bold(), learn_parts[0], learn_parts[1], reward);
+            println!(
+                "{}: learned '{}' → '{}' (reward: {:.1})",
+                "Learned".green().bold(),
+                learn_parts[0],
+                learn_parts[1],
+                reward
+            );
         }
         "think" => {
             if args.is_empty() {
@@ -316,36 +341,41 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             println!("  Temperature: {}", cfg.temperature);
             println!("  Max tokens: {}", cfg.max_tokens);
         }
-        "gpu" => {
-            match state.monitor.gpu.get_gpu_info() {
-                Some(gpu) => {
-                    println!("{}:", "GPU".cyan().bold());
-                    println!("  Name: {}", gpu.name.green());
-                    println!("  Temperature: {:.0}°C", gpu.temperature);
-                    println!("  Utilization: {:.1}%", gpu.utilization);
-                    println!("  Memory: {} MB / {} MB", gpu.memory_used, gpu.memory_total);
-                    println!("  Power: {:.0}W", gpu.power);
-                }
-                None => println!("{}", "No GPU detected".yellow()),
+        "gpu" => match state.monitor.gpu.get_gpu_info() {
+            Some(gpu) => {
+                println!("{}:", "GPU".cyan().bold());
+                println!("  Name: {}", gpu.name.green());
+                println!("  Temperature: {:.0}°C", gpu.temperature);
+                println!("  Utilization: {:.1}%", gpu.utilization);
+                println!("  Memory: {} MB / {} MB", gpu.memory_used, gpu.memory_total);
+                println!("  Power: {:.0}W", gpu.power);
             }
-        }
+            None => println!("{}", "No GPU detected".yellow()),
+        },
         "network" => {
             let stats = state.monitor.network.get_stats();
             println!("{}:", "Network".cyan().bold());
             println!("  Connections: {}", stats.connections);
             println!("  Latency: {:.1}ms", stats.latency_ms);
             for iface in &stats.interfaces {
-                println!("  {}: ↑{} ↓{}", iface.name.green(),
+                println!(
+                    "  {}: ↑{} ↓{}",
+                    iface.name.green(),
                     format_bytes(iface.bytes_sent),
-                    format_bytes(iface.bytes_received));
+                    format_bytes(iface.bytes_received)
+                );
             }
         }
         "disks" => {
             let disks = state.monitor.disk.get_disks();
             println!("{}:", "Disks".cyan().bold());
             for d in &disks {
-                println!("  {} → {} ({:.1}% used)",
-                    d.device.green(), d.mount_point, d.usage_percent);
+                println!(
+                    "  {} → {} ({:.1}% used)",
+                    d.device.green(),
+                    d.mount_point,
+                    d.usage_percent
+                );
             }
         }
         "audit" => {
@@ -355,11 +385,13 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             } else {
                 println!("{}:", "Audit Trail".cyan().bold());
                 for e in recent {
-                    println!("  [{}] {} → {}: {}",
+                    println!(
+                        "  [{}] {} → {}: {}",
                         e.timestamp.format("%H:%M"),
                         e.actor.green(),
                         e.target,
-                        e.action);
+                        e.action
+                    );
                 }
             }
         }
@@ -367,8 +399,11 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             let secrets = state.security.secrets.list_secrets();
             println!("{}: {} secrets", "Secrets".cyan().bold(), secrets.len());
             for s in secrets {
-                println!("  {} (created: {})", s.name.green(),
-                    s.created_at.format("%Y-%m-%d"));
+                println!(
+                    "  {} (created: {})",
+                    s.name.green(),
+                    s.created_at.format("%Y-%m-%d")
+                );
             }
         }
         "block" => {
@@ -386,11 +421,13 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             } else {
                 println!("{}:", "Intrusion Events".cyan().bold());
                 for e in events {
-                    println!("  [{}] {:?} from {}: {}",
+                    println!(
+                        "  [{}] {:?} from {}: {}",
                         e.timestamp.format("%H:%M"),
                         e.severity,
                         e.source_ip.green(),
-                        e.details);
+                        e.details
+                    );
                 }
             }
         }
@@ -399,7 +436,12 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             if parts.len() >= 2 {
                 let max: usize = parts[1].parse().unwrap_or(100);
                 state.security.rate_limiter.set_limit(parts[0], max, 60);
-                println!("{}: {} → max {}/min", "Rate limit".green().bold(), parts[0], max);
+                println!(
+                    "{}: {} → max {}/min",
+                    "Rate limit".green().bold(),
+                    parts[0],
+                    max
+                );
             } else if !args.is_empty() {
                 let remaining = state.security.rate_limiter.remaining(args);
                 println!("{}: {} remaining", "Rate limit".cyan().bold(), remaining);
@@ -412,21 +454,19 @@ async fn handle_input(state: &mut ReplState, input: &str) {
         }
 
         // ── Models ──
-        "models" => {
-            match state.llm.list_models() {
-                Ok(models) => {
-                    println!("{}: {} models", "Models".cyan().bold(), models.len());
-                    for m in models.iter().take(20) {
-                        println!(
-                            "  {} - {}",
-                            m.name.green(),
-                            m.parameter_size.as_deref().unwrap_or("?").dimmed()
-                        );
-                    }
+        "models" => match state.llm.list_models() {
+            Ok(models) => {
+                println!("{}: {} models", "Models".cyan().bold(), models.len());
+                for m in models.iter().take(20) {
+                    println!(
+                        "  {} - {}",
+                        m.name.green(),
+                        m.parameter_size.as_deref().unwrap_or("?").dimmed()
+                    );
                 }
-                Err(e) => println!("{}: {}", "Error".red().bold(), e),
             }
-        }
+            Err(e) => println!("{}: {}", "Error".red().bold(), e),
+        },
 
         // ── Browse web ──
         "browse" | "web" => {
@@ -435,13 +475,14 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 return;
             }
             println!("{}", format!("Fetching {}...", args).cyan());
-            let fetcher = match soul_webfetch::WebFetcher::new(soul_webfetch::FetcherConfig::default()) {
-                Ok(f) => f,
-                Err(e) => {
-                    println!("Failed to create fetcher: {e}");
-                    return;
-                }
-            };
+            let fetcher =
+                match soul_webfetch::WebFetcher::new(soul_webfetch::FetcherConfig::default()) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        println!("Failed to create fetcher: {e}");
+                        return;
+                    }
+                };
             match fetcher.fetch(args).await {
                 Ok(content) => {
                     println!("{}: {}", "Title".cyan().bold(), content.title.green());
@@ -473,18 +514,20 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 return;
             }
             let urls: Vec<&str> = args.split_whitespace().collect();
-            let fetcher = match soul_webfetch::WebFetcher::new(soul_webfetch::FetcherConfig::default()) {
-                Ok(f) => f,
-                Err(e) => {
-                    println!("Failed to create fetcher: {e}");
-                    return;
-                }
-            };
+            let fetcher =
+                match soul_webfetch::WebFetcher::new(soul_webfetch::FetcherConfig::default()) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        println!("Failed to create fetcher: {e}");
+                        return;
+                    }
+                };
             let results = fetcher.fetch_many(&urls).await;
             for (i, result) in results.iter().enumerate() {
                 match result {
                     Ok(content) => {
-                        println!("{}: {} ({})", 
+                        println!(
+                            "{}: {} ({})",
                             format!("[{}]", i + 1).green(),
                             content.title.green(),
                             content.url.dimmed()
@@ -496,7 +539,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                         };
                         println!("  {}", preview.dimmed());
                     }
-                    Err(e) => println!("{}: {} - {}", 
+                    Err(e) => println!(
+                        "{}: {} - {}",
                         format!("[{}]", i + 1).red(),
                         urls[i].red(),
                         e
@@ -521,7 +565,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                         println!("{}: {} results", "Results".cyan().bold(), results.len());
                         for (i, content) in results.iter().enumerate() {
                             println!();
-                            println!("{} {} {}", 
+                            println!(
+                                "{} {} {}",
                                 format!("[{}]", i + 1).green().bold(),
                                 content.title.green(),
                                 format!("(score: {:.1})", content.relevance_score).dimmed()
@@ -550,12 +595,17 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             println!("{}", "Fetching web context...".cyan());
             let mut rag = soul_rag::RagStore::new(soul_rag::RagConfig::default());
             let context = match rag.search_web(args).await {
-                Ok(results) => {
-                    results.iter()
-                        .map(|r| format!("{}: {}", r.title, r.text.chars().take(500).collect::<String>()))
-                        .collect::<Vec<_>>()
-                        .join("\n\n")
-                }
+                Ok(results) => results
+                    .iter()
+                    .map(|r| {
+                        format!(
+                            "{}: {}",
+                            r.title,
+                            r.text.chars().take(500).collect::<String>()
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n"),
                 Err(_) => String::new(),
             };
 
@@ -563,7 +613,10 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             let prompt = if context.is_empty() {
                 args.to_string()
             } else {
-                format!("Based on this web context:\n{}\n\nQuestion: {}", context, args)
+                format!(
+                    "Based on this web context:\n{}\n\nQuestion: {}",
+                    context, args
+                )
             };
 
             match state.agent.ask(&prompt).await {
@@ -598,11 +651,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 println!("{}: design save failed: {}", "Error".red(), e);
             } else {
                 let stats = state.design_tree.stats();
-                println!(
-                    "{}: design tree saved ({} nodes)",
-                    "✓".green(),
-                    stats.total
-                );
+                println!("{}: design tree saved ({} nodes)", "✓".green(), stats.total);
             }
 
             // Save agent context
@@ -682,7 +731,11 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             state.verbose = !state.verbose;
             println!(
                 "Verbose: {}",
-                if state.verbose { "ON".green() } else { "OFF".red() }
+                if state.verbose {
+                    "ON".green()
+                } else {
+                    "OFF".red()
+                }
             );
         }
 
@@ -711,7 +764,12 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                             result: None,
                         };
                         match store.save_goal(&goal) {
-                            Ok(()) => println!("{}: {} ({})", "Goal added".green().bold(), goal.description, &goal.id[..8]),
+                            Ok(()) => println!(
+                                "{}: {} ({})",
+                                "Goal added".green().bold(),
+                                goal.description,
+                                &goal.id[..8]
+                            ),
                             Err(e) => println!("{}: {}", "Error".red().bold(), e),
                         }
                     } else {
@@ -753,19 +811,23 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 "status" => {
                     if let Some(ref store) = state.persist_store {
                         match store.load_active_goals() {
-                            Ok(active) => {
-                                match store.load_all_goals() {
-                                    Ok(all) => {
-                                        let completed = all.iter().filter(|g| g.status == soul_persist::GoalStatus::Completed).count();
-                                        let failed = all.iter().filter(|g| g.status == soul_persist::GoalStatus::Failed).count();
-                                        println!("{}:", "Goal Stats".cyan().bold());
-                                        println!("  Active: {}", active.len().to_string().green());
-                                        println!("  Completed: {}", completed.to_string().cyan());
-                                        println!("  Failed: {}", failed.to_string().red());
-                                    }
-                                    Err(e) => println!("{}: {}", "Error".red().bold(), e),
+                            Ok(active) => match store.load_all_goals() {
+                                Ok(all) => {
+                                    let completed = all
+                                        .iter()
+                                        .filter(|g| g.status == soul_persist::GoalStatus::Completed)
+                                        .count();
+                                    let failed = all
+                                        .iter()
+                                        .filter(|g| g.status == soul_persist::GoalStatus::Failed)
+                                        .count();
+                                    println!("{}:", "Goal Stats".cyan().bold());
+                                    println!("  Active: {}", active.len().to_string().green());
+                                    println!("  Completed: {}", completed.to_string().cyan());
+                                    println!("  Failed: {}", failed.to_string().red());
                                 }
-                            }
+                                Err(e) => println!("{}: {}", "Error".red().bold(), e),
+                            },
                             Err(e) => println!("{}: {}", "Error".red().bold(), e),
                         }
                     } else {
@@ -817,11 +879,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                             println!("{}", "No matching skills".yellow());
                         } else {
                             for s in &matches {
-                                println!(
-                                    "  {} (pri={})",
-                                    s.name.green().bold(),
-                                    s.priority
-                                );
+                                println!("  {} (pri={})", s.name.green().bold(), s.priority);
                             }
                         }
                     }
@@ -861,11 +919,17 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 }
                 "connect" => {
                     if sub_args.len() < 2 || sub_args[1].is_empty() {
-                        println!("{}", "Usage: graph connect <source_id> <target_id> <relation>".yellow());
+                        println!(
+                            "{}",
+                            "Usage: graph connect <source_id> <target_id> <relation>".yellow()
+                        );
                     } else {
                         let parts: Vec<&str> = sub_args[1].splitn(3, ' ').collect();
                         if parts.len() < 3 {
-                            println!("{}", "Usage: graph connect <source_id> <target_id> <relation>".yellow());
+                            println!(
+                                "{}",
+                                "Usage: graph connect <source_id> <target_id> <relation>".yellow()
+                            );
                         } else {
                             let edge_type = match parts[2].to_lowercase().as_str() {
                                 "depends_on" => EdgeType::DependsOn,
@@ -877,7 +941,10 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                                 "blocks" => EdgeType::Blocks,
                                 _ => EdgeType::Other(parts[2].into()),
                             };
-                            match state.graph.add_edge(Edge::new(parts[0], parts[1], edge_type)) {
+                            match state
+                                .graph
+                                .add_edge(Edge::new(parts[0], parts[1], edge_type))
+                            {
                                 Ok(_) => println!("{}: edge created", "✓".green()),
                                 Err(e) => println!("{}: {}", "Error".red(), e),
                             }
@@ -933,16 +1000,27 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                         let name = parts[0];
                         let desc = parts.get(1).unwrap_or(&"");
                         let id = state.design_tree.create_node(name, desc);
-                        println!("{}: design '{}' created (id: {})", "✓".green(), name, &id[..8]);
+                        println!(
+                            "{}: design '{}' created (id: {})",
+                            "✓".green(),
+                            name,
+                            &id[..8]
+                        );
                     }
                 }
                 "list" => {
-                    let all_nodes: Vec<_> = state.design_tree.find_by_state(&DesignState::Idea)
+                    let all_nodes: Vec<_> = state
+                        .design_tree
+                        .find_by_state(&DesignState::Idea)
                         .into_iter()
                         .chain(state.design_tree.find_by_state(&DesignState::Research))
                         .chain(state.design_tree.find_by_state(&DesignState::Decision))
                         .chain(state.design_tree.find_by_state(&DesignState::Spec))
-                        .chain(state.design_tree.find_by_state(&DesignState::Implementation))
+                        .chain(
+                            state
+                                .design_tree
+                                .find_by_state(&DesignState::Implementation),
+                        )
                         .chain(state.design_tree.find_by_state(&DesignState::Testing))
                         .chain(state.design_tree.find_by_state(&DesignState::Verified))
                         .collect();
@@ -1015,14 +1093,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 println!("  Capability: {:?}", profile.capability);
                 println!("  Thinking:   {:?}", profile.thinking);
                 println!("  Context:    {:?}", profile.context);
-                println!(
-                    "  Est. cost:  ${:.4}",
-                    profile.estimated_cost_per_query()
-                );
-                println!(
-                    "  Est. latency: {}ms",
-                    profile.estimated_latency_ms()
-                );
+                println!("  Est. cost:  ${:.4}", profile.estimated_cost_per_query());
+                println!("  Est. latency: {}ms", profile.estimated_latency_ms());
                 println!("  Models: {:?}", profile.capability.models());
             }
         }
@@ -1057,7 +1129,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                     } else {
                         let parts: Vec<&str> = sub_args[1].splitn(2, ' ').collect();
                         let tool_name = parts[0];
-                        let args_json: serde_json::Value = parts.get(1)
+                        let args_json: serde_json::Value = parts
+                            .get(1)
                             .and_then(|s| serde_json::from_str(s).ok())
                             .unwrap_or(serde_json::json!({}));
 
@@ -1065,14 +1138,23 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                             Box::pin(async move {
                                 match name.as_str() {
                                     "execute_shell" => {
-                                        let cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("echo no-op");
-                                        let output = std::process::Command::new("sh").arg("-c").arg(cmd).output()
+                                        let cmd = args
+                                            .get("command")
+                                            .and_then(|c| c.as_str())
+                                            .unwrap_or("echo no-op");
+                                        let output = std::process::Command::new("sh")
+                                            .arg("-c")
+                                            .arg(cmd)
+                                            .output()
                                             .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
                                             .unwrap_or_else(|e| format!("Error: {e}"));
                                         Ok(serde_json::json!({ "output": output }))
                                     }
                                     "read_file" => {
-                                        let path = args.get("path").and_then(|p| p.as_str()).unwrap_or("/dev/null");
+                                        let path = args
+                                            .get("path")
+                                            .and_then(|p| p.as_str())
+                                            .unwrap_or("/dev/null");
                                         let content = std::fs::read_to_string(path)
                                             .unwrap_or_else(|e| format!("Error: {e}"));
                                         Ok(serde_json::json!({ "content": content }))
@@ -1082,7 +1164,9 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                             })
                         });
                         match handler.execute(tool_name, args_json).await {
-                            Ok(result) => println!("{}", serde_json::to_string_pretty(&result).unwrap()),
+                            Ok(result) => {
+                                println!("{}", serde_json::to_string_pretty(&result).unwrap())
+                            }
                             Err(e) => println!("{}: {}", "Error".red(), e),
                         }
                     }
@@ -1109,17 +1193,24 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                             Ok((tx, rx)) => {
                                 println!("{}: connected to {}", "✓".green(), url);
                                 let client = soul_mcp::McpClient::new(tx, rx);
-                                match client.initialize(soul_mcp::McpServerInfo {
-                                    name: "soulsystem-repl".into(),
-                                    version: "0.1.0".into(),
-                                }).await {
+                                match client
+                                    .initialize(soul_mcp::McpServerInfo {
+                                        name: "soulsystem-repl".into(),
+                                        version: "0.1.0".into(),
+                                    })
+                                    .await
+                                {
                                     Ok(caps) => {
                                         println!("  Server capabilities: tools={}, resources={}, prompts={}", caps.tools, caps.resources, caps.prompts);
                                         match client.list_tools().await {
                                             Ok(tools) => {
                                                 println!("  Remote tools ({}):", tools.len());
                                                 for t in &tools {
-                                                    println!("    {} - {}", t.name.green(), t.description);
+                                                    println!(
+                                                        "    {} - {}",
+                                                        t.name.green(),
+                                                        t.description
+                                                    );
                                                 }
                                             }
                                             Err(e) => println!("  Failed to list tools: {}", e),
@@ -1134,23 +1225,39 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 }
                 "ws" => {
                     if sub_args.len() < 2 || sub_args[1].is_empty() {
-                        println!("{}", "Usage: mcp ws <addr> (start WebSocket MCP server)".yellow());
+                        println!(
+                            "{}",
+                            "Usage: mcp ws <addr> (start WebSocket MCP server)".yellow()
+                        );
                         println!("  Example: mcp ws 127.0.0.1:9099");
                     } else {
                         let addr = sub_args[1];
-                        println!("{}: starting WebSocket MCP server on {}...", "●".cyan(), addr);
+                        println!(
+                            "{}: starting WebSocket MCP server on {}...",
+                            "●".cyan(),
+                            addr
+                        );
                         let handler = soul_mcp::FnMcpHandler::new(|name, args| {
                             Box::pin(async move {
                                 match name.as_str() {
                                     "execute_shell" => {
-                                        let cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("echo no-op");
-                                        let output = std::process::Command::new("sh").arg("-c").arg(cmd).output()
+                                        let cmd = args
+                                            .get("command")
+                                            .and_then(|c| c.as_str())
+                                            .unwrap_or("echo no-op");
+                                        let output = std::process::Command::new("sh")
+                                            .arg("-c")
+                                            .arg(cmd)
+                                            .output()
                                             .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
                                             .unwrap_or_else(|e| format!("Error: {e}"));
                                         Ok(serde_json::json!({ "output": output }))
                                     }
                                     "read_file" => {
-                                        let path = args.get("path").and_then(|p| p.as_str()).unwrap_or("/dev/null");
+                                        let path = args
+                                            .get("path")
+                                            .and_then(|p| p.as_str())
+                                            .unwrap_or("/dev/null");
                                         let content = std::fs::read_to_string(path)
                                             .unwrap_or_else(|e| format!("Error: {e}"));
                                         Ok(serde_json::json!({ "content": content }))
@@ -1159,7 +1266,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                                 }
                             })
                         });
-                        let server = soul_mcp::create_soul_mcp_server("soulsystem", Box::new(handler));
+                        let server =
+                            soul_mcp::create_soul_mcp_server("soulsystem", Box::new(handler));
                         let transport = soul_mcp::WsTransport::new(addr);
                         println!("  Server started. Press Ctrl+C to stop.");
                         transport.serve_ws(server).await.ok();
@@ -1188,7 +1296,10 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                             Err(e) => println!("{}: {}", "Error".red(), e),
                         }
                     } else {
-                        println!("{}", "Conversations not initialized (store unavailable)".yellow());
+                        println!(
+                            "{}",
+                            "Conversations not initialized (store unavailable)".yellow()
+                        );
                     }
                 }
                 "list" | "ls" => {
@@ -1200,10 +1311,19 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                                 } else {
                                     println!("{}", "Conversations:".cyan().bold());
                                     for s in &sessions {
-                                        let active = if state.session_id.as_deref() == Some(&s.id) { " ◀ active" } else { "" };
-                                        println!("  {} [{}] {} ({} messages){}",
-                                            s.id.green(), s.created_at.format("%Y-%m-%d %H:%M"),
-                                            s.title, s.message_count, active);
+                                        let active = if state.session_id.as_deref() == Some(&s.id) {
+                                            " ◀ active"
+                                        } else {
+                                            ""
+                                        };
+                                        println!(
+                                            "  {} [{}] {} ({} messages){}",
+                                            s.id.green(),
+                                            s.created_at.format("%Y-%m-%d %H:%M"),
+                                            s.title,
+                                            s.message_count,
+                                            active
+                                        );
                                     }
                                 }
                             }
@@ -1256,7 +1376,11 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                         } else {
                             println!("{}:", "Recent Events".cyan().bold());
                             for action in &actions {
-                                let icon = if action.success { "✓".green() } else { "✗".red() };
+                                let icon = if action.success {
+                                    "✓".green()
+                                } else {
+                                    "✗".red()
+                                };
                                 println!(
                                     "  {} {} → {} ({})",
                                     icon,
@@ -1281,7 +1405,12 @@ async fn handle_input(state: &mut ReplState, input: &str) {
         // ── Live daemon events ──
         "daemon" => {
             if let Some(ref mut rx) = state.daemon_rx {
-                println!("{}", "Listening for daemon events (Ctrl+C to stop)...".cyan().bold());
+                println!(
+                    "{}",
+                    "Listening for daemon events (Ctrl+C to stop)..."
+                        .cyan()
+                        .bold()
+                );
                 loop {
                     match rx.recv().await {
                         Ok(event) => {
@@ -1297,10 +1426,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                             };
                             println!(
                                 "  {} [{}] {} ({})",
-                                icon,
-                                event.source,
-                                event.kind,
-                                event.timestamp
+                                icon, event.source, event.kind, event.timestamp
                             );
                         }
                         Err(e) => {
@@ -1310,7 +1436,10 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                     }
                 }
             } else {
-                println!("{}", "No daemon connected. Start with: soulsystem --daemon --repl".yellow());
+                println!(
+                    "{}",
+                    "No daemon connected. Start with: soulsystem --daemon --repl".yellow()
+                );
             }
         }
 
@@ -1343,9 +1472,17 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                                 soul_subagents::TaskStatus::Failed => "✗".red(),
                                 soul_subagents::TaskStatus::Cancelled => "○".dimmed(),
                             };
-                            println!("  {} [{}] {} {}",
-                                status, &t.id[..8], t.description,
-                                if let Some(ref r) = t.result { format!("→ {}", truncate_repl(r, 50)) } else { String::new() });
+                            println!(
+                                "  {} [{}] {} {}",
+                                status,
+                                &t.id[..8],
+                                t.description,
+                                if let Some(ref r) = t.result {
+                                    format!("→ {}", truncate_repl(r, 50))
+                                } else {
+                                    String::new()
+                                }
+                            );
                         }
                     }
                 }
@@ -1358,8 +1495,12 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                                 println!("Task: {} ({})", t.id.green(), t.description);
                                 println!("  Status: {:?}", t.status);
                                 println!("  Created: {}", t.created_at);
-                                if let Some(r) = &t.result { println!("  Result: {}", truncate_repl(r, 100)); }
-                                if let Some(e) = &t.error { println!("  Error: {}", e.red()); }
+                                if let Some(r) = &t.result {
+                                    println!("  Result: {}", truncate_repl(r, 100));
+                                }
+                                if let Some(e) = &t.error {
+                                    println!("  Error: {}", e.red());
+                                }
                             }
                             Err(e) => println!("{}: {}", "Error".red().bold(), e),
                         }
@@ -1386,7 +1527,10 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                         }
                     }
                 }
-                _ => println!("{}", "Usage: subagent <spawn|list|status|cancel|results>".yellow()),
+                _ => println!(
+                    "{}",
+                    "Usage: subagent <spawn|list|status|cancel|results>".yellow()
+                ),
             }
         }
 
@@ -1412,18 +1556,37 @@ fn print_full_status(state: &ReplState) {
     println!("{}:", "System Status".cyan().bold());
     println!("  LLM:");
     println!("    Model: {}", model.green());
-    println!("    Ollama: {}", if alive { "connected".green() } else { "disconnected".red() });
+    println!(
+        "    Ollama: {}",
+        if alive {
+            "connected".green()
+        } else {
+            "disconnected".red()
+        }
+    );
     println!("  Resources:");
     println!("    CPU: {:.1}%", metrics.cpu_usage);
-    println!("    Memory: {:.1}% ({} MB / {} MB)",
+    println!(
+        "    Memory: {:.1}% ({} MB / {} MB)",
         metrics.memory_usage,
         (metrics.memory_total - metrics.memory_available) / 1024,
-        metrics.memory_total / 1024);
+        metrics.memory_total / 1024
+    );
     println!("    Processes: {}", metrics.process_count);
-    println!("    Load: {:.2} / {:.2} / {:.2}", metrics.load_avg[0], metrics.load_avg[1], metrics.load_avg[2]);
+    println!(
+        "    Load: {:.2} / {:.2} / {:.2}",
+        metrics.load_avg[0], metrics.load_avg[1], metrics.load_avg[2]
+    );
     println!("  Services:");
     println!("    Tools: {}", tools.to_string().green());
-    println!("    Docker: {}", if docker_running { "running".green() } else { "stopped".red() });
+    println!(
+        "    Docker: {}",
+        if docker_running {
+            "running".green()
+        } else {
+            "stopped".red()
+        }
+    );
     if !containers.is_empty() {
         println!("    Containers: {}", containers.len());
         for c in containers.iter().take(5) {
@@ -1431,16 +1594,31 @@ fn print_full_status(state: &ReplState) {
         }
     }
     println!("  Cognitive:");
-    println!("    Knowledge: {} entities", state.cognitive.knowledge.stats()["entities"]);
-    println!("    Learning rate: {:.1}%", state.cognitive.learning.success_rate() * 100.0);
+    println!(
+        "    Knowledge: {} entities",
+        state.cognitive.knowledge.stats()["entities"]
+    );
+    println!(
+        "    Learning rate: {:.1}%",
+        state.cognitive.learning.success_rate() * 100.0
+    );
     println!("    Context: {}", state.cognitive.context.stats());
     println!("  Security:");
     println!("    Audit entries: {}", state.security.audit.count());
-    println!("    Intrusion events: {}", state.security.intrusion.stats()["total_events"]);
-    println!("    Secrets: {}", state.security.secrets.list_secrets().len());
+    println!(
+        "    Intrusion events: {}",
+        state.security.intrusion.stats()["total_events"]
+    );
+    println!(
+        "    Secrets: {}",
+        state.security.secrets.list_secrets().len()
+    );
     println!("  Performance:");
     println!("    Success rate: {:.1}%", (rate * 100.0));
-    println!("    Memory entries: {}", state.planner.memory.observations.len());
+    println!(
+        "    Memory entries: {}",
+        state.planner.memory.observations.len()
+    );
 }
 
 fn truncate_repl(s: &str, max: usize) -> String {
@@ -1467,15 +1645,27 @@ fn format_bytes(bytes: u64) -> String {
 fn print_help() {
     println!("{}", "Commands:".cyan().bold());
     println!("  {} - Ask a question to the LLM", "ask <msg>".green());
-    println!("  {} - Create a plan for a goal (LLM-powered)", "plan <goal>".green());
+    println!(
+        "  {} - Create a plan for a goal (LLM-powered)",
+        "plan <goal>".green()
+    );
     println!("  {} - Execute a shell command", "run <cmd>".green());
     println!("  {} - List available tools", "tools".green());
     println!("  {} - View working memory", "memory".green());
     println!("  {} - Record an observation", "observe <msg>".green());
-    println!("  {} - Make a decision (LLM-powered)", "decide <ctx>".green());
+    println!(
+        "  {} - Make a decision (LLM-powered)",
+        "decide <ctx>".green()
+    );
     println!("  {} - View action history", "history".green());
-    println!("  {} - Learn from experience", "learn <action> <outcome> <reward>".green());
-    println!("  {} - Think about input (cognitive)", "think <input>".green());
+    println!(
+        "  {} - Learn from experience",
+        "learn <action> <outcome> <reward>".green()
+    );
+    println!(
+        "  {} - Think about input (cognitive)",
+        "think <input>".green()
+    );
     println!("  {} - Query knowledge graph", "knowledge [query]".green());
     println!("  {} - Explore knowledge graph", "graph [query]".green());
     println!("  {} - Clear memory and history", "clear".green());
@@ -1497,9 +1687,15 @@ fn print_help() {
     println!("  {} - Load context from disk", "load".green());
     println!();
     println!("{}", "Sub-Agents:".cyan().bold());
-    println!("  {} - Spawn a sub-agent for a task", "subagent spawn <desc>".green());
+    println!(
+        "  {} - Spawn a sub-agent for a task",
+        "subagent spawn <desc>".green()
+    );
     println!("  {} - List all sub-agent tasks", "subagent list".green());
-    println!("  {} - Show sub-agent status", "subagent status <id>".green());
+    println!(
+        "  {} - Show sub-agent status",
+        "subagent status <id>".green()
+    );
     println!("  {} - Cancel a sub-agent", "subagent cancel <id>".green());
     println!("  {} - Collect results", "subagent results".green());
     println!();

@@ -695,6 +695,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "blas"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae980f75c3215bfe8203c349b28149b0f4130a262e072913ccb55f877cd239dc"
+dependencies = [
+ "blas-sys",
+ "libc",
+ "num-complex",
+]
+
+[[package]]
+name = "blas-sys"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13b1b279ceb25d7c4faaea95a5f7addbe7d8c34f9462044bd8e630cebcfc2440"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "block"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6200,12 +6220,14 @@ version = "0.6.0"
 name = "scirust-core"
 version = "0.1.0"
 dependencies = [
+ "blas",
  "half",
  "matrixmultiply",
  "ndarray 0.16.1",
  "num-bigint",
  "num-traits",
  "rand 0.9.4",
+ "rayon",
  "scirust-autodiff",
  "scirust-gpu-macros",
  "scirust-macros",
@@ -6302,6 +6324,7 @@ dependencies = [
  "chrono",
  "futures",
  "futures-util",
+ "reqwest 0.12.28",
  "scirust-trading-core",
  "scirust-trading-engine",
  "scirust-trading-persistence",

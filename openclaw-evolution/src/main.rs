@@ -1,3 +1,13 @@
+//! OpenClaw Evolution — moteur d'évolution autonome.
+//!
+//! NOTE: une grande partie des modules (concepts, experts, embeddings...)
+//! constitue l'échafaudage du moteur, pas encore câblé au binaire — d'où le
+//! allow(dead_code) global en attendant le branchement.
+#![allow(dead_code)]
+// Les boucles indexées sont volontaires dans les modules de calcul matriciel
+// (lisibilité des maths) — voir src/math/.
+#![allow(clippy::needless_range_loop)]
+
 mod agent;
 mod audit;
 mod batch_embed;

@@ -25,7 +25,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
@@ -157,8 +157,7 @@ impl TrajectoryRecorder {
     /// Record a trajectory.
     pub fn record(&mut self, traj: &Trajectory) -> Result<()> {
         if let Some(ref mut file) = self.file {
-            let mut line = serde_json::to_string(traj)
-                .context("failed to serialize trajectory")?;
+            let mut line = serde_json::to_string(traj).context("failed to serialize trajectory")?;
             line.push('\n');
             file.write_all(line.as_bytes())
                 .context("failed to write trajectory")?;
@@ -326,7 +325,8 @@ impl DataExporter {
     pub fn new() -> Self {
         Self {
             split_ratio: 0.9,
-            system_prompt: "You are SoulLink, an AI interface to a mesh of specialized neural modules.".into(),
+            system_prompt:
+                "You are SoulLink, an AI interface to a mesh of specialized neural modules.".into(),
         }
     }
 
@@ -390,18 +390,11 @@ impl DataExporter {
     /// Export DPO preference pairs from trajectories.
     ///
     /// Pairs high-quality and low-quality responses for the same prompt.
-    pub fn export_dpo_pairs(
-        &self,
-        trajectories: &[Trajectory],
-        output: &Path,
-    ) -> Result<usize> {
+    pub fn export_dpo_pairs(&self, trajectories: &[Trajectory], output: &Path) -> Result<usize> {
         // Group trajectories by prompt
         let mut by_prompt: HashMap<String, Vec<&Trajectory>> = HashMap::new();
         for traj in trajectories {
-            by_prompt
-                .entry(traj.prompt.clone())
-                .or_default()
-                .push(traj);
+            by_prompt.entry(traj.prompt.clone()).or_default().push(traj);
         }
 
         let mut writer = File::create(output).context("failed to create DPO file")?;
@@ -414,11 +407,7 @@ impl DataExporter {
 
             // Sort by quality
             let mut sorted = trajs.clone();
-            sorted.sort_by(|a, b| {
-                b.quality_score
-                    .partial_cmp(&a.quality_score)
-                    .unwrap()
-            });
+            sorted.sort_by(|a, b| b.quality_score.partial_cmp(&a.quality_score).unwrap());
 
             // Pair best with worst
             let chosen = sorted[0];
@@ -528,7 +517,7 @@ mod tests {
         assert_eq!(recorder.count(), 2);
 
         // Verify file content
-        let content = fs::read_to_string(&path).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
         assert_eq!(lines.len(), 2);
     }
@@ -599,7 +588,7 @@ mod tests {
 
         assert_eq!(pairs, 1); // Only one pair (same prompt)
 
-        let content = fs::read_to_string(&dpo_path).unwrap();
+        let content = std::fs::read_to_string(&dpo_path).unwrap();
         let pair: DpoPair = serde_json::from_str(content.trim()).unwrap();
         assert!(pair.chosen_score > pair.rejected_score);
     }
