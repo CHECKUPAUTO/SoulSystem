@@ -19,9 +19,7 @@ async fn main() -> anyhow::Result<()> {
             .with_env_filter(env_filter)
             .init();
     } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .init();
+        tracing_subscriber::fmt().with_env_filter(env_filter).init();
     }
     tracing_log::LogTracer::init().ok();
 
@@ -34,7 +32,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Mode::Captcha(args) => {
             let port = args.port.unwrap_or(cfg.captcha.default_port);
-            let bind = args.bind.unwrap_or_else(|| cfg.captcha.default_bind.clone());
+            let bind = args
+                .bind
+                .unwrap_or_else(|| cfg.captcha.default_bind.clone());
             captcha::run_server(&bind, port, &cfg).await?;
             Ok(())
         }

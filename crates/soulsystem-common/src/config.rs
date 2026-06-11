@@ -124,7 +124,9 @@ impl ConfigLoader {
     /// Charge la config, en cas d'erreur retourne (None, errors).
     #[allow(dead_code)]
     pub fn try_load<T: Default + DeserializeOwned>(self) -> Result<T, Vec<String>> {
-        let toml_str = self.read_toml().ok_or_else(|| vec!["no config file".into()])?;
+        let toml_str = self
+            .read_toml()
+            .ok_or_else(|| vec!["no config file".into()])?;
         let mut result: T = toml::from_str(&toml_str).map_err(|e| vec![e.to_string()])?;
         self.apply_env_overrides(&mut result);
         Ok(result)

@@ -231,9 +231,27 @@ impl TaskClassifier {
         keywords.insert(
             TaskDomain::Coding,
             vec![
-                "code", "function", "rust", "python", "debug", "refactor", "compile",
-                "algorithm", "implement", "api", "struct", "trait", "impl", "test",
-                "bug", "fix", "error", "type", "module", "crate", "dependency",
+                "code",
+                "function",
+                "rust",
+                "python",
+                "debug",
+                "refactor",
+                "compile",
+                "algorithm",
+                "implement",
+                "api",
+                "struct",
+                "trait",
+                "impl",
+                "test",
+                "bug",
+                "fix",
+                "error",
+                "type",
+                "module",
+                "crate",
+                "dependency",
             ]
             .into_iter()
             .map(String::from)
@@ -243,9 +261,24 @@ impl TaskClassifier {
         keywords.insert(
             TaskDomain::Science,
             vec![
-                "physics", "math", "chemistry", "equation", "formula", "theorem",
-                "prove", "derivative", "integral", "quantum", "entropy", "force",
-                "energy", "experiment", "hypothesis", "research", "paper", "arxiv",
+                "physics",
+                "math",
+                "chemistry",
+                "equation",
+                "formula",
+                "theorem",
+                "prove",
+                "derivative",
+                "integral",
+                "quantum",
+                "entropy",
+                "force",
+                "energy",
+                "experiment",
+                "hypothesis",
+                "research",
+                "paper",
+                "arxiv",
             ]
             .into_iter()
             .map(String::from)
@@ -255,9 +288,24 @@ impl TaskClassifier {
         keywords.insert(
             TaskDomain::Creative,
             vec![
-                "write", "story", "poem", "creative", "imagine", "metaphor",
-                "brainstorm", "idea", "design", "art", "music", "color", "emotion",
-                "narrative", "character", "dialogue", "scene", "novel",
+                "write",
+                "story",
+                "poem",
+                "creative",
+                "imagine",
+                "metaphor",
+                "brainstorm",
+                "idea",
+                "design",
+                "art",
+                "music",
+                "color",
+                "emotion",
+                "narrative",
+                "character",
+                "dialogue",
+                "scene",
+                "novel",
             ]
             .into_iter()
             .map(String::from)
@@ -267,9 +315,23 @@ impl TaskClassifier {
         keywords.insert(
             TaskDomain::Finance,
             vec![
-                "trading", "stock", "crypto", "bitcoin", "defi", "portfolio",
-                "risk", "return", "market", "price", "chart", "technical analysis",
-                "fundamental", "dividend", "yield", "hedge", "position",
+                "trading",
+                "stock",
+                "crypto",
+                "bitcoin",
+                "defi",
+                "portfolio",
+                "risk",
+                "return",
+                "market",
+                "price",
+                "chart",
+                "technical analysis",
+                "fundamental",
+                "dividend",
+                "yield",
+                "hedge",
+                "position",
             ]
             .into_iter()
             .map(String::from)
@@ -279,9 +341,23 @@ impl TaskClassifier {
         keywords.insert(
             TaskDomain::Reasoning,
             vec![
-                "analyze", "plan", "strategy", "optimize", "logic", "deduce",
-                "compare", "evaluate", "decide", "tradeoff", "pros", "cons",
-                "step by step", "reason", "explain why", "because", "therefore",
+                "analyze",
+                "plan",
+                "strategy",
+                "optimize",
+                "logic",
+                "deduce",
+                "compare",
+                "evaluate",
+                "decide",
+                "tradeoff",
+                "pros",
+                "cons",
+                "step by step",
+                "reason",
+                "explain why",
+                "because",
+                "therefore",
             ]
             .into_iter()
             .map(String::from)
@@ -291,9 +367,20 @@ impl TaskClassifier {
         Self {
             keywords,
             complexity_keywords: vec![
-                "complex", "advanced", "detailed", "comprehensive", "thorough",
-                "in-depth", "elaborate", "systematic", "multi-step", "edge case",
-                "optimize", "performance", "scalable", "architecture",
+                "complex",
+                "advanced",
+                "detailed",
+                "comprehensive",
+                "thorough",
+                "in-depth",
+                "elaborate",
+                "systematic",
+                "multi-step",
+                "edge case",
+                "optimize",
+                "performance",
+                "scalable",
+                "architecture",
             ]
             .into_iter()
             .map(String::from)
@@ -591,8 +678,7 @@ mod tests {
             avg_latency_ms: 0.0,
         });
 
-        let (classification, expert) =
-            moe.classify_and_route("Debug this Rust code that crashes");
+        let (classification, expert) = moe.classify_and_route("Debug this Rust code that crashes");
         assert_eq!(classification.domain, TaskDomain::Coding);
         assert!(expert.is_some());
         assert_eq!(expert.unwrap().name, "coder");
@@ -637,7 +723,8 @@ mod tests {
         assert!(experts.iter().any(|e| e.name == "reasoner"));
         assert!(experts.iter().any(|e| e.name == "finance"));
 
-        let (classification, expert) = moe.classify_and_route("Write a Rust function to parse JSON");
+        let (classification, expert) =
+            moe.classify_and_route("Write a Rust function to parse JSON");
         assert_eq!(classification.domain, TaskDomain::Coding);
         assert_eq!(expert.unwrap().name, "coder");
     }

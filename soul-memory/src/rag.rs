@@ -67,7 +67,8 @@ impl RagStore {
         let fetcher = soul_webfetch::WebFetcher::new(soul_webfetch::FetcherConfig {
             timeout_ms: config.fetch_timeout_ms,
             ..Default::default()
-        }).unwrap_or_else(|e| {
+        })
+        .unwrap_or_else(|e| {
             tracing::warn!("Failed to create WebFetcher: {e}, using default");
             soul_webfetch::WebFetcher::new(soul_webfetch::FetcherConfig::default()).unwrap()
         });
@@ -84,7 +85,11 @@ impl RagStore {
             return Ok(cached.clone());
         }
 
-        let content = self.fetcher.fetch(url).await.map_err(|e| RagError::Fetch(format!("{:?}", e)))?;
+        let content = self
+            .fetcher
+            .fetch(url)
+            .await
+            .map_err(|e| RagError::Fetch(format!("{:?}", e)))?;
 
         let rag_content = RagContent {
             id: uuid::Uuid::new_v4().to_string(),
@@ -107,11 +112,23 @@ impl RagStore {
     }
 
     pub async fn fetch_with_browser(&mut self, url: &str) -> Result<RagContent, RagError> {
-        let mut browser = soul_browser::BrowserController::new(soul_browser::BrowserConfig::default());
-        browser.connect().await.map_err(|e| RagError::Browser(e.to_string()))?;
-        browser.navigate(url).await.map_err(|e| RagError::Browser(e.to_string()))?;
-        let text = browser.get_text().await.map_err(|e| RagError::Browser(e.to_string()))?;
-        let title = browser.get_page_state().await
+        let mut browser =
+            soul_browser::BrowserController::new(soul_browser::BrowserConfig::default());
+        browser
+            .connect()
+            .await
+            .map_err(|e| RagError::Browser(e.to_string()))?;
+        browser
+            .navigate(url)
+            .await
+            .map_err(|e| RagError::Browser(e.to_string()))?;
+        let text = browser
+            .get_text()
+            .await
+            .map_err(|e| RagError::Browser(e.to_string()))?;
+        let title = browser
+            .get_page_state()
+            .await
             .map(|s| s.title)
             .unwrap_or_default();
 
@@ -141,7 +158,9 @@ impl RagStore {
                 let title_lower = content.title.to_lowercase();
                 let mut score = 0.0f32;
                 for word in &query_words {
-                    if title_lower.contains(word) { score += 3.0; }
+                    if title_lower.contains(word) {
+                        score += 3.0;
+                    }
                     let count = text_lower.matches(word).count() as f32;
                     score += count;
                 }
@@ -170,7 +189,10 @@ impl RagStore {
             return Ok(vec![content]);
         }
         if self.config.use_browser_fallback {
-            match self.fetch_with_browser(&format!("https://www.google.com/search?q={}", query)).await {
+            match self
+                .fetch_with_browser(&format!("https://www.google.com/search?q={}", query))
+                .await
+            {
                 Ok(content) => Ok(vec![content]),
                 Err(_) => Err(RagError::NoResults),
             }
@@ -212,9 +234,14 @@ mod tests {
         store.cache.insert(
             "http://example.com".to_string(),
             RagContent {
-                id: "1".into(), url: "http://example.com".into(),
-                title: "Example Page".into(), text: "This is an example page about Rust programming".into(),
-                metadata: HashMap::new(), fetched_at: Utc::now(), source_type: SourceType::WebFetch, relevance_score: 0.0,
+                id: "1".into(),
+                url: "http://example.com".into(),
+                title: "Example Page".into(),
+                text: "This is an example page about Rust programming".into(),
+                metadata: HashMap::new(),
+                fetched_at: Utc::now(),
+                source_type: SourceType::WebFetch,
+                relevance_score: 0.0,
             },
         );
         let results = store.search("Rust programming");
@@ -224,10 +251,19 @@ mod tests {
     #[test]
     fn test_rag_store_clear_cache() {
         let mut store = RagStore::new(RagConfig::default());
-        store.cache.insert("http://x.com".to_string(), RagContent {
-            id: "1".into(), url: "http://x.com".into(), title: "Test".into(), text: "text".into(),
-            metadata: HashMap::new(), fetched_at: Utc::now(), source_type: SourceType::WebFetch, relevance_score: 0.0,
-        });
+        store.cache.insert(
+            "http://x.com".to_string(),
+            RagContent {
+                id: "1".into(),
+                url: "http://x.com".into(),
+                title: "Test".into(),
+                text: "text".into(),
+                metadata: HashMap::new(),
+                fetched_at: Utc::now(),
+                source_type: SourceType::WebFetch,
+                relevance_score: 0.0,
+            },
+        );
         store.clear_cache();
         assert_eq!(store.cache.len(), 0);
     }

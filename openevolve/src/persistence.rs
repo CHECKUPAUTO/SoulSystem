@@ -11,8 +11,8 @@
 //! `r2d2` connection pooling so async tasks share the same database without
 //! blocking each other.
 
-use crate::program::Program;
 use crate::embedding::cosine;
+use crate::program::Program;
 use anyhow::{Context, Result};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;

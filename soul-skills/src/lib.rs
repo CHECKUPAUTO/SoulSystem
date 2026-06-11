@@ -177,7 +177,10 @@ impl SkillLoader {
                 if !in_steps && !in_examples {
                     // Check for YAML frontmatter-style metadata
                     if section.starts_with("description:") {
-                        description = section.trim_start_matches("description:").trim().to_string();
+                        description = section
+                            .trim_start_matches("description:")
+                            .trim()
+                            .to_string();
                     } else if section.starts_with("triggers:") {
                         triggers = section
                             .trim_start_matches("triggers:")
@@ -213,7 +216,12 @@ impl SkillLoader {
             } else if in_steps && !trimmed.is_empty() && !trimmed.starts_with('#') {
                 steps.push(trimmed.to_string());
             } else if in_examples && !trimmed.is_empty() && !trimmed.starts_with('#') {
-                examples.push(trimmed.trim_start_matches("- ").trim_start_matches("* ").to_string());
+                examples.push(
+                    trimmed
+                        .trim_start_matches("- ")
+                        .trim_start_matches("* ")
+                        .to_string(),
+                );
             } else if trimmed.starts_with("Description:") || trimmed.starts_with("description:") {
                 description = trimmed
                     .split_once(':')
@@ -259,7 +267,8 @@ impl SkillLoader {
                     .trim()
                     .parse()
                     .unwrap_or(5);
-            } else if trimmed.starts_with("System Prompt:") || trimmed.starts_with("system_prompt:") {
+            } else if trimmed.starts_with("System Prompt:") || trimmed.starts_with("system_prompt:")
+            {
                 system_prompt = Some(
                     trimmed
                         .split_once(':')
@@ -332,17 +341,11 @@ impl SkillLoader {
         }
 
         if !skill.triggers.is_empty() {
-            md.push_str(&format!(
-                "Triggers: {}\n\n",
-                skill.triggers.join(", ")
-            ));
+            md.push_str(&format!("Triggers: {}\n\n", skill.triggers.join(", ")));
         }
 
         if !skill.tools_required.is_empty() {
-            md.push_str(&format!(
-                "Tools: {}\n\n",
-                skill.tools_required.join(", ")
-            ));
+            md.push_str(&format!("Tools: {}\n\n", skill.tools_required.join(", ")));
         }
 
         if !skill.tags.is_empty() {
@@ -490,7 +493,9 @@ Triggers: run, execute, do
 - Example one
 - Example two
 "#;
-        let skill = loader.parse_markdown_skill(md, Path::new("/tmp/my-skill.md")).unwrap();
+        let skill = loader
+            .parse_markdown_skill(md, Path::new("/tmp/my-skill.md"))
+            .unwrap();
         assert_eq!(skill.name, "my-skill");
         assert_eq!(skill.triggers, vec!["run", "execute", "do"]);
         assert_eq!(skill.steps.len(), 2);

@@ -79,7 +79,11 @@ impl Message {
     }
 
     /// Crée un événement structuré SoulLink.
-    pub fn event(kind: BusEventKind, source: impl Into<String>, payload: serde_json::Value) -> Self {
+    pub fn event(
+        kind: BusEventKind,
+        source: impl Into<String>,
+        payload: serde_json::Value,
+    ) -> Self {
         Self::Event {
             kind,
             source: source.into(),
@@ -145,7 +149,12 @@ mod tests {
             serde_json::json!({"query": "hello"}),
         );
         match &msg {
-            Message::Event { kind, source, payload, timestamp } => {
+            Message::Event {
+                kind,
+                source,
+                payload,
+                timestamp,
+            } => {
                 assert_eq!(*kind, BusEventKind::QueryReceived);
                 assert_eq!(source, "gateway");
                 assert!(payload.get("query").is_some());

@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{info, warn};
 
-use crate::{cosine_similarity, compute_initial_importance, Embedder, NGramEmbedder, SciRustEmbedder};
+use crate::{
+    compute_initial_importance, cosine_similarity, Embedder, NGramEmbedder, SciRustEmbedder,
+};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -43,7 +45,10 @@ impl SoulMemory {
         if !qdrant_url.is_empty() {
             info!("SoulMemory: using Qdrant at {}", qdrant_url);
             Ok(Self {
-                backend: Backend::Qdrant { url: qdrant_url, collection: "soul_memory".into() },
+                backend: Backend::Qdrant {
+                    url: qdrant_url,
+                    collection: "soul_memory".into(),
+                },
                 embedder,
                 next_id: AtomicU64::new(1),
             })
@@ -78,11 +83,17 @@ impl SoulMemory {
         for (key, _) in db.iter().flatten() {
             if let Ok(key_str) = std::str::from_utf8(&key) {
                 if let Ok(id) = key_str.parse::<u64>() {
-                    if id > max { max = id; }
+                    if id > max {
+                        max = id;
+                    }
                 }
             }
         }
-        if max > 0 { Some(max + 1) } else { None }
+        if max > 0 {
+            Some(max + 1)
+        } else {
+            None
+        }
     }
 
     pub async fn store(&self, text: &str, metadata: HashMap<String, String>) -> Result<()> {
@@ -91,13 +102,20 @@ impl SoulMemory {
     }
 
     pub async fn store_with_importance(
-        &self, text: &str, metadata: HashMap<String, String>, importance: f32,
+        &self,
+        text: &str,
+        metadata: HashMap<String, String>,
+        importance: f32,
     ) -> Result<()> {
         match &self.backend {
             Backend::Qdrant { url, collection } => {
                 let vector = self.embedder.embed(text);
                 let _ = (vector, url, collection);
-                info!("SoulMemory: stored (Qdrant mock, importance={:.2}) — {}", importance, &text[..text.len().min(60)]);
+                info!(
+                    "SoulMemory: stored (Qdrant mock, importance={:.2}) — {}",
+                    importance,
+                    &text[..text.len().min(60)]
+                );
             }
             Backend::LocalFallback { db, _dim: _ } => {
                 let vector = self.embedder.embed(text);
@@ -111,7 +129,11 @@ impl SoulMemory {
                 let key = entry.id.to_string();
                 db.insert(key.as_bytes(), serde_json::to_vec(&entry)?)?;
                 self.next_id.fetch_add(1, Ordering::Relaxed);
-                info!("SoulMemory: stored (local, importance={:.2}) — {}", importance, &text[..text.len().min(60)]);
+                info!(
+                    "SoulMemory: stored (local, importance={:.2}) — {}",
+                    importance,
+                    &text[..text.len().min(60)]
+                );
             }
         }
         Ok(())
@@ -162,7 +184,12 @@ impl SoulMemory {
         }
     }
 
-    pub fn decay_and_prune(&self, decay_factor: f32, threshold: f32, max_entries: usize) -> Result<(usize, usize)> {
+    pub fn decay_and_prune(
+        &self,
+        decay_factor: f32,
+        threshold: f32,
+        max_entries: usize,
+    ) -> Result<(usize, usize)> {
         match &self.backend {
             Backend::Qdrant { .. } => {
                 info!("SoulMemory: decay_and_prune skipped (Qdrant backend)");
@@ -175,7 +202,10 @@ impl SoulMemory {
                     let mut entry: MemoryEntry = serde_json::from_slice(&value)?;
                     entry.importance *= decay_factor;
                     entries.push((
-                        std::str::from_utf8(&key).unwrap_or("0").parse().unwrap_or(0),
+                        std::str::from_utf8(&key)
+                            .unwrap_or("0")
+                            .parse()
+                            .unwrap_or(0),
                         entry,
                     ));
                 }
@@ -204,7 +234,11 @@ impl SoulMemory {
                 for (id, entry) in &keep {
                     db.insert(id.to_string().as_bytes(), serde_json::to_vec(entry)?)?;
                 }
-                info!("SoulMemory: decay_and_prune — {} kept, {} removed", keep.len(), removed);
+                info!(
+                    "SoulMemory: decay_and_prune — {} kept, {} removed",
+                    keep.len(),
+                    removed
+                );
                 Ok((keep.len(), removed))
             }
         }
@@ -224,10 +258,14 @@ mod tests {
         let mem = SoulMemory::new_test().unwrap();
         let mut meta1 = HashMap::new();
         meta1.insert("source".into(), "test".into());
-        mem.store("Le chat noir dort sur le canape", meta1).await.unwrap();
+        mem.store("Le chat noir dort sur le canape", meta1)
+            .await
+            .unwrap();
         let mut meta2 = HashMap::new();
         meta2.insert("source".into(), "test2".into());
-        mem.store("Le chien brun court dans le jardin", meta2).await.unwrap();
+        mem.store("Le chien brun court dans le jardin", meta2)
+            .await
+            .unwrap();
         let results = mem.search("chat noir canape", 2).await.unwrap();
         assert!(!results.is_empty());
         assert!(results[0].1 > 0.0);
@@ -243,7 +281,9 @@ mod tests {
     #[tokio::test]
     async fn test_context_formatting() {
         let mem = SoulMemory::new_test().unwrap();
-        mem.store("Premier document de test", HashMap::new()).await.unwrap();
+        mem.store("Premier document de test", HashMap::new())
+            .await
+            .unwrap();
         let ctx = mem.get_context("document test").await.unwrap();
         assert!(!ctx.is_empty());
         assert!(ctx.contains("[0]"));
@@ -255,7 +295,9 @@ mod tests {
         for i in 0..5 {
             let mut meta = HashMap::new();
             meta.insert("n".into(), i.to_string());
-            mem.store_with_importance(&format!("document numero {}", i), meta, 0.5).await.unwrap();
+            mem.store_with_importance(&format!("document numero {}", i), meta, 0.5)
+                .await
+                .unwrap();
         }
         assert_eq!(mem.count().unwrap(), 5);
         let (kept, removed) = mem.decay_and_prune(0.1, 0.1, 100).unwrap();

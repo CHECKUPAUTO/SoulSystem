@@ -107,7 +107,10 @@ impl SoulClient {
             anyhow::bail!("Health check returned status {}", resp.status());
         }
 
-        let body = resp.json().await.context("Failed to parse health response")?;
+        let body = resp
+            .json()
+            .await
+            .context("Failed to parse health response")?;
         Ok(body)
     }
 
@@ -128,7 +131,10 @@ impl SoulClient {
             .await
             .context("Failed to inject stimulus")?;
 
-        let body = resp.json().await.context("Failed to parse injection response")?;
+        let body = resp
+            .json()
+            .await
+            .context("Failed to parse injection response")?;
         Ok(body)
     }
 
@@ -149,7 +155,10 @@ impl SoulClient {
             .await
             .context("Failed to query memory")?;
 
-        let body = resp.json().await.context("Failed to parse memory response")?;
+        let body = resp
+            .json()
+            .await
+            .context("Failed to parse memory response")?;
         Ok(body)
     }
 }
@@ -207,7 +216,10 @@ pub fn format_health(health: &serde_json::Value) -> String {
         lines.push(format!("Organs: {}", organs.len()));
         for organ in organs {
             let name = organ.get("name").and_then(|n| n.as_str()).unwrap_or("?");
-            let healthy = organ.get("healthy").and_then(|h| h.as_bool()).unwrap_or(false);
+            let healthy = organ
+                .get("healthy")
+                .and_then(|h| h.as_bool())
+                .unwrap_or(false);
             let icon = if healthy { "♥" } else { "✗" };
             lines.push(format!("  {} {}", icon, name));
         }
@@ -259,10 +271,7 @@ mod tests {
         assert_eq!(Command::parse("exit"), Command::Exit);
         assert_eq!(Command::parse("quit"), Command::Exit);
         assert_eq!(Command::parse(""), Command::Unknown(String::new()));
-        assert_eq!(
-            Command::parse("foo bar"),
-            Command::Unknown("foo".into())
-        );
+        assert_eq!(Command::parse("foo bar"), Command::Unknown("foo".into()));
     }
 
     #[test]

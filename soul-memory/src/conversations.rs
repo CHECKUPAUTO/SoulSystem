@@ -88,10 +88,16 @@ impl ConversationStore {
     }
 
     fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>, ConversationError> {
-        self.conn.lock().map_err(|_| ConversationError::LockPoisoned)
+        self.conn
+            .lock()
+            .map_err(|_| ConversationError::LockPoisoned)
     }
 
-    pub fn create_session(&self, title: &str, model: Option<&str>) -> Result<String, ConversationError> {
+    pub fn create_session(
+        &self,
+        title: &str,
+        model: Option<&str>,
+    ) -> Result<String, ConversationError> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         self.lock_conn()?.execute(
@@ -116,7 +122,10 @@ impl ConversationStore {
         Ok(id)
     }
 
-    pub fn get_messages(&self, session_id: &str) -> Result<Vec<ConversationEntry>, ConversationError> {
+    pub fn get_messages(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<ConversationEntry>, ConversationError> {
         let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp, tool_calls, tool_call_id, tokens_used, model 
@@ -168,7 +177,10 @@ impl ConversationStore {
         Ok(sessions)
     }
 
-    pub fn search_messages(&self, query: &str) -> Result<Vec<ConversationEntry>, ConversationError> {
+    pub fn search_messages(
+        &self,
+        query: &str,
+    ) -> Result<Vec<ConversationEntry>, ConversationError> {
         let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, timestamp, tool_calls, tool_call_id, tokens_used, model 
@@ -212,7 +224,10 @@ impl ConversationStore {
         Ok(output)
     }
 
-    pub fn purge_sessions_older_than(&self, older_than: DateTime<Utc>) -> Result<usize, ConversationError> {
+    pub fn purge_sessions_older_than(
+        &self,
+        older_than: DateTime<Utc>,
+    ) -> Result<usize, ConversationError> {
         let cutoff = older_than.to_rfc3339();
         let conn = self.lock_conn()?;
         let mut stmt = conn.prepare("SELECT id FROM sessions WHERE created_at < ?1")?;
@@ -229,7 +244,10 @@ impl ConversationStore {
         Ok(count)
     }
 
-    pub fn purge_sessions_exceeding(&self, max_sessions: usize) -> Result<usize, ConversationError> {
+    pub fn purge_sessions_exceeding(
+        &self,
+        max_sessions: usize,
+    ) -> Result<usize, ConversationError> {
         let conn = self.lock_conn()?;
         let total: i64 = conn.query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))?;
         if (total as usize) <= max_sessions {
@@ -251,10 +269,16 @@ impl ConversationStore {
 
     pub fn stats(&self) -> Result<serde_json::Value, ConversationError> {
         let conn = self.lock_conn()?;
-        let session_count: i64 = conn.query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))?;
-        let message_count: i64 = conn.query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))?;
+        let session_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))?;
+        let message_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))?;
         let total_tokens: Option<i64> = conn
-            .query_row("SELECT SUM(tokens_used) FROM messages WHERE tokens_used IS NOT NULL", [], |row| row.get(0))
+            .query_row(
+                "SELECT SUM(tokens_used) FROM messages WHERE tokens_used IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
             .ok();
         Ok(serde_json::json!({
             "sessions": session_count,
@@ -278,8 +302,28 @@ mod tests {
     fn test_conversation_store() {
         let store = test_store();
         let session_id = store.create_session("Test Chat", Some("qwen3:8b")).unwrap();
-        store.add_message(AddMessageParams { session_id: &session_id, role: "user", content: "Hello", tool_calls: None, tool_call_id: None, tokens_used: None, model: None }).unwrap();
-        store.add_message(AddMessageParams { session_id: &session_id, role: "assistant", content: "Hi there!", tool_calls: None, tool_call_id: None, tokens_used: Some(10), model: Some("qwen3:8b") }).unwrap();
+        store
+            .add_message(AddMessageParams {
+                session_id: &session_id,
+                role: "user",
+                content: "Hello",
+                tool_calls: None,
+                tool_call_id: None,
+                tokens_used: None,
+                model: None,
+            })
+            .unwrap();
+        store
+            .add_message(AddMessageParams {
+                session_id: &session_id,
+                role: "assistant",
+                content: "Hi there!",
+                tool_calls: None,
+                tool_call_id: None,
+                tokens_used: Some(10),
+                model: Some("qwen3:8b"),
+            })
+            .unwrap();
 
         let messages = store.get_messages(&session_id).unwrap();
         assert_eq!(messages.len(), 2);
@@ -298,7 +342,17 @@ mod tests {
         let store = test_store();
         let _s1 = store.create_session("Old", None).unwrap();
         let s2 = store.create_session("New", None).unwrap();
-        store.add_message(AddMessageParams { session_id: &s2, role: "user", content: "hi", tool_calls: None, tool_call_id: None, tokens_used: None, model: None }).unwrap();
+        store
+            .add_message(AddMessageParams {
+                session_id: &s2,
+                role: "user",
+                content: "hi",
+                tool_calls: None,
+                tool_call_id: None,
+                tokens_used: None,
+                model: None,
+            })
+            .unwrap();
         let removed = store.purge_sessions_exceeding(1).unwrap();
         assert_eq!(removed, 1);
     }

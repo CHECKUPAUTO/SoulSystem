@@ -221,10 +221,7 @@ impl RagMiddleware {
         }
 
         // Trier par score (NaN-safe : les NaN sont placés en dernier)
-        all_results.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        all_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         all_results.truncate(self.config.top_k);
 
         let avg_score: f32 =

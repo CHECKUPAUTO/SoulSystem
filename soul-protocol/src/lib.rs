@@ -99,7 +99,11 @@ impl AgentTask {
 
     /// Validate agent_id contains only alphanumeric, `-`, `_`.
     pub fn validate_agent_id(id: &str) -> std::result::Result<(), ProtocolError> {
-        if id.is_empty() || !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        if id.is_empty()
+            || !id
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
             return Err(ProtocolError::InvalidInput(
                 "agent_id must be alphanumeric with - and _ only".into(),
             ));
@@ -109,7 +113,11 @@ impl AgentTask {
 
     /// Validate tool name contains only alphanumeric, `-`, `_`.
     pub fn validate_tool_name(name: &str) -> std::result::Result<(), ProtocolError> {
-        if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
             return Err(ProtocolError::InvalidInput(
                 "tool name must be alphanumeric with - and _ only".into(),
             ));
@@ -254,17 +262,11 @@ impl AgentProtocolServer {
             match msg {
                 AgentMessage::Task(task) => {
                     let result = self.handler.handle_task(task).await;
-                    let _ = self
-                        .task_tx
-                        .send(AgentMessage::TaskResult(result))
-                        .await;
+                    let _ = self.task_tx.send(AgentMessage::TaskResult(result)).await;
                 }
                 AgentMessage::ToolCall(call) => {
                     let result = self.handler.handle_tool_call(call).await;
-                    let _ = self
-                        .task_tx
-                        .send(AgentMessage::ToolResult(result))
-                        .await;
+                    let _ = self.task_tx.send(AgentMessage::ToolResult(result)).await;
                 }
                 _ => {}
             }
@@ -310,11 +312,8 @@ impl AgentProtocolClient {
     }
 
     pub async fn receive_result(&mut self, timeout_ms: u64) -> Result<AgentTaskResult> {
-        match tokio::time::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            self.rx.recv(),
-        )
-        .await
+        match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), self.rx.recv())
+            .await
         {
             Ok(Some(AgentMessage::TaskResult(result))) => Ok(result),
             Ok(Some(_)) => Err(ProtocolError::Task("unexpected message type".into())),
@@ -331,11 +330,8 @@ impl AgentProtocolClient {
     }
 
     pub async fn receive_tool_result(&mut self, timeout_ms: u64) -> Result<ToolCallResult> {
-        match tokio::time::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            self.rx.recv(),
-        )
-        .await
+        match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), self.rx.recv())
+            .await
         {
             Ok(Some(AgentMessage::ToolResult(result))) => Ok(result),
             Ok(Some(_)) => Err(ProtocolError::Task("unexpected message type".into())),
@@ -351,15 +347,17 @@ pub async fn send_message_json(
     writer: &mut (impl AsyncWriteExt + Unpin),
     msg: &AgentMessage,
 ) -> Result<()> {
-    let json =
-        serde_json::to_string(msg).map_err(|e| ProtocolError::Json(e.to_string()))?;
+    let json = serde_json::to_string(msg).map_err(|e| ProtocolError::Json(e.to_string()))?;
     let mut line = json;
     line.push('\n');
     writer
         .write_all(line.as_bytes())
         .await
         .map_err(|e| ProtocolError::Io(e.to_string()))?;
-    writer.flush().await.map_err(|e| ProtocolError::Io(e.to_string()))?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| ProtocolError::Io(e.to_string()))?;
     Ok(())
 }
 
@@ -404,12 +402,7 @@ impl AgentMesh {
         self.agents.keys().map(|s| s.as_str()).collect()
     }
 
-    pub async fn send_task(
-        &self,
-        _from: &str,
-        to: &str,
-        task: AgentTask,
-    ) -> Result<()> {
+    pub async fn send_task(&self, _from: &str, to: &str, task: AgentTask) -> Result<()> {
         let tx = self
             .agents
             .get(to)
@@ -494,7 +487,8 @@ impl Workflow {
 
     /// Get steps that are ready to execute (all dependencies satisfied).
     pub fn ready_steps(&self, completed: &std::collections::HashSet<String>) -> Vec<&WorkflowStep> {
-        self.steps.iter()
+        self.steps
+            .iter()
             .filter(|s| !completed.contains(&s.id))
             .filter(|s| s.depends_on.iter().all(|dep| completed.contains(dep)))
             .collect()
@@ -526,7 +520,9 @@ impl Workflow {
             stack.insert(step_id.into());
 
             for step in steps {
-                if step.depends_on.iter().any(|d| d == step_id) && dfs(&step.id, steps, visited, stack) {
+                if step.depends_on.iter().any(|d| d == step_id)
+                    && dfs(&step.id, steps, visited, stack)
+                {
                     return true;
                 }
             }
@@ -564,8 +560,7 @@ impl WorkflowEngine {
 
     /// Execute a workflow step by sending it to the appropriate agent.
     pub async fn execute_step(&self, from: &str, step: &WorkflowStep) -> Result<()> {
-        let task = AgentTask::new(&step.task_input)
-            .with_agent(&step.agent_id);
+        let task = AgentTask::new(&step.task_input).with_agent(&step.agent_id);
         self.mesh.send_task(from, &step.agent_id, task).await
     }
 
@@ -655,7 +650,9 @@ impl AgentDirectory {
             .filter(|c| {
                 c.name.to_lowercase().contains(&q)
                     || c.description.to_lowercase().contains(&q)
-                    || c.capabilities.iter().any(|cap| cap.to_lowercase().contains(&q))
+                    || c.capabilities
+                        .iter()
+                        .any(|cap| cap.to_lowercase().contains(&q))
             })
             .collect()
     }
@@ -674,9 +671,8 @@ impl AgentDirectory {
         use tokio::net::UdpSocket;
 
         let port = self.discovery_port;
-        let cards_json = serde_json::to_string(
-            &self.cards.values().cloned().collect::<Vec<_>>()
-        ).unwrap_or_default();
+        let cards_json = serde_json::to_string(&self.cards.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
 
         tokio::spawn(async move {
             let socket = match UdpSocket::bind(format!("0.0.0.0:{port}")).await {
@@ -718,20 +714,26 @@ impl AgentDirectory {
             .await
             .map_err(|e| ProtocolError::Io(format!("discovery bind: {e}")))?;
 
-        tracing::info!(port = self.discovery_port, "A2A discovery server started (blocking)");
+        tracing::info!(
+            port = self.discovery_port,
+            "A2A discovery server started (blocking)"
+        );
 
-        let cards_json = serde_json::to_string(
-            &self.cards.values().cloned().collect::<Vec<_>>()
-        ).unwrap_or_default();
+        let cards_json = serde_json::to_string(&self.cards.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
 
         let mut buf = vec![0u8; 4096];
         loop {
-            let (len, addr) = socket.recv_from(&mut buf).await
+            let (len, addr) = socket
+                .recv_from(&mut buf)
+                .await
                 .map_err(|e| ProtocolError::Io(format!("discovery recv: {e}")))?;
 
             let request = String::from_utf8_lossy(&buf[..len]);
             if request.trim() == "DISCOVER" {
-                socket.send_to(cards_json.as_bytes(), addr).await
+                socket
+                    .send_to(cards_json.as_bytes(), addr)
+                    .await
                     .map_err(|e| ProtocolError::Io(format!("discovery send: {e}")))?;
                 tracing::debug!(from = %addr, "discovery response sent");
             }
@@ -746,11 +748,14 @@ impl AgentDirectory {
             .await
             .map_err(|e| ProtocolError::Io(format!("discovery bind: {e}")))?;
 
-        socket.set_broadcast(true)
+        socket
+            .set_broadcast(true)
             .map_err(|e| ProtocolError::Io(format!("set broadcast: {e}")))?;
 
         let broadcast_addr = format!("255.255.255.255:{}", self.discovery_port);
-        socket.send_to(b"DISCOVER", &broadcast_addr).await
+        socket
+            .send_to(b"DISCOVER", &broadcast_addr)
+            .await
             .map_err(|e| ProtocolError::Io(format!("discovery send: {e}")))?;
 
         // Wait for responses with timeout
@@ -762,7 +767,9 @@ impl AgentDirectory {
             match tokio::time::timeout(
                 std::time::Duration::from_millis(500),
                 socket.recv_from(&mut buf),
-            ).await {
+            )
+            .await
+            {
                 Ok(Ok((len, _addr))) => {
                     if let Ok(cards) = serde_json::from_slice::<Vec<AgentCard>>(&buf[..len]) {
                         discovered.extend(cards);
@@ -871,8 +878,7 @@ impl A2AServer {
                         _ => continue,
                     };
 
-                    let mut resp_line =
-                        serde_json::to_string(&response).unwrap_or_default();
+                    let mut resp_line = serde_json::to_string(&response).unwrap_or_default();
                     resp_line.push('\n');
                     let _ = write
                         .send(tokio_tungstenite::tungstenite::Message::Binary(
@@ -895,11 +901,7 @@ impl A2AClient {
     }
 
     /// Send a task to a remote agent and wait for result
-    pub async fn send_task(
-        &self,
-        task: AgentTask,
-        timeout_ms: u64,
-    ) -> Result<AgentTaskResult> {
+    pub async fn send_task(&self, task: AgentTask, timeout_ms: u64) -> Result<AgentTaskResult> {
         use futures_util::{SinkExt, StreamExt};
 
         let (ws_stream, _) = tokio_tungstenite::connect_async(&self.addr)
@@ -909,8 +911,7 @@ impl A2AClient {
         let (mut write, mut read) = ws_stream.split();
 
         let msg = AgentMessage::Task(task);
-        let mut line = serde_json::to_string(&msg)
-            .map_err(|e| ProtocolError::Io(e.to_string()))?;
+        let mut line = serde_json::to_string(&msg).map_err(|e| ProtocolError::Io(e.to_string()))?;
         line.push('\n');
 
         write
@@ -920,11 +921,7 @@ impl A2AClient {
             .await
             .map_err(|e| ProtocolError::Io(format!("send error: {e}")))?;
 
-        match tokio::time::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            read.next(),
-        )
-        .await
+        match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), read.next()).await
         {
             Ok(Some(Ok(msg))) => {
                 let data = match msg {
@@ -933,8 +930,8 @@ impl A2AClient {
                     _ => return Err(ProtocolError::Io("unexpected message type".into())),
                 };
                 let line = String::from_utf8_lossy(&data).to_string();
-                let response: AgentMessage = serde_json::from_str(&line)
-                    .map_err(|e| ProtocolError::Io(e.to_string()))?;
+                let response: AgentMessage =
+                    serde_json::from_str(&line).map_err(|e| ProtocolError::Io(e.to_string()))?;
                 match response {
                     AgentMessage::TaskResult(result) => Ok(result),
                     AgentMessage::Error(e) => Err(ProtocolError::Task(e.message)),
@@ -1108,7 +1105,9 @@ mod tests {
     fn test_workflow_creation() {
         let mut wf = Workflow::new("build-pipeline");
         wf.add_step(WorkflowStep::new("fetch", "data-agent", "fetch data"));
-        wf.add_step(WorkflowStep::new("process", "process-agent", "process data").with_dependency("fetch"));
+        wf.add_step(
+            WorkflowStep::new("process", "process-agent", "process data").with_dependency("fetch"),
+        );
         assert_eq!(wf.steps.len(), 2);
         assert!(!wf.has_cycle());
     }
@@ -1171,8 +1170,13 @@ mod tests {
     #[test]
     fn test_directory_discover_by_capability() {
         let mut dir = AgentDirectory::new();
-        dir.register(AgentCard::new("helper", "Does everything")
-            .with_capabilities(vec!["read".into(), "write".into(), "execute".into()]));
+        dir.register(
+            AgentCard::new("helper", "Does everything").with_capabilities(vec![
+                "read".into(),
+                "write".into(),
+                "execute".into(),
+            ]),
+        );
 
         let results = dir.discover("execute");
         assert_eq!(results.len(), 1);

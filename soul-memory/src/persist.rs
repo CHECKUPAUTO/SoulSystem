@@ -337,7 +337,9 @@ mod tests {
     #[test]
     fn test_config() {
         let store = test_store();
-        store.save_config("model", &serde_json::json!("qwen3:8b")).unwrap();
+        store
+            .save_config("model", &serde_json::json!("qwen3:8b"))
+            .unwrap();
         let val = store.load_config("model").unwrap().unwrap();
         assert_eq!(val.as_str().unwrap(), "qwen3:8b");
     }

@@ -127,7 +127,10 @@ impl WorkingMemory {
         let recent = self.recent_observations(5);
         if !recent.is_empty() {
             let obs_text = recent.join("\n  - ");
-            parts.push(format!("<recent_observations>\n  - {}\n</recent_observations>", obs_text));
+            parts.push(format!(
+                "<recent_observations>\n  - {}\n</recent_observations>",
+                obs_text
+            ));
         }
 
         if parts.is_empty() {
@@ -288,11 +291,7 @@ Example: [{{"action": "list files in /tmp", "tool": "ls", "args": {{"path": "/tm
     }
 
     /// Ask the LLM to decide what to do next
-    pub async fn decide_llm(
-        &self,
-        context: &str,
-        llm: &soul_llm::OllamaClient,
-    ) -> Decision {
+    pub async fn decide_llm(&self, context: &str, llm: &soul_llm::OllamaClient) -> Decision {
         let history = self.history.recent_summaries(5);
         let prompt = format!(
             r#"You are a decision engine for an autonomous agent.
@@ -406,10 +405,7 @@ fn parse_decision(response: &str) -> Decision {
                 .and_then(|r| r.as_str())
                 .unwrap_or("")
                 .to_string(),
-            confidence: v
-                .get("confidence")
-                .and_then(|c| c.as_f64())
-                .unwrap_or(0.5) as f32,
+            confidence: v.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.5) as f32,
             alternatives: v
                 .get("alternatives")
                 .and_then(|a| a.as_array())

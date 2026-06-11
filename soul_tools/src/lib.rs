@@ -5,9 +5,6 @@ use tokio::process::Command;
 
 // ── Shell injection prevention ─────────────────────────────────────────
 
-/// Dangerous shell metacharacters that enable command injection.
-const SHELL_INJECTION_CHARS: &[char] = &[';', '&', '|', '`', '$', '\n', '\r', '>', '<', '!'];
-
 /// Validates a shell command string against injection attempts.
 /// Returns `Ok(())` if safe, `Err(reason)` if potentially dangerous.
 pub fn validate_shell_command(cmd: &str) -> Result<(), String> {
@@ -156,10 +153,7 @@ impl ToolRegistry {
     }
 
     pub fn by_category(&self, cat: &ToolCategory) -> Vec<&Tool> {
-        self.tools
-            .values()
-            .filter(|t| &t.category == cat)
-            .collect()
+        self.tools.values().filter(|t| &t.category == cat).collect()
     }
 }
 
@@ -214,10 +208,7 @@ impl AsyncShellExecutor {
 
         let result = tokio::time::timeout(
             self.timeout,
-            Command::new("sh")
-                .arg("-c")
-                .arg(command)
-                .output(),
+            Command::new("sh").arg("-c").arg(command).output(),
         )
         .await;
 
@@ -263,9 +254,13 @@ impl ShellOutput {
 
 // ── File Operations ───────────────────────────────────────────────────
 
-pub fn read_file(path: &str, start_line: Option<usize>, num_lines: Option<usize>) -> Result<String, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Cannot read {}: {}", path, e))?;
+pub fn read_file(
+    path: &str,
+    start_line: Option<usize>,
+    num_lines: Option<usize>,
+) -> Result<String, String> {
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {}", path, e))?;
 
     let lines: Vec<&str> = content.lines().collect();
     let start = start_line.unwrap_or(1).saturating_sub(1);
@@ -304,8 +299,8 @@ pub fn write_file(path: &str, content: &str, append: bool) -> Result<(), String>
 }
 
 pub fn patch_file(path: &str, old_text: &str, new_text: &str) -> Result<String, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Cannot read {}: {}", path, e))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {}", path, e))?;
 
     let count = content.matches(old_text).count();
     if count == 0 {
@@ -322,28 +317,30 @@ pub fn patch_file(path: &str, old_text: &str, new_text: &str) -> Result<String, 
     }
 
     let new_content = content.replacen(old_text, new_text, 1);
-    std::fs::write(path, new_content)
-        .map_err(|e| format!("Cannot write {}: {}", path, e))?;
+    std::fs::write(path, new_content).map_err(|e| format!("Cannot write {}: {}", path, e))?;
 
     Ok(format!("Patched {} (1 occurrence replaced)", path))
 }
 
 pub fn list_directory(path: &str) -> Result<Vec<String>, String> {
-    let entries = std::fs::read_dir(path)
-        .map_err(|e| format!("Cannot read directory {}: {}", path, e))?;
+    let entries =
+        std::fs::read_dir(path).map_err(|e| format!("Cannot read directory {}: {}", path, e))?;
 
     let mut items: Vec<String> = entries
         .filter_map(|e| e.ok())
         .map(|e| {
-            let file_type = e.file_type().map(|ft| {
-                if ft.is_dir() {
-                    "/"
-                } else if ft.is_symlink() {
-                    "@"
-                } else {
-                    ""
-                }
-            }).unwrap_or("");
+            let file_type = e
+                .file_type()
+                .map(|ft| {
+                    if ft.is_dir() {
+                        "/"
+                    } else if ft.is_symlink() {
+                        "@"
+                    } else {
+                        ""
+                    }
+                })
+                .unwrap_or("");
             format!("{}{}", e.file_name().to_string_lossy(), file_type)
         })
         .collect();
@@ -366,7 +363,11 @@ pub fn search_files(pattern: &str, path: &str) -> Result<Vec<String>, String> {
     Ok(stdout.lines().map(|s| s.to_string()).collect())
 }
 
-pub fn grep_content(pattern: &str, path: &str, file_pattern: Option<&str>) -> Result<Vec<String>, String> {
+pub fn grep_content(
+    pattern: &str,
+    path: &str,
+    file_pattern: Option<&str>,
+) -> Result<Vec<String>, String> {
     let mut args = vec!["-rn", pattern, path];
     if let Some(fp) = file_pattern {
         args.push("--include");
@@ -384,33 +385,41 @@ pub fn grep_content(pattern: &str, path: &str, file_pattern: Option<&str>) -> Re
 
 // ── Tool Dispatch ─────────────────────────────────────────────────────
 
-pub fn dispatch_tool(
-    tool_name: &str,
-    args: &serde_json::Value,
-) -> Result<String, String> {
+pub fn dispatch_tool(tool_name: &str, args: &serde_json::Value) -> Result<String, String> {
     match tool_name {
         "execute_shell" => {
-            let cmd = args.get("command")
+            let cmd = args
+                .get("command")
                 .and_then(|c| c.as_str())
                 .ok_or("Missing 'command' argument")?;
             execute_shell(cmd)
         }
         "read_file" => {
-            let path = args.get("path")
+            let path = args
+                .get("path")
                 .and_then(|p| p.as_str())
                 .ok_or("Missing 'path' argument")?;
-            let start = args.get("start_line").and_then(|l| l.as_u64()).map(|n| n as usize);
-            let num = args.get("num_lines").and_then(|l| l.as_u64()).map(|n| n as usize);
+            let start = args
+                .get("start_line")
+                .and_then(|l| l.as_u64())
+                .map(|n| n as usize);
+            let num = args
+                .get("num_lines")
+                .and_then(|l| l.as_u64())
+                .map(|n| n as usize);
             read_file(path, start, num)
         }
         "write_file" => {
-            let path = args.get("path")
+            let path = args
+                .get("path")
                 .and_then(|p| p.as_str())
                 .ok_or("Missing 'path' argument")?;
-            let content = args.get("content")
+            let content = args
+                .get("content")
                 .and_then(|c| c.as_str())
                 .ok_or("Missing 'content' argument")?;
-            let append = args.get("mode")
+            let append = args
+                .get("mode")
                 .and_then(|m| m.as_str())
                 .map(|m| m == "append")
                 .unwrap_or(false);
@@ -418,41 +427,40 @@ pub fn dispatch_tool(
             Ok(format!("Written to {}", path))
         }
         "patch_file" => {
-            let path = args.get("path")
+            let path = args
+                .get("path")
                 .and_then(|p| p.as_str())
                 .ok_or("Missing 'path' argument")?;
-            let old = args.get("old_text")
+            let old = args
+                .get("old_text")
                 .and_then(|t| t.as_str())
                 .ok_or("Missing 'old_text' argument")?;
-            let new = args.get("new_text")
+            let new = args
+                .get("new_text")
                 .and_then(|t| t.as_str())
                 .ok_or("Missing 'new_text' argument")?;
             patch_file(path, old, new)
         }
         "list_directory" => {
-            let path = args.get("path")
-                .and_then(|p| p.as_str())
-                .unwrap_or(".");
+            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
             let items = list_directory(path)?;
             Ok(items.join("\n"))
         }
         "search_files" => {
-            let pattern = args.get("pattern")
+            let pattern = args
+                .get("pattern")
                 .and_then(|p| p.as_str())
                 .ok_or("Missing 'pattern' argument")?;
-            let path = args.get("path")
-                .and_then(|p| p.as_str())
-                .unwrap_or(".");
+            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
             let files = search_files(pattern, path)?;
             Ok(files.join("\n"))
         }
         "grep_content" => {
-            let pattern = args.get("pattern")
+            let pattern = args
+                .get("pattern")
                 .and_then(|p| p.as_str())
                 .ok_or("Missing 'pattern' argument")?;
-            let path = args.get("path")
-                .and_then(|p| p.as_str())
-                .unwrap_or(".");
+            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
             let fp = args.get("file_pattern").and_then(|p| p.as_str());
             let results = grep_content(pattern, path, fp)?;
             Ok(results.join("\n"))
@@ -518,7 +526,12 @@ const SYSTEM_TOOLS: &[(&str, &str, &str, ToolCategory)] = &[
     ("ssh", "ssh", "Remote shell", ToolCategory::Network),
     ("scp", "scp", "Copy files remote", ToolCategory::Network),
     ("git", "git", "Version control", ToolCategory::System),
-    ("python3", "python3", "Python interpreter", ToolCategory::System),
+    (
+        "python3",
+        "python3",
+        "Python interpreter",
+        ToolCategory::System,
+    ),
     ("node", "node", "Node.js runtime", ToolCategory::System),
     ("jq", "jq", "JSON processor", ToolCategory::Data),
     ("sed", "sed", "Stream editor", ToolCategory::File),
@@ -534,18 +547,48 @@ const SYSTEM_TOOLS: &[(&str, &str, &str, ToolCategory)] = &[
     ("cp", "cp", "Copy files", ToolCategory::File),
     ("mv", "mv", "Move files", ToolCategory::File),
     ("tar", "tar", "Archive files", ToolCategory::File),
-    ("docker", "docker", "Container runtime", ToolCategory::System),
-    ("systemctl", "systemctl", "Service manager", ToolCategory::System),
-    ("journalctl", "journalctl", "System logs", ToolCategory::System),
+    (
+        "docker",
+        "docker",
+        "Container runtime",
+        ToolCategory::System,
+    ),
+    (
+        "systemctl",
+        "systemctl",
+        "Service manager",
+        ToolCategory::System,
+    ),
+    (
+        "journalctl",
+        "journalctl",
+        "System logs",
+        ToolCategory::System,
+    ),
     ("nmcli", "nmcli", "Network manager", ToolCategory::Network),
     ("ip", "ip", "Network config", ToolCategory::Network),
     ("ss", "ss", "Socket stats", ToolCategory::Network),
     ("lsof", "lsof", "Open files", ToolCategory::System),
-    ("strace", "strace", "System call trace", ToolCategory::Process),
+    (
+        "strace",
+        "strace",
+        "System call trace",
+        ToolCategory::Process,
+    ),
     ("htop", "htop", "Interactive top", ToolCategory::Process),
-    ("nvidia-smi", "nvidia-smi", "GPU monitor", ToolCategory::System),
+    (
+        "nvidia-smi",
+        "nvidia-smi",
+        "GPU monitor",
+        ToolCategory::System,
+    ),
     ("ollama", "ollama", "LLM runner", ToolCategory::System),
-    ("cargo", "cargo", "Rust package manager", ToolCategory::System),
+    (
+        "cargo",
+        "cargo",
+        "Rust package manager",
+        ToolCategory::System,
+    ),
 ];
 
 pub fn discover_system_tools() -> Vec<Tool> {
@@ -570,24 +613,54 @@ mod tests {
 
     #[test]
     fn test_permission_read() {
-        assert_eq!(PermissionLevel::from_command("ls -la"), PermissionLevel::Read);
-        assert_eq!(PermissionLevel::from_command("cat /etc/passwd"), PermissionLevel::Read);
-        assert_eq!(PermissionLevel::from_command("grep -r foo ."), PermissionLevel::Read);
+        assert_eq!(
+            PermissionLevel::from_command("ls -la"),
+            PermissionLevel::Read
+        );
+        assert_eq!(
+            PermissionLevel::from_command("cat /etc/passwd"),
+            PermissionLevel::Read
+        );
+        assert_eq!(
+            PermissionLevel::from_command("grep -r foo ."),
+            PermissionLevel::Read
+        );
     }
 
     #[test]
     fn test_permission_write() {
-        assert_eq!(PermissionLevel::from_command("rm file.txt"), PermissionLevel::Write);
-        assert_eq!(PermissionLevel::from_command("mkdir /tmp/test"), PermissionLevel::Write);
-        assert_eq!(PermissionLevel::from_command("cp a.txt b.txt"), PermissionLevel::Write);
-        assert_eq!(PermissionLevel::from_command("sed -i 's/foo/bar/' file"), PermissionLevel::Write);
+        assert_eq!(
+            PermissionLevel::from_command("rm file.txt"),
+            PermissionLevel::Write
+        );
+        assert_eq!(
+            PermissionLevel::from_command("mkdir /tmp/test"),
+            PermissionLevel::Write
+        );
+        assert_eq!(
+            PermissionLevel::from_command("cp a.txt b.txt"),
+            PermissionLevel::Write
+        );
+        assert_eq!(
+            PermissionLevel::from_command("sed -i 's/foo/bar/' file"),
+            PermissionLevel::Write
+        );
     }
 
     #[test]
     fn test_permission_destructive() {
-        assert_eq!(PermissionLevel::from_command("rm -rf /"), PermissionLevel::Destructive);
-        assert_eq!(PermissionLevel::from_command("mkfs.ext4 /dev/sda"), PermissionLevel::Destructive);
-        assert_eq!(PermissionLevel::from_command("dd if=/dev/zero of=/dev/sda"), PermissionLevel::Destructive);
+        assert_eq!(
+            PermissionLevel::from_command("rm -rf /"),
+            PermissionLevel::Destructive
+        );
+        assert_eq!(
+            PermissionLevel::from_command("mkfs.ext4 /dev/sda"),
+            PermissionLevel::Destructive
+        );
+        assert_eq!(
+            PermissionLevel::from_command("dd if=/dev/zero of=/dev/sda"),
+            PermissionLevel::Destructive
+        );
     }
 
     #[test]

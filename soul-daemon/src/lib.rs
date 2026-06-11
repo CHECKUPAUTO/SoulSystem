@@ -204,8 +204,9 @@ impl Daemon {
         info!("🚀 SoulDaemon starting...");
 
         let mut shutdown_rx = self.shutdown_tx.subscribe();
-        let mut interval =
-            tokio::time::interval(tokio::time::Duration::from_secs(self.config.poll_interval_secs));
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(
+            self.config.poll_interval_secs,
+        ));
         let mut checkpoint_tick = tokio::time::interval(tokio::time::Duration::from_secs(300));
         let mut consecutive_failures: u64 = 0;
         let mut rollback_checkpoint: Option<String> = None;
@@ -327,11 +328,13 @@ impl Daemon {
             }
 
             // For high-complexity goals (long descriptions, high priority), use sub-agents
-            let use_sub_agent =
-                goal.description.len() > 200 || goal.priority >= 8;
+            let use_sub_agent = goal.description.len() > 200 || goal.priority >= 8;
 
             if use_sub_agent {
-                info!("🤖 Goal '{}' qualifies for sub-agent decomposition", goal.description);
+                info!(
+                    "🤖 Goal '{}' qualifies for sub-agent decomposition",
+                    goal.description
+                );
                 match self.execute_goal_with_sub_agents(&running_goal).await {
                     Ok(result) => {
                         info!("✅ Goal completed: {} → {}", goal.description, result);
@@ -400,9 +403,7 @@ impl Daemon {
         let handle = {
             let description = goal.description.clone();
             let mut agent = agent;
-            tokio::spawn(async move {
-                agent.run_task(&description).await
-            })
+            tokio::spawn(async move { agent.run_task(&description).await })
         };
 
         // Collect events and forward to event bus + tracker
@@ -429,10 +430,21 @@ impl Daemon {
                     let turn = tracker.running.get(&goal.id).map(|t| t.1 + 1).unwrap_or(0);
                     tracker.update_activity(&goal.id, turn);
                 }
-                AgentEvent::ToolResult { name, output, success, .. } => {
+                AgentEvent::ToolResult {
+                    name,
+                    output,
+                    success,
+                    ..
+                } => {
                     let prefix = if *success { "✅" } else { "❌" };
                     if output.len() > 200 {
-                        info!("{} Result {}: {}...[{} more chars]", prefix, name, &output[..200], output.len() - 200);
+                        info!(
+                            "{} Result {}: {}...[{} more chars]",
+                            prefix,
+                            name,
+                            &output[..200],
+                            output.len() - 200
+                        );
                     } else {
                         info!("{} Result {}: {}", prefix, name, output);
                     }
@@ -469,7 +481,9 @@ impl Daemon {
             }
         }
 
-        let result = handle.await.map_err(|e| DaemonError::Agent(e.to_string()))?;
+        let result = handle
+            .await
+            .map_err(|e| DaemonError::Agent(e.to_string()))?;
         result.map_err(DaemonError::Agent)
     }
 
@@ -487,12 +501,15 @@ impl Daemon {
         );
 
         let response = llm
-            .chat(&[soul_llm::ChatMessage {
-                role: soul_llm::Role::User,
-                content: decomposition_prompt,
-                tool_calls: None,
-                tool_call_id: None,
-            }], None)
+            .chat(
+                &[soul_llm::ChatMessage {
+                    role: soul_llm::Role::User,
+                    content: decomposition_prompt,
+                    tool_calls: None,
+                    tool_call_id: None,
+                }],
+                None,
+            )
             .await
             .map_err(|e| DaemonError::Llm(e.to_string()))?;
 
@@ -506,8 +523,13 @@ impl Daemon {
                     // Fallback: split by newlines
                     response_text
                         .lines()
-                        .filter(|l| !l.trim().is_empty() && !l.starts_with('[') && !l.starts_with(']'))
-                        .map(|l| l.trim_matches(|c: char| c == '"' || c == '-' || c == ' ').to_string())
+                        .filter(|l| {
+                            !l.trim().is_empty() && !l.starts_with('[') && !l.starts_with(']')
+                        })
+                        .map(|l| {
+                            l.trim_matches(|c: char| c == '"' || c == '-' || c == ' ')
+                                .to_string()
+                        })
                         .filter(|l| !l.is_empty())
                         .take(4)
                         .collect()
@@ -530,7 +552,10 @@ impl Daemon {
             content: format!(
                 "Decomposed into {} sub-tasks: {:?}",
                 sub_tasks.len(),
-                sub_tasks.iter().map(|s| &s[..s.len().min(50)]).collect::<Vec<_>>()
+                sub_tasks
+                    .iter()
+                    .map(|s| &s[..s.len().min(50)])
+                    .collect::<Vec<_>>()
             ),
         });
 
@@ -551,18 +576,20 @@ impl Daemon {
         let mut results = Vec::new();
         for (task_id, sub_task) in &task_ids {
             match self.sub_agents.wait_for(task_id, 300).await {
-                Ok(status) => {
-                    match status.status {
-                        soul_subagents::TaskStatus::Completed => {
-                            let result = status.result.unwrap_or_default();
-                            results.push(format!("✅ '{}' → {}", sub_task, &result[..result.len().min(200)]));
-                        }
-                        _ => {
-                            let err = status.error.unwrap_or_else(|| "unknown".into());
-                            results.push(format!("❌ '{}' → {}", sub_task, err));
-                        }
+                Ok(status) => match status.status {
+                    soul_subagents::TaskStatus::Completed => {
+                        let result = status.result.unwrap_or_default();
+                        results.push(format!(
+                            "✅ '{}' → {}",
+                            sub_task,
+                            &result[..result.len().min(200)]
+                        ));
                     }
-                }
+                    _ => {
+                        let err = status.error.unwrap_or_else(|| "unknown".into());
+                        results.push(format!("❌ '{}' → {}", sub_task, err));
+                    }
+                },
                 Err(e) => {
                     results.push(format!("❌ '{}' → timeout/error: {}", sub_task, e));
                 }
@@ -618,9 +645,7 @@ impl Daemon {
             .map_err(|e| DaemonError::Agent(e.to_string()))?;
 
         match result.status {
-            soul_subagents::TaskStatus::Completed => {
-                Ok(result.result.unwrap_or_default())
-            }
+            soul_subagents::TaskStatus::Completed => Ok(result.result.unwrap_or_default()),
             _ => Err(DaemonError::Agent(
                 result.error.unwrap_or_else(|| "Sub-agent failed".into()),
             )),

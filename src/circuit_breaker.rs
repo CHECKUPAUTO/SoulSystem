@@ -4,5 +4,5 @@
 
 pub use soullink_circuit::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitBreakerRegistry,
-    CircuitStats, CircuitState,
+    CircuitState, CircuitStats,
 };

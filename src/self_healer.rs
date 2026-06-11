@@ -119,13 +119,13 @@ impl SelfHealer {
             let (cpu, mem, disk) = Self::read_system_stats();
             let disk_pct = disk as f64;
 
-            if let Some(actions) = self
-                .preservation
-                .check_resources(cpu, mem, disk_pct)
-                .await
-            {
+            if let Some(actions) = self.preservation.check_resources(cpu, mem, disk_pct).await {
                 let level = self.preservation.level().await;
-                warn!("SelfHealer: {:?} — executing {} actions", level, actions.len());
+                warn!(
+                    "SelfHealer: {:?} — executing {} actions",
+                    level,
+                    actions.len()
+                );
                 for action in &actions {
                     self.execute(action).await;
                 }
@@ -211,7 +211,8 @@ impl SelfHealer {
                             {
                                 let out = String::from_utf8_lossy(&usage.stdout);
                                 if let Some(pct) = out.lines().nth(1) {
-                                    if let Ok(val) = pct.trim().trim_end_matches('%').parse::<f64>() {
+                                    if let Ok(val) = pct.trim().trim_end_matches('%').parse::<f64>()
+                                    {
                                         return Some(val);
                                     }
                                 }

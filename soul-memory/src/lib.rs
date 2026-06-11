@@ -1,5 +1,5 @@
 pub use soulsystem_common::embedder::{
-    cosine_similarity, compute_initial_importance, Embedder, NGramEmbedder, SciRustEmbedder,
+    compute_initial_importance, cosine_similarity, Embedder, NGramEmbedder, SciRustEmbedder,
 };
 
 mod persist;

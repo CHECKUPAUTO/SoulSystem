@@ -134,11 +134,7 @@ pub struct InferenceProfile {
 }
 
 impl InferenceProfile {
-    pub fn new(
-        capability: CapabilityTier,
-        thinking: ThinkingLevel,
-        context: ContextClass,
-    ) -> Self {
+    pub fn new(capability: CapabilityTier, thinking: ThinkingLevel, context: ContextClass) -> Self {
         Self {
             capability,
             thinking,
@@ -234,9 +230,21 @@ impl InferenceController {
         let lower = task_description.to_lowercase();
 
         let high_complexity_words = [
-            "refactor", "architect", "design", "optimize", "security",
-            "algorithm", "database", "concurrent", "distributed", "scale",
-            "debug", "investigate", "root cause", "performance", "critical",
+            "refactor",
+            "architect",
+            "design",
+            "optimize",
+            "security",
+            "algorithm",
+            "database",
+            "concurrent",
+            "distributed",
+            "scale",
+            "debug",
+            "investigate",
+            "root cause",
+            "performance",
+            "critical",
         ];
         for word in &high_complexity_words {
             if lower.contains(word) {
@@ -245,8 +253,16 @@ impl InferenceController {
         }
 
         let medium_complexity_words = [
-            "implement", "create", "add", "build", "fix", "update",
-            "test", "deploy", "review", "analyze",
+            "implement",
+            "create",
+            "add",
+            "build",
+            "fix",
+            "update",
+            "test",
+            "deploy",
+            "review",
+            "analyze",
         ];
         for word in &medium_complexity_words {
             if lower.contains(word) {
@@ -255,7 +271,14 @@ impl InferenceController {
         }
 
         // Multi-step indicators
-        let multi_step_words = ["and then", "first", "then", "also", "additionally", "finally"];
+        let multi_step_words = [
+            "and then",
+            "first",
+            "then",
+            "also",
+            "additionally",
+            "finally",
+        ];
         for word in &multi_step_words {
             if lower.contains(word) {
                 score += 1;
@@ -367,7 +390,8 @@ impl CostTracker {
 
     /// Save tracker to JSON file.
     pub fn save(&self, path: &std::path::Path) -> crate::Result<()> {
-        let json = serde_json::to_string_pretty(self).map_err(|e| InferenceError::Config(e.to_string()))?;
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| InferenceError::Config(e.to_string()))?;
         std::fs::write(path, json).map_err(|e| InferenceError::Config(e.to_string()))
     }
 
@@ -447,8 +471,7 @@ mod tests {
                 || profile.capability == CapabilityTier::Powerful
         );
         assert!(
-            profile.thinking == ThinkingLevel::Medium
-                || profile.thinking == ThinkingLevel::High
+            profile.thinking == ThinkingLevel::Medium || profile.thinking == ThinkingLevel::High
         );
     }
 
@@ -492,7 +515,7 @@ mod tests {
     #[test]
     fn test_cost_tracker() {
         let mut tracker = CostTracker::new();
-tracker.record(CostEntry {
+        tracker.record(CostEntry {
             timestamp: chrono::Utc::now(),
             task: "task1".into(),
             model: "qwen3:8b".into(),

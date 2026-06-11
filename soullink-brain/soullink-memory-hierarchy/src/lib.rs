@@ -219,7 +219,8 @@ impl EpisodicStore {
 
     /// Get recent episodic memories.
     pub fn recent(&self, limit: usize) -> Vec<MemoryEntry> {
-        let mut entries: Vec<MemoryEntry> = self.entries.iter().map(|e| e.value().clone()).collect();
+        let mut entries: Vec<MemoryEntry> =
+            self.entries.iter().map(|e| e.value().clone()).collect();
         entries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         entries.truncate(limit);
         entries
@@ -337,10 +338,7 @@ impl SemanticStore {
         let id = entry.id.clone();
         self.entries.insert(id.clone(), entry);
 
-        self.by_type
-            .entry(concept_type)
-            .or_default()
-            .push(id);
+        self.by_type.entry(concept_type).or_default().push(id);
     }
 
     /// Search semantic memory by text.
@@ -509,8 +507,7 @@ impl ConsolidationEngine {
             if cluster.len() >= self.config.min_cluster_size {
                 // Merge cluster into a single semantic entry
                 let merged = self.merge_cluster(cluster);
-                self.semantic
-                    .store(merged, ConceptType::Fact);
+                self.semantic.store(merged, ConceptType::Fact);
                 result.promoted += cluster.len();
 
                 // Remove promoted entries from episodic
@@ -594,10 +591,7 @@ impl ConsolidationEngine {
             .unwrap();
 
         // Combine text: use the longest text as the representative
-        let representative = cluster
-            .iter()
-            .max_by_key(|e| e.text.len())
-            .unwrap();
+        let representative = cluster.iter().max_by_key(|e| e.text.len()).unwrap();
 
         // Combine tags
         let mut all_tags: Vec<String> = Vec::new();
@@ -674,8 +668,7 @@ impl HierarchicalMemory {
                 self.episodic.store(entry);
             }
             MemoryLayer::Semantic => {
-                self.semantic
-                    .store(entry, ConceptType::Fact);
+                self.semantic.store(entry, ConceptType::Fact);
             }
         }
     }

@@ -132,8 +132,10 @@ async fn handle_message(
         }
 
         WsMessage::Ping => {
-            ws.send(Message::Text(serde_json::to_string(&WsMessage::Pong)?.into()))
-                .await?;
+            ws.send(Message::Text(
+                serde_json::to_string(&WsMessage::Pong)?.into(),
+            ))
+            .await?;
         }
 
         WsMessage::Pong => {
@@ -378,7 +380,8 @@ async fn send_event(
         event: event.to_string(),
         payload: Some(payload),
     });
-    ws.send(Message::Text(serde_json::to_string(&msg)?.into())).await?;
+    ws.send(Message::Text(serde_json::to_string(&msg)?.into()))
+        .await?;
     Ok(())
 }
 

@@ -253,7 +253,7 @@ mod tests {
         assert_ne!(task.next_run, old_next);
     }
 
-#[test]
+    #[test]
     fn test_add_and_list_tasks() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {

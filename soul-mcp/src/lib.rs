@@ -112,7 +112,9 @@ impl McpClient {
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<JsonRpcResponse> {
-        let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".into(),
@@ -152,7 +154,9 @@ impl McpClient {
         let result = resp.result.unwrap_or_default();
         Ok(McpCapabilities {
             tools: result["capabilities"]["tools"].as_bool().unwrap_or(false),
-            resources: result["capabilities"]["resources"].as_bool().unwrap_or(false),
+            resources: result["capabilities"]["resources"]
+                .as_bool()
+                .unwrap_or(false),
             prompts: result["capabilities"]["prompts"].as_bool().unwrap_or(false),
         })
     }
@@ -170,9 +174,7 @@ impl McpClient {
 
         let mut result = Vec::new();
         for tool in tools {
-            result.push(
-                serde_json::from_value(tool).map_err(|e| McpError::Json(e.to_string()))?,
-            );
+            result.push(serde_json::from_value(tool).map_err(|e| McpError::Json(e.to_string()))?);
         }
         Ok(result)
     }
@@ -402,7 +404,15 @@ impl ToolRegistry {
 // ─── SoulSystem MCP Adapter ─────────────────────────────────────────────────
 // Generic adapter that converts any async fn into MCP tool handler
 
-type HandlerFn = Box<dyn Fn(String, serde_json::Value) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<serde_json::Value>> + Send>> + Send + Sync>;
+type HandlerFn = Box<
+    dyn Fn(
+            String,
+            serde_json::Value,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<serde_json::Value>> + Send>>
+        + Send
+        + Sync,
+>;
 
 pub struct FnMcpHandler {
     handler: HandlerFn,
@@ -509,12 +519,7 @@ impl WsTransport {
     }
 
     /// Connect as MCP client over WebSocket
-    pub async fn connect_client(
-        &self,
-    ) -> Result<(
-        mpsc::Sender<Vec<u8>>,
-        mpsc::Receiver<Vec<u8>>,
-    )> {
+    pub async fn connect_client(&self) -> Result<(mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>)> {
         use futures_util::{SinkExt, StreamExt};
 
         let (ws_stream, _) = tokio_tungstenite::connect_async(&self.addr)
@@ -558,10 +563,7 @@ impl WsTransport {
     }
 
     /// Start MCP server over WebSocket
-    pub async fn serve_ws(
-        self,
-        server: McpServer,
-    ) -> Result<()> {
+    pub async fn serve_ws(self, server: McpServer) -> Result<()> {
         use futures_util::{SinkExt, StreamExt};
 
         let listener = tokio::net::TcpListener::bind(&self.addr)
@@ -611,8 +613,7 @@ impl WsTransport {
                 };
 
                 let response = server.handle_request(req).await;
-                let mut resp_line =
-                    serde_json::to_string(&response).unwrap_or_default();
+                let mut resp_line = serde_json::to_string(&response).unwrap_or_default();
                 resp_line.push('\n');
                 let _ = tx.send(resp_line.into_bytes()).await;
             }

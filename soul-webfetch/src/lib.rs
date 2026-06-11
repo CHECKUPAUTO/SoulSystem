@@ -198,7 +198,11 @@ struct RateLimiter {
 impl RateLimiter {
     fn new(per_second: u32) -> Self {
         Self {
-            interval_ms: if per_second > 0 { 1000 / per_second as u64 } else { 0 },
+            interval_ms: if per_second > 0 {
+                1000 / per_second as u64
+            } else {
+                0
+            },
             last_request: std::sync::Mutex::new(std::time::Instant::now()),
         }
     }
@@ -329,7 +333,9 @@ fn extract_meta(html: &str) -> HashMap<String, String> {
     let mut meta = HashMap::new();
 
     // Description
-    let re = regex::Regex::new(r#"<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']"#).unwrap();
+    let re =
+        regex::Regex::new(r#"<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']"#)
+            .unwrap();
     if let Some(caps) = re.captures(html) {
         if let Some(desc) = caps.get(1) {
             meta.insert("description".into(), html_escape(desc.as_str()));
@@ -337,7 +343,8 @@ fn extract_meta(html: &str) -> HashMap<String, String> {
     }
 
     // Keywords
-    let re = regex::Regex::new(r#"<meta[^>]*name=["']keywords["'][^>]*content=["']([^"']+)["']"#).unwrap();
+    let re = regex::Regex::new(r#"<meta[^>]*name=["']keywords["'][^>]*content=["']([^"']+)["']"#)
+        .unwrap();
     if let Some(caps) = re.captures(html) {
         if let Some(kw) = caps.get(1) {
             meta.insert("keywords".into(), html_escape(kw.as_str()));
@@ -345,10 +352,15 @@ fn extract_meta(html: &str) -> HashMap<String, String> {
     }
 
     // OG tags
-    let re = regex::Regex::new(r#"<meta[^>]*property=["']og:([^"']+)["'][^>]*content=["']([^"']+)["']"#).unwrap();
+    let re =
+        regex::Regex::new(r#"<meta[^>]*property=["']og:([^"']+)["'][^>]*content=["']([^"']+)["']"#)
+            .unwrap();
     for caps in re.captures_iter(html) {
         if let (Some(prop), Some(content)) = (caps.get(1), caps.get(2)) {
-            meta.insert(format!("og:{}", prop.as_str()), html_escape(content.as_str()));
+            meta.insert(
+                format!("og:{}", prop.as_str()),
+                html_escape(content.as_str()),
+            );
         }
     }
 

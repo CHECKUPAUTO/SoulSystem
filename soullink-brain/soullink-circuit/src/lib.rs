@@ -372,9 +372,7 @@ impl CircuitBreakerRegistry {
     pub fn get(&self, service: &str) -> CircuitBreaker {
         self.table
             .entry(service.to_string())
-            .or_insert_with(|| {
-                CircuitBreaker::new(service, self.default_config.clone())
-            })
+            .or_insert_with(|| CircuitBreaker::new(service, self.default_config.clone()))
             .clone()
     }
 
@@ -400,10 +398,7 @@ mod tests {
 
     #[tokio::test]
     async fn circuit_opens_after_threshold() {
-        let cb = CircuitBreaker::new(
-            "test",
-            CircuitBreakerConfig::default().with_threshold(3),
-        );
+        let cb = CircuitBreaker::new("test", CircuitBreakerConfig::default().with_threshold(3));
         cb.record_failure().await;
         cb.record_failure().await;
         assert_eq!(cb.state().await, CircuitState::Closed);

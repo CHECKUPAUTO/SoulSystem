@@ -10,15 +10,20 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use soul_llm::{ChatSession, OllamaClient, ToolCall, ToolSchema, build_tool_schemas};
+use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolCall, ToolSchema};
+use soul_memory::{Edge, EdgeType, KnowledgeGraph, Node, NodeType};
 use soul_planner::{CognitiveLoop, Goal, GoalStatus, WorkingMemory};
-use soul_tools::{AsyncShellExecutor, async_dispatch_tool, dispatch_tool, discover_system_tools, ToolRegistry};
-use soullink_memory_hierarchy::{HierarchicalMemory, MemoryEntry, MemoryLayer, EpisodicConfig, SemanticConfig, ConsolidationConfig};
+use soul_skills::SkillLoader;
+use soul_tools::{
+    async_dispatch_tool, discover_system_tools, dispatch_tool, AsyncShellExecutor, ToolRegistry,
+};
 use soullink_autonomy::metacognition::MetaCognition;
+use soullink_memory_hierarchy::{
+    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, MemoryLayer,
+    SemanticConfig,
+};
 use soullink_reasoning::{ThoughtTree, TreeConfig};
 use soullink_trainer::{Trajectory, TrajectoryRecorder};
-use soul_memory::{KnowledgeGraph, Node, NodeType, Edge, EdgeType};
-use soul_skills::SkillLoader;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
@@ -63,23 +68,49 @@ impl Default for AgentConfig {
 
 #[derive(Debug, Clone)]
 pub enum StepOutcome {
-    Continue { next_prompt: Option<String> },
-    Done { result: String },
-    Interrupt { question: String, candidates: Vec<String> },
-    Error { message: String },
+    Continue {
+        next_prompt: Option<String>,
+    },
+    Done {
+        result: String,
+    },
+    Interrupt {
+        question: String,
+        candidates: Vec<String>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 // ── Agent Event (for streaming) ──────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
-    Thinking { content: String },
-    ToolCall { name: String, args: serde_json::Value },
-    ToolResult { name: String, output: String, success: bool },
-    Response { content: String },
-    SafetyWarning { message: String },
-    Done { summary: String },
-    Error { message: String },
+    Thinking {
+        content: String,
+    },
+    ToolCall {
+        name: String,
+        args: serde_json::Value,
+    },
+    ToolResult {
+        name: String,
+        output: String,
+        success: bool,
+    },
+    Response {
+        content: String,
+    },
+    SafetyWarning {
+        message: String,
+    },
+    Done {
+        summary: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 // ── Autonomous Agent ─────────────────────────────────────────────────
@@ -207,16 +238,24 @@ impl AutonomousAgent {
             if !self.planner.memory.key_info.is_empty() {
                 let memory_results = self.memory.search(&self.planner.memory.key_info, 3).await;
                 if !memory_results.is_empty() {
-                    let past: Vec<String> = memory_results.iter().map(|e| {
-                        format!("[{:?}] {} (importance: {:.2})", e.layer, e.text, e.importance)
-                    }).collect();
+                    let past: Vec<String> = memory_results
+                        .iter()
+                        .map(|e| {
+                            format!(
+                                "[{:?}] {} (importance: {:.2})",
+                                e.layer, e.text, e.importance
+                            )
+                        })
+                        .collect();
                     combined_context.push_str("\n\nRelevant past experiences:\n");
                     combined_context.push_str(&past.join("\n"));
                 }
             }
 
             // Search knowledge graph for related nodes
-            let kg_context = self.knowledge_graph.context_for_query(&self.planner.memory.key_info, 3);
+            let kg_context = self
+                .knowledge_graph
+                .context_for_query(&self.planner.memory.key_info, 3);
             if !kg_context.is_empty() {
                 combined_context.push_str("\n\nKnowledge graph context:\n");
                 combined_context.push_str(&kg_context);
@@ -247,20 +286,14 @@ impl AutonomousAgent {
                 content: format!("Turn {}/{}", self.turn, self.config.max_turns),
             });
 
-            let response = match self
-                .llm
-                .chat(&messages, Some(&self.tool_schemas))
-                .await
-            {
+            let response = match self.llm.chat(&messages, Some(&self.tool_schemas)).await {
                 Ok(resp) => resp,
                 Err(e) => {
                     self.consecutive_failures += 1;
                     let repairs = self.auto_repair();
                     if !repairs.is_empty() {
                         for r in &repairs {
-                            self.emit_event(AgentEvent::SafetyWarning {
-                                message: r.clone(),
-                            });
+                            self.emit_event(AgentEvent::SafetyWarning { message: r.clone() });
                         }
                     }
                     return Err(format!("LLM error: {}", e));
@@ -275,16 +308,19 @@ impl AutonomousAgent {
                 if !tool_calls.is_empty() {
                     // Assistant made tool calls
                     self.chat_session.add_assistant_with_tools(
-                        if content.is_empty() { None } else { Some(&content) },
+                        if content.is_empty() {
+                            None
+                        } else {
+                            Some(&content)
+                        },
                         tool_calls.clone(),
                     );
 
                     // Execute each tool call
                     for tc in tool_calls {
                         let name = tc.function.name.clone();
-                        let args: serde_json::Value =
-                            serde_json::from_str(&tc.function.arguments)
-                                .unwrap_or(serde_json::json!({}));
+                        let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+                            .unwrap_or(serde_json::json!({}));
 
                         self.emit_event(AgentEvent::ToolCall {
                             name: name.clone(),
@@ -318,9 +354,7 @@ impl AutonomousAgent {
                                 truncate_output(&args.to_string(), 100)
                             );
                             tracing::warn!("{}", audit_msg);
-                            self.emit_event(AgentEvent::SafetyWarning {
-                                message: audit_msg,
-                            });
+                            self.emit_event(AgentEvent::SafetyWarning { message: audit_msg });
                         }
 
                         // Execute tool
@@ -359,7 +393,8 @@ impl AutonomousAgent {
                             true,
                         );
 
-                        self.chat_session.add_tool_result(&tc.id, &truncate_output(&result, 3000));
+                        self.chat_session
+                            .add_tool_result(&tc.id, &truncate_output(&result, 3000));
                     }
 
                     continue;
@@ -395,21 +430,21 @@ impl AutonomousAgent {
 
         // Phase 6: Record trajectory for fine-tuning
         if let Some(ref mut recorder) = self.trajectory_recorder {
-            let traj = Trajectory::new(
-                &self.llm.config().model,
-                "q4_k_m",
-                task,
-                &last_response,
-            );
+            let traj = Trajectory::new(&self.llm.config().model, "q4_k_m", task, &last_response);
             let _ = recorder.record(&traj);
         }
 
         // Phase 6: Update metacognition with capability confidence
-        self.metacognition.register_capability("task_execution", 0.5).await;
-        self.metacognition.record_outcome("task_execution", !last_response.is_empty()).await;
+        self.metacognition
+            .register_capability("task_execution", 0.5)
+            .await;
+        self.metacognition
+            .record_outcome("task_execution", !last_response.is_empty())
+            .await;
 
         // Phase 6: Populate knowledge graph
-        let task_node = Node::new(NodeType::Task, task).with_content(&truncate_output(&last_response, 500));
+        let task_node =
+            Node::new(NodeType::Task, task).with_content(&truncate_output(&last_response, 500));
         self.knowledge_graph.add_node(task_node);
 
         // Distill learnings
@@ -476,7 +511,12 @@ impl AutonomousAgent {
     // ── Context Compaction (4-pass: Reclaim → Shrink → Collapse → Evict) ──
 
     fn compact_if_needed(&mut self) {
-        let total_chars: usize = self.chat_session.messages.iter().map(|m| m.content.len()).sum();
+        let total_chars: usize = self
+            .chat_session
+            .messages
+            .iter()
+            .map(|m| m.content.len())
+            .sum();
         let max_chars = self.chat_session.max_context_chars;
 
         if total_chars <= max_chars * 80 / 100 {
@@ -498,8 +538,7 @@ impl AutonomousAgent {
                     soul_llm::Role::Assistant => soul_compaction::Role::Assistant,
                     soul_llm::Role::Tool => soul_compaction::Role::Tool,
                 };
-                soul_compaction::Message::new(role, &m.content)
-                    .with_tokens(m.content.len() / 4)
+                soul_compaction::Message::new(role, &m.content).with_tokens(m.content.len() / 4)
             })
             .collect();
 
@@ -534,7 +573,10 @@ impl AutonomousAgent {
             Err(e) => {
                 tracing::warn!("Compaction failed, truncating oldest messages: {e}");
                 // Fallback: truncate oldest non-system messages
-                let sys_count = self.chat_session.messages.iter()
+                let sys_count = self
+                    .chat_session
+                    .messages
+                    .iter()
                     .filter(|m| matches!(m.role, soul_llm::Role::System))
                     .count();
                 let target = sys_count + (self.chat_session.messages.len() - sys_count) / 2;
@@ -563,60 +605,62 @@ Only return the JSON, no explanation."#,
         );
 
         match self.llm.generate(&prompt).await {
-            Ok(resp) => {
-                match serde_json::from_str::<serde_json::Value>(&resp.response) {
-                    Ok(val) => {
-                        if let Some(info) = val.get("key_info").and_then(|v| v.as_str()) {
-                            self.planner.memory.set_key_info(info);
-                        }
-                        if let Some(facts) = val.get("facts").and_then(|v| v.as_array()) {
-                            for fact in facts {
-                                if let Some(f) = fact.as_str() {
-                                    self.planner.memory.observe(f.to_string());
-                                    let entry = MemoryEntry {
-                                        id: uuid::Uuid::new_v4().to_string(),
-                                        text: f.to_string(),
-                                        created_at: Utc::now().to_rfc3339(),
-                                        last_accessed: Utc::now().to_rfc3339(),
-                                        access_count: 1,
-                                        importance: 0.5,
-                                        layer: soullink_memory_hierarchy::MemoryLayer::Episodic,
-                                        tags: vec!["distilled".to_string()],
-                                        embedding: None,
-                                        associations: vec![],
-                                        metadata: HashMap::new(),
-                                    };
-                                    self.memory.store(entry, soullink_memory_hierarchy::MemoryLayer::Episodic).await;
-                                }
-                            }
-                        }
-                        if let Some(skills) = val.get("skills").and_then(|v| v.as_array()) {
-                            tracing::info!("Distilled {} new skills", skills.len());
-                            for skill in skills {
-                                if let Some(s) = skill.as_str() {
-                                    let entry = MemoryEntry {
-                                        id: uuid::Uuid::new_v4().to_string(),
-                                        text: format!("[SKILL] {}", s),
-                                        created_at: Utc::now().to_rfc3339(),
-                                        last_accessed: Utc::now().to_rfc3339(),
-                                        access_count: 1,
-                                        importance: 0.7,
-                                        layer: soullink_memory_hierarchy::MemoryLayer::Semantic,
-                                        tags: vec!["skill".to_string()],
-                                        embedding: None,
-                                        associations: vec![],
-                                        metadata: HashMap::new(),
-                                    };
-                                    self.memory.store(entry, soullink_memory_hierarchy::MemoryLayer::Semantic).await;
-                                }
+            Ok(resp) => match serde_json::from_str::<serde_json::Value>(&resp.response) {
+                Ok(val) => {
+                    if let Some(info) = val.get("key_info").and_then(|v| v.as_str()) {
+                        self.planner.memory.set_key_info(info);
+                    }
+                    if let Some(facts) = val.get("facts").and_then(|v| v.as_array()) {
+                        for fact in facts {
+                            if let Some(f) = fact.as_str() {
+                                self.planner.memory.observe(f.to_string());
+                                let entry = MemoryEntry {
+                                    id: uuid::Uuid::new_v4().to_string(),
+                                    text: f.to_string(),
+                                    created_at: Utc::now().to_rfc3339(),
+                                    last_accessed: Utc::now().to_rfc3339(),
+                                    access_count: 1,
+                                    importance: 0.5,
+                                    layer: soullink_memory_hierarchy::MemoryLayer::Episodic,
+                                    tags: vec!["distilled".to_string()],
+                                    embedding: None,
+                                    associations: vec![],
+                                    metadata: HashMap::new(),
+                                };
+                                self.memory
+                                    .store(entry, soullink_memory_hierarchy::MemoryLayer::Episodic)
+                                    .await;
                             }
                         }
                     }
-                    Err(e) => {
-                        tracing::warn!("Self-distillation JSON parse failed: {e}");
+                    if let Some(skills) = val.get("skills").and_then(|v| v.as_array()) {
+                        tracing::info!("Distilled {} new skills", skills.len());
+                        for skill in skills {
+                            if let Some(s) = skill.as_str() {
+                                let entry = MemoryEntry {
+                                    id: uuid::Uuid::new_v4().to_string(),
+                                    text: format!("[SKILL] {}", s),
+                                    created_at: Utc::now().to_rfc3339(),
+                                    last_accessed: Utc::now().to_rfc3339(),
+                                    access_count: 1,
+                                    importance: 0.7,
+                                    layer: soullink_memory_hierarchy::MemoryLayer::Semantic,
+                                    tags: vec!["skill".to_string()],
+                                    embedding: None,
+                                    associations: vec![],
+                                    metadata: HashMap::new(),
+                                };
+                                self.memory
+                                    .store(entry, soullink_memory_hierarchy::MemoryLayer::Semantic)
+                                    .await;
+                            }
+                        }
                     }
                 }
-            }
+                Err(e) => {
+                    tracing::warn!("Self-distillation JSON parse failed: {e}");
+                }
+            },
             Err(e) => {
                 tracing::warn!("Self-distillation LLM call failed: {e}");
             }
@@ -648,53 +692,72 @@ Only return the JSON array, no explanation."#,
         );
 
         match self.llm.generate(&prompt).await {
-            Ok(resp) => {
-                match serde_json::from_str::<Vec<serde_json::Value>>(&resp.response) {
-                    Ok(skills) => {
-                        let mut crystallized = 0;
-                        for skill_val in &skills {
-                            let name = skill_val.get("name").and_then(|v| v.as_str()).unwrap_or("unnamed");
-                            let description = skill_val.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                            let triggers: Vec<String> = skill_val.get("triggers")
-                                .and_then(|v| v.as_array())
-                                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                                .unwrap_or_default();
-                            let steps: Vec<String> = skill_val.get("steps")
-                                .and_then(|v| v.as_array())
-                                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                                .unwrap_or_default();
+            Ok(resp) => match serde_json::from_str::<Vec<serde_json::Value>>(&resp.response) {
+                Ok(skills) => {
+                    let mut crystallized = 0;
+                    for skill_val in &skills {
+                        let name = skill_val
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unnamed");
+                        let description = skill_val
+                            .get("description")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let triggers: Vec<String> = skill_val
+                            .get("triggers")
+                            .and_then(|v| v.as_array())
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let steps: Vec<String> = skill_val
+                            .get("steps")
+                            .and_then(|v| v.as_array())
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
 
-                            if triggers.is_empty() || steps.is_empty() {
-                                continue;
-                            }
-
-                            let skill = soul_skills::Skill::new(name, description);
-                            let skill = soul_skills::Skill {
-                                triggers,
-                                steps,
-                                tags: skill_val.get("tags")
-                                    .and_then(|v| v.as_array())
-                                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                                    .unwrap_or_default(),
-                                ..skill
-                            };
-
-                            let loader_lock = loader.read().await;
-                            if let Err(e) = loader_lock.save_skill(&skill).await {
-                                tracing::warn!("Skill save failed for '{}': {:?}", name, e);
-                            } else {
-                                crystallized += 1;
-                            }
+                        if triggers.is_empty() || steps.is_empty() {
+                            continue;
                         }
-                        if crystallized > 0 {
-                            tracing::info!("Crystallized {} new skills from task", crystallized);
+
+                        let skill = soul_skills::Skill::new(name, description);
+                        let skill = soul_skills::Skill {
+                            triggers,
+                            steps,
+                            tags: skill_val
+                                .get("tags")
+                                .and_then(|v| v.as_array())
+                                .map(|a| {
+                                    a.iter()
+                                        .filter_map(|v| v.as_str().map(String::from))
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                            ..skill
+                        };
+
+                        let loader_lock = loader.read().await;
+                        if let Err(e) = loader_lock.save_skill(&skill).await {
+                            tracing::warn!("Skill save failed for '{}': {:?}", name, e);
+                        } else {
+                            crystallized += 1;
                         }
                     }
-                    Err(e) => {
-                        tracing::warn!("Skill crystallization JSON parse failed: {e}");
+                    if crystallized > 0 {
+                        tracing::info!("Crystallized {} new skills from task", crystallized);
                     }
                 }
-            }
+                Err(e) => {
+                    tracing::warn!("Skill crystallization JSON parse failed: {e}");
+                }
+            },
             Err(e) => {
                 tracing::warn!("Skill crystallization LLM call failed: {e}");
             }
@@ -708,14 +771,19 @@ Only return the JSON array, no explanation."#,
     }
 
     pub fn auto_repair(&mut self) -> Vec<String> {
-        if !self.config.auto_repair || self.consecutive_failures < self.config.max_consecutive_failures {
+        if !self.config.auto_repair
+            || self.consecutive_failures < self.config.max_consecutive_failures
+        {
             return Vec::new();
         }
 
         let mut repairs = Vec::new();
 
         // Reset conversation context (preserve system prompt)
-        let system_messages: Vec<soul_llm::ChatMessage> = self.chat_session.messages.iter()
+        let system_messages: Vec<soul_llm::ChatMessage> = self
+            .chat_session
+            .messages
+            .iter()
             .filter(|m| matches!(m.role, soul_llm::Role::System))
             .cloned()
             .collect();
@@ -878,7 +946,10 @@ impl AutonomousLoop {
                 // Check for active goals
                 let goal = {
                     let goals = goals.read().await;
-                    goals.iter().find(|g| g.status == GoalStatus::Active).cloned()
+                    goals
+                        .iter()
+                        .find(|g| g.status == GoalStatus::Active)
+                        .cloned()
                 };
 
                 if let Some(goal) = goal {
@@ -1056,7 +1127,10 @@ mod tests {
         agent.consecutive_failures = 1; // below max_consecutive_failures (2)
         agent.config.auto_repair = true;
         let repairs = agent.auto_repair();
-        assert!(repairs.is_empty(), "repair should not trigger below threshold");
+        assert!(
+            repairs.is_empty(),
+            "repair should not trigger below threshold"
+        );
         assert_eq!(agent.repair_count, 0);
     }
 
@@ -1077,7 +1151,9 @@ mod tests {
             "repair should add a user message explaining the reset"
         );
         assert!(
-            agent.chat_session.messages[0].content.contains("Self-repair triggered"),
+            agent.chat_session.messages[0]
+                .content
+                .contains("Self-repair triggered"),
             "repair message should explain the reset"
         );
     }
@@ -1088,7 +1164,10 @@ mod tests {
         agent.consecutive_failures = 5;
         agent.config.auto_repair = false;
         let repairs = agent.auto_repair();
-        assert!(repairs.is_empty(), "repair should not trigger when disabled");
+        assert!(
+            repairs.is_empty(),
+            "repair should not trigger when disabled"
+        );
         assert_eq!(agent.repair_count, 0);
     }
 
@@ -1118,7 +1197,10 @@ mod tests {
         agent.config.auto_repair = true;
 
         agent.auto_repair();
-        assert!(agent.history.is_empty(), "history should be cleared after repair");
+        assert!(
+            agent.history.is_empty(),
+            "history should be cleared after repair"
+        );
     }
 
     // ── TaskQueue ───────────────────────────────────────────────────────
@@ -1280,7 +1362,9 @@ mod tests {
     async fn test_compact_if_needed_preserves_content_under_threshold() {
         let mut agent = make_test_agent();
         agent.chat_session.add_user_message("Hello, how are you?");
-        agent.chat_session.add_assistant_message("I am doing great, thank you!");
+        agent
+            .chat_session
+            .add_assistant_message("I am doing great, thank you!");
 
         let content_before: Vec<String> = agent
             .chat_session
@@ -1298,7 +1382,10 @@ mod tests {
             .map(|m| m.content.clone())
             .collect();
 
-        assert_eq!(content_before, content_after, "content should be unchanged when under threshold");
+        assert_eq!(
+            content_before, content_after,
+            "content should be unchanged when under threshold"
+        );
     }
 
     // ── AutonomousAgent constructor ─────────────────────────────────────
@@ -1326,12 +1413,16 @@ mod tests {
     #[test]
     fn test_step_outcome_variants() {
         let cont = StepOutcome::Continue { next_prompt: None };
-        let done = StepOutcome::Done { result: "finished".into() };
+        let done = StepOutcome::Done {
+            result: "finished".into(),
+        };
         let interrupt = StepOutcome::Interrupt {
             question: "what?".into(),
             candidates: vec!["a".into(), "b".into()],
         };
-        let err = StepOutcome::Error { message: "boom".into() };
+        let err = StepOutcome::Error {
+            message: "boom".into(),
+        };
 
         match cont {
             StepOutcome::Continue { .. } => {}
@@ -1342,7 +1433,10 @@ mod tests {
             _ => panic!("expected Done"),
         }
         match interrupt {
-            StepOutcome::Interrupt { question, candidates } => {
+            StepOutcome::Interrupt {
+                question,
+                candidates,
+            } => {
                 assert_eq!(question, "what?");
                 assert_eq!(candidates.len(), 2);
             }
@@ -1358,7 +1452,9 @@ mod tests {
 
     #[test]
     fn test_agent_event_variants() {
-        let thinking = AgentEvent::Thinking { content: "hmm".into() };
+        let thinking = AgentEvent::Thinking {
+            content: "hmm".into(),
+        };
         let tool_call = AgentEvent::ToolCall {
             name: "ls".into(),
             args: serde_json::json!({"path": "/tmp"}),
@@ -1368,10 +1464,18 @@ mod tests {
             output: "file.txt".into(),
             success: true,
         };
-        let response = AgentEvent::Response { content: "done".into() };
-        let safety = AgentEvent::SafetyWarning { message: "slow down".into() };
-        let done = AgentEvent::Done { summary: "complete".into() };
-        let error = AgentEvent::Error { message: "fail".into() };
+        let response = AgentEvent::Response {
+            content: "done".into(),
+        };
+        let safety = AgentEvent::SafetyWarning {
+            message: "slow down".into(),
+        };
+        let done = AgentEvent::Done {
+            summary: "complete".into(),
+        };
+        let error = AgentEvent::Error {
+            message: "fail".into(),
+        };
 
         match thinking {
             AgentEvent::Thinking { content } => assert_eq!(content, "hmm"),
@@ -1429,7 +1533,9 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         agent.set_event_sender(tx);
         // Should be set; emitting should not panic
-        agent.emit_event(AgentEvent::Thinking { content: "test".into() });
+        agent.emit_event(AgentEvent::Thinking {
+            content: "test".into(),
+        });
         // If no crash, the test passes
     }
 
@@ -1437,7 +1543,9 @@ mod tests {
     async fn test_event_emission_without_sender_does_not_panic() {
         let agent = make_test_agent();
         // No sender set — emit_event should silently ignore
-        agent.emit_event(AgentEvent::Done { summary: "done".into() });
+        agent.emit_event(AgentEvent::Done {
+            summary: "done".into(),
+        });
     }
 
     // ── abort ───────────────────────────────────────────────────────────

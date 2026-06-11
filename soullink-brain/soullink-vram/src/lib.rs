@@ -221,11 +221,8 @@ impl VramPool {
     ///
     /// Returns models in eviction order (lowest priority first, then LRU).
     pub fn eviction_candidates(&self, target_free_mib: u64) -> Vec<String> {
-        let mut candidates: Vec<LoadedModel> = self
-            .loaded
-            .iter()
-            .map(|e| e.value().clone())
-            .collect();
+        let mut candidates: Vec<LoadedModel> =
+            self.loaded.iter().map(|e| e.value().clone()).collect();
 
         // Sort by priority (ascending), then by last_used (ascending = oldest first)
         candidates.sort_by(|a, b| {

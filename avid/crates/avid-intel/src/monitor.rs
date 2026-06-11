@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -44,7 +44,10 @@ impl IntelMonitor {
         let max_results = self.config.max_results_per_check;
 
         running.store(true, Ordering::SeqCst);
-        info!("IntelMonitor started (interval: {} min, max: {} results)", interval, max_results);
+        info!(
+            "IntelMonitor started (interval: {} min, max: {} results)",
+            interval, max_results
+        );
 
         tokio::spawn(async move {
             loop {
@@ -91,7 +94,12 @@ impl IntelMonitor {
 
     /// Exécute un check unique (pour usage one-shot)
     pub async fn check_once(&self) -> anyhow::Result<Vec<CveAlert>> {
-        check_for_new(&self.nvd_client, &self.state, self.config.max_results_per_check).await
+        check_for_new(
+            &self.nvd_client,
+            &self.state,
+            self.config.max_results_per_check,
+        )
+        .await
     }
 
     /// Retourne l'état actuel du moniteur
@@ -158,7 +166,10 @@ pub fn format_synergie_report(alerts: &[CveAlert]) -> String {
         return "No new vulnerabilities detected.".to_string();
     }
 
-    let critical_count = alerts.iter().filter(|a| a.cve.severity == "CRITICAL").count();
+    let critical_count = alerts
+        .iter()
+        .filter(|a| a.cve.severity == "CRITICAL")
+        .count();
     let high_count = alerts.iter().filter(|a| a.cve.severity == "HIGH").count();
     let other_count = alerts.len() - critical_count - high_count;
 
@@ -176,7 +187,9 @@ pub fn format_synergie_report(alerts: &[CveAlert]) -> String {
     sorted.sort_by(|a, b| {
         let a_score = a.cve.cvss_score.unwrap_or(0.0);
         let b_score = b.cve.cvss_score.unwrap_or(0.0);
-        b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
+        b_score
+            .partial_cmp(&a_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     for alert in sorted.iter().take(20) {
@@ -192,7 +205,11 @@ pub fn format_synergie_report(alerts: &[CveAlert]) -> String {
             alert.cve.severity,
             cvss,
             alert.cve.description.chars().take(150).collect::<String>(),
-            alert.cve.references.first().unwrap_or(&"No references".to_string()),
+            alert
+                .cve
+                .references
+                .first()
+                .unwrap_or(&"No references".to_string()),
         ));
     }
 
@@ -252,7 +269,10 @@ mod tests {
     #[test]
     fn test_format_report_with_alerts() {
         use crate::types::CveEntry;
-        let cve = CveEntry::new("CVE-2024-TEST".to_string(), "Test vulnerability".to_string());
+        let cve = CveEntry::new(
+            "CVE-2024-TEST".to_string(),
+            "Test vulnerability".to_string(),
+        );
         let alerts = vec![CveAlert::new(cve, "NVD".to_string())];
         let report = format_synergie_report(&alerts);
         assert!(report.contains("CVE-2024-TEST"));

@@ -139,11 +139,7 @@ impl GoalTree {
     }
 
     /// Complete a goal and update parent progress
-    pub fn complete(
-        &self,
-        goal_id: &str,
-        result: &str,
-    ) -> Result<(), GoalTreeError> {
+    pub fn complete(&self, goal_id: &str, result: &str) -> Result<(), GoalTreeError> {
         self.store.complete_goal(goal_id, result)?;
 
         // Update parent if exists
@@ -273,7 +269,9 @@ mod tests {
     #[test]
     fn test_create_root() {
         let tree = test_tree();
-        let goal = tree.create_root("Root goal", 5, vec!["test".into()]).unwrap();
+        let goal = tree
+            .create_root("Root goal", 5, vec!["test".into()])
+            .unwrap();
         assert_eq!(goal.description, "Root goal");
         assert_eq!(goal.priority, 5);
     }
@@ -283,10 +281,7 @@ mod tests {
         let tree = test_tree();
         let root = tree.create_root("Root", 5, vec![]).unwrap();
         let children = tree
-            .decompose(
-                &root.id,
-                vec![("Sub 1", 3), ("Sub 2", 4), ("Sub 3", 2)],
-            )
+            .decompose(&root.id, vec![("Sub 1", 3), ("Sub 2", 4), ("Sub 3", 2)])
             .unwrap();
         assert_eq!(children.len(), 3);
     }
@@ -318,7 +313,9 @@ mod tests {
     #[test]
     fn test_create_root_with_tags() {
         let tree = test_tree();
-        let goal = tree.create_root("Tagged goal", 3, vec!["urgent".into(), "core".into()]).unwrap();
+        let goal = tree
+            .create_root("Tagged goal", 3, vec!["urgent".into(), "core".into()])
+            .unwrap();
         assert_eq!(goal.description, "Tagged goal");
         assert_eq!(goal.tags, vec!["urgent", "core"]);
     }
@@ -352,13 +349,18 @@ mod tests {
         let tree = test_tree();
         let root = tree.create_root("Root", 5, vec![]).unwrap();
 
-        let sub = tree.decompose(&root.id, vec![("Sub A", 3), ("Sub B", 4)]).unwrap();
+        let sub = tree
+            .decompose(&root.id, vec![("Sub A", 3), ("Sub B", 4)])
+            .unwrap();
 
         tree.complete(&sub[0].id, "A done").unwrap();
         tree.complete(&sub[1].id, "B done").unwrap();
 
         let stats = tree.stats().unwrap();
-        assert_eq!(stats["completed"], 3, "Both children + parent should be completed");
+        assert_eq!(
+            stats["completed"], 3,
+            "Both children + parent should be completed"
+        );
     }
 
     #[test]

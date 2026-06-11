@@ -254,8 +254,8 @@ async fn main() -> Result<()> {
     let health_watchdog = watchdog.clone();
     let health_summarizer = summarizer.clone();
     let bus_health = bus.clone();
-    let health = Arc::new(tokio::sync::Mutex::new(soulsystem::memory_health::MemoryHealth::new(
-        soulsystem::memory_health::HealthConfig {
+    let health = Arc::new(tokio::sync::Mutex::new(
+        soulsystem::memory_health::MemoryHealth::new(soulsystem::memory_health::HealthConfig {
             latency_warn_ms: 500.0,
             max_entries_warn: 1000,
             search_failure_ratio: 0.3,
@@ -265,8 +265,8 @@ async fn main() -> Result<()> {
             context_size_warn_tokens: 500_000,
             max_alpha_sync_variance: 0.4,
             max_error_rate: 0.15,
-        },
-    )));
+        }),
+    ));
     let health_loop = health.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
@@ -800,14 +800,15 @@ async fn main() -> Result<()> {
         )
         .with_keys(priv_key, pub_key);
         // Sauvegarde initiale
-        let backup_path = settings
-            .paths
-            .data_dir
-            .join(format!(
-                "backup-{}.tar.gz",
-                chrono::Utc::now().format("%Y%m%d-%H%M%S")
-            ));
-        match bm.create_backup(backup_path.to_str().unwrap_or("/tmp/soulsystem-backup.tar.gz")) {
+        let backup_path = settings.paths.data_dir.join(format!(
+            "backup-{}.tar.gz",
+            chrono::Utc::now().format("%Y%m%d-%H%M%S")
+        ));
+        match bm.create_backup(
+            backup_path
+                .to_str()
+                .unwrap_or("/tmp/soulsystem-backup.tar.gz"),
+        ) {
             Ok(()) => info!(
                 "BackupManager: sauvegarde initiale créée ({})",
                 backup_path.display()
@@ -829,20 +830,25 @@ async fn main() -> Result<()> {
                     "backup-{}.tar.gz",
                     chrono::Utc::now().format("%Y%m%d-%H%M%S")
                 ));
-                match bm.create_backup(backup_path.to_str().unwrap_or("/tmp/soulsystem-backup.tar.gz"))
-                {
+                match bm.create_backup(
+                    backup_path
+                        .to_str()
+                        .unwrap_or("/tmp/soulsystem-backup.tar.gz"),
+                ) {
                     Ok(()) => {
-                        info!("BackupManager: sauvegarde périodique OK ({})", backup_path.display());
+                        info!(
+                            "BackupManager: sauvegarde périodique OK ({})",
+                            backup_path.display()
+                        );
                         // Prune old backups (keep last 5)
                         if let Ok(mut entries) = std::fs::read_dir(&backup_dir) {
-                            let mut backups: Vec<_> = std::iter::from_fn(|| entries.next().map(|e| e.ok()))
-                                .flatten()
-                                .filter(|e| {
-                                    e.file_name()
-                                        .to_string_lossy()
-                                        .starts_with("backup-")
-                                })
-                                .collect();
+                            let mut backups: Vec<_> =
+                                std::iter::from_fn(|| entries.next().map(|e| e.ok()))
+                                    .flatten()
+                                    .filter(|e| {
+                                        e.file_name().to_string_lossy().starts_with("backup-")
+                                    })
+                                    .collect();
                             backups.sort_by_key(|e| {
                                 e.metadata()
                                     .and_then(|m| m.modified())
@@ -851,7 +857,10 @@ async fn main() -> Result<()> {
                             if backups.len() > 5 {
                                 for old in backups.iter().take(backups.len() - 5) {
                                     let _ = std::fs::remove_file(old.path());
-                                    let _ = std::fs::remove_file(format!("{}.sig", old.path().display()));
+                                    let _ = std::fs::remove_file(format!(
+                                        "{}.sig",
+                                        old.path().display()
+                                    ));
                                 }
                             }
                         }
@@ -916,10 +925,8 @@ async fn main() -> Result<()> {
     let entity_name = hostname::get()
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "soulsystem".to_string());
-    let mut autonomous = soulsystem::autonomous::AutonomousEntity::new(
-        autonomous_config,
-        &entity_name,
-    );
+    let mut autonomous =
+        soulsystem::autonomous::AutonomousEntity::new(autonomous_config, &entity_name);
 
     // ── Persistent store (sled) ───────────────────────────────────────
     let persist_dir = settings.paths.data_dir.join("agent");
@@ -943,7 +950,10 @@ async fn main() -> Result<()> {
                     }
                 },
                 Err(e) => {
-                    tracing::error!("PersistentStore: impossible de créer le répertoire temp: {}", e);
+                    tracing::error!(
+                        "PersistentStore: impossible de créer le répertoire temp: {}",
+                        e
+                    );
                     return Err(e.into());
                 }
             }
@@ -1051,7 +1061,10 @@ async fn main() -> Result<()> {
                 for g in &goals {
                     println!(
                         "  [{}] {} (priority: {}, status: {:?})",
-                        &g.id[..8], g.description, g.priority, g.status
+                        &g.id[..8],
+                        g.description,
+                        g.priority,
+                        g.status
                     );
                 }
             }
@@ -1060,20 +1073,15 @@ async fn main() -> Result<()> {
 
         // Add goal
         if let Some(ref goal_desc) = cli.goal {
-            let daemon = soul_daemon::Daemon::new(
-                soul_daemon::DaemonConfig::default(),
-                persist_store,
-            );
+            let daemon =
+                soul_daemon::Daemon::new(soul_daemon::DaemonConfig::default(), persist_store);
             let goal = daemon.add_goal(goal_desc, 5)?;
             println!("Goal ajouté: {} ({})", goal.description, &goal.id[..8]);
             return Ok(());
         }
 
         // Run daemon (with or without REPL)
-        let daemon = soul_daemon::Daemon::new(
-            soul_daemon::DaemonConfig::default(),
-            persist_store,
-        );
+        let daemon = soul_daemon::Daemon::new(soul_daemon::DaemonConfig::default(), persist_store);
 
         // Subscribe daemon events to dashboard
         {
@@ -1168,7 +1176,11 @@ async fn main() -> Result<()> {
             created_at: chrono::Utc::now(),
             status: soul_planner::GoalStatus::Active,
         };
-        let plan = autonomous.agent.planner.create_plan_llm(&goal, &[], &autonomous.agent.llm).await;
+        let plan = autonomous
+            .agent
+            .planner
+            .create_plan_llm(&goal, &[], &autonomous.agent.llm)
+            .await;
         match serde_json::to_string_pretty(&plan) {
             Ok(json) => println!("{}", json),
             Err(e) => eprintln!("Error serializing plan: {}", e),
@@ -1226,30 +1238,42 @@ async fn main() -> Result<()> {
                 let err_rate = h.error_rate();
                 drop(h);
                 if err_rate > 0.15 {
-                    warn!("AutonomousLoop: memory health degraded (err rate: {:.2})", err_rate);
+                    warn!(
+                        "AutonomousLoop: memory health degraded (err rate: {:.2})",
+                        err_rate
+                    );
                 }
             }
         }
     });
 
-// Scheduler: vérifie les tâches planifiées toutes les 60 secondes
+    // Scheduler: vérifie les tâches planifiées toutes les 60 secondes
     let scheduler = Arc::new(soul_scheduler::Scheduler::new(|task| {
         tracing::info!("Scheduler tick: {} — {}", task.name, task.description);
         Ok(())
     }));
     // Default tasks
-    scheduler.add_task(soul_scheduler::ScheduledTask::new(
-        "memory-consolidation", "0 */6 * * *",
-        "Consolidate episodic memory to semantic every 6 hours"
-    )).await;
-    scheduler.add_task(soul_scheduler::ScheduledTask::new(
-        "health-check", "0 * * * *",
-        "Run system health check every hour"
-    )).await;
-    scheduler.add_task(soul_scheduler::ScheduledTask::new(
-        "auto-documentation", "0 0 * * *",
-        "Generate daily autonomy report and update LEARNINGS.md"
-    )).await;
+    scheduler
+        .add_task(soul_scheduler::ScheduledTask::new(
+            "memory-consolidation",
+            "0 */6 * * *",
+            "Consolidate episodic memory to semantic every 6 hours",
+        ))
+        .await;
+    scheduler
+        .add_task(soul_scheduler::ScheduledTask::new(
+            "health-check",
+            "0 * * * *",
+            "Run system health check every hour",
+        ))
+        .await;
+    scheduler
+        .add_task(soul_scheduler::ScheduledTask::new(
+            "auto-documentation",
+            "0 0 * * *",
+            "Generate daily autonomy report and update LEARNINGS.md",
+        ))
+        .await;
     let sched = scheduler.clone();
     tokio::spawn(async move {
         sched.run().await;
@@ -1264,7 +1288,9 @@ async fn main() -> Result<()> {
         loop {
             interval.tick().await;
             let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
-            let ctx = docs_memory.get_context("learnings improvements discoveries", 5).await;
+            let ctx = docs_memory
+                .get_context("learnings improvements discoveries", 5)
+                .await;
             let learnings = format!(
                 "# SoulSystem Learnings — {}\n\n{}\n\n---\n*Auto-generated by AutonomousLoop*\n",
                 timestamp, ctx

@@ -102,7 +102,10 @@ pub fn verify_code(signed: &SignedCode, authorized: &AuthorizedKeys) -> Result<(
     #[cfg(feature = "ed25519")]
     {
         use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-        let pk_bytes: &[u8; 32] = signed.public_key.as_slice().try_into()
+        let pk_bytes: &[u8; 32] = signed
+            .public_key
+            .as_slice()
+            .try_into()
             .map_err(|_| anyhow::anyhow!("Taille de clé invalide"))?;
         let pub_key = VerifyingKey::from_bytes(pk_bytes)?;
         let sig = Signature::from_slice(&signed.signature)?;
@@ -113,7 +116,10 @@ pub fn verify_code(signed: &SignedCode, authorized: &AuthorizedKeys) -> Result<(
     #[cfg(not(feature = "ed25519"))]
     {
         // Fallback SHA256 + XOR (moins sûr, déprécié)
-        #[deprecated(since = "0.6.0", note = "ed25519 non activé, utiliser --features ed25519")]
+        #[deprecated(
+            since = "0.6.0",
+            note = "ed25519 non activé, utiliser --features ed25519"
+        )]
         fn verify_inner(signed: &SignedCode) -> Result<()> {
             let mut hasher = Sha256::new();
             hasher.update(signed.code.as_bytes());
@@ -271,7 +277,7 @@ mod tests {
             .collect();
 
         let signed = SignedCode {
-            code: "fn main() { println!(\"EVIL\"); }".into(),  // tampered
+            code: "fn main() { println!(\"EVIL\"); }".into(), // tampered
             signature,
             public_key: pubkey,
         };

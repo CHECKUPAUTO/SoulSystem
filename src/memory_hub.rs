@@ -98,7 +98,10 @@ impl MemoryHub {
     }
 
     /// Sauvegarde le journal de version sur disque.
-    #[deprecated(since = "0.6.0", note = "Réservé pour usage futur — non utilisé actuellement")]
+    #[deprecated(
+        since = "0.6.0",
+        note = "Réservé pour usage futur — non utilisé actuellement"
+    )]
     pub async fn persist_journal(&self, data_dir: &Path) -> Result<()> {
         let journal_path = data_dir.join("version_journal.json");
         let entries = self.version_journal.read().await.clone();
@@ -162,7 +165,10 @@ impl MemoryHub {
     }
 
     /// Filtre les résultats de recherche par niveau de confidentialité.
-    #[deprecated(since = "0.6.0", note = "Réservé pour usage futur — filtrage privacy non implémenté")]
+    #[deprecated(
+        since = "0.6.0",
+        note = "Réservé pour usage futur — filtrage privacy non implémenté"
+    )]
     pub fn filter_by_privacy(
         results: Vec<SearchResult>,
         _min_level: PrivacyLevel,
@@ -230,7 +236,11 @@ impl MemoryHub {
             }
         }
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.dedup_by(|a, b| a.text == b.text);
         results.truncate(top_k);
         results

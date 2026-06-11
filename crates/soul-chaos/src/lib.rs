@@ -182,18 +182,12 @@ impl ChaosEngine {
         let jitter = self.rng.gen_range(0..=base_ms / 2);
         let total_ms = base_ms + jitter;
 
-        info!(
-            "Injecting {}ms latency into {}",
-            total_ms, fault.target
-        );
+        info!("Injecting {}ms latency into {}", total_ms, fault.target);
 
         tokio::time::sleep(Duration::from_millis(total_ms)).await;
 
         // Simulate whether the target survived the latency
-        let survived = matches!(
-            fault.severity,
-            FaultSeverity::Low | FaultSeverity::Medium
-        );
+        let survived = matches!(fault.severity, FaultSeverity::Low | FaultSeverity::Medium);
 
         ChaosResult {
             survived,
@@ -214,7 +208,10 @@ impl ChaosEngine {
         let injected = roll < error_rate;
 
         if injected {
-            warn!("Injecting error into {} (rate={})", fault.target, error_rate);
+            warn!(
+                "Injecting error into {} (rate={})",
+                fault.target, error_rate
+            );
         }
 
         ChaosResult {
@@ -223,7 +220,10 @@ impl ChaosEngine {
             message: if injected {
                 format!("Injected error (rolled {:.2} < {:.2})", roll, error_rate)
             } else {
-                format!("Error injection rolled {:.2} >= {:.2}, no fault", roll, error_rate)
+                format!(
+                    "Error injection rolled {:.2} >= {:.2}, no fault",
+                    roll, error_rate
+                )
             },
             self_healing_triggered: injected,
         }
@@ -248,7 +248,11 @@ impl ChaosEngine {
 
         ChaosResult {
             survived: recovered,
-            recovery_ms: if recovered { self.rng.gen_range(10..100) } else { 0 },
+            recovery_ms: if recovered {
+                self.rng.gen_range(10..100)
+            } else {
+                0
+            },
             message: format!(
                 "Corrupted {:.0}% data, detected={}, recovered={}",
                 corruption_pct * 100.0,
@@ -289,7 +293,10 @@ impl ChaosEngine {
         ChaosResult {
             survived: true,
             recovery_ms: 0,
-            message: format!("Flood: {} sent, {} handled, {} dropped by rate limiter", count, handled, dropped),
+            message: format!(
+                "Flood: {} sent, {} handled, {} dropped by rate limiter",
+                count, handled, dropped
+            ),
             self_healing_triggered: dropped > 0,
         }
     }
@@ -372,9 +379,7 @@ impl ChaosScenarios {
         let mut params = HashMap::new();
         params.insert(
             "error_rate".into(),
-            serde_json::Value::Number(
-                serde_json::Number::from_f64(rate).unwrap(),
-            ),
+            serde_json::Value::Number(serde_json::Number::from_f64(rate).unwrap()),
         );
         Fault {
             fault_type: FaultType::Error,
@@ -393,9 +398,7 @@ impl ChaosScenarios {
         let mut params = HashMap::new();
         params.insert(
             "corruption_pct".into(),
-            serde_json::Value::Number(
-                serde_json::Number::from_f64(pct).unwrap(),
-            ),
+            serde_json::Value::Number(serde_json::Number::from_f64(pct).unwrap()),
         );
         Fault {
             fault_type: FaultType::Corrupt,

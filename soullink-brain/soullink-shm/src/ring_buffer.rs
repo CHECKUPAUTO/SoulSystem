@@ -56,7 +56,10 @@ impl ShmRingBuffer {
             (*header).magic = MAGIC;
         }
 
-        Self { ptr, len: total_size }
+        Self {
+            ptr,
+            len: total_size,
+        }
     }
 
     /// Open an existing ring buffer (e.g., from a received mmap fd).
@@ -124,7 +127,8 @@ impl ShmRingBuffer {
             }
         }
 
-        h.head.store(head.wrapping_add(total as u64), Ordering::Release);
+        h.head
+            .store(head.wrapping_add(total as u64), Ordering::Release);
         Ok(true)
     }
 
@@ -177,7 +181,8 @@ impl ShmRingBuffer {
         }
 
         let consumed = 4 + msg_len;
-        h.tail.store(tail.wrapping_add(consumed as u64), Ordering::Release);
+        h.tail
+            .store(tail.wrapping_add(consumed as u64), Ordering::Release);
 
         Ok(Some(msg))
     }

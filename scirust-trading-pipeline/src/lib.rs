@@ -197,7 +197,10 @@ impl TradingPipeline {
         action: DecisionAction,
     ) -> String {
         let category = format!("{:?}", event.category);
-        let polarity = event.polarity.map(|p| format!("{:+.2}", p.value())).unwrap_or_default();
+        let polarity = event
+            .polarity
+            .map(|p| format!("{:+.2}", p.value()))
+            .unwrap_or_default();
         let magnitude = event
             .magnitude
             .map(|m| format!("{:.2}", m))
@@ -209,7 +212,9 @@ impl TradingPipeline {
             .map(|r| {
                 format!(
                     "historical Δ60m: {:+.1}bps (n={}, significant={})",
-                    r.delta_60min_bps, r.n_samples, r.is_significant()
+                    r.delta_60min_bps,
+                    r.n_samples,
+                    r.is_significant()
                 )
             })
             .unwrap_or_default();

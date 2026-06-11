@@ -3,8 +3,7 @@
 //! Utilise les types partagés de `soulsystem_common::metacognition`.
 
 pub use soulsystem_common::metacognition::{
-    CycleMetrics, DecisionQuality, QualityCategory,
-    score_cycle, recommendation_for,
+    recommendation_for, score_cycle, CycleMetrics, DecisionQuality, QualityCategory,
 };
 
 /// Moteur de méta-cognition (historique + évaluations).

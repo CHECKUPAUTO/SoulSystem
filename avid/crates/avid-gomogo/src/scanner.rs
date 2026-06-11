@@ -170,9 +170,7 @@ pub async fn run_scanner(args: ScannerArgs, config: &GomogoConfig) -> anyhow::Re
                         show &= regex.is_match(&text);
                     }
 
-                    if show
-                        && (status != reqwest::StatusCode::NOT_FOUND || verbose)
-                    {
+                    if show && (status != reqwest::StatusCode::NOT_FOUND || verbose) {
                         Some(ScanEntry {
                             url: full_url.to_string(),
                             status: status.as_u16(),

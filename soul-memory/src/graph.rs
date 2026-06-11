@@ -170,10 +170,7 @@ impl KnowledgeGraph {
             .entry(source.clone())
             .or_default()
             .push(target.clone());
-        self.adj_in
-            .entry(target.clone())
-            .or_default()
-            .push(source);
+        self.adj_in.entry(target.clone()).or_default().push(source);
         Ok(id)
     }
 
@@ -373,16 +370,8 @@ impl KnowledgeGraph {
             .nodes
             .keys()
             .filter(|id| {
-                let out_empty = self
-                    .adj_out
-                    .get(*id)
-                    .map(|n| n.is_empty())
-                    .unwrap_or(true);
-                let in_empty = self
-                    .adj_in
-                    .get(*id)
-                    .map(|n| n.is_empty())
-                    .unwrap_or(true);
+                let out_empty = self.adj_out.get(*id).map(|n| n.is_empty()).unwrap_or(true);
+                let in_empty = self.adj_in.get(*id).map(|n| n.is_empty()).unwrap_or(true);
                 out_empty && in_empty
             })
             .cloned()
@@ -446,8 +435,7 @@ impl KnowledgeGraph {
             .nodes
             .values()
             .filter(|n| {
-                n.label.to_lowercase().contains(&lower)
-                    || n.content.to_lowercase().contains(&lower)
+                n.label.to_lowercase().contains(&lower) || n.content.to_lowercase().contains(&lower)
             })
             .collect();
         matched.sort_by(|a, b| {

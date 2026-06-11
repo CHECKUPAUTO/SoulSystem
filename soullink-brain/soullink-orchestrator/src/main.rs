@@ -245,7 +245,10 @@ async fn call_all_parallel(
             let http = state.http.clone();
             async move {
                 let result = call_brain(&http, &url, &ep, body).await;
-                (key, result.unwrap_or_else(|e| json!({ "error": e.to_string() })))
+                (
+                    key,
+                    result.unwrap_or_else(|e| json!({ "error": e.to_string() })),
+                )
             }
         })
         .collect();

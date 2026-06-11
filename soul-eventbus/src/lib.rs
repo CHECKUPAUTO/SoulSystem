@@ -268,13 +268,36 @@ mod tests {
         let bus = EventBus::new(32);
         let mut rx = bus.subscribe();
 
-        bus.publish(AgentEvent::AgentStopped { reason: "done".into() });
-        bus.publish(AgentEvent::TaskCompleted { task_id: "t1".into(), result: "ok".into(), duration_ms: 100 });
-        bus.publish(AgentEvent::TaskFailed { task_id: "t2".into(), error: "err".into() });
-        bus.publish(AgentEvent::ToolResult { turn: 1, tool: "search".into(), output: "res".into(), success: true });
-        bus.publish(AgentEvent::MemoryStored { key: "k1".into(), size_bytes: 100 });
-        bus.publish(AgentEvent::MemorySearched { query: "q".into(), results_count: 5 });
-        bus.publish(AgentEvent::Custom { topic: "test".into(), payload: serde_json::json!({"x": 1}) });
+        bus.publish(AgentEvent::AgentStopped {
+            reason: "done".into(),
+        });
+        bus.publish(AgentEvent::TaskCompleted {
+            task_id: "t1".into(),
+            result: "ok".into(),
+            duration_ms: 100,
+        });
+        bus.publish(AgentEvent::TaskFailed {
+            task_id: "t2".into(),
+            error: "err".into(),
+        });
+        bus.publish(AgentEvent::ToolResult {
+            turn: 1,
+            tool: "search".into(),
+            output: "res".into(),
+            success: true,
+        });
+        bus.publish(AgentEvent::MemoryStored {
+            key: "k1".into(),
+            size_bytes: 100,
+        });
+        bus.publish(AgentEvent::MemorySearched {
+            query: "q".into(),
+            results_count: 5,
+        });
+        bus.publish(AgentEvent::Custom {
+            topic: "test".into(),
+            payload: serde_json::json!({"x": 1}),
+        });
 
         let mut count = 0;
         for _ in 0..7 {
@@ -290,12 +313,24 @@ mod tests {
         let bus = EventBus::new(2);
         let mut rx = bus.subscribe();
 
-        bus.publish(AgentEvent::AgentStarted { name: "a".into(), model: "m".into() });
-        bus.publish(AgentEvent::AgentStarted { name: "b".into(), model: "m".into() });
-        bus.publish(AgentEvent::AgentStarted { name: "c".into(), model: "m".into() });
+        bus.publish(AgentEvent::AgentStarted {
+            name: "a".into(),
+            model: "m".into(),
+        });
+        bus.publish(AgentEvent::AgentStarted {
+            name: "b".into(),
+            model: "m".into(),
+        });
+        bus.publish(AgentEvent::AgentStarted {
+            name: "c".into(),
+            model: "m".into(),
+        });
 
         let result = rx.recv().await;
-        assert!(matches!(result, Err(broadcast::error::RecvError::Lagged(_))));
+        assert!(matches!(
+            result,
+            Err(broadcast::error::RecvError::Lagged(_))
+        ));
     }
 
     #[tokio::test]

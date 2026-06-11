@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use std::time::Duration;
 use soullink_circuit::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
+use std::time::Duration;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum LlmError {
@@ -33,9 +33,13 @@ pub struct LlmConfig {
     pub retry_base_delay_ms: u64,
 }
 
-fn default_max_retries() -> u32 { 3 }
+fn default_max_retries() -> u32 {
+    3
+}
 
-fn default_retry_base_delay_ms() -> u64 { 1000 }
+fn default_retry_base_delay_ms() -> u64 {
+    1000
+}
 
 fn default_timeout() -> u64 {
     120
@@ -47,8 +51,7 @@ impl Default for LlmConfig {
             base_url: std::env::var("OLLAMA_URL")
                 .or_else(|_| std::env::var("OLLAMA_HOST"))
                 .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
-            model: std::env::var("OLLAMA_MODEL")
-                .unwrap_or_else(|_| "qwen3:8b".to_string()),
+            model: std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen3:8b".to_string()),
             fallback_models: std::env::var("OLLAMA_FALLBACK_MODELS")
                 .unwrap_or_else(|_| "tinyllama:latest,codellama:7b".to_string())
                 .split(',')
@@ -253,7 +256,11 @@ impl OllamaClient {
         let circuit_config = CircuitBreakerConfig::llm_provider("ollama");
         let circuit_breaker = CircuitBreaker::new("ollama-llm", circuit_config);
 
-        Self { config, http, circuit_breaker }
+        Self {
+            config,
+            http,
+            circuit_breaker,
+        }
     }
 
     pub async fn is_alive(&self) -> bool {
@@ -331,9 +338,9 @@ impl OllamaClient {
         match result {
             Ok(val) => Ok(val),
             Err(e) => match e {
-                soullink_circuit::CircuitBreakerError::Open { .. } => {
-                    Err(LlmError::NotReachable("Circuit breaker is OPEN - service unavailable".into()))
-                }
+                soullink_circuit::CircuitBreakerError::Open { .. } => Err(LlmError::NotReachable(
+                    "Circuit breaker is OPEN - service unavailable".into(),
+                )),
                 soullink_circuit::CircuitBreakerError::Timeout { .. } => {
                     Err(LlmError::Timeout(self.config.timeout_secs))
                 }
@@ -546,7 +553,12 @@ impl OllamaClient {
         &self.config.fallback_models
     }
 
-    async fn chat_with_model(&self, messages: &[ChatMessage], tools: Option<&[ToolSchema]>, model: &str) -> Result<ChatResponse, LlmError> {
+    async fn chat_with_model(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[ToolSchema]>,
+        model: &str,
+    ) -> Result<ChatResponse, LlmError> {
         let req = ChatRequest {
             model: model.to_string(),
             messages: messages.to_vec(),
@@ -571,24 +583,35 @@ impl OllamaClient {
         .await
     }
 
-    pub async fn chat_with_fallback(&self, messages: &[ChatMessage], tools: Option<&[ToolSchema]>) -> Result<ChatResponse, LlmError> {
-        match self.chat_with_model(messages, tools, &self.config.model).await {
+    pub async fn chat_with_fallback(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[ToolSchema]>,
+    ) -> Result<ChatResponse, LlmError> {
+        match self
+            .chat_with_model(messages, tools, &self.config.model)
+            .await
+        {
             Ok(resp) => Ok(resp),
-Err(e) => {
-                    tracing::warn!("Primary model '{}' failed: {}", self.config.model, e);
-                    for fallback in &self.config.fallback_models {
-                        tracing::info!("Trying fallback model: {}", fallback);
-                        match self.chat_with_model(messages, tools, fallback).await {
-                            Ok(resp) => return Ok(resp),
-                            Err(e2) => tracing::warn!("Fallback model '{}' failed: {}", fallback, e2),
-                        }
+            Err(e) => {
+                tracing::warn!("Primary model '{}' failed: {}", self.config.model, e);
+                for fallback in &self.config.fallback_models {
+                    tracing::info!("Trying fallback model: {}", fallback);
+                    match self.chat_with_model(messages, tools, fallback).await {
+                        Ok(resp) => return Ok(resp),
+                        Err(e2) => tracing::warn!("Fallback model '{}' failed: {}", fallback, e2),
                     }
-                    Err(e)
                 }
+                Err(e)
+            }
         }
     }
 
-    async fn generate_with_model(&self, prompt: &str, model: &str) -> Result<GenerateResponse, LlmError> {
+    async fn generate_with_model(
+        &self,
+        prompt: &str,
+        model: &str,
+    ) -> Result<GenerateResponse, LlmError> {
         let req = GenerateRequest {
             model: model.to_string(),
             prompt: prompt.to_string(),
@@ -615,17 +638,17 @@ Err(e) => {
     pub async fn generate_with_fallback(&self, prompt: &str) -> Result<GenerateResponse, LlmError> {
         match self.generate_with_model(prompt, &self.config.model).await {
             Ok(resp) => Ok(resp),
-Err(e) => {
-                    tracing::warn!("Primary model '{}' failed: {}", self.config.model, e);
-                    for fallback in &self.config.fallback_models {
-                        tracing::info!("Trying fallback model: {}", fallback);
-                        match self.generate_with_model(prompt, fallback).await {
-                            Ok(resp) => return Ok(resp),
-                            Err(e2) => tracing::warn!("Fallback model '{}' failed: {}", fallback, e2),
-                        }
+            Err(e) => {
+                tracing::warn!("Primary model '{}' failed: {}", self.config.model, e);
+                for fallback in &self.config.fallback_models {
+                    tracing::info!("Trying fallback model: {}", fallback);
+                    match self.generate_with_model(prompt, fallback).await {
+                        Ok(resp) => return Ok(resp),
+                        Err(e2) => tracing::warn!("Fallback model '{}' failed: {}", fallback, e2),
                     }
-                    Err(e)
                 }
+                Err(e)
+            }
         }
     }
 }
@@ -717,10 +740,7 @@ impl ChatSession {
             // Add a truncation marker
             messages.push(ChatMessage {
                 role: Role::User,
-                content: format!(
-                    "[Context truncated: {} older messages removed]",
-                    start_idx
-                ),
+                content: format!("[Context truncated: {} older messages removed]", start_idx),
                 tool_calls: None,
                 tool_call_id: None,
             });
@@ -1071,10 +1091,12 @@ mod tests {
     fn test_chat_session_context_truncation() {
         // Create a session with very small context limit that fits system + 1 small msg
         let mut session = ChatSession::with_max_context("ab", 132); // system=2 chars, +50 overhead = fits ~80 chars of msg
-        // First message: fits within limit
+                                                                    // First message: fits within limit
         session.add_user_message("hello world"); // 11 chars + 50 overhead = 61, system 2+50 = 52, total 113 <= 132
-        // Second message: pushes over the limit
-        session.add_user_message("this second message is longer and will push us over the limit definitely"); // 86+50=136, total 113+136=249 > 132
+                                                 // Second message: pushes over the limit
+        session.add_user_message(
+            "this second message is longer and will push us over the limit definitely",
+        ); // 86+50=136, total 113+136=249 > 132
         let messages = session.build_messages();
         // Should include system + truncation marker + second message
         assert!(
@@ -1088,7 +1110,10 @@ mod tests {
             "expected truncation marker, got: {:?}",
             messages[1].content
         );
-        assert_eq!(messages[2].content, "this second message is longer and will push us over the limit definitely");
+        assert_eq!(
+            messages[2].content,
+            "this second message is longer and will push us over the limit definitely"
+        );
     }
 
     #[test]
@@ -1202,13 +1227,19 @@ mod tests {
     #[test]
     fn test_role_deser_invalid_fails() {
         let result: Result<Role, _> = serde_json::from_str("\"superuser\"");
-        assert!(result.is_err(), "unknown role string should fail to deserialize");
+        assert!(
+            result.is_err(),
+            "unknown role string should fail to deserialize"
+        );
     }
 
     #[test]
     fn test_role_deser_case_sensitive() {
         let result: Result<Role, _> = serde_json::from_str("\"User\"");
-        assert!(result.is_err(), "capitalized User should fail (lowercase expected)");
+        assert!(
+            result.is_err(),
+            "capitalized User should fail (lowercase expected)"
+        );
     }
 
     #[test]
@@ -1230,7 +1261,11 @@ mod tests {
             tool_call_id: Some("call_file_1".to_string()),
         };
         let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("tool_call_id"), "tool_call_id should be present in JSON: {}", json);
+        assert!(
+            json.contains("tool_call_id"),
+            "tool_call_id should be present in JSON: {}",
+            json
+        );
         let deser: ChatMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(deser.tool_call_id.as_deref(), Some("call_file_1"));
         assert_eq!(deser.role, Role::Tool);
@@ -1253,11 +1288,18 @@ mod tests {
             tool_call_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("tool_calls"), "tool_calls should be present: {}", json);
+        assert!(
+            json.contains("tool_calls"),
+            "tool_calls should be present: {}",
+            json
+        );
         let deser: ChatMessage = serde_json::from_str(&json).unwrap();
         assert!(deser.tool_calls.is_some());
         assert_eq!(deser.tool_calls.as_ref().unwrap().len(), 1);
-        assert_eq!(deser.tool_calls.as_ref().unwrap()[0].function.name, "read_file");
+        assert_eq!(
+            deser.tool_calls.as_ref().unwrap()[0].function.name,
+            "read_file"
+        );
     }
 
     #[test]
@@ -1292,8 +1334,16 @@ mod tests {
             tool_call_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
-        assert!(!json.contains("tool_calls"), "should skip tool_calls: {}", json);
-        assert!(!json.contains("tool_call_id"), "should skip tool_call_id: {}", json);
+        assert!(
+            !json.contains("tool_calls"),
+            "should skip tool_calls: {}",
+            json
+        );
+        assert!(
+            !json.contains("tool_call_id"),
+            "should skip tool_call_id: {}",
+            json
+        );
     }
 
     #[test]
@@ -1350,7 +1400,11 @@ mod tests {
         };
         let json = serde_json::to_string(&tc).unwrap();
         // The field should serialize as "type" (the serde rename)
-        assert!(json.contains("\"type\""), "field should serialize as 'type': {}", json);
+        assert!(
+            json.contains("\"type\""),
+            "field should serialize as 'type': {}",
+            json
+        );
     }
 
     // ── Additional: ToolSchema / FunctionSchema edge cases ──
@@ -1367,7 +1421,11 @@ mod tests {
         };
         let json = serde_json::to_string(&schema).unwrap();
         // Should serialize schema_type as "type"
-        assert!(json.contains("\"type\""), "should serialize as 'type': {}", json);
+        assert!(
+            json.contains("\"type\""),
+            "should serialize as 'type': {}",
+            json
+        );
         let deser: ToolSchema = serde_json::from_str(&json).unwrap();
         assert_eq!(deser.schema_type, "function");
     }
@@ -1471,8 +1529,16 @@ mod tests {
         };
         let json = serde_json::to_string(&req).unwrap();
         // tools and options are Option fields without skip_serializing_if, so they serialize as null
-        assert!(json.contains("\"tools\":null"), "expected tools:null in: {}", json);
-        assert!(json.contains("\"options\":null"), "expected options:null in: {}", json);
+        assert!(
+            json.contains("\"tools\":null"),
+            "expected tools:null in: {}",
+            json
+        );
+        assert!(
+            json.contains("\"options\":null"),
+            "expected options:null in: {}",
+            json
+        );
         assert!(json.contains("\"stream\":true"));
     }
 
@@ -1574,7 +1640,12 @@ mod tests {
         session.add_user_message("hi"); // 2 chars + 50 overhead = 52, total 3+52=55 <=55, fits
         session.add_user_message("this second message exceeds the limit and triggers truncation");
         let messages = session.build_messages();
-        assert_eq!(messages.len(), 3, "system + truncation marker + 1 kept = 3, got {}", messages.len());
+        assert_eq!(
+            messages.len(),
+            3,
+            "system + truncation marker + 1 kept = 3, got {}",
+            messages.len()
+        );
         assert_eq!(messages[0].role, Role::System);
         assert!(messages[1].content.contains("truncat"));
         assert_eq!(messages[2].role, Role::User);
@@ -1587,7 +1658,11 @@ mod tests {
         let mut session = ChatSession::with_max_context("s", 62);
         session.add_user_message("12345678901"); // 11 chars
         let messages = session.build_messages();
-        assert_eq!(messages.len(), 2, "system + user = 2 messages when total exactly fits max_context");
+        assert_eq!(
+            messages.len(),
+            2,
+            "system + user = 2 messages when total exactly fits max_context"
+        );
     }
 
     #[test]
@@ -1622,8 +1697,16 @@ mod tests {
         session.add_user_message("abc");
         session.add_assistant_message("def");
         let summary = session.history_summary();
-        assert!(summary.contains("2 messages"), "expected 2 messages in summary: {}", summary);
-        assert!(summary.contains("6"), "expected 6 chars (abc=3 + def=3) in summary: {}", summary);
+        assert!(
+            summary.contains("2 messages"),
+            "expected 2 messages in summary: {}",
+            summary
+        );
+        assert!(
+            summary.contains("6"),
+            "expected 6 chars (abc=3 + def=3) in summary: {}",
+            summary
+        );
     }
 
     #[test]
@@ -1668,8 +1751,8 @@ mod tests {
 
     #[test]
     fn test_llm_config_with_fallback_models() {
-        let config = LlmConfig::default()
-            .with_fallback_models(vec!["m1".to_string(), "m2".to_string()]);
+        let config =
+            LlmConfig::default().with_fallback_models(vec!["m1".to_string(), "m2".to_string()]);
         assert_eq!(config.fallback_models.len(), 2);
         assert_eq!(config.fallback_models[0], "m1");
     }
@@ -1707,7 +1790,10 @@ mod tests {
         assert_eq!(deser.fallback_models.len(), 2);
         assert_eq!(deser.temperature, 0.3);
         assert_eq!(deser.max_tokens, 2048);
-        assert_eq!(deser.system_prompt.as_deref(), Some("You are a helpful assistant."));
+        assert_eq!(
+            deser.system_prompt.as_deref(),
+            Some("You are a helpful assistant.")
+        );
         assert_eq!(deser.timeout_secs, 60);
         assert_eq!(deser.max_retries, 5);
         assert_eq!(deser.retry_base_delay_ms, 500);
@@ -1728,7 +1814,11 @@ mod tests {
         };
         let json = serde_json::to_string(&config).unwrap();
         // system_prompt is Option but has no skip_serializing_if, so null is present
-        assert!(json.contains("\"system_prompt\":null"), "expected system_prompt:null in: {}", json);
+        assert!(
+            json.contains("\"system_prompt\":null"),
+            "expected system_prompt:null in: {}",
+            json
+        );
     }
 
     // ── ChatResponseMessage edge cases ──
@@ -1775,7 +1865,8 @@ mod tests {
 
     #[test]
     fn test_stream_chunk_empty_content() {
-        let json = r#"{"message":{"role":"assistant","content":"","tool_calls":null},"done":false}"#;
+        let json =
+            r#"{"message":{"role":"assistant","content":"","tool_calls":null},"done":false}"#;
         let chunk: StreamChunk = serde_json::from_str(json).unwrap();
         assert_eq!(chunk.message.as_ref().unwrap().content.as_deref(), Some(""));
     }
@@ -1843,7 +1934,11 @@ mod tests {
         let json_err = serde_json::from_str::<Role>("invalid").unwrap_err();
         let err = LlmError::Json(json_err);
         let display = format!("{}", err);
-        assert!(display.starts_with("JSON error:"), "expected JSON error prefix, got: {}", display);
+        assert!(
+            display.starts_with("JSON error:"),
+            "expected JSON error prefix, got: {}",
+            display
+        );
     }
 
     #[test]
@@ -1890,7 +1985,15 @@ mod tests {
     fn test_build_tool_schemas_all_present() {
         let schemas = build_tool_schemas();
         let names: Vec<&str> = schemas.iter().map(|s| s.function.name.as_str()).collect();
-        for expected in &["execute_shell", "read_file", "write_file", "patch_file", "list_directory", "search_files", "grep_content"] {
+        for expected in &[
+            "execute_shell",
+            "read_file",
+            "write_file",
+            "patch_file",
+            "list_directory",
+            "search_files",
+            "grep_content",
+        ] {
             assert!(names.contains(expected), "missing tool: {}", expected);
         }
     }
@@ -1899,7 +2002,11 @@ mod tests {
     fn test_build_tool_schemas_all_have_descriptions() {
         let schemas = build_tool_schemas();
         for schema in &schemas {
-            assert!(!schema.function.description.is_empty(), "tool '{}' has empty description", schema.function.name);
+            assert!(
+                !schema.function.description.is_empty(),
+                "tool '{}' has empty description",
+                schema.function.name
+            );
             assert_eq!(schema.schema_type, "function");
         }
     }
@@ -1909,7 +2016,11 @@ mod tests {
         let schemas = build_tool_schemas();
         for schema in &schemas {
             let params = &schema.function.parameters;
-            assert!(params.is_object(), "tool '{}' parameters should be an object", schema.function.name);
+            assert!(
+                params.is_object(),
+                "tool '{}' parameters should be an object",
+                schema.function.name
+            );
         }
     }
 
