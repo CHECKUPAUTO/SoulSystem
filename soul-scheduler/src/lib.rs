@@ -1,4 +1,4 @@
-use chrono::{DateTime, Datelike, Duration, Local, Timelike, Utc, Weekday};
+use chrono::{DateTime, Duration, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -132,11 +132,11 @@ impl Scheduler {
                 tracing::info!("Scheduler: executing task '{}'", task.name);
                 if let Err(e) = (on_tick)(&task) {
                     tracing::error!("Scheduler: task '{}' failed: {}", task.name, e);
-                    if let Some(mut t) = tasks.write().await.get_mut(&task.id) {
+                    if let Some(t) = tasks.write().await.get_mut(&task.id) {
                         t.failure_count += 1;
                     }
                 } else {
-                    if let Some(mut t) = tasks.write().await.get_mut(&task.id) {
+                    if let Some(t) = tasks.write().await.get_mut(&task.id) {
                         t.success_count += 1;
                         t.advance();
                     }

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use std::time::Duration;
-use soullink_circuit::{CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitState};
+use soullink_circuit::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 
 #[derive(Error, Debug)]
 pub enum LlmError {
@@ -429,6 +429,7 @@ impl OllamaClient {
         F: FnMut(&str) + Send,
     {
         use futures::StreamExt;
+        #[allow(unused_imports)]
         use tokio::io::AsyncBufReadExt;
 
         let req = ChatRequest {

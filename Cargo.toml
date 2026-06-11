@@ -292,6 +292,9 @@ lto = "fat"
 codegen-units = 1
 strip = true
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(blas)', 'cfg(rayon)'] }
+
 [profile.dev]
 opt-level = 0
 debug = true

@@ -26,6 +26,7 @@ pub struct OrchestratorClient {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[allow(non_snake_case)]
 pub struct OrganStatus {
     pub port: u16,
     #[serde(default)]
@@ -43,6 +44,7 @@ pub struct OrganStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)]
 pub struct MeshStatus {
     pub online: usize,
     pub total_brains: usize,

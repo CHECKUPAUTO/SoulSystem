@@ -8,10 +8,9 @@
 // pour répartir la charge et exploiter le mesh neural.
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Noms des 6 organes HNN (par convention SoulLink).
 pub const ORGANS: &[(&str, u16)] = &[

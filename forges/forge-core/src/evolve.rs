@@ -135,6 +135,7 @@ impl<C: Candidate + Serialize + for<'a> Deserialize<'a>> Checkpoint<C> {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let data = fs::read_to_string(path)?;
         serde_json::from_str(&data).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))

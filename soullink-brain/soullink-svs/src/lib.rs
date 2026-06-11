@@ -5,7 +5,7 @@
 //!
 //! Feature `svs` enabled by default on this machine (libsvs available).
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::path::Path;
 
 /// SVS index types.

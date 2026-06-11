@@ -7,7 +7,7 @@
 
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 // ── PersistableConfig (JSON) ──────────────────────────────────────────────
 

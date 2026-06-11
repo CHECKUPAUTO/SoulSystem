@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use thiserror::Error;
-use tokio::sync::{mpsc, oneshot, Mutex};
-use uuid::Uuid;
+use tokio::sync::{mpsc, Mutex};
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 

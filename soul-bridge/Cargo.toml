@@ -12,3 +12,6 @@ tracing = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
 chrono = { workspace = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(soul_neural)'] }

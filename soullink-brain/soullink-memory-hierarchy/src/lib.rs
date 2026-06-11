@@ -27,14 +27,13 @@
 //!   recent episodic memories, clusters similar ones, and promotes
 //!   important patterns to semantic storage.
 
-use anyhow::Result;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::info;
 
 // ── Memory Types ────────────────────────────────────────────────────────
 

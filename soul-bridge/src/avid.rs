@@ -49,7 +49,9 @@ impl Scout {
 
 /// Client AVID Vision — perception visuelle via l'API AVID
 pub struct Vision {
+    #[allow(dead_code)]
     base_url: String,
+    #[allow(dead_code)]
     client: reqwest::Client,
 }
 

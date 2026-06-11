@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Status runtime de la connexion openevolve.
 #[derive(Debug, Clone)]
@@ -32,6 +32,7 @@ pub struct OpenEvolveClient {
 
 #[derive(Debug, Deserialize)]
 struct HealthResponse {
+    #[allow(dead_code)]
     service: String,
     version: String,
 }
@@ -47,7 +48,9 @@ struct StatusResponse {
 
 #[derive(Debug, Deserialize)]
 struct MetricsResponse {
+    #[allow(dead_code)]
     build_profile: String,
+    #[allow(dead_code)]
     service: String,
     version: String,
 }

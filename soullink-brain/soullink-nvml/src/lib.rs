@@ -75,6 +75,7 @@ struct RealBridge {
     /// correct ordering).
     device: std::mem::ManuallyDrop<nvml_wrapper::Device<'static>>,
     nvml: Arc<Nvml>,
+    #[allow(dead_code)]
     device_index: u32,
 }
 
@@ -177,6 +178,7 @@ impl Default for MockState {
 #[derive(Clone)]
 pub struct NvmlBridge {
     inner: Arc<BridgeImpl>,
+    #[allow(dead_code)]
     device_index: u32,
     power_min_mw: u32,
     power_max_mw: u32,

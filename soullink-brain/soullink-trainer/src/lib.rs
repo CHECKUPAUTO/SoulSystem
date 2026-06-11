@@ -25,7 +25,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
@@ -528,7 +528,7 @@ mod tests {
         assert_eq!(recorder.count(), 2);
 
         // Verify file content
-        let content = fs::read_to_string(&path).unwrap();
+        let content = std::std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = content.lines().collect();
         assert_eq!(lines.len(), 2);
     }
@@ -599,7 +599,7 @@ mod tests {
 
         assert_eq!(pairs, 1); // Only one pair (same prompt)
 
-        let content = fs::read_to_string(&dpo_path).unwrap();
+        let content = std::fs::read_to_string(&dpo_path).unwrap();
         let pair: DpoPair = serde_json::from_str(content.trim()).unwrap();
         assert!(pair.chosen_score > pair.rejected_score);
     }

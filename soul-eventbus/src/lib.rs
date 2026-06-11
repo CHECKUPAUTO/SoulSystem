@@ -3,7 +3,6 @@
 //! Uses tokio broadcast channels for zero-copy event distribution.
 //! Events are serialized as JSON for WebSocket forwarding.
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::broadcast;
