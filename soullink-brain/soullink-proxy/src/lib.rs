@@ -1,3 +1,14 @@
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    unused_mut,
+    unused_unsafe,
+    unreachable_pub,
+    non_camel_case_types,
+    non_snake_case,
+    unused_comparisons
+)]
 //! soullink-proxy — Reverse proxy and TLS gateway for SoulLink V13.5 APIs.
 //!
 //! Routes external HTTPS requests to internal SoulLink services:

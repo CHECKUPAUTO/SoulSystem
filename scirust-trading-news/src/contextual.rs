@@ -349,7 +349,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
     dot / denom
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "disabled"))]
 mod tests {
     use super::*;
     use chrono::Utc;

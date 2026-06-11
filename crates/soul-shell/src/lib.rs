@@ -1,3 +1,14 @@
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    unused_mut,
+    unused_unsafe,
+    unreachable_pub,
+    non_camel_case_types,
+    non_snake_case,
+    unused_comparisons
+)]
 //! soul-shell — Interactive CLI for SoulSystem kernel communication.
 //!
 //! Provides a REPL for direct interaction with the Brain, memory injection,

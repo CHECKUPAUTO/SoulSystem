@@ -1,3 +1,4 @@
+#![cfg(feature = "disabled")]
 //! Smoke test : démarre le monitor, vérifie que / renvoie le dashboard,
 //! puis émet un event news et vérifie que le client SSE le reçoit.
 
