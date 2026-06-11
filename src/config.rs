@@ -101,7 +101,12 @@ impl Default for Paths {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use tempfile::TempDir;
+
+    // Ces tests modifient des variables d'environnement partagées par le
+    // processus : ils doivent s'exécuter en exclusion mutuelle.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_default_paths() {
@@ -114,6 +119,7 @@ mod tests {
 
     #[test]
     fn test_env_override() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let config_file = tmp.path().join("test_config.toml");
         let content = r#"
@@ -124,13 +130,16 @@ config_dir = "/tmp/test_config"
 
         std::env::set_var("SOULSYSTEM_CONFIG_FILE", config_file.to_str().unwrap());
         let settings = Settings::new().unwrap();
+        std::env::remove_var("SOULSYSTEM_CONFIG_FILE");
         assert_eq!(settings.paths.config_dir, PathBuf::from("/tmp/test_config"));
     }
 
     #[test]
     fn test_missing_file_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("SOULSYSTEM_CONFIG_FILE", "/nonexistent/path.toml");
         let settings = Settings::new().unwrap();
+        std::env::remove_var("SOULSYSTEM_CONFIG_FILE");
         assert_eq!(
             settings.paths.data_dir,
             PathBuf::from("/var/lib/soulsystem/data")
@@ -139,7 +148,7 @@ config_dir = "/tmp/test_config"
 
     #[test]
     fn test_env_var_override() {
-        // Sauvegarder et restaurer
+        let _guard = ENV_LOCK.lock().unwrap();
         let tmp = TempDir::new().unwrap();
         let config_file = tmp.path().join("env_test.toml");
         std::fs::write(&config_file, "[paths]\nconfig_dir = \"/from_file\"\n").unwrap();
@@ -148,9 +157,11 @@ config_dir = "/tmp/test_config"
         std::env::set_var("SOULSYSTEM_CONFIG_FILE", config_file.to_str().unwrap());
 
         let settings = Settings::new().unwrap();
-        // La variable d'environnement écrase le fichier
-        assert_eq!(settings.paths.config_dir, PathBuf::from("/from_env"));
 
         std::env::remove_var("SOULSYSTEM_CONFIG_DIR");
+        std::env::remove_var("SOULSYSTEM_CONFIG_FILE");
+
+        // La variable d'environnement écrase le fichier
+        assert_eq!(settings.paths.config_dir, PathBuf::from("/from_env"));
     }
 }

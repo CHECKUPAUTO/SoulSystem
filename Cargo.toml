@@ -256,10 +256,10 @@ futures-util = "0.3.32"
 
 # Autonomous entity crates
 soul_llm = { path = "soul_llm" }
+soul_agent_core = { path = "soul-agent-core" }
 soul_planner = { path = "soul_planner" }
 soul_tools = { path = "soul_tools" }
 soul_repl = { path = "soul_repl" }
-soul_agent_core = { path = "soul-agent-core" }
 soul_daemon = { path = "soul-daemon" }
 soul_sandbox = { path = "soul-sandbox" }
 soul_browser = { path = "soul-browser" }
