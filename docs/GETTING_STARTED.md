@@ -77,7 +77,7 @@ log_dir = "/var/log/soulsystem"
 Export the token:
 
 ```bash
-export TELEGRAM_BOT_TOKEN="your_token_here"
+export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
 ```
 
 ## 8. Launch SoulSystem

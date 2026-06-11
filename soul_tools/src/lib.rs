@@ -3,6 +3,62 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::process::Command;
 
+// ── Shell injection prevention ─────────────────────────────────────────
+
+/// Dangerous shell metacharacters that enable command injection.
+const SHELL_INJECTION_CHARS: &[char] = &[';', '&', '|', '`', '$', '\n', '\r', '>', '<', '!'];
+
+/// Validates a shell command string against injection attempts.
+/// Returns `Ok(())` if safe, `Err(reason)` if potentially dangerous.
+pub fn validate_shell_command(cmd: &str) -> Result<(), String> {
+    if cmd.is_empty() {
+        return Err("Empty command".into());
+    }
+
+    // Block semicolons (command chaining)
+    if cmd.contains(';') {
+        return Err("Command injection blocked: semicolons (;) are not allowed".into());
+    }
+
+    // Block command substitution $(...) and backticks
+    if cmd.contains("$(") || cmd.contains('`') {
+        return Err("Command injection blocked: command substitution is not allowed".into());
+    }
+
+    // Block shell operators && and ||
+    if cmd.contains("&&") || cmd.contains("||") {
+        return Err("Command injection blocked: shell operators (&&, ||) are not allowed".into());
+    }
+
+    // Block pipe to shell (| sh, | bash)
+    if cmd.contains("|") {
+        return Err("Command injection blocked: pipes (|) are not allowed".into());
+    }
+
+    // Block output redirection
+    if cmd.contains('>') {
+        return Err("Command injection blocked: output redirection (>) is not allowed".into());
+    }
+
+    // Block subshell $()
+    if cmd.contains("${") {
+        return Err("Command injection blocked: variable expansion (${}) is not allowed".into());
+    }
+
+    // Block eval-style execution
+    let lower = cmd.to_lowercase();
+    if lower.contains("eval ") || lower.contains("exec ") {
+        return Err("Command injection blocked: eval/exec are not allowed".into());
+    }
+
+    // Block raw download-and-pipe patterns (curl ... | sh, wget ... | sh)
+    if (lower.contains("curl ") || lower.contains("wget ")) && lower.contains(" | ") {
+        return Err("Command injection blocked: download-and-pipe pattern is not allowed".into());
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tool {
     pub name: String,
@@ -116,6 +172,7 @@ impl Default for ToolRegistry {
 // ── Shell Execution ───────────────────────────────────────────────────
 
 pub fn execute_shell(command: &str) -> Result<String, String> {
+    validate_shell_command(command)?;
     let output = std::process::Command::new("sh")
         .arg("-c")
         .arg(command)
@@ -152,6 +209,7 @@ impl AsyncShellExecutor {
     }
 
     pub async fn execute(&self, command: &str) -> Result<ShellOutput, String> {
+        validate_shell_command(command)?;
         let permission = PermissionLevel::from_command(command);
 
         let result = tokio::time::timeout(

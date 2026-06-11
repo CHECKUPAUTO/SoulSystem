@@ -114,7 +114,7 @@ let git = registry.get("git");
 let results = registry.search("network");
 let sys_tools = registry.by_category(&ToolCategory::System);
 
-// Exécuter une commande shell
+// Exécuter une commande shell (validée contre l'injection via validate_shell_command)
 let output = execute_shell("ls -la /home/tarek")?;
 
 // Exécuter un outil du registre

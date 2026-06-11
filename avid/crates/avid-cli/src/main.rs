@@ -87,9 +87,14 @@ async fn main() -> anyhow::Result<()> {
             let _html = session.fetch_rendered(&url, timeout).await?;
 
             // Execute custom JS before fill/click
+            // Security: block obvious Node.js/Deno require patterns in eval'd JS
             if let Some(ref js) = eval_js {
-                let r = session.eval(js).await?;
-                eprintln!("[eval] {r}");
+                if js.contains("require(") || js.contains("import ") || js.contains("process.") {
+                    eprintln!("[eval] BLOCKED: eval JS contains require/import/process access");
+                } else {
+                    let r = session.eval(js).await?;
+                    eprintln!("[eval] {r}");
+                }
             }
 
             // Fill form fields with real CDP keystrokes (Angular-compatible)
