@@ -14,6 +14,15 @@ use clap::Parser;
 use soulsystem::bound_system::BoundSystem;
 use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
+// Unified bridge aliases (replaces 9 individual bridge crates)
+use soul_bridge::avid as avid_bridge;
+use soul_bridge::brain as brain_bridge;
+use soul_bridge::mesh as mesh_bridge;
+use soul_bridge::openevolve as openevolve_bridge;
+use soul_bridge::organs as organs_bridge;
+use soul_bridge::services as services_bridge;
+use soul_bridge::soul_neural as soul_neural_bridge;
+use soul_bridge::synergie as synergie_bridge;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -245,8 +254,8 @@ async fn main() -> Result<()> {
     let health_watchdog = watchdog.clone();
     let health_summarizer = summarizer.clone();
     let bus_health = bus.clone();
-    tokio::spawn(async move {
-        let config = soulsystem::memory_health::HealthConfig {
+    let health = Arc::new(tokio::sync::Mutex::new(soulsystem::memory_health::MemoryHealth::new(
+        soulsystem::memory_health::HealthConfig {
             latency_warn_ms: 500.0,
             max_entries_warn: 1000,
             search_failure_ratio: 0.3,
@@ -256,33 +265,33 @@ async fn main() -> Result<()> {
             context_size_warn_tokens: 500_000,
             max_alpha_sync_variance: 0.4,
             max_error_rate: 0.15,
-        };
-        let mut health = soulsystem::memory_health::MemoryHealth::new(config);
+        },
+    )));
+    let health_loop = health.clone();
+    tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
         loop {
             interval.tick().await;
 
-            // Alimenter les métriques depuis le watchdog
+            let mut h = health_loop.lock().await;
             let comp_count = *health_watchdog.compaction_count().read().await;
             for _ in 0..comp_count {
-                health.record_compaction();
+                h.record_compaction();
             }
 
-            // Vérifier le taux de messages depuis le résumé
             let msg_count = health_summarizer.summary().read().await.message_count;
             for _ in 0..msg_count.min(10) {
-                health.record_message();
+                h.record_message();
             }
 
-            let report = health.check(&health_hub).await;
+            let report = h.check(&health_hub).await;
 
-            // Émettre une alerte de fatigue sur le bus
             if report.is_fatigued {
                 bus_health.publish(soulsystem::bus::Message::Custom {
                     topic: "memory.fatigue_alert".into(),
                     payload: serde_json::json!({
                         "severity": "warning",
-                        "message": "Fatigue cognitive détectée — pause recommandée",
+                        "message": "Cognitive fatigue detected — pause recommended",
                         "compactions": report.compactions_last_hour,
                         "alpha_variance": report.alpha_sync_variance,
                         "context_tokens": report.estimated_context_tokens,
@@ -746,38 +755,41 @@ async fn main() -> Result<()> {
     });
     info!("Metabolism proxy actif sur :9052");
 
-    // ── Phase 3: Preservation (instinct auto-préservation) ──────────────────
-    let bus_preservation = bus.clone();
-    tokio::spawn(async move {
+    // ── Phase 5: SelfHealer (auto-préservation + réparation) ───────────────
+    {
         use soullink_autonomy::preservation::{Preservation, PreservationConfig};
         let preservation = Preservation::new(PreservationConfig::default());
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-        loop {
-            interval.tick().await;
-            // Monitor error cascades via bus events
-            if let Some(actions) = preservation.record_error().await {
-                for action in &actions {
-                    bus_preservation.publish(soulsystem::bus::Message::Custom {
-                        topic: "preservation.action".into(),
-                        payload: serde_json::json!({"action": format!("{:?}", action)}),
-                    });
+        let healer = Arc::new(soulsystem::self_healer::SelfHealer::new(
+            preservation.clone(),
+            settings.paths.data_dir.clone(),
+        ));
+        // Error cascade monitoring from bus events
+        let bus_heal = bus.clone();
+        let pres = preservation.clone();
+        let healer_events = healer.clone();
+        tokio::spawn(async move {
+            use soulsystem::bus::Message;
+            let mut rx = bus_heal.subscribe();
+            loop {
+                match rx.recv().await {
+                    Ok(Message::Custom { topic, .. }) if topic.starts_with("error.") => {
+                        if let Some(actions) = pres.record_error().await {
+                            for action in &actions {
+                                healer_events.execute(&action).await;
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(_) => break,
                 }
             }
-            // Check resources periodically
-            let cpu = read_cpu_usage();
-            let mem = read_mem_usage();
-            if let Some(actions) = preservation.check_resources(cpu, mem, 0.0).await {
-                for action in &actions {
-                    tracing::warn!("Preservation: {:?}", action);
-                    bus_preservation.publish(soulsystem::bus::Message::Custom {
-                        topic: "preservation.critical".into(),
-                        payload: serde_json::json!({"action": format!("{:?}", action), "cpu": cpu, "mem": mem}),
-                    });
-                }
-            }
-        }
-    });
-    info!("Preservation instinct: surveillance active (interval: 30s)");
+        });
+        let healer_run = healer.clone();
+        tokio::spawn(async move {
+            healer_run.run().await;
+        });
+        info!("SelfHealer: auto-réparation active (interval: 30s)");
+    }
 
     info!("✅ SoulSystem prêt — boucle principale");
 
@@ -793,7 +805,7 @@ async fn main() -> Result<()> {
 
     // ── Persistent store (sled) ───────────────────────────────────────
     let persist_dir = settings.paths.data_dir.join("agent");
-    let persist_store = match soul_persist::PersistentStore::open(&persist_dir) {
+    let persist_store = match soul_memory::PersistentStore::open(&persist_dir) {
         Ok(store) => {
             info!("PersistentStore: actif ({:?})", persist_dir);
             store
@@ -802,7 +814,7 @@ async fn main() -> Result<()> {
             tracing::warn!("PersistentStore: ouverture échouée (mode dégradé): {}", e);
             // Fallback to temp dir
             match tempfile::tempdir() {
-                Ok(tmp) => match soul_persist::PersistentStore::open(tmp.path()) {
+                Ok(tmp) => match soul_memory::PersistentStore::open(tmp.path()) {
                     Ok(store) => {
                         info!("PersistentStore: mode dégradé (tmp)");
                         store
@@ -1046,51 +1058,110 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    // ── Boucle principale ──────────────────────────────────────────────────
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-    }
-}
+    // ── Boucle principale — AutonomousLoop ──────────────────────────────
+    info!("▶ AutonomousLoop: heartbeat + scheduler + consolidation actifs");
 
-fn read_cpu_usage() -> f64 {
-    std::fs::read_to_string("/proc/loadavg")
-        .ok()
-        .and_then(|c| c.split_whitespace().next()?.parse::<f64>().ok())
-        .map(|v| v * 100.0 / num_cpus())
-        .unwrap_or(0.0)
-}
+    // Heartbeat: tic-tac toutes les secondes, alimente le dashboard
+    let hb_bus = bus.clone();
+    let hb_dash = dashboard_state.clone();
+    let _hb_persist = persist_store;
+    let hb_memory = memory_hub.clone();
+    let hb_health = health.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(tokio::time::Duration::from_secs(1));
+        let mut consolidated = false;
+        let mut last_consolidation = chrono::Utc::now();
+        loop {
+            tick.tick().await;
 
-fn read_mem_usage() -> f64 {
-    let Ok(content) = std::fs::read_to_string("/proc/meminfo") else {
-        return 0.0;
-    };
-    let mut total = 0.0f64;
-    let mut available = 0.0f64;
-    for line in content.lines() {
-        if line.starts_with("MemTotal:") {
-            total = line
-                .split_whitespace()
-                .nth(1)
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(0.0);
+            // 1. Pulse sur le bus
+            hb_bus.publish(soulsystem::bus::Message::Custom {
+                topic: "heartbeat.tick".into(),
+                payload: serde_json::json!({"ts": chrono::Utc::now().timestamp_millis()}),
+            });
+
+            // 2. Mise à jour dashboard
+            let mut state = hb_dash.write().await;
+            state.agent.uptime_secs += 1;
+
+            // 3. Consolidation mémoire toutes les 10 minutes
+            let elapsed = (chrono::Utc::now() - last_consolidation).num_seconds();
+            if elapsed >= 600 {
+                if !consolidated {
+                    consolidated = true;
+                    tokio::spawn({
+                        let mem = hb_memory.clone();
+                        async move {
+                            mem.decay_and_prune(0.95, 0.1, 2000).await;
+                            info!("AutonomousLoop: memory consolidation done");
+                        }
+                    });
+                    last_consolidation = chrono::Utc::now();
+                }
+            } else {
+                consolidated = false;
+            }
+
+            // 4. Check santé mémoire toutes les 60 ticks
+            if state.agent.uptime_secs % 60 == 0 {
+                let h = hb_health.lock().await;
+                let err_rate = h.error_rate();
+                drop(h);
+                if err_rate > 0.15 {
+                    warn!("AutonomousLoop: memory health degraded (err rate: {:.2})", err_rate);
+                }
+            }
         }
-        if line.starts_with("MemAvailable:") {
-            available = line
-                .split_whitespace()
-                .nth(1)
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(0.0);
-        }
-    }
-    if total > 0.0 {
-        ((total - available) / total) * 100.0
-    } else {
-        0.0
-    }
-}
+    });
 
-fn num_cpus() -> f64 {
-    std::thread::available_parallelism()
-        .map(|n| n.get() as f64)
-        .unwrap_or(8.0)
+// Scheduler: vérifie les tâches planifiées toutes les 60 secondes
+    let scheduler = Arc::new(soul_scheduler::Scheduler::new(|task| {
+        tracing::info!("Scheduler tick: {} — {}", task.name, task.description);
+        Ok(())
+    }));
+    // Default tasks
+    scheduler.add_task(soul_scheduler::ScheduledTask::new(
+        "memory-consolidation", "0 */6 * * *",
+        "Consolidate episodic memory to semantic every 6 hours"
+    )).await;
+    scheduler.add_task(soul_scheduler::ScheduledTask::new(
+        "health-check", "0 * * * *",
+        "Run system health check every hour"
+    )).await;
+    scheduler.add_task(soul_scheduler::ScheduledTask::new(
+        "auto-documentation", "0 0 * * *",
+        "Generate daily autonomy report and update LEARNINGS.md"
+    )).await;
+    let sched = scheduler.clone();
+    tokio::spawn(async move {
+        sched.run().await;
+    });
+    info!("Scheduler: cron tasks active (6h consolidation, hourly health)");
+
+    // Phase 7: Auto-documentation — generate LEARNINGS.md every hour
+    let docs_path = settings.paths.data_dir.join("LEARNINGS.md");
+    let docs_memory = memory_hub.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
+            let ctx = docs_memory.get_context("learnings improvements discoveries", 5).await;
+            let learnings = format!(
+                "# SoulSystem Learnings — {}\n\n{}\n\n---\n*Auto-generated by AutonomousLoop*\n",
+                timestamp, ctx
+            );
+            if let Err(e) = tokio::fs::write(&docs_path, &learnings).await {
+                tracing::warn!("Auto-documentation: failed to write LEARNINGS.md: {}", e);
+            } else {
+                info!("Auto-documentation: LEARNINGS.md updated");
+            }
+        }
+    });
+    info!("Auto-documentation: LEARNINGS.md auto-generated every hour");
+
+    // Attendre SIGINT
+    tokio::signal::ctrl_c().await?;
+    info!("Signal reçu, arrêt de SoulSystem...");
+    Ok(())
 }

@@ -2,8 +2,8 @@
 
 ## Monorepo Structure
 
-SoulSystem is now an industrial-grade monorepo containing:
-- **Core Orchestrator**: Logic for agent coordination and system heartbeat.
+SoulSystem is an industrial-grade monorepo containing:
+- **Core Orchestrator**: Agent coordination logic and system heartbeat.
 - **Message Bus**: Binary-serialized (`bincode`) central communication hub.
 - **SciRust Ecosystem**: Full deep learning framework (autodiff, core, gpu, simd).
 - **SciRust-TN**: Tensor-Train compression for high-dimensional neural states.

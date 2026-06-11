@@ -4,11 +4,11 @@ use rustyline::DefaultEditor;
 use soul_agent_core::{AgentConfig, AgentEvent, AutonomousAgent};
 use soul_critique::quick_critique;
 use soul_designtree::{DesignState, DesignTree};
-use soul_graph_memory::{KnowledgeGraph, Node, NodeType, Edge, EdgeType};
 use soul_inference::InferenceController;
 use soul_llm::{LlmConfig, OllamaClient};
 use soul_mcp::McpToolHandler;
-use soul_persist::PersistentStore;
+use soul_memory::PersistentStore;
+use soul_memory::{Edge, EdgeType, KnowledgeGraph, Node, NodeType};
 use soul_planner::CognitiveLoop;
 use soul_skills::SkillLoader;
 use soul_subagents::SubAgentManager;
@@ -24,7 +24,7 @@ pub struct ReplState {
     pub graph: KnowledgeGraph,
     pub design_tree: DesignTree,
     pub skill_loader: SkillLoader,
-    pub conversations: Option<soul_conversations::ConversationStore>,
+    pub conversations: Option<soul_memory::ConversationStore>,
     pub session_id: Option<String>,
     pub sub_agents: SubAgentManager,
 }
@@ -52,7 +52,7 @@ impl ReplState {
             graph: KnowledgeGraph::new(),
             design_tree: DesignTree::new(&data_dir.join("design")),
             skill_loader: SkillLoader::new(&skills_dir),
-            conversations: soul_conversations::ConversationStore::open(&data_dir.join("conversations")).ok(),
+            conversations: soul_memory::ConversationStore::open(&data_dir.join("conversations")).ok(),
             session_id: None,
             sub_agents: SubAgentManager::new(soul_llm::LlmConfig::default(), 4),
         }
@@ -69,6 +69,84 @@ fn new_runtime() -> tokio::runtime::Runtime {
         eprintln!("Failed to create tokio runtime: {e}");
         std::process::exit(1);
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_repl_short() {
+        let s = "hello";
+        assert_eq!(truncate_repl(s, 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_repl_long() {
+        let s = "hello world this is a long string";
+        let truncated = truncate_repl(s, 10);
+        assert_eq!(truncated, "hello worl...");
+        assert_eq!(truncated.len(), 13); // 10 + "..."
+    }
+
+    #[test]
+    fn test_truncate_repl_empty() {
+        assert_eq!(truncate_repl("", 10), "");
+    }
+
+    #[test]
+    fn test_truncate_repl_exact() {
+        let s = "12345";
+        assert_eq!(truncate_repl(s, 5), "12345");
+    }
+
+    #[test]
+    fn test_truncate_repl_one_char() {
+        let s = "abc";
+        assert_eq!(truncate_repl(s, 1), "a...");
+    }
+
+    #[test]
+    fn test_repl_state_new() {
+        let config = LlmConfig::default();
+        let state = ReplState::new(config);
+        assert_eq!(state.verbose, true);
+        assert_eq!(state.session_id, None);
+    }
+
+    #[test]
+    fn test_repl_state_with_daemon() {
+        let config = LlmConfig::default();
+        let (tx, rx) = broadcast::channel(16);
+        let _state = ReplState::new(config).with_daemon_events(rx);
+        drop(tx);
+        // Should have daemon_rx set
+        // Can't easily assert on broadcast receiver, just verify no panic
+    }
+
+    #[test]
+    fn test_print_help_does_not_panic() {
+        print_help();
+    }
+
+    #[test]
+    fn test_repl_state_default_fields() {
+        let config = LlmConfig::default().with_model("test-repl-model");
+        let state = ReplState::new(config);
+        assert!(state.persist_store.is_some() || state.persist_store.is_none());
+        // graph should be initialized (KnowledgeGraph::new())
+        let stats = state.graph.stats();
+        assert_eq!(stats.node_count, 0);
+        assert_eq!(stats.edge_count, 0);
+    }
+
+    #[test]
+    fn test_repl_state_design_tree() {
+        let config = LlmConfig::default();
+        let state = ReplState::new(config);
+        let stats = state.design_tree.stats();
+        assert_eq!(stats.total, 0);
+    }
 }
 
 pub fn run_repl(state: &mut ReplState) {
@@ -163,7 +241,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                             }
                         }
                         if let Some(ref sid) = state.session_id {
-                            conv.add_message(soul_conversations::AddMessageParams {
+                            conv.add_message(soul_memory::AddMessageParams {
                                 session_id: sid,
                                 role: "user",
                                 content: args,
@@ -172,7 +250,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                                 tokens_used: None,
                                 model: None,
                             }).ok();
-                            conv.add_message(soul_conversations::AddMessageParams {
+                            conv.add_message(soul_memory::AddMessageParams {
                                 session_id: sid,
                                 role: "assistant",
                                 content: &resp,
@@ -202,7 +280,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             println!("  {} design node: {}", "●".dimmed(), &design_id[..8]);
 
             // Auto-add to knowledge graph
-            let graph_node = soul_graph_memory::Node::new(soul_graph_memory::NodeType::Task, args);
+            let graph_node = soul_memory::Node::new(soul_memory::NodeType::Task, args);
             let graph_id = state.graph.add_node(graph_node);
             println!("  {} graph node: {}", "●".dimmed(), &graph_id[..8]);
 
@@ -268,8 +346,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                     }
 
                     // Auto-add result to knowledge graph
-                    let result_node = soul_graph_memory::Node::new(
-                        soul_graph_memory::NodeType::Task,
+                    let result_node = soul_memory::Node::new(
+                        soul_memory::NodeType::Task,
                         &format!("result: {}", &result[..result.len().min(50)]),
                     ).with_content(&result);
                     state.graph.add_node(result_node);
@@ -505,7 +583,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 return;
             }
             println!("{}", format!("Searching: {}...", args).cyan());
-            let mut rag = soul_rag::RagStore::new(soul_rag::RagConfig::default());
+            let mut rag = soul_memory::RagStore::new(soul_memory::RagConfig::default());
             match rag.search_web(args).await {
                 Ok(results) => {
                     if results.is_empty() {
@@ -541,7 +619,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             }
             // Fetch relevant context from web
             println!("{}", "Fetching web context...".cyan());
-            let mut rag = soul_rag::RagStore::new(soul_rag::RagConfig::default());
+            let mut rag = soul_memory::RagStore::new(soul_memory::RagConfig::default());
             let context = match rag.search_web(args).await {
                 Ok(results) => {
                     results.iter()
@@ -601,7 +679,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
 
             // Save agent context
             if let Some(ref store) = state.persist_store {
-                let mem = soul_persist::PersistentWorkingMemory {
+                let mem = soul_memory::PersistentWorkingMemory {
                     key_info: state.agent.planner.memory.key_info.clone(),
                     observations: state.agent.planner.memory.recent_observations(50).to_vec(),
                     related_sop: None,
@@ -613,7 +691,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                 };
                 store.save_memory(&mem).ok();
                 for action in state.agent.planner.history.recent(20) {
-                    let entry = soul_persist::ChatEntry {
+                    let entry = soul_memory::ChatEntry {
                         id: uuid::Uuid::new_v4().to_string(),
                         role: "system".into(),
                         content: format!("Action: {} → {}", action.action, action.result),
@@ -634,7 +712,7 @@ async fn handle_input(state: &mut ReplState, input: &str) {
             // Load graph
             let graph_path = data_dir.join("graph.json");
             if graph_path.exists() {
-                match soul_graph_memory::KnowledgeGraph::load(&graph_path) {
+                match soul_memory::KnowledgeGraph::load(&graph_path) {
                     Ok(loaded) => {
                         state.graph = loaded;
                         let stats = state.graph.stats();
@@ -694,11 +772,11 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                         return;
                     }
                     if let Some(ref store) = state.persist_store {
-                        let goal = soul_persist::PersistentGoal {
+                        let goal = soul_memory::PersistentGoal {
                             id: uuid::Uuid::new_v4().to_string(),
                             description: sub_args.to_string(),
                             priority: 5,
-                            status: soul_persist::GoalStatus::Active,
+                            status: soul_memory::GoalStatus::Active,
                             created_at: chrono::Utc::now(),
                             updated_at: chrono::Utc::now(),
                             parent_id: None,
@@ -723,11 +801,11 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                                     println!("{}:", "Goals".cyan().bold());
                                     for g in &goals {
                                         let status_icon = match g.status {
-                                            soul_persist::GoalStatus::Active => "○".yellow(),
-                                            soul_persist::GoalStatus::Running => "●".green(),
-                                            soul_persist::GoalStatus::Completed => "✓".cyan(),
-                                            soul_persist::GoalStatus::Failed => "✗".red(),
-                                            soul_persist::GoalStatus::Deferred => "◦".dimmed(),
+                                            soul_memory::GoalStatus::Active => "○".yellow(),
+                                            soul_memory::GoalStatus::Running => "●".green(),
+                                            soul_memory::GoalStatus::Completed => "✓".cyan(),
+                                            soul_memory::GoalStatus::Failed => "✗".red(),
+                                            soul_memory::GoalStatus::Deferred => "◦".dimmed(),
                                         };
                                         println!(
                                             "  {} [{}] {} (priority: {})",
@@ -751,8 +829,8 @@ async fn handle_input(state: &mut ReplState, input: &str) {
                             Ok(active) => {
                                 match store.load_all_goals() {
                                     Ok(all) => {
-                                        let completed = all.iter().filter(|g| g.status == soul_persist::GoalStatus::Completed).count();
-                                        let failed = all.iter().filter(|g| g.status == soul_persist::GoalStatus::Failed).count();
+                                        let completed = all.iter().filter(|g| g.status == soul_memory::GoalStatus::Completed).count();
+                                        let failed = all.iter().filter(|g| g.status == soul_memory::GoalStatus::Failed).count();
                                         println!("{}:", "Goal Stats".cyan().bold());
                                         println!("  Active: {}", active.len().to_string().green());
                                         println!("  Completed: {}", completed.to_string().cyan());

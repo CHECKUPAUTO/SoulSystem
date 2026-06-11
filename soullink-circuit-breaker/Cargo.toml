@@ -1,8 +1,0 @@
-[package]
-name = "soullink-circuit-breaker"
-version = "0.1.0"
-edition = "2021"
-description = "Wrapper backward-compatible pour le circuit breaker unifié"
-
-[dependencies]
-soullink-circuit = { path = "../soullink-brain/soullink-circuit" }

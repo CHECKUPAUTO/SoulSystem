@@ -7,4 +7,4 @@ pub mod node;
 pub mod tree;
 
 pub use node::ThoughtNode;
-pub use tree::ThoughtTree;
+pub use tree::{ThoughtTree, TreeConfig};

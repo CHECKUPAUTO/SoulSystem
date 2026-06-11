@@ -906,3 +906,293 @@ pub fn build_tool_schemas() -> Vec<ToolSchema> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_role_serde_system() {
+        let role = Role::System;
+        let json = serde_json::to_string(&role).unwrap();
+        assert_eq!(json, "\"system\"");
+        let deserialized: Role = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, Role::System);
+    }
+
+    #[test]
+    fn test_role_serde_user() {
+        let role = Role::User;
+        let json = serde_json::to_string(&role).unwrap();
+        assert_eq!(json, "\"user\"");
+        let deserialized: Role = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, Role::User);
+    }
+
+    #[test]
+    fn test_role_serde_assistant() {
+        let role = Role::Assistant;
+        let json = serde_json::to_string(&role).unwrap();
+        assert_eq!(json, "\"assistant\"");
+        let deserialized: Role = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, Role::Assistant);
+    }
+
+    #[test]
+    fn test_role_serde_tool() {
+        let role = Role::Tool;
+        let json = serde_json::to_string(&role).unwrap();
+        assert_eq!(json, "\"tool\"");
+        let deserialized: Role = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, Role::Tool);
+    }
+
+    #[test]
+    fn test_chat_message_serde() {
+        let msg = ChatMessage {
+            role: Role::User,
+            content: "Hello".to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let deserialized: ChatMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.role, Role::User);
+        assert_eq!(deserialized.content, "Hello");
+    }
+
+    #[test]
+    fn test_tool_call_serde() {
+        let tc = ToolCall {
+            id: "call_123".to_string(),
+            call_type: "function".to_string(),
+            function: FunctionCall {
+                name: "execute_shell".to_string(),
+                arguments: r#"{"command":"ls"}"#.to_string(),
+            },
+        };
+        let json = serde_json::to_string(&tc).unwrap();
+        let deserialized: ToolCall = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.id, "call_123");
+        assert_eq!(deserialized.function.name, "execute_shell");
+    }
+
+    #[test]
+    fn test_tool_schema_serde() {
+        let schema = ToolSchema {
+            schema_type: "function".to_string(),
+            function: FunctionSchema {
+                name: "test_tool".to_string(),
+                description: "A test tool".to_string(),
+                parameters: serde_json::json!({"type": "object", "properties": {}}),
+            },
+        };
+        let json = serde_json::to_string(&schema).unwrap();
+        let deserialized: ToolSchema = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.function.name, "test_tool");
+    }
+
+    #[test]
+    fn test_llm_config_default() {
+        // Default config without env vars should use fallbacks
+        let config = LlmConfig::default();
+        assert_eq!(config.base_url, "http://127.0.0.1:11434");
+        assert_eq!(config.temperature, 0.7);
+        assert_eq!(config.max_tokens, 4096);
+    }
+
+    #[test]
+    fn test_llm_config_builder() {
+        let config = LlmConfig::default()
+            .with_model("test-model")
+            .with_temperature(0.5)
+            .with_max_tokens(1024);
+        assert_eq!(config.model, "test-model");
+        assert_eq!(config.temperature, 0.5);
+        assert_eq!(config.max_tokens, 1024);
+    }
+
+    #[test]
+    fn test_llm_config_for_complexity() {
+        let low = LlmConfig::for_complexity(1);
+        assert_eq!(low.max_tokens, 2048);
+
+        let med = LlmConfig::for_complexity(5);
+        assert_eq!(med.max_tokens, 4096);
+
+        let high = LlmConfig::for_complexity(7);
+        assert_eq!(high.max_tokens, 8192);
+    }
+
+    #[test]
+    fn test_llm_config_fallback_models() {
+        let config = LlmConfig::default();
+        assert!(!config.fallback_models.is_empty());
+    }
+
+    #[test]
+    fn test_chat_session_add_user() {
+        let mut session = ChatSession::new("test system prompt");
+        session.add_user_message("hello");
+        assert_eq!(session.messages.len(), 1);
+        assert_eq!(session.messages[0].role, Role::User);
+    }
+
+    #[test]
+    fn test_chat_session_add_assistant() {
+        let mut session = ChatSession::new("test system prompt");
+        session.add_assistant_message("response");
+        assert_eq!(session.messages.len(), 1);
+        assert_eq!(session.messages[0].role, Role::Assistant);
+    }
+
+    #[test]
+    fn test_chat_session_add_tool_result() {
+        let mut session = ChatSession::new("test system prompt");
+        session.add_tool_result("tool_1", "output");
+        assert_eq!(session.messages.len(), 1);
+        assert_eq!(session.messages[0].role, Role::Tool);
+        assert_eq!(session.messages[0].tool_call_id, Some("tool_1".to_string()));
+    }
+
+    #[test]
+    fn test_chat_session_build_messages() {
+        let mut session = ChatSession::new("system prompt");
+        session.add_user_message("user message");
+        let messages = session.build_messages();
+        assert_eq!(messages.len(), 2); // system + user
+        assert_eq!(messages[0].role, Role::System);
+        assert_eq!(messages[0].content, "system prompt");
+        assert_eq!(messages[1].role, Role::User);
+    }
+
+    #[test]
+    fn test_chat_session_context_truncation() {
+        // Create a session with very small context limit that fits system + 1 small msg
+        let mut session = ChatSession::with_max_context("ab", 132); // system=2 chars, +50 overhead = fits ~80 chars of msg
+        // First message: fits within limit
+        session.add_user_message("hello world"); // 11 chars + 50 overhead = 61, system 2+50 = 52, total 113 <= 132
+        // Second message: pushes over the limit
+        session.add_user_message("this second message is longer and will push us over the limit definitely"); // 86+50=136, total 113+136=249 > 132
+        let messages = session.build_messages();
+        // Should include system + truncation marker + second message
+        assert!(
+            messages.len() == 3,
+            "expected 3 messages (system + truncation + 1 kept), got {}",
+            messages.len()
+        );
+        assert_eq!(messages[0].role, Role::System);
+        assert!(
+            messages[1].content.contains("truncat"),
+            "expected truncation marker, got: {:?}",
+            messages[1].content
+        );
+        assert_eq!(messages[2].content, "this second message is longer and will push us over the limit definitely");
+    }
+
+    #[test]
+    fn test_chat_session_clear() {
+        let mut session = ChatSession::new("system");
+        session.add_user_message("msg");
+        assert_eq!(session.messages.len(), 1);
+        session.clear();
+        assert_eq!(session.messages.len(), 0);
+    }
+
+    #[test]
+    fn test_chat_session_history_summary() {
+        let session = ChatSession::new("system");
+        assert_eq!(session.history_summary(), "No conversation history");
+    }
+
+    #[test]
+    fn test_chat_session_with_max_context() {
+        let session = ChatSession::with_max_context("system", 500);
+        assert_eq!(session.max_context_chars, 500);
+    }
+
+    #[test]
+    fn test_build_tool_schemas() {
+        let schemas = build_tool_schemas();
+        assert!(!schemas.is_empty());
+        assert!(schemas.iter().any(|s| s.function.name == "execute_shell"));
+        assert!(schemas.iter().any(|s| s.function.name == "read_file"));
+        assert!(schemas.iter().any(|s| s.function.name == "write_file"));
+    }
+
+    #[test]
+    fn test_chat_response_message_deser() {
+        let json = r#"{"message":{"role":"assistant","content":"Hello","tool_calls":null},"done":true,"total_duration":1000,"eval_count":10}"#;
+        let resp: ChatResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.done);
+        assert_eq!(resp.message.content.unwrap(), "Hello");
+        assert_eq!(resp.total_duration, Some(1000));
+    }
+
+    #[test]
+    fn test_chat_response_with_tool_calls_deser() {
+        let json = r#"{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"execute_shell","arguments":"{\"command\":\"ls\"}"}}]},"done":true}"#;
+        let resp: ChatResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.done);
+        let calls = resp.message.tool_calls.unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "execute_shell");
+    }
+
+    #[test]
+    fn test_generate_response_deser() {
+        let json = r#"{"response":"Hello!","done":true,"total_duration":500,"eval_count":5}"#;
+        let resp: GenerateResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.response, "Hello!");
+        assert!(resp.done);
+    }
+
+    #[test]
+    fn test_embed_response_deser() {
+        let json = r#"{"embeddings":[[0.1,0.2,0.3]]}"#;
+        let resp: EmbedResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.embeddings.len(), 1);
+        assert_eq!(resp.embeddings[0], vec![0.1, 0.2, 0.3]);
+    }
+
+    #[test]
+    fn test_stream_chunk_deser() {
+        let json = r#"{"message":{"role":"assistant","content":"Hello"},"done":false}"#;
+        let chunk: StreamChunk = serde_json::from_str(json).unwrap();
+        assert!(!chunk.done);
+        assert_eq!(chunk.message.unwrap().content.unwrap(), "Hello");
+    }
+
+    #[test]
+    fn test_stream_chunk_done() {
+        let json = r#"{"message":{"role":"assistant","content":"World"},"done":true}"#;
+        let chunk: StreamChunk = serde_json::from_str(json).unwrap();
+        assert!(chunk.done);
+    }
+
+    #[test]
+    fn test_models_response_deser() {
+        let json = r#"{"models":[{"name":"llama3:8b","size":1000,"parameter_size":"8B"}]}"#;
+        let resp: ModelsResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.models.len(), 1);
+        assert_eq!(resp.models[0].name, "llama3:8b");
+    }
+
+    #[test]
+    fn test_llm_error_display() {
+        let err = LlmError::NotReachable("test".to_string());
+        assert_eq!(format!("{}", err), "Ollama not reachable at test");
+    }
+
+    #[test]
+    fn test_function_schema_serde() {
+        let schema = FunctionSchema {
+            name: "test".to_string(),
+            description: "desc".to_string(),
+            parameters: serde_json::json!({"type": "object"}),
+        };
+        let json = serde_json::to_string(&schema).unwrap();
+        let deser: FunctionSchema = serde_json::from_str(&json).unwrap();
+        assert_eq!(deser.name, "test");
+    }
+}

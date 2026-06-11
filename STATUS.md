@@ -1,48 +1,48 @@
-# STATUS — État de l'Écosystème SoulSystem
+# STATUS — SoulSystem Ecosystem Health
 
-*Généré le 2026-05-16*
+*Generated 2026-05-16*
 
-## Modules actifs
+## Active Modules
 
-| Module | Statut | Dépendances | Notes |
+| Module | Status | Dependencies | Notes |
 |--------|--------|-------------|-------|
-| `soul_memory` | ✅ Actif | sled, seahash | Stockage vectoriel local. Pas de Qdrant nécessaire. |
-| `telemetry` | ✅ Actif | tracing-subscriber | Init OTLP configurable via `OTEL_EXPORTER_OTLP_ENDPOINT`. |
-| `code_signing` | ✅ Actif | sha2, uuid | Vérification de signature ed25519. Clés dans `~/.soulsystem/authorized_keys`. |
-| `audit_log` | ✅ Actif | sled, sha2, chrono | Chaîne de hachage immuable. Stockage dans `/var/log/soulsystem/audit.sled`. |
-| `bus` | ✅ Actif | tokio broadcast | Bus de messages interne (256 messages de buffer). |
-| `compute_backend` | ✅ Actif | — | Trait ComputeBackend + CpuFallback. CUDA si feature `gpu`. |
-| `config` | ✅ Actif | toml | `soulsystem.toml` + surcharge par variables d'env `SOULSYSTEM_*`. |
+| `soul_memory` | ✅ Active | sled | Local vector storage. No Qdrant needed. |
+| `telemetry` | ✅ Active | tracing-subscriber | OTLP init configurable via `OTEL_EXPORTER_OTLP_ENDPOINT`. |
+| `code_signing` | ✅ Active | sha2, uuid | ed25519 signature verification. Keys in `~/.soulsystem/authorized_keys`. |
+| `audit_log` | ✅ Active | sled, sha2, chrono | Immutable hash chain. Storage at `/var/log/soulsystem/audit.sled`. |
+| `bus` | ✅ Active | tokio broadcast | Internal message bus (256 message buffer). |
+| `compute_backend` | ✅ Active | — | ComputeBackend trait + CpuFallback. CUDA with `gpu` feature. |
+| `config` | ✅ Active | toml | `soulsystem.toml` + override via `SOULSYSTEM_*` env vars. |
 
-## Modules en veille (intégrés, désactivables)
+## Idle Modules (integrated, disableable)
 
-| Module | Statut | Condition de réactivation |
-|--------|--------|--------------------------|
-| `federated_learning` | ⏸️ Veille | Quand une deuxième instance SoulSystem sera déployée. |
-| `meta_learning` | ⏸️ Veille | Quand OpenEvolve sera intégré comme dépendance directe. |
-| `dev_dashboard` | ⏸️ Veille | Flag `--dev` au lancement (feature `dev`). |
-| `discovery` | ⏸️ Veille | Quand mDNS sera nécessaire (multi-instance LAN). |
-| `soul_wallet` | ⏸️ Veille | Quand un nœud Lightning sera disponible. |
-| `swarm` | ⏸️ Veille | Quand 3+ instances seront déployées. |
-| `jit_hnn` | ⏸️ Veille | Feature `jit` (Cranelift) — dépendances lourdes. |
-| `hardware_autoscaler` | ⏸️ Veille | Mode monitoring uniquement. |
+| Module | Status | Reactivation Condition |
+|--------|--------|------------------------|
+| `federated_learning` | ⏸️ Idle | When a second SoulSystem instance is deployed. |
+| `meta_learning` | ⏸️ Idle | When OpenEvolve is integrated as a direct dependency. |
+| `dev_dashboard` | ⏸️ Idle | `--dev` flag on launch (feature `dev`). |
+| `discovery` | ⏸️ Idle | When mDNS is needed (multi-instance LAN). |
+| `soul_wallet` | ⏸️ Idle | When a Lightning node is available. |
+| `swarm` | ⏸️ Idle | When 3+ instances are deployed. |
+| `jit_hnn` | ⏸️ Idle | Feature `jit` (Cranelift) — heavy dependencies. |
+| `hardware_autoscaler` | ⏸️ Idle | Monitoring mode only. |
 
-## Modules en backlog (documentés, non intégrés)
+## Backlog Modules (documented, not integrated)
 
-| Module | Dépôt | Documentation | Priorité |
-|--------|-------|---------------|----------|
-| `skill_marketplace` | SoulSystem | `docs/SKILL_MARKETPLACE.md` | Faible |
-| `skill_api` | SoulSystem | `docs/SKILL_MARKETPLACE.md` | Faible |
-| SDK Python/TS | SoulSystem | `sdk/README.md` | Faible |
-| Nix sandbox | SoulSystem | `docs/NIX_SANDBOX.md` | Faible |
-| Anomaly detection | SYNERGIE | `README.md` | Moyenne |
-| Quantization int8 | scirust | `README.md` | Haute (Jetson AGX) |
-| Homomorphic | scirust | `README.md` | Faible |
+| Module | Repository | Documentation | Priority |
+|--------|-----------|---------------|----------|
+| `skill_marketplace` | SoulSystem | `docs/SKILL_MARKETPLACE.md` | Low |
+| `skill_api` | SoulSystem | `docs/SKILL_MARKETPLACE.md` | Low |
+| Python/TS SDK | SoulSystem | `sdk/README.md` | Low |
+| Nix sandbox | SoulSystem | `docs/NIX_SANDBOX.md` | Low |
+| Anomaly detection | SYNERGIE | `README.md` | Medium |
+| Quantization int8 | scirust | `README.md` | High (Jetson AGX) |
+| Homomorphic | scirust | `README.md` | Low |
 
-## Résultats des tests (26/26 ✅)
+## Test Results
 
-| Suite | Tests | Résultat |
-|-------|-------|----------|
+| Suite | Tests | Result |
+|-------|-------|--------|
 | audit_log_test | 2 | ✅ |
 | bus_test | 2 | ✅ |
 | code_signing_test | 2 | ✅ |
@@ -54,6 +54,6 @@
 
 ## Build
 
-- `cargo build` : ✅ 0 erreurs
+- `cargo build` : ✅ 0 errors
 - `cargo test` : ✅ 26/26
 - `cargo build --release` : ✅
