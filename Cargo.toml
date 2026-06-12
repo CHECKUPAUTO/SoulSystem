@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    "scirust-trading-core",
+    "scirust-trading-engine",
+    "scirust-trading-observer",
+    "scirust-trading-persistence",
+    "scirust-trading-news",
+    "scirust-trading-monitor",
+]
