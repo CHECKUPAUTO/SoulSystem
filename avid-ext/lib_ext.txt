@@ -1,0 +1,21 @@
+            }
+            guard = self.inner.lock().await;
+        }
+
+        let now = tokio::time::Instant::now();
+        let sleep_duration = if let Some(last) = guard.domain_tickers.get(&host) {
+            let elapsed = now.duration_since(*last);
+            let required = Duration::from_millis(self.config.rate_limit_ms);
+            if elapsed < required {
+                Some(required - elapsed)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if sleep_duration.is_some() {
+            guard.metrics.inc_domains_throttled();
+        }
+        guard.domain_tickers.insert(host, now);
+        let adaptive_delay = guard.adaptive_rate.delay();
