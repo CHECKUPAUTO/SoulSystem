@@ -244,7 +244,7 @@ impl CognitiveLoop {
             0.0
         };
 
-        let final_score = (adjusted - complexity_penalty).max(0.0).min(1.0);
+        let final_score = (adjusted - complexity_penalty).clamp(0.0, 1.0);
 
         Evaluation {
             score: final_score,

@@ -10,6 +10,7 @@ use std::sync::Arc;
 ///
 /// Fournit une API backward-compatible avec l'ancien `OllamaClient`
 /// tout en supportant n'importe quel provider.
+#[derive(Clone)]
 pub struct LlmClient {
     provider: Arc<dyn LlmProvider>,
     budget: Arc<LlmBudget>,

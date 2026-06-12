@@ -373,10 +373,8 @@ fn handle_settings_key(app: &mut ConfigApp, key: KeyEvent) -> bool {
                 return true;
             }
         }
-        KeyCode::Char('s') => {
-            if app.dirty {
-                app.focus = Focus::ConfirmSave;
-            }
+        KeyCode::Char('s') if app.dirty => {
+            app.focus = Focus::ConfirmSave;
         }
         _ => {}
     }

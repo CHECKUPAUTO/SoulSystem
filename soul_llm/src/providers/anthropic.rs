@@ -33,6 +33,7 @@ struct AnthropicResponse {
     content: Vec<AnthropicContent>,
     usage: AnthropicUsage,
     model: String,
+    #[allow(dead_code)]
     stop_reason: Option<String>,
 }
 
@@ -64,6 +65,7 @@ struct AnthropicStreamDelta {
     #[serde(default)]
     text: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     stop_reason: Option<String>,
 }
 
@@ -72,6 +74,7 @@ struct AnthropicStreamDelta {
 pub struct AnthropicProvider {
     http: reqwest::Client,
     base_url: String,
+    #[allow(dead_code)]
     api_key: String,
     default_model: String,
     temperature: f32,

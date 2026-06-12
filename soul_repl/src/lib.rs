@@ -24,7 +24,7 @@ use ratatui::{Frame, Terminal};
 use std::collections::VecDeque;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -104,6 +104,7 @@ pub async fn run_repl(state: &mut ReplState) {
 
 // ─── LLM Events ────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 enum LlmEvent {
     Response(String),
     Error(String),
@@ -125,7 +126,6 @@ enum Focus {
     FileBrowser,
     HistorySearch,
     SessionManager,
-    DiffViewer,
 }
 
 // ─── Provider Options ──────────────────────────────────────────────────
@@ -156,6 +156,7 @@ impl ProviderOpt {
 
 // ─── Message Types ─────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 struct Message {
     role: Role,
     text: String,
@@ -163,6 +164,7 @@ struct Message {
     tool_call: Option<ToolCallInfo>,
 }
 
+#[allow(dead_code)]
 struct ToolCallInfo {
     name: String,
     args: String,
@@ -181,12 +183,14 @@ enum Role {
 
 // ─── Toast Notifications ───────────────────────────────────────────────
 
+#[allow(dead_code)]
 struct Toast {
     message: String,
     level: ToastLevel,
     created_at: Instant,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, PartialEq)]
 enum ToastLevel {
     Info,
@@ -225,6 +229,7 @@ struct FileEntry {
 
 // ─── History Search State ──────────────────────────────────────────────
 
+#[allow(dead_code)]
 struct HistorySearch {
     query: String,
     cursor: usize,
@@ -234,6 +239,7 @@ struct HistorySearch {
 
 // ─── Session Manager State ─────────────────────────────────────────────
 
+#[allow(dead_code)]
 struct SessionEntry {
     name: String,
     path: PathBuf,
@@ -243,6 +249,7 @@ struct SessionEntry {
 
 // ─── App State ─────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 struct App {
     messages: Vec<Message>,
     input: String,
@@ -293,6 +300,7 @@ struct CommandPaletteItem {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 enum CommandAction {
     Ask,
     Plan,
@@ -543,6 +551,7 @@ impl App {
         self.focus = Focus::CommandPalette;
     }
 
+    #[allow(dead_code)]
     fn filter_command_palette(&mut self) {
         // Filtering is done in draw by checking command_palette_filter
         self.command_palette_selected = 0;
@@ -715,12 +724,6 @@ impl App {
             Focus::FileBrowser => self.handle_file_browser_key(key),
             Focus::HistorySearch => self.handle_history_search_key(key),
             Focus::SessionManager => self.handle_session_manager_key(key),
-            Focus::DiffViewer => {
-                if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
-                    self.focus = Focus::Input;
-                }
-                false
-            }
         }
     }
 
@@ -1283,7 +1286,6 @@ impl App {
             Focus::FileBrowser => self.draw_file_browser(f, size),
             Focus::HistorySearch => self.draw_history_search(f, size),
             Focus::SessionManager => self.draw_session_manager(f, size),
-            Focus::DiffViewer => self.draw_diff_viewer(f, size),
             _ => {}
         }
     }
@@ -1366,9 +1368,8 @@ impl App {
     }
 
     fn draw_toasts(&self, f: &mut Frame, size: Rect) {
-        let mut y = 4;
-        for toast in &self.toasts {
-            if y >= size.height - 4 { break; }
+        let max_y = size.height.saturating_sub(4);
+        for (y, toast) in (4u16..max_y).zip(self.toasts.iter()) {
             let toast_area = Rect {
                 x: size.width.saturating_sub(40),
                 y,
@@ -1380,7 +1381,6 @@ impl App {
                 Span::styled(&toast.message, Style::default().fg(Color::White)),
             ]);
             f.render_widget(Paragraph::new(line).style(Style::default().bg(Color::Black)), toast_area);
-            y += 1;
         }
     }
 
@@ -1657,6 +1657,7 @@ impl App {
         f.render_stateful_widget(list, inner, &mut state);
     }
 
+    #[allow(dead_code)]
     fn draw_diff_viewer(&self, f: &mut Frame, size: Rect) {
         let area = centered_rect(80, 80, size);
         f.render_widget(Clear, area);
