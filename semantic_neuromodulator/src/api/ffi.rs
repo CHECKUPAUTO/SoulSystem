@@ -1,6 +1,13 @@
 use crate::neuromodulation::chemical_map::{NeurochemistryProfile, NeuromodulatorMapper};
 use crate::neuromodulation::param_bridge::AlgorithmicParameters;
 
+/// Initialise un NeuromodulatorMapper à partir de pointeurs bruts.
+///
+/// # Safety
+///
+/// `weights_ptr` doit pointer vers un buffer de 9 `f32` valides.
+/// `bias_ptr` doit pointer vers un buffer de 3 `f32` valides.
+/// Le pointeur retourné doit être libéré avec `neural_neuromodulator_free`.
 #[no_mangle]
 pub unsafe extern "C" fn neural_neuromodulator_init(
     weights_ptr: *const f32,
@@ -11,6 +18,12 @@ pub unsafe extern "C" fn neural_neuromodulator_init(
     Box::into_raw(Box::new(NeuromodulatorMapper::new(weights, bias)))
 }
 
+/// Injecte une surcharge de neurotransmetteurs dans les paramètres.
+///
+/// # Safety
+///
+/// `ptr` doit être un pointeur non-null vers un `AlgorithmicParameters` valide
+/// alloué par un appel précédent à une fonction d'initialisation du module.
 #[no_mangle]
 pub unsafe extern "C" fn neural_neuromodulator_inject_override(
     ptr: *mut AlgorithmicParameters,

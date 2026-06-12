@@ -45,6 +45,12 @@ pub struct GodelEngine {
     pub iteration: u64,
 }
 
+impl Default for GodelEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GodelEngine {
     pub fn new() -> Self {
         Self {
@@ -236,7 +242,7 @@ impl AgentArchive {
         let novelty_score = self.compute_novelty(&agent_def);
 
         let entry = ArchiveEntry {
-            id: format!("arch-{:04}-{}", self.entries.len(), &agent_def.name),
+            id: format!("arch-{:04}-{}", self.entries.len(), agent_def.name),
             agent_def,
             quality_score,
             novelty_score,
@@ -528,6 +534,12 @@ pub struct ReflexionMemory {
     pub failure_patterns: Vec<String>,
 }
 
+impl Default for ReflexionMemory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReflexionMemory {
     pub fn new() -> Self {
         Self {
@@ -741,6 +753,12 @@ pub struct MetaEvolver {
     pub trajectory: OptimizationTrajectory,
 }
 
+impl Default for MetaEvolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MetaEvolver {
     pub fn new() -> Self {
         Self {
@@ -852,6 +870,12 @@ pub struct MetaCycleResult {
     pub applied: Vec<ImprovementResult>,
     pub self_mod_checks: Vec<(String, bool, String)>,
     pub explosion_report: String,
+}
+
+impl Default for MetaCycleResult {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MetaCycleResult {

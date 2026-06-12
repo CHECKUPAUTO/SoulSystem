@@ -50,7 +50,8 @@ impl NeuromodulatorMapper {
     /// le systeme normal augmente [x|1] (3 poids + 1 biais) par Gauss a pivot partiel.
     /// Renvoie le MSE final (sortie clampee). NB: machinerie reelle et testee, mais
     /// un VRAI jeu (input -> cible) reste a fournir pour que ce soit utile.
-    pub fn fit(&mut self, inputs: &[[f32; 3]], targets: &[[f32; 3]], ridge: f32) -> f32 {
+    #[allow(clippy::needless_range_loop)]
+pub fn fit(&mut self, inputs: &[[f32; 3]], targets: &[[f32; 3]], ridge: f32) -> f32 {
         assert_eq!(
             inputs.len(),
             targets.len(),
@@ -117,6 +118,7 @@ impl NeuromodulatorMapper {
 }
 
 /// Resout A x = b (4x4) par elimination de Gauss a pivot partiel.
+#[allow(clippy::needless_range_loop)]
 fn solve4(mut a: [[f64; 4]; 4], mut b: [f64; 4]) -> [f64; 4] {
     for col in 0..4 {
         let mut piv = col;

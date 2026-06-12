@@ -2,7 +2,11 @@
 name = "test_telemetry"
 version = "0.1.0"
 edition = "2021"
+description = "Intégration tests for soul_telemetry: TelemetryHub, PrometheusExporter, thermal status, core metrics"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["telemetry", "testing", "integration", "prometheus"]
+categories = ["development-tools::testing"]
 
 [dependencies]
 soul_telemetry = { path = "../soul_telemetry" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"] }
