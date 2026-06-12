@@ -80,19 +80,36 @@ members = [
     # Autonomous entity crates
     "soul_llm",
     "soul_planner",
+    "soul_gateway",
+    "soul_openclaw",
+    "soul_journal",
+    "soul_storage",
+    "soul_ipc",
+    "soul_forge",
+    "soul_evolution",
+    "soul_agent_runtime",
+    "neural_metacognition",
+    "neural_clinical_console",
+    "neural_chaos_monkey",
+    "neural_cluster_sync",
+    "neural_graph_compiler",
+    "ontological_self_healing",
+    "semantic_firewall",
+    "semantic_neuromodulator",
+    "ecosystem_synapse_linker",
+    "scirust_affective_core",
+    "test_telemetry",
     "soul_tools",
     "soul_repl",
     "soul-agent-core",
     "soul-memory",
     "soul-daemon",
-    "soul-sandbox",
     "soul-browser",
     "soul-subagents",
     "soul-goaltree",
     "soul-automodify",
     "soul-eventbus",
     "soul-webfetch",
-    "soul-scheduler",
     # Quality improvement crates
     "soul-mcp",
     "soul-skills",
@@ -193,6 +210,14 @@ anyhow = "1"
 rand = "0.8"
 tokio-stream = { version = "0.1", features = ["sync"] }
 clap = { version = "4", features = ["derive"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+redb = "2"
+prometheus = "0.13"
+lazy_static = "1.4"
+colored = "3"
+crossterm = { version = "0.28", features = ["event-stream"] }
+ratatui = "0.30"
+dirs = "6"
 # local workspace crates
 ansi-converter = { path = "ansi-converter" }
 bus = { path = "bus" }
@@ -205,8 +230,6 @@ soul-memory = { path = "soul-memory" }
 soul-bridge = { path = "soul-bridge" }
 spinner = { path = "spinner" }
 terminal-stream = { path = "terminal-stream" }
-scirust-autodiff = { path = "scirust-autodiff" }
-scirust-core = { path = "scirust-core" }
 soulsystem-common = { path = "crates/soulsystem-common" }
 
 # external crates referenced as workspace deps
@@ -276,7 +299,6 @@ soul_planner = { path = "soul_planner" }
 soul_tools = { path = "soul_tools" }
 soul_repl = { path = "soul_repl" }
 soul_daemon = { path = "soul-daemon" }
-soul_sandbox = { path = "soul-sandbox" }
 soul_browser = { path = "soul-browser" }
 soul_subagents = { path = "soul-subagents" }
 soul_goaltree = { path = "soul-goaltree" }
@@ -291,7 +313,6 @@ soul_wasm = { path = "soul-wasm" }
 soul_designtree = { path = "soul-designtree" }
 soul_inference = { path = "soul-inference" }
 soul_critique = { path = "soul-critique" }
-soul_scheduler = { path = "soul-scheduler" }
 uuid = { version = "1", features = ["v4"] }
 rustyline = "14"
 colored = "2"
