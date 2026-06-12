@@ -162,6 +162,8 @@ impl LlmBudget {
     }
 }
 
+const CHARS_PER_TOKEN: usize = 4;
+
 // ── Types Ollama ─────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -276,8 +278,7 @@ impl OllamaClient {
         prompt: &str,
         goal_id: &str,
     ) -> Result<GenerateResponse, Box<dyn std::error::Error>> {
-        // Estimation grossière: 1 token ≈ 4 caractères
-        let estimated = prompt.len() / 4 + self.config.max_tokens;
+        let estimated = prompt.len() / CHARS_PER_TOKEN + self.config.max_tokens;
         self.budget.check_budget(goal_id, estimated)?;
 
         let req = GenerateRequest {

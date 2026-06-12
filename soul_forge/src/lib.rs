@@ -1,5 +1,12 @@
 use soul_telemetry::metrics::TelemetryHub;
 
+const DEFAULT_TILE_SIZE: usize = 32;
+const MAX_TILE_SIZE: usize = 128;
+const MIN_TILE_SIZE: usize = 16;
+const WORK_STEALING_STEP: u64 = 50;
+const MIN_WORK_STEALING_THRESHOLD: u64 = 25;
+const INITIAL_WORK_STEALING_THRESHOLD: u64 = 100;
+
 #[derive(Debug, Clone, Copy)]
 pub struct Genome {
     pub matrix_tile_size: usize,
@@ -22,8 +29,8 @@ impl EvolutionaryForge {
     pub fn new() -> Self {
         Self {
             current_genome: Genome {
-                matrix_tile_size: 32,
-                work_stealing_threshold: 100,
+                matrix_tile_size: DEFAULT_TILE_SIZE,
+                work_stealing_threshold: INITIAL_WORK_STEALING_THRESHOLD,
             },
             best_score: 0.0,
             generation: 0,
@@ -66,34 +73,30 @@ impl EvolutionaryForge {
         // Cycle entre différentes stratégies de mutation
         match gen % 4 {
             0 => {
-                // Doubler la taille de tile (puis revenir à 32 si trop grand)
                 self.current_genome.matrix_tile_size =
-                    if self.current_genome.matrix_tile_size >= 128 {
-                        16
+                    if self.current_genome.matrix_tile_size >= MAX_TILE_SIZE {
+                        MIN_TILE_SIZE
                     } else {
                         self.current_genome.matrix_tile_size * 2
                     };
             }
             1 => {
-                // Réduire le seuil de work-stealing
                 self.current_genome.work_stealing_threshold = self
                     .current_genome
                     .work_stealing_threshold
-                    .saturating_sub(50)
-                    .max(25);
+                    .saturating_sub(WORK_STEALING_STEP)
+                    .max(MIN_WORK_STEALING_THRESHOLD);
             }
             2 => {
-                // Alterner tile size entre 32 et 64
-                self.current_genome.matrix_tile_size = if self.current_genome.matrix_tile_size == 32
-                {
-                    64
-                } else {
-                    32
-                };
+                self.current_genome.matrix_tile_size =
+                    if self.current_genome.matrix_tile_size == DEFAULT_TILE_SIZE {
+                        DEFAULT_TILE_SIZE * 2
+                    } else {
+                        DEFAULT_TILE_SIZE
+                    };
             }
             _ => {
-                // Augmenter le seuil de work-stealing
-                self.current_genome.work_stealing_threshold += 50;
+                self.current_genome.work_stealing_threshold += WORK_STEALING_STEP;
             }
         }
     }

@@ -20,6 +20,9 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+const WORKING_MEMORY_CAPACITY: usize = 100;
+const ACTION_HISTORY_CAPACITY: usize = 200;
+
 // ── Types de buts ────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,8 +175,8 @@ pub struct CognitiveLoop {
 impl CognitiveLoop {
     pub fn new() -> Self {
         Self {
-            memory: WorkingMemory::new(100),
-            history: ActionHistory::new(200),
+            memory: WorkingMemory::new(WORKING_MEMORY_CAPACITY),
+            history: ActionHistory::new(ACTION_HISTORY_CAPACITY),
         }
     }
 
