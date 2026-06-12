@@ -1,0 +1,15 @@
+{
+  "flexibility": {
+    "avg_alpha_sync": 0.021144298844841685,
+    "avg_dissonance": 1.5904227643700963,
+    "cache_evolutions": 47,
+    "curiosity_activations": 0,
+    "max_dissonance": 2.0607136046077357,
+    "plasticity_intensity": 0.16242568463501145,
+    "total_reflections": 47,
+    "trajectory_divergence": 0.24254708983501508
+  },
+  "steps": 80,
+  "test": "Evolution Metacognitive — ChronosAgent V5",
+  "verdict": "L'agent s'est auto-interroge 47 fois et a montre une dissonance cognitive moyenne de 1.590. Il explore activement des trajectoires alternatives. L'architecture de conscience non lineaire est validee — l'agent ne se contente pas de repondre, il reflechit."
+}
