@@ -28,6 +28,14 @@ unsafe impl Sync for CognitiveAgent {}
 
 /// Point d'entrée brut de la boucle cognitive.
 /// Cette fonction respecte la signature `extern "C" fn(*mut u8)` requise par le Scheduler.
+///
+/// # Safety
+///
+/// `ctx_ptr` doit être un pointeur non-null vers un `CognitiveAgent` alloué et valide.
+/// Les pointeurs internes (`orchestrator_ptr`, `storage_ptr`, `matrix_engine_ptr`,
+/// `scheduler_ptr`) doivent être valides et non-null lorsque cette fonction est appelée.
+/// Cette fonction est appelée uniquement par le scheduler via `Task.execute` et ne doit
+/// jamais être invoquée directement depuis du code Rust.
 pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
     if ctx_ptr.is_null() {
         return;
@@ -35,6 +43,10 @@ pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
 
     let start = std::time::Instant::now();
 
+    // SAFETY: ctx_ptr est validé non-null ci-dessus. Le cast est sûr car ctx_ptr
+    // pointe toujours vers un CognitiveAgent créé par l'appelant (soul_entity).
+    // Les déréférencements des pointeurs internes (orchestrator, storage, etc.)
+    // sont sûrs car l'appelant garantit leur validité avant de soumettre la tâche.
     unsafe {
         let agent = &*(ctx_ptr as *const CognitiveAgent);
         let orchestrator = &*agent.orchestrator_ptr;

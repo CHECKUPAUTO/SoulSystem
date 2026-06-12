@@ -13,8 +13,13 @@ pub unsafe extern "C" fn soul_scheduler_start(ptr: *mut AgentScheduler) -> i32 {
     if ptr.is_null() {
         return -1;
     }
-    (*ptr).launch();
-    0
+    match (*ptr).launch() {
+        Ok(()) => 0,
+        Err(e) => {
+            tracing::error!("soul_scheduler_start failed: {e}");
+            -2
+        }
+    }
 }
 
 #[no_mangle]

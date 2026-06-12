@@ -2,18 +2,13 @@ use serde::{Deserialize, Serialize};
 
 // ── Provider kind ────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ProviderKind {
+    #[default]
     Ollama,
     OpenAI,
     Anthropic,
-}
-
-impl Default for ProviderKind {
-    fn default() -> Self {
-        Self::Ollama
-    }
 }
 
 impl std::fmt::Display for ProviderKind {

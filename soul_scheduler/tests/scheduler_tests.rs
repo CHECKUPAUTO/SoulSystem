@@ -259,9 +259,9 @@ fn scheduler_launch_is_idempotent() {
     let sched = AgentScheduler::new();
 
     // First launch
-    sched.launch();
+    sched.launch().expect("launch failed");
     // Second launch should be a no-op (running flag already set)
-    sched.launch();
+    sched.launch().expect("second launch failed");
 
     // Verify workers are still responsive after double-launch
     let task = Task {
@@ -276,7 +276,7 @@ fn scheduler_shutdown_halts_workers() {
     let sched = AgentScheduler::new();
 
     // Launch workers
-    sched.launch();
+    sched.launch().expect("launch failed");
 
     // Immediately shut down
     sched.shutdown();

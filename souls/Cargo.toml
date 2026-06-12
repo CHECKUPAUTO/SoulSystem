@@ -33,6 +33,5 @@ colored = "3"
 ratatui = "0.30"
 crossterm = { version = "0.28", features = ["event-stream"] }
 dirs = "6"
-toml_edit = { version = "0.22", features = ["serde"] }
 axum = "0.7"
 num_cpus = "1"

@@ -11,42 +11,42 @@ lazy_static! {
     static ref TASKS_SUBMITTED: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_tasks_submitted_total",
         "Total tasks submitted to scheduler"
-    )).unwrap();
+    )).expect("nom de métrique invalide");
     
     static ref TASKS_COMPLETED: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_tasks_completed_total",
         "Total tasks completed by workers"
-    )).unwrap();
+    )).expect("nom de métrique invalide");
     
     static ref STEAL_ATTEMPTS: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_steal_attempts_total",
         "Total work-stealing attempts"
-    )).unwrap();
+    )).expect("nom de métrique invalide");
     
     static ref STEAL_SUCCESSES: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_steal_successes_total",
         "Successful work-stealing attempts"
-    )).unwrap();
+    )).expect("nom de métrique invalide");
     
     static ref TASK_EXECUTION_TIME: Histogram = Histogram::with_opts(HistogramOpts::new(
         "soul_scheduler_task_execution_seconds",
         "Task execution time in seconds"
-    ).buckets(vec![0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1])).unwrap();
+    ).buckets(vec![0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1])).expect("nom de métrique invalide");
     
     static ref QUEUE_DEPTH_TOTAL: IntGauge = IntGauge::with_opts(Opts::new(
         "soul_scheduler_queue_depth_total",
         "Total queue depth across all cores"
-    )).unwrap();
+    )).expect("nom de métrique invalide");
     
     static ref WORKER_IDLE_CYCLES: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_worker_idle_cycles_total",
         "Total worker idle cycles (spin loops)"
-    )).unwrap();
+    )).expect("nom de métrique invalide");
     
     static ref THERMAL_THROTTLE_EVENTS: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_thermal_throttle_total",
         "Total thermal throttle events"
-    )).unwrap();
+    )).expect("nom de métrique invalide");
 }
 
 fn register_scheduler_metrics() {
@@ -138,9 +138,9 @@ impl AgentScheduler {
         self.workers[core_id].queue.push(task)
     }
 
-    pub fn launch(&self) {
+    pub fn launch(&self) -> Result<(), String> {
         if self.running.swap(true, Ordering::SeqCst) {
-            return;
+            return Ok(());
         }
 
         tracing::info!(
@@ -260,8 +260,9 @@ impl AgentScheduler {
                         }
                     }
                 })
-                .expect("Failed to spawn worker thread");
+                .map_err(|e| format!("Échec spawn worker-{worker_idx}: {e}"))?;
         }
+        Ok(())
     }
 
     pub fn shutdown(&self) {

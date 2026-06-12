@@ -97,12 +97,59 @@ fn neutralize_shell_metachars(s: &str) -> String {
     out
 }
 
+/// Neutralise les opérateurs shell de redirection et de pipe qui pourraient
+/// permettre l'exécution de commandes arbitraires.
+fn neutralize_redirects_and_pipes(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+    while i < len {
+        match chars[i] {
+            '|' => {
+                // Neutralise | et ||
+                if i + 1 < len && chars[i + 1] == '|' {
+                    out.push_str("  ");
+                    i += 2;
+                } else {
+                    out.push(' ');
+                    i += 1;
+                }
+            }
+            '&' => {
+                // Neutralise &&
+                if i + 1 < len && chars[i + 1] == '&' {
+                    out.push_str("  ");
+                    i += 2;
+                } else {
+                    out.push(chars[i]);
+                    i += 1;
+                }
+            }
+            ';' => {
+                out.push(' ');
+                i += 1;
+            }
+            '>' | '<' => {
+                out.push(' ');
+                i += 1;
+            }
+            _ => {
+                out.push(chars[i]);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
 /// Normalise une commande pour le matching.
 pub fn normalize(cmd: &str) -> String {
     let mut s = cmd.to_string();
     s = decode_ansi_c_quoting(&s);
     s = neutralize_ifs(&s);
     s = neutralize_shell_metachars(&s);
+    s = neutralize_redirects_and_pipes(&s);
     s
 }
 

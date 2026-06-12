@@ -33,6 +33,7 @@ struct AnthropicResponse {
     content: Vec<AnthropicContent>,
     usage: AnthropicUsage,
     model: String,
+    #[allow(dead_code)]
     stop_reason: Option<String>,
 }
 
@@ -64,6 +65,7 @@ struct AnthropicStreamDelta {
     #[serde(default)]
     text: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     stop_reason: Option<String>,
 }
 
@@ -72,6 +74,7 @@ struct AnthropicStreamDelta {
 pub struct AnthropicProvider {
     http: reqwest::Client,
     base_url: String,
+    #[allow(dead_code)]
     api_key: String,
     default_model: String,
     temperature: f32,
@@ -95,7 +98,9 @@ impl AnthropicProvider {
             .pool_idle_timeout(config.pool_idle_timeout);
 
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("x-api-key", reqwest::header::HeaderValue::from_str(&api_key).unwrap());
+        let api_key_value = reqwest::header::HeaderValue::from_str(&api_key)
+            .map_err(|e| LlmError::Auth(format!("Clé API invalide: {e}")))?;
+        headers.insert("x-api-key", api_key_value);
         headers.insert(
             "anthropic-version",
             reqwest::header::HeaderValue::from_static("2023-06-01"),

@@ -37,6 +37,7 @@ struct OpenAIChatResponse {
 #[derive(Deserialize)]
 struct OpenAIChoice {
     message: Option<OpenAIChoiceMessage>,
+    #[allow(dead_code)]
     delta: Option<OpenAIChoiceDelta>,
 }
 
@@ -54,6 +55,7 @@ struct OpenAIChoiceDelta {
 struct OpenAIUsage {
     prompt_tokens: usize,
     completion_tokens: usize,
+    #[allow(dead_code)]
     total_tokens: usize,
 }
 
@@ -109,6 +111,7 @@ struct OpenAIModelInfo {
 pub struct OpenAIProvider {
     http: reqwest::Client,
     base_url: String,
+    #[allow(dead_code)]
     api_key: String,
     default_model: String,
     temperature: f32,
