@@ -47,19 +47,19 @@ pub struct ReplState {
 }
 
 impl ReplState {
-    pub fn new(config: LlmConfig) -> Self {
+    pub fn new(config: LlmConfig) -> Result<Self, String> {
         let mut reg = ToolRegistry::new();
         for t in soul_tools::discover_system_tools() {
             reg.register(t);
         }
-        Self {
-            llm: LlmClient::new(config).expect("failed to init LLM client"),
+        Ok(Self {
+            llm: LlmClient::new(config).map_err(|e| format!("init LLM client: {e}"))?,
             planner: CognitiveLoop::new(),
             tools: reg,
             sandbox: Arc::new(Sandbox::new(soul_sandbox::SandboxPolicy::default())),
             memory: None,
             entity_name: "soul".into(),
-        }
+        })
     }
 
     pub fn with_memory(mut self, mem: Arc<LongTermMemory>) -> Self {
@@ -68,18 +68,18 @@ impl ReplState {
     }
 }
 
-pub async fn run_repl(state: &mut ReplState) {
-    enable_raw_mode().expect("failed to enable raw mode");
+pub async fn run_repl(state: &mut ReplState) -> Result<(), String> {
+    enable_raw_mode().map_err(|e| format!("enable raw mode: {e}"))?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen).expect("failed to enter alternate screen");
+    execute!(stdout, EnterAlternateScreen).map_err(|e| format!("enter alternate screen: {e}"))?;
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend).expect("failed to create terminal");
+    let mut terminal = Terminal::new(backend).map_err(|e| format!("create terminal: {e}"))?;
 
     let (tx, mut rx) = mpsc::unbounded_channel::<LlmEvent>();
     let mut app = App::new(state, tx);
 
     loop {
-        terminal.draw(|f| app.draw(f)).expect("failed to draw");
+        terminal.draw(|f| app.draw(f)).map_err(|e| format!("terminal draw: {e}"))?;
 
         while let Ok(evt) = rx.try_recv() {
             app.handle_llm_event(evt);
@@ -96,10 +96,11 @@ pub async fn run_repl(state: &mut ReplState) {
         app.tick();
     }
 
-    disable_raw_mode().expect("failed to disable raw mode");
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)
-        .expect("failed to leave alternate screen");
-    terminal.show_cursor().expect("failed to show cursor");
+    // Best-effort cleanup: ignore errors, we're exiting anyway
+    let _ = disable_raw_mode();
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    let _ = terminal.show_cursor();
+    Ok(())
 }
 
 // ─── LLM Events ────────────────────────────────────────────────────────
@@ -480,10 +481,10 @@ impl App {
         self.file_browser_scroll = 0;
 
         // Add parent directory
-        if self.file_browser_path.parent().is_some() {
+        if let Some(parent) = self.file_browser_path.parent() {
             self.file_browser_entries.push(FileEntry {
                 name: "..".into(),
-                path: self.file_browser_path.parent().unwrap().to_path_buf(),
+                path: parent.to_path_buf(),
                 is_dir: true,
                 size: 0,
             });
@@ -845,8 +846,8 @@ impl App {
                 }
             }
             KeyCode::Down => {
-                if self.history_index.is_some() {
-                    let new_index = self.history_index.unwrap() + 1;
+                if let Some(idx) = self.history_index {
+                    let new_index = idx + 1;
                     if new_index >= self.input_history.len() {
                         self.history_index = None;
                         self.input.clear();

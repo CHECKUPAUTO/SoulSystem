@@ -72,28 +72,32 @@ impl ClusterNode {
                 return None;
             }
 
-            // SAFETY: `incoming` est un buffer de taille exacte `size_of::<NetworkPacket>()`.
-            // `NetworkPacket` est `#[repr(C, packed)]` donc pas de padding et la taille est
-            // prévisible. La validation magic_bytes juste après garantit que le paquet est
-            // conforme au protocole. Le buffer est local à cette fonction (stack) donc
-            // l'alignement est géré par l'allocateur.
-            let pkt = unsafe { &*(incoming.as_ptr() as *const NetworkPacket) };
-            if pkt.magic_bytes != 0x50554C {
-                return None;
-            } // Rejet des paquets corrompus
-
-            // Copie de la charge utile réseau dans le tampon de stockage persistant
-            let payload_len = pkt.payload_len as usize;
-            if payload_len > 256 {
+            // SAFETY: On utilise read_unaligned pour éviter les undefined behaviors
+            // liés aux accès désalignés sur un struct `#[repr(C, packed)]`.
+            // Chaque champ est lu depuis sa position exacte dans le buffer.
+            let magic = unsafe { std::ptr::read_unaligned(incoming.as_ptr() as *const u32) };
+            if magic != MAGIC_BYTES {
                 return None;
             }
+
+            let src_agent = unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(4) as *const u32) };
+            let dst_agent = unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(8) as *const u32) };
+            let signal = unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(12) as *const u32) };
+            let payload_len = unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(16) as *const u32) } as usize;
+
+            if payload_len > MAX_PAYLOAD_LEN {
+                return None;
+            }
+
+            // Copie de la charge utile réseau dans le tampon de stockage persistant
+            let data_offset = 20; // taille de l'en-tête (5 * u32)
             storage_buffer[0..payload_len]
-                .copy_from_slice(&pkt.data[0..payload_len]);
+                .copy_from_slice(&incoming[data_offset..data_offset + payload_len]);
 
             Some(AgentMessage {
-                source_agent_id: pkt.src_agent,
-                target_agent_id: pkt.dst_agent,
-                signal_code: pkt.signal,
+                source_agent_id: src_agent,
+                target_agent_id: dst_agent,
+                signal_code: signal,
                 payload_ptr: storage_buffer.as_mut_ptr(),
                 payload_size: payload_len,
             })

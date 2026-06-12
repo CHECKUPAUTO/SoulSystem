@@ -171,9 +171,11 @@ async fn main() -> anyhow::Result<()> {
                 pool_max_idle: 10,
                 pool_idle_timeout: Duration::from_secs(30),
             };
-            let mut repl_state = soul_repl::ReplState::new(llm_cfg);
+            let mut repl_state = soul_repl::ReplState::new(llm_cfg)
+                .map_err(|e| anyhow::anyhow!(e))?;
             repl_state.entity_name = cli.name.clone();
-            soul_repl::run_repl(&mut repl_state).await;
+            soul_repl::run_repl(&mut repl_state).await
+                .map_err(|e| anyhow::anyhow!(e))?;
             return Ok(());
         }
         Some(Command::Run) | None => {}
@@ -282,8 +284,13 @@ async fn main() -> anyhow::Result<()> {
 
     let hub_for_metrics = telemetry_hub.clone();
     let exporter = Arc::new(
-        soul_telemetry::PrometheusExporter::new().expect("Failed to create exporter"),
+        soul_telemetry::PrometheusExporter::new()
+            .map_err(|e| anyhow::anyhow!("création exporter Prometheus: {e}"))?,
     );
+    let metrics_listener = tokio::net::TcpListener::bind(metrics_addr)
+        .await
+        .map_err(|e| anyhow::anyhow!("échec bind metrics server: {e}"))?;
+
     let metrics_handle = tokio::spawn(async move {
         let app = axum::Router::new()
             .route(
@@ -308,13 +315,9 @@ async fn main() -> anyhow::Result<()> {
             )
             .route("/health", axum::routing::get(|| async { "OK" }));
 
-        let listener = tokio::net::TcpListener::bind(metrics_addr)
-            .await
-            .expect("Failed to bind metrics server");
-
         info!("serveur métriques Prometheus sur http://{metrics_addr}/metrics");
 
-        if let Err(e) = axum::serve(listener, app).await {
+        if let Err(e) = axum::serve(metrics_listener, app).await {
             tracing::error!("metrics server crashed: {e}");
         }
     });
@@ -349,9 +352,11 @@ async fn main() -> anyhow::Result<()> {
             pool_max_idle: 10,
             pool_idle_timeout: Duration::from_secs(30),
         };
-        let mut repl_state = soul_repl::ReplState::new(llm_cfg);
+        let mut repl_state = soul_repl::ReplState::new(llm_cfg)
+            .map_err(|e| anyhow::anyhow!(e))?;
         repl_state.entity_name = name.clone();
-        soul_repl::run_repl(&mut repl_state).await;
+        soul_repl::run_repl(&mut repl_state).await
+            .map_err(|e| anyhow::anyhow!(e))?;
     }
 
     match tokio::signal::ctrl_c().await {

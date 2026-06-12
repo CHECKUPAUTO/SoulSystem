@@ -52,7 +52,7 @@ impl MmapJournal {
         // region (or the function returned Err). The fd must NOT be used after close.
         // FAILURE: If any syscall fails, we return `Err` with the OS error — no memory is leaked.
         unsafe {
-            let fd = libc::open(c_path.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o666);
+            let fd = libc::open(c_path.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600);
             if fd < 0 {
                 return Err(std::io::Error::last_os_error());
             }

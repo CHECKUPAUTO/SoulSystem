@@ -43,11 +43,10 @@ fn add_strict_rules(ctx: &mut Context) -> Result<(), seccomp::SeccompError> {
         libc::SYS_getgid,
     ];
     for syscall in syscalls {
-        ctx.add_rule(Rule::new(
-            syscall as usize,
-            Compare::arg(0).using(Op::Eq).with(0).build().unwrap(),
-            Action::Allow,
-        ))?;
+        // build() est infaillible pour Eq(0) ; SeccompError n'a pas de constructeur public
+        let cond = Compare::arg(0).using(Op::Eq).with(0).build()
+            .expect("condition seccomp invalide");
+        ctx.add_rule(Rule::new(syscall as usize, cond, Action::Allow))?;
     }
     Ok(())
 }
@@ -74,11 +73,9 @@ fn add_default_rules(ctx: &mut Context) -> Result<(), seccomp::SeccompError> {
         libc::SYS_ioctl,
     ];
     for syscall in syscalls {
-        ctx.add_rule(Rule::new(
-            syscall as usize,
-            Compare::arg(0).using(Op::Eq).with(0).build().unwrap(),
-            Action::Allow,
-        ))?;
+        let cond = Compare::arg(0).using(Op::Eq).with(0).build()
+            .expect("condition seccomp invalide");
+        ctx.add_rule(Rule::new(syscall as usize, cond, Action::Allow))?;
     }
     Ok(())
 }

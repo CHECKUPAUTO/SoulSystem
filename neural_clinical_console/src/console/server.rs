@@ -20,7 +20,7 @@ impl ClinicalStreamingServer {
     }
 
     pub async fn start_streaming(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let listener = TcpListener::bind(format!("0.0.0.0:{}", self.listen_port)).await?;
+        let listener = TcpListener::bind(format!("127.0.0.1:{}", self.listen_port)).await?;
         self.is_active.store(true, Ordering::SeqCst);
         tracing::info!(port = self.listen_port, "ClinicalStreamingServer en écoute");
 
@@ -67,6 +67,10 @@ impl ClinicalStreamingServer {
                     // Endpoint /metrics : stream binaire des TelemetryFrames
                     loop {
                         let frame = auditor.get_latest();
+                        // SAFETY: TelemetryFrame est un struct sans pointeurs internes
+                        // et sans padding significatif. La conversion en bytes est utilisée
+                        // pour un streaming binaire sur le réseau local uniquement.
+                        // TODO: remplacer par serde + bincode pour un format plus sûr.
                         let bytes = unsafe {
                             std::slice::from_raw_parts(
                                 &frame as *const _ as *const u8,

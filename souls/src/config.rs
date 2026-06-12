@@ -84,8 +84,14 @@ pub fn save_config(cfg: &PersistConfig) -> Result<()> {
             .with_context(|| format!("impossible de créer {}", parent.display()))?;
     }
     let content = toml::to_string_pretty(cfg).context("erreur sérialisation TOML")?;
-    fs::write(&path, content)
+    fs::write(&path, &content)
         .with_context(|| format!("impossible d'écrire {}", path.display()))?;
+    // Sécurité: restreindre les permissions du fichier contenant la clé API
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    }
     Ok(())
 }
 
