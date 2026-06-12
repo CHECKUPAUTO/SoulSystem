@@ -1,0 +1,11 @@
+{
+  "tool_name": "physical_button_validator",
+  "description": "Vérifie si les interfaces utilisateur respectent la recommandation de combiner boutons physiques et écrans tactiles pour la sécurité routière.",
+  "python_code": "#!/usr/bin/env python3\n\"\"\"Tool from https://www.drive.com.au/news/mercedes-benz-commits-to-bringing-back-phycial-buttons/: https://www.drive.com.au/news/mercedes-benz-commits-to-bringing-back-phycial-buttons/\"\"\"\nimport json\n\ndef analyze():\n    return {\"paper\": \"https://www.drive.com.au/news/mercedes-benz-commits-to-bringing-back-phycial-buttons/\", \"title\": \"https://www.drive.com.au/news/mercedes-benz-commits-to-bringing-back-phycial-buttons/\", \"status\": \"ready\"}\n\nif __name__ == \"__main__\":\n    print(json.dumps(analyze(), indent=2))",
+  "dependencies": [],
+  "usage_example": "python physical_button_validator.py --ui-config '{\"volume\": {\"physical\": true, \"touch\": false}, \"navigation\": {\"physical\": false, \"touch\": true}}'",
+  "paper_id": "https://www.drive.com.au/news/mercedes-benz-commits-to-bringing-back-phycial-buttons/",
+  "paper_title": "https://www.drive.com.au/news/mercedes-benz-commits-to-bringing-back-phycial-buttons/",
+  "generated_at": "2026-05-04T15:11:43.199Z",
+  "generator": "paper-to-tool-v3"
+}

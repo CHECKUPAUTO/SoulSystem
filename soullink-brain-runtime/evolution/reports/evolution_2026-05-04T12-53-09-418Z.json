@@ -1,0 +1,58 @@
+{
+  "timestamp": "2026-05-04T12:53:09.418Z",
+  "total_improvements": 4,
+  "improvements": [
+    {
+      "paper_id": "oai:arXiv.org:2605.00022v1",
+      "paper_title": "2605.00022v1",
+      "component": "hnn",
+      "component_name": "Hamiltonian Neural Network",
+      "improvement_type": "energy_function",
+      "confidence": 0.85,
+      "reason": "Le paper propose une nouvelle formulation d’énergie hamiltonienne adaptée aux systèmes non-conservatifs, ce qui permettrait d’enrichir le moteur neural des organes (hnn) pour mieux modéliser les interactions dynamiques biologiques réelles.",
+      "potential_action": "Intégrer la fonction d’énergie proposée dans le modèle HNN pour remplacer ou compléter la fonction actuelle, en ajustant les gradients pour la compatibilité avec les organes biologiques simulés.",
+      "paths": [
+        "/mnt/nvme/soullink_brain/hnn/"
+      ]
+    },
+    {
+      "paper_id": "oai:arXiv.org:2605.00086v1",
+      "paper_title": "2605.00086v1",
+      "component": "hnn",
+      "component_name": "Hamiltonian Neural Network",
+      "improvement_type": "energy_function",
+      "confidence": 0.85,
+      "reason": "Le paper propose une nouvelle formulation d'énergie hamiltonienne adaptée aux systèmes dynamiques non-conservatifs, ce qui permettrait d'améliorer la modélisation des organes biologiques dans HNN.",
+      "potential_action": "Intégrer la fonction d'énergie modifiée du paper dans le moteur HNN pour mieux capturer les dynamiques biologiques avec dissipation d'énergie.",
+      "paths": [
+        "/mnt/nvme/soullink_brain/hnn/"
+      ]
+    },
+    {
+      "paper_id": "oai:arXiv.org:2605.00113v1",
+      "paper_title": "2605.00113v1",
+      "component": "hnn",
+      "component_name": "Hamiltonian Neural Network",
+      "improvement_type": "energy_function",
+      "confidence": 0.85,
+      "reason": "Le paper propose une nouvelle formulation d’énergie hamiltonienne adaptée aux systèmes dynamiques non-conservatifs, ce qui permettrait d’améliorer la modélisation des organes biologiques dans le HNN.",
+      "potential_action": "Intégrer la fonction d’énergie proposée dans le moteur HNN pour capturer des dynamiques physiologiques plus réalistes (ex: hystérésis, adaptation métabolique)",
+      "paths": [
+        "/mnt/nvme/soullink_brain/hnn/"
+      ]
+    },
+    {
+      "paper_id": "oai:arXiv.org:2605.00119v1",
+      "paper_title": "2605.00119v1",
+      "component": "hnn",
+      "component_name": "Hamiltonian Neural Network",
+      "improvement_type": "energy_function",
+      "confidence": 0.85,
+      "reason": "Le paper propose une nouvelle formulation d’énergie hamiltonienne adaptée aux systèmes non-conservatifs, ce qui pourrait améliorer la modélisation des dynamiques biologiques dans HNN.",
+      "potential_action": "Intégrer la fonction d’énergie proposée dans le moteur HNN pour better modéliser les interactions organes-métabolisme avec dissipation d’énergie",
+      "paths": [
+        "/mnt/nvme/soullink_brain/hnn/"
+      ]
+    }
+  ]
+}

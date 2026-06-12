@@ -1,0 +1,15 @@
+{
+  "api": {
+    "binary": "/mnt/nvme/soullink_brain/discovered_tools/bin/darts",
+    "shell_wrapper": true
+  },
+  "description": "A python library for user-friendly forecasting and anomaly detection on time series.",
+  "generated_at": "2026-05-03T21:53:51.602828029+00:00",
+  "install": "Pip",
+  "language": "Python",
+  "license": "Apache-2.0",
+  "stars": 9355,
+  "tool": "darts",
+  "url": "https://github.com/unit8co/darts",
+  "wrapper_type": "auto-generated"
+}

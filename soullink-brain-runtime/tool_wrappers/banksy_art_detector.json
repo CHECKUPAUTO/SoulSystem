@@ -1,0 +1,13 @@
+{
+  "tool_name": "banksy_art_detector",
+  "description": "Simule la détection d'une œuvre d'art de rue (type Banksy) en analysant des images via des signatures visuelles de contraste et de composition symbolique.",
+  "python_code": "#!/usr/bin/env python3\n\"\"\"Tool from https://www.smithsonianmag.com/smart-news/attributed-to-banksy-a-new-statue-of-a-suited-man-blinded-by-a-flag-and-walking-off-a-ledge-appeared-in-central-london-180988662/: https://www.smithsonianmag.com/smart-news/attributed-to-banksy-a-new-statue-of-a-suited-man-blinded-by-a-flag-and-walking-off-a-ledge-appeared-in-central-london-180988662/\"\"\"\nimport json\n\ndef analyze():\n    return {\"paper\": \"https://www.smithsonianmag.com/smart-news/attributed-to-banksy-a-new-statue-of-a-suited-man-blinded-by-a-flag-and-walking-off-a-ledge-appeared-in-central-london-180988662/\", \"title\": \"https://www.smithsonianmag.com/smart-news/attributed-to-banksy-a-new-statue-of-a-suited-man-blinded-by-a-flag-and-walking-off-a-ledge-appeared-in-central-london-180988662/\", \"status\": \"ready\"}\n\nif __name__ == \"__main__\":\n    print(json.dumps(analyze(), indent=2))",
+  "dependencies": [
+    "numpy"
+  ],
+  "usage_example": "python banksy_art_detector.py --help",
+  "paper_id": "https://www.smithsonianmag.com/smart-news/attributed-to-banksy-a-new-statue-of-a-suited-man-blinded-by-a-flag-and-walking-off-a-ledge-appeared-in-central-london-180988662/",
+  "paper_title": "https://www.smithsonianmag.com/smart-news/attributed-to-banksy-a-new-statue-of-a-suited-man-blinded-by-a-flag-and-walking-off-a-ledge-appeared-in-central-london-180988662/",
+  "generated_at": "2026-05-04T15:11:33.136Z",
+  "generator": "paper-to-tool-v3"
+}

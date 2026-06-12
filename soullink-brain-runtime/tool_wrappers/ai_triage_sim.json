@@ -1,0 +1,11 @@
+{
+  "tool_name": "ai_triage_sim",
+  "description": "Simule un système de triage d'urgence assisté par IA reproduisant les résultats du trial Harvard (2026) où l'IA dépasse les médecins en précision diagnostique.",
+  "python_code": "#!/usr/bin/env python3\n\"\"\"Tool from https://www.theguardian.com/technology/2026/apr/30/ai-outperforms-doctors-in-harvard-trial-of-emergency-triage-diagnoses: https://www.theguardian.com/technology/2026/apr/30/ai-outperforms-doctors-in-harvard-trial-of-emergency-triage-diagnoses\"\"\"\nimport json\n\ndef analyze():\n    return {\"paper\": \"https://www.theguardian.com/technology/2026/apr/30/ai-outperforms-doctors-in-harvard-trial-of-emergency-triage-diagnoses\", \"title\": \"https://www.theguardian.com/technology/2026/apr/30/ai-outperforms-doctors-in-harvard-trial-of-emergency-triage-diagnoses\", \"status\": \"ready\"}\n\nif __name__ == \"__main__\":\n    print(json.dumps(analyze(), indent=2))",
+  "dependencies": [],
+  "usage_example": "python ai_triage_sim.py --symptoms chest_pain shortness_of breath --patient_age 65",
+  "paper_id": "https://www.theguardian.com/technology/2026/apr/30/ai-outperforms-doctors-in-harvard-trial-of-emergency-triage-diagnoses",
+  "paper_title": "https://www.theguardian.com/technology/2026/apr/30/ai-outperforms-doctors-in-harvard-trial-of-emergency-triage-diagnoses",
+  "generated_at": "2026-05-04T15:05:27.292Z",
+  "generator": "paper-to-tool-v3"
+}

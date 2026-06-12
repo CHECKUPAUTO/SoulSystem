@@ -1,0 +1,31 @@
+{
+  "config": {
+    "csa_block_size": 16,
+    "csa_d_indexer": 64,
+    "csa_top_k": 8,
+    "d_head": 16,
+    "d_model": 64,
+    "enabled": true,
+    "hca_block_size": 64,
+    "hca_layer_fraction": 0.2,
+    "kv_swap_enabled": false,
+    "learning_rate": 0.001,
+    "max_gpu_blocks": 256,
+    "max_history": 1024,
+    "mhc_enabled": true,
+    "modulation_strength": 0.15,
+    "muon_momentum": 0.95,
+    "muon_ns_steps": 5,
+    "n_heads": 4,
+    "n_layers": 4,
+    "quant_block_size": 64,
+    "sinkhorn_iters": 5,
+    "swap_path": "/var/lib/soullink/ds_kv_cache",
+    "tick_interval": 10,
+    "use_fp4": false,
+    "weight_decay": 0.1
+  },
+  "last_learn_tick": 900,
+  "last_prediction_error": 0.5856590537780132,
+  "tick": 901
+}
