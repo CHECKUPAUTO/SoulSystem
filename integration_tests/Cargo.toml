@@ -22,5 +22,5 @@ neural_chaos_monkey = { path = "../neural_chaos_monkey" }
 scirust_affective_core = { path = "../scirust_affective_core" }
 semantic_neuromodulator = { path = "../semantic_neuromodulator" }
 
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 scirust = { package = "scirust-core", path = "../scirust/scirust-core" }

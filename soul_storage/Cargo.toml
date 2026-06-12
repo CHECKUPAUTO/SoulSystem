@@ -9,4 +9,3 @@ keywords = ["vector-store", "knn", "cosine-similarity", "lock-free", "zero-copy"
 categories = ["data-structures", "embedded", "science", "machine-learning"]
 
 [dependencies]
-soul_scheduler = { path = "../soul_scheduler" }

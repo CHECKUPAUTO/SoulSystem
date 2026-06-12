@@ -11,9 +11,9 @@ categories = ["concurrency", "os", "embedded"]
 [dependencies]
 libc = "0.2.155"
 soul_telemetry = { path = "../soul_telemetry" }
-prometheus = "0.13"
-lazy_static = "1.4"
-tracing = "0.1"
+prometheus = { workspace = true }
+lazy_static = { workspace = true }
+tracing = { workspace = true }
 
 [[bench]]
 name = "scheduler_benchmarks"

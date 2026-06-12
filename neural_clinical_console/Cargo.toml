@@ -9,6 +9,6 @@ keywords = ["clinical", "console", "introspection", "metacognition", "debugging"
 categories = ["development-tools", "monitoring", "embedded", "machine-learning"]
 
 [dependencies]
-tokio = { version = "1.38", features = ["net", "rt-multi-thread", "macros", "sync", "time", "io-util"] }
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "macros", "sync", "time", "io-util"] }
 neural_metacognition = { path = "../neural_metacognition" }
-tracing = "0.1"
+tracing = { workspace = true }

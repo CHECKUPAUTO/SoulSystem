@@ -9,4 +9,4 @@ keywords = ["metacognition", "self-audit", "monitoring", "confidence", "error-de
 categories = ["machine-learning", "neuroscience", "embedded", "safety"]
 
 [dependencies]
-tracing = "0.1"
+tracing = { workspace = true }

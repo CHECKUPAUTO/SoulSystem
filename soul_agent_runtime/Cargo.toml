@@ -15,4 +15,4 @@ soul_storage = { path = "../soul_storage" }
 soul_ipc = { path = "../soul_ipc" }
 soul_orchestrator = { path = "../soul_orchestrator" }
 soul_telemetry = { path = "../soul_telemetry" }
-tracing = "0.1"
+tracing = { workspace = true }

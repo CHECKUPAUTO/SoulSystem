@@ -9,13 +9,13 @@ keywords = ["sandbox", "execution", "shell", "parser", "seccomp", "isolation", "
 categories = ["security", "os", "embedded", "development-tools"]
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-chrono = { version = "0.4", features = ["serde"] }
-parking_lot = "0.12"
-thiserror = "1"
+serde = { workspace = true, features = ["derive"] }
+chrono = { workspace = true, features = ["serde"] }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
 libc = "0.2"
 seccomp = "0.1"
-tracing = "0.1"
+tracing = { workspace = true }
 
 [dev-dependencies]
 proptest = "1"

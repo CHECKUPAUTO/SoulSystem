@@ -177,3 +177,66 @@ impl Default for LlmConfig {
 }
 
 use std::time::Duration;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_kind_default() {
+        assert_eq!(ProviderKind::default(), ProviderKind::Ollama);
+    }
+
+    #[test]
+    fn provider_kind_display() {
+        assert_eq!(ProviderKind::OpenAI.to_string(), "openai");
+        assert_eq!(ProviderKind::Anthropic.to_string(), "anthropic");
+        assert_eq!(ProviderKind::Ollama.to_string(), "ollama");
+    }
+
+    #[test]
+    fn provider_kind_from_str() {
+        assert_eq!("openai".parse::<ProviderKind>().unwrap(), ProviderKind::OpenAI);
+        assert_eq!("OpenAI".parse::<ProviderKind>().unwrap(), ProviderKind::OpenAI);
+        assert_eq!("ANTHROPIC".parse::<ProviderKind>().unwrap(), ProviderKind::Anthropic);
+        assert!("unknown".parse::<ProviderKind>().is_err());
+    }
+
+    #[test]
+    fn token_usage_new() {
+        let u = TokenUsage::new(10, 20);
+        assert_eq!(u.prompt_tokens, 10);
+        assert_eq!(u.completion_tokens, 20);
+        assert_eq!(u.total_tokens, 30);
+    }
+
+    #[test]
+    fn token_usage_default() {
+        let u = TokenUsage::default();
+        assert_eq!(u.total_tokens, 0);
+    }
+
+    #[test]
+    fn generate_request_builder() {
+        let req = GenerateRequest::new("hello")
+            .with_model("gpt-4")
+            .with_temperature(0.5)
+            .with_max_tokens(100)
+            .with_stream(true)
+            .with_system("be helpful");
+        assert_eq!(req.prompt, "hello");
+        assert_eq!(req.model.unwrap(), "gpt-4");
+        assert_eq!(req.temperature.unwrap(), 0.5);
+        assert_eq!(req.max_tokens.unwrap(), 100);
+        assert!(req.stream);
+        assert_eq!(req.system.unwrap(), "be helpful");
+    }
+
+    #[test]
+    fn llm_config_default() {
+        let cfg = LlmConfig::default();
+        assert_eq!(cfg.provider, ProviderKind::Ollama);
+        assert_eq!(cfg.max_tokens, 2048);
+        assert_eq!(cfg.temperature, 0.7);
+    }
+}

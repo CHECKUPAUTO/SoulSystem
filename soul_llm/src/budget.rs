@@ -122,3 +122,92 @@ impl LlmBudget {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{LlmConfig, ProviderKind, TokenUsage};
+
+    fn test_config() -> LlmConfig {
+        LlmConfig {
+            goal_token_budget: 1000,
+            tokens_per_minute_budget: 0, // désactivé pour les tests
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn budget_estimate_tokens() {
+        let est = LlmBudget::estimate_tokens("hello world", 100);
+        assert!(est > 0);
+    }
+
+    #[test]
+    fn budget_new_goal_always_ok() {
+        let budget = LlmBudget::new(test_config());
+        // Premier appel pour un goal : toujours OK (pas d'usage précédent)
+        assert!(budget.check_budget("new_goal", 2000).is_ok());
+    }
+
+    #[test]
+    fn budget_record_then_exceed() {
+        let budget = LlmBudget::new(test_config());
+        let usage = TokenUsage::new(600, 200);
+        budget.record_usage("g1", &usage);
+        // 800 used + 300 = 1100 > 1000
+        assert!(budget.check_budget("g1", 300).is_err());
+    }
+
+    #[test]
+    fn budget_record_then_ok() {
+        let budget = LlmBudget::new(test_config());
+        budget.record_usage("g1", &TokenUsage::new(100, 100));
+        // 200 used + 300 = 500 < 1000
+        assert!(budget.check_budget("g1", 300).is_ok());
+    }
+
+    #[test]
+    fn budget_get_goal_usage() {
+        let budget = LlmBudget::new(test_config());
+        let usage = TokenUsage::new(10, 20);
+        budget.record_usage("g1", &usage);
+        let stored = budget.get_goal_usage("g1").unwrap();
+        assert_eq!(stored.total_tokens, 30);
+    }
+
+    #[test]
+    fn budget_unknown_goal() {
+        let budget = LlmBudget::new(test_config());
+        assert!(budget.get_goal_usage("nonexistent").is_none());
+    }
+
+    #[test]
+    fn budget_reset_goal() {
+        let budget = LlmBudget::new(test_config());
+        budget.record_usage("g1", &TokenUsage::new(800, 200));
+        assert!(budget.check_budget("g1", 1).is_err());
+        budget.reset_goal("g1");
+        // Après reset, le goal est comme neuf
+        assert!(budget.check_budget("g1", 999).is_ok());
+    }
+
+    #[test]
+    fn budget_all_usages() {
+        let budget = LlmBudget::new(test_config());
+        budget.record_usage("a", &TokenUsage::new(1, 1));
+        budget.record_usage("b", &TokenUsage::new(2, 2));
+        let all = budget.all_goal_usages();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn budget_no_budget_config() {
+        let config = LlmConfig {
+            goal_token_budget: 0,
+            tokens_per_minute_budget: 0,
+            ..Default::default()
+        };
+        let budget = LlmBudget::new(config);
+        assert!(budget.check_budget("g1", 999999).is_ok());
+    }
+}

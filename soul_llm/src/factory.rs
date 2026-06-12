@@ -26,3 +26,29 @@ pub fn create_provider_by_name(name: &str, config: &LlmConfig) -> Result<Arc<dyn
     })?;
     create_provider(&cfg)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_provider_by_name_valid() {
+        let config = LlmConfig::default();
+        // Ollama n'a pas besoin d'auth token
+        let result = create_provider_by_name("ollama", &config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn create_provider_by_name_invalid() {
+        let config = LlmConfig::default();
+        let result = create_provider_by_name("nonexistent_provider", &config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn create_provider_by_name_case_insensitive() {
+        let config = LlmConfig::default();
+        assert!(create_provider_by_name("OLLAMA", &config).is_ok());
+    }
+}

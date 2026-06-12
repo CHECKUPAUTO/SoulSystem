@@ -16,18 +16,10 @@ members = [
     "soul_ipc",
     "soul_evolution",
     "soul_agent_runtime",
-    "soul_perception",
     "soul_telemetry",
-    "soul_cluster",
-    "soul_surgery",
     "soul_journal",
     "soul_forge",
-    "soul_cortex",
-    "soul_scout",
-    "soul_guard",
     "soul_orchestrator",
-    "soul_attention",
-    "soul_acoustic",
 
     "soul_llm",
     "soul_planner",
@@ -38,12 +30,35 @@ members = [
     "soul_gateway",
     "soul_openclaw",
     "soul_entity",
-    "souls", "test_telemetry",
+    "souls",
+    "test_telemetry",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 soul_telemetry = { path = "soul_telemetry" }
+
+# External shared dependencies — versions et features unifiées
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+parking_lot = "0.12"
+tokio = { version = "1", features = ["full"] }
+uuid = "1"
+thiserror = "1"
+async-trait = "0.1"
+lazy_static = "1.4"
+prometheus = "0.13"
+anyhow = "1"
+ratatui = "0.30"
+crossterm = { version = "0.28", features = ["event-stream"] }
+colored = "3"
+dirs = "6"
+futures = "0.3"
+dashmap = "6"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [profile.release]
 opt-level = 3
