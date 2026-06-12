@@ -37,6 +37,20 @@ impl MmapJournal {
         let size = size.max(8);
         let c_path = CString::new(file_path)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+        // SAFETY:
+        // 1. `c_path` is a valid, NUL-terminated CString derived from a &str; `open()` dereferences
+        //    it only for the duration of this call.
+        // 2. `fd` is checked for < 0 before any further use; every error path calls `close(fd)`.
+        // 3. `ftruncate` is only called on a valid fd and its failure is handled.
+        // 4. `mmap` receives a valid size (> 0 after `.max(8)`), a valid fd (open + ftruncated),
+        //    and returns either MAP_FAILED or a valid pointer; we check for MAP_FAILED before
+        //    storing the result.
+        // 5. The fd is closed immediately after mmap — MAP_SHARED keeps the mapping alive.
+        // 6. No other thread can access this struct until `new` returns, so there is no data race
+        //    on `mmap_ptr` or `write_offset`.
+        // INVARIANTS: After this block, `mmap_ptr` points to a valid `size`-byte shared-memory
+        // region (or the function returned Err). The fd must NOT be used after close.
+        // FAILURE: If any syscall fails, we return `Err` with the OS error — no memory is leaked.
         unsafe {
             let fd = libc::open(c_path.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o666);
             if fd < 0 {
@@ -92,6 +106,22 @@ impl MmapJournal {
                 )
                 .is_ok()
             {
+                // SAFETY:
+                // 1. CAS succeeded, so this thread is the sole owner of the slot at
+                //    `current_offset..current_offset+need` — no other writer can overlap.
+                // 2. `current_offset + need <= self.size` is guaranteed by the bounds check above.
+                // 3. `mmap_ptr.add(current_offset)` is within the mapped region.
+                // 4. `copy_nonoverlapping` writes exactly 4 bytes (tag) and `size` bytes (payload)
+                //    into non-overlapping regions: tag at base[0..4], size at base[4..8],
+                //    payload at base[8..8+size].
+                // 5. `size_cell` is properly aligned for AtomicU32 because `base.add(4)` falls
+                //    within the mmap region (which is page-aligned) + offset that is a multiple of 4.
+                // 6. The Release store on `size_cell` publishes the write — the reader's Acquire
+                //    load of `size` establishes happens-before, preventing torn reads.
+                // INVARIANT: The size field at base+4 is written LAST (after tag and payload),
+                //    so a concurrent reader that sees size==0 knows the slot is uncommitted.
+                // FAILURE: Violating any invariant would cause UB (unaligned access, data race,
+                //    or torn reads seen by concurrent readers).
                 unsafe {
                     let base = self.mmap_ptr.add(current_offset);
                     std::ptr::copy_nonoverlapping(&tag as *const u32 as *const u8, base, 4);
@@ -112,6 +142,25 @@ impl MmapJournal {
             if off + 8 > self.size {
                 break;
             }
+            // SAFETY:
+            // 1. `off` is bounded: we check `off + 8 <= self.size` before entering this block.
+            // 2. `base` = `mmap_ptr.add(off)` is within the mapped region.
+            // 3. `size` is read via AtomicU32 with Acquire ordering — guarantees we see all
+            //    writes (tag + payload) that happened-before the writer's Release store.
+            // 4. We check `off + 8 + size <= self.size` before reading the payload — prevents
+            //    out-of-bounds access.
+            // 5. `copy_nonoverlapping` reads exactly 4 bytes (tag) and `size` bytes (payload)
+            //    from contiguous, valid mmap memory. The source regions do not overlap with
+            //    the destination (`tag_bytes` / `payload` on the stack/heap).
+            // 6. If `size == 0` we break immediately — no invalid memory is accessed.
+            // INVARIANT: A committed record always has a non-zero `size`, valid `tag`, and
+            //    `off + 8 + size <= self.size`. Uncommitted slots have `size == 0` and are
+            //    treated as end-of-data.
+            // FAILURE: If a previous writer panicked mid-write, we could read a partially
+            //    written `size` — but `size == 0` causes a clean break, and a non-zero partial
+            //    value would only cause us to read the payload (possibly garbage) and advance
+            //    `off` — no UB, just a stale record. The protocol (size written last) prevents
+            //    this in practice.
             unsafe {
                 let base = self.mmap_ptr.add(off);
                 let size = (*(base.add(4) as *const AtomicU32)).load(Ordering::Acquire) as usize;
@@ -143,6 +192,16 @@ impl MmapJournal {
         if len == 0 {
             return true;
         }
+        // SAFETY:
+        // 1. `self.mmap_ptr` is a valid pointer returned by mmap in `new_with_size`.
+        // 2. `len` is read from `write_offset` (Acquire) and is <= `self.size` (the mapped
+        //    region size). `len` is only the portion that has been written to, which is
+        //    always within the mapped region.
+        // 3. `MS_SYNC` causes the call to block until all data is written to disk.
+        // INVARIANT: `len <= self.size` — the mmap region is exactly `self.size` bytes.
+        // FAILURE: msync returns 0 on success; a non-zero return indicates a failure
+        //    (e.g., the mapping was unmapped by another thread — impossible here since
+        //    only `drop` calls munmap). Returns false on failure, no UB.
         unsafe { libc::msync(self.mmap_ptr as *mut libc::c_void, len, libc::MS_SYNC) == 0 }
     }
 
@@ -164,6 +223,20 @@ impl MmapJournal {
 
 impl Drop for MmapJournal {
     fn drop(&mut self) {
+        // SAFETY:
+        // 1. This is called exactly once during Drop — no other code accesses `mmap_ptr`
+        //    after this point (single-threaded ownership at drop time).
+        // 2. `self.write_offset.load(Acquire)` returns the last committed write offset.
+        //    We msync only the written portion (`len`) so we don't sync beyond the mapping.
+        // 3. `msync` with MS_SYNC flushes all dirty pages before `munmap` — guarantees
+        //    durability before releasing the mapping.
+        // 4. `munmap(self.mmap_ptr, self.size)` unmaps exactly the region originally
+        //    created by mmap — the pointer and size match the original allocation.
+        // INVARIANT: `mmap_ptr` is the exact pointer from mmap, and `self.size` is the
+        //    exact size passed to mmap. Only called once (Drop semantics).
+        // FAILURE: If msync fails, we proceed with munmap anyway (data may not be durable
+        //    but the mapping is still valid to unmap). munmap cannot fail on a valid
+        //    mapping. No memory leak — the virtual address range is reclaimed.
         unsafe {
             let len = self.write_offset.load(Ordering::Acquire);
             if len > 0 {

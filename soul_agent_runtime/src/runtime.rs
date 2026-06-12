@@ -7,6 +7,10 @@ use soul_scheduler::scheduler::AgentScheduler;
 use soul_storage::index::{SearchResult, VectorStore};
 use soul_telemetry::TelemetryHub;
 
+const SIGNAL_ENCODING_DIM: usize = 32;
+const SEARCH_BUFFER_SIZE: usize = 5;
+const MATRIX_DIM: usize = 64;
+
 /// Structure d'exécution d'un Agent Souverain (Alignée à l'octet près)
 #[repr(align(64))]
 pub struct CognitiveAgent {
@@ -50,19 +54,19 @@ pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
             let mut query = [0.0f32; 1024];
             let code = message.signal_code;
             #[allow(clippy::needless_range_loop)]
-            for dim in 0..32 {
+            for dim in 0..SIGNAL_ENCODING_DIM {
                 let bit = (code >> dim) & 1;
                 query[dim] = if bit == 1 { 1.0 } else { -1.0 };
             }
             let src = message.source_agent_id;
             #[allow(clippy::needless_range_loop)]
-            for dim in 0..32 {
+            for dim in 0..SIGNAL_ENCODING_DIM {
                 let bit = (src >> dim) & 1;
-                query[32 + dim] = if bit == 1 { 0.5 } else { -0.5 };
+                query[SIGNAL_ENCODING_DIM + dim] = if bit == 1 { 0.5 } else { -0.5 };
             }
 
-            let mut search_buffer = [SearchResult { id: 0, score: 0.0 }; 5];
-            let found_memories = storage.knn_search(&query, 5, &mut search_buffer);
+            let mut search_buffer = [SearchResult { id: 0, score: 0.0 }; SEARCH_BUFFER_SIZE];
+            let found_memories = storage.knn_search(&query, SEARCH_BUFFER_SIZE, &mut search_buffer);
 
             if found_memories > 0 {
                 tracing::trace!(
@@ -73,24 +77,24 @@ pub extern "C" fn run_agent_cognitive_step(ctx_ptr: *mut u8) {
             }
 
             // 3. PHASE DE CALCUL INTENSIF (SIMD GEMM Execution)
-            let mut mat_a_data = vec![0.5f32; 64 * 64];
-            let mut mat_b_data = vec![1.2f32; 64 * 64];
-            let mut mat_c_data = vec![0.0f32; 64 * 64];
+            let mut mat_a_data = vec![0.5f32; MATRIX_DIM * MATRIX_DIM];
+            let mut mat_b_data = vec![1.2f32; MATRIX_DIM * MATRIX_DIM];
+            let mut mat_c_data = vec![0.0f32; MATRIX_DIM * MATRIX_DIM];
 
             let a_desc = MatrixDescriptor {
                 data: mat_a_data.as_mut_ptr(),
-                rows: 64,
-                cols: 64,
+                rows: MATRIX_DIM,
+                cols: MATRIX_DIM,
             };
             let b_desc = MatrixDescriptor {
                 data: mat_b_data.as_mut_ptr(),
-                rows: 64,
-                cols: 64,
+                rows: MATRIX_DIM,
+                cols: MATRIX_DIM,
             };
             let mut c_desc = MatrixDescriptor {
                 data: mat_c_data.as_mut_ptr(),
-                rows: 64,
-                cols: 64,
+                rows: MATRIX_DIM,
+                cols: MATRIX_DIM,
             };
 
             matrix_engine.execute_gemm(&a_desc, &b_desc, &mut c_desc);

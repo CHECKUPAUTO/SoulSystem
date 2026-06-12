@@ -1,6 +1,8 @@
 use soul_matrix_engine::engine::{MatrixDescriptor, MatrixEngine};
 
 const CORTEX_DIM: usize = 64;
+const INITIAL_WEIGHT_WX: f32 = 0.15;
+const INITIAL_WEIGHT_WH: f32 = 0.25;
 
 /// Système de suivi de l'état caché (Hidden State) pour une conscience continue
 pub struct RecurrentCortex {
@@ -19,8 +21,8 @@ impl RecurrentCortex {
     pub fn new() -> Self {
         Self {
             hidden_state: vec![0.0f32; CORTEX_DIM * CORTEX_DIM],
-            weight_wx: vec![0.15f32; CORTEX_DIM * CORTEX_DIM],
-            weight_wh: vec![0.25f32; CORTEX_DIM * CORTEX_DIM],
+            weight_wx: vec![INITIAL_WEIGHT_WX; CORTEX_DIM * CORTEX_DIM],
+            weight_wh: vec![INITIAL_WEIGHT_WH; CORTEX_DIM * CORTEX_DIM],
         }
     }
 

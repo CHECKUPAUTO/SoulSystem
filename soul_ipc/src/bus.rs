@@ -51,9 +51,17 @@ pub struct InterAgentBus {
     dequeue_pos: CachePad,
 }
 
-// SOUND : tout accès partagé passe par des atomiques ; le message d'une case est
-// écrit par exactement un producteur puis lu par exactement un consommateur, le
-// happens-before étant porté par `sequence` (store Release -> load Acquire).
+// SAFETY: All shared access goes through atomics — the `sequence` counter acts as a
+// per-cell token ensuring exactly one producer writes `message` (via UnsafeCell) and
+// exactly one consumer reads it, with happens-before established by the
+// Release store / Acquire load on `sequence`. The UnsafeCell itself is never aliased:
+// a producer gets exclusive access via CAS on `enqueue_pos` + `sequence`, and a
+// consumer via CAS on `dequeue_pos` + `sequence`. Therefore no data race exists.
+// INVARIANT: `sequence` must be read with Acquire before accessing `message`, and
+// `message` must not be accessed after releasing the sequence token to another party.
+// FAILURE: If the sequence protocol is violated (e.g., reading message before the
+// producer's Release store), a torn read could occur. This is prevented by the
+// algorithm — the check `diff == 0` ensures we only touch a cell we own.
 unsafe impl Sync for InterAgentBus {}
 unsafe impl Send for InterAgentBus {}
 
@@ -87,7 +95,21 @@ impl InterAgentBus {
                     Ordering::Relaxed,
                 ) {
                     Ok(_) => {
-                        // Propriété exclusive de la case acquise : écriture sûre.
+                        // SAFETY:
+                        // 1. CAS on `enqueue_pos` succeeded — this thread exclusively owns cell
+                        //    at index `pos & IPC_MASK` for writing. No other producer can write
+                        //    to the same cell until a consumer releases it.
+                        // 2. `cell.message.get()` returns a raw pointer to the inner UnsafeCell
+                        //    — safe to dereference because we have exclusive ownership of this slot.
+                        // 3. The write of `message` is a simple Copy type (AgentMessage is Copy);
+                        //    all fields are written atomically or are pointer-sized values.
+                        // 4. The Release store on `sequence` (line below) publishes this write —
+                        //    a consumer's Acquire load of `sequence` will see the complete message.
+                        // INVARIANT: We must NOT access `cell.message` again after releasing the
+                        //    sequence token (which happens at the store below). No other thread
+                        //    can read this cell until `sequence` is updated.
+                        // FAILURE: If we wrote to `cell.message` without exclusive ownership, two
+                        //    threads could write simultaneously — UB. The CAS prevents this.
                         unsafe {
                             *cell.message.get() = message;
                         }
@@ -119,6 +141,23 @@ impl InterAgentBus {
                     Ordering::Relaxed,
                 ) {
                     Ok(_) => {
+                        // SAFETY:
+                        // 1. CAS on `dequeue_pos` succeeded — this thread exclusively owns cell
+                        //    at index `pos & IPC_MASK` for reading. The producer wrote this cell
+                        //    at `sequence == pos` and then stored `sequence = pos + 1` with
+                        //    Release ordering — our Acquire load of `sequence` (above) ensures
+                        //    the complete `message` is visible.
+                        // 2. `cell.message.get()` returns a valid pointer to the inner UnsafeCell.
+                        //    We dereference it because we have exclusive read ownership (the
+                        //    producer will not touch this cell again — it moved on to `pos+1`).
+                        // 3. The copy is a bitwise copy of AgentMessage (Copy type) — no
+                        //    destructor runs, no allocation happens.
+                        // 4. After this read, we store `sequence = pos + IPC_QUEUE_SIZE` with
+                        //    Release ordering, which "frees" the cell for the producer to reuse.
+                        // INVARIANT: We must read the message BEFORE releasing the cell via the
+                        //    sequence store. After the store, the producer can overwrite this cell.
+                        // FAILURE: If we read after the producer overwrites (impossible due to
+                        //    sequence ordering), we'd see stale/torn data. The algorithm prevents this.
                         let msg = unsafe { *cell.message.get() };
                         // Libère la case pour le tour suivant (producteur à pos+SIZE).
                         cell.sequence

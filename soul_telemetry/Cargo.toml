@@ -9,11 +9,9 @@ keywords = ["telemetry", "thermal", "monitoring", "latency", "observability"]
 categories = ["monitoring", "embedded", "os"]
 
 [dependencies]
-libc = "0.2.155"
 prometheus = "0.13"
 opentelemetry = { version = "0.27", features = ["trace"] }
 opentelemetry_sdk = "0.27"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"] }
 lazy_static = "1.4"

@@ -8,6 +8,10 @@ use soul_scheduler::queue::Task;
 use soul_scheduler::scheduler::AgentScheduler;
 use std::ffi::CString;
 
+/// Répertoires autorisés pour le chargement de modules dynamiques.
+/// Tout .so hors de ces chemins est rejeté pour éviter le chargement de code arbitraire.
+const TRUSTED_MODULE_PATHS: &[&str] = &["/usr/lib/soul_system", "/opt/soul_system/modules"];
+
 /// Chargeur de modules dynamiques — supporte le hot-swap de routines agents au runtime.
 pub struct DynamicModuleLoader;
 
@@ -22,17 +26,45 @@ impl DynamicModuleLoader {
     /// Le chemin du fichier doit pointer vers une bibliothèque partagée valide.
     /// Le symbole doit exister dans la bibliothèque avec la signature `extern "C" fn(*mut u8)`.
     /// La bibliothèque reste chargée en mémoire jusqu'à ce que dlclose soit appelé explicitement.
+    ///
+    /// # Sécurité
+    /// Le chemin doit être dans un répertoire de confiance (TRUSTED_MODULE_PATHS).
+    /// Seul le symbole `soul_agent_main` est résolu — pas de chargement de symboles arbitraires.
     pub unsafe fn load_agent_routine(
         library_path: &str,
     ) -> Option<(*mut libc::c_void, extern "C" fn(*mut u8))> {
         let c_path = CString::new(library_path).ok()?;
 
+        // Validation du chemin : le .so doit être dans un répertoire de confiance
+        let path = std::path::Path::new(library_path);
+        let canonical = path.canonicalize().ok()?;
+        let path_str = canonical.to_str()?;
+        if !TRUSTED_MODULE_PATHS
+            .iter()
+            .any(|trusted| path_str.starts_with(trusted))
+        {
+            tracing::error!(
+                path = %library_path,
+                "Module path rejected: not in a trusted directory"
+            );
+            return None;
+        }
+
         // RT_NOW : résolution immédiate de tous les symboles du binaire importé.
         let handle = libc::dlopen(c_path.as_ptr(), libc::RTLD_NOW);
         if handle.is_null() {
-            eprintln!(
-                "[EVOLUTION ERROR] Failed to load native binary at: {}",
-                library_path
+            let err = libc::dlerror();
+            let msg = if err.is_null() {
+                "unknown error".to_string()
+            } else {
+                std::ffi::CStr::from_ptr(err)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            tracing::error!(
+                path = %library_path,
+                dlopen_error = %msg,
+                "Failed to load native module"
             );
             return None;
         }
@@ -42,15 +74,26 @@ impl DynamicModuleLoader {
         let symbol = libc::dlsym(handle, c_symbol.as_ptr());
 
         if symbol.is_null() {
+            let err = libc::dlerror();
+            let msg = if err.is_null() {
+                "unknown error".to_string()
+            } else {
+                std::ffi::CStr::from_ptr(err)
+                    .to_string_lossy()
+                    .into_owned()
+            };
             libc::dlclose(handle);
-            eprintln!(
-                "[EVOLUTION ERROR] Symbol 'soul_agent_main' not found in {}",
-                library_path
+            tracing::error!(
+                path = %library_path,
+                dlsym_error = %msg,
+                "Symbol 'soul_agent_main' not found in module"
             );
             return None;
         }
 
-        // Transmutation sûre : la bibliothèque exporte exactement le type attendu.
+        // SAFETY: dlsym retourne un pointeur vers une fonction C.
+        // On ne charge que le symbole "soul_agent_main" dont la signature est connue
+        // et documentée par la convention de nommage du workspace.
         let routine: extern "C" fn(*mut u8) = std::mem::transmute(symbol);
         Some((handle, routine))
     }
@@ -90,7 +133,19 @@ impl DynamicModuleLoader {
 
     /// Vérifie qu'une bibliothèque partagée est chargeable sans réellement l'ouvrir.
     pub fn can_load(library_path: &str) -> bool {
-        std::path::Path::new(library_path).exists() && library_path.ends_with(".so")
+        let path = std::path::Path::new(library_path);
+        if !path.exists() || !library_path.ends_with(".so") {
+            return false;
+        }
+        // Vérifier que le chemin est dans un répertoire de confiance
+        if let Ok(canonical) = path.canonicalize() {
+            if let Some(path_str) = canonical.to_str() {
+                return TRUSTED_MODULE_PATHS
+                    .iter()
+                    .any(|trusted| path_str.starts_with(trusted));
+            }
+        }
+        false
     }
 }
 

@@ -10,5 +10,5 @@ categories = ["development-tools", "monitoring", "embedded", "machine-learning"]
 
 [dependencies]
 tokio = { version = "1.38", features = ["net", "rt-multi-thread", "macros", "sync", "time", "io-util"] }
-parking_lot = "0.12.3"
 neural_metacognition = { path = "../neural_metacognition" }
+tracing = "0.1"

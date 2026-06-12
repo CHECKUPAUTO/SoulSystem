@@ -1,3 +1,4 @@
+#[cfg(test)]
 use soul_telemetry::{TelemetryHub, PrometheusExporter, gather_metrics};
 
 #[test]
@@ -30,7 +31,7 @@ fn telemetry_hub_exporter_integration() {
     let exporter = PrometheusExporter::new().expect("Failed to create exporter");
     exporter.update_from_hub(&hub);
     
-    let output = gather_metrics();
+    let output = gather_metrics().expect("Failed to gather metrics");
     assert!(output.contains("soul_scheduler_cycles_total"));
 }
 

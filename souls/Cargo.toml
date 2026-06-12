@@ -16,12 +16,9 @@ path = "src/main.rs"
 soul_entity = { path = "../soul_entity" }
 soul_gateway = { path = "../soul_gateway" }
 soul_llm = { path = "../soul_llm" }
-soul_persistence = { path = "../soul_persistence" }
 soul_sandbox = { path = "../soul_sandbox" }
 soul_openclaw = { path = "../soul_openclaw" }
 soul_repl = { path = "../soul_repl" }
-soul_planner = { path = "../soul_planner" }
-soul_tools = { path = "../soul_tools" }
 soul_telemetry = { path = "../soul_telemetry" }
 
 tokio = { version = "1", features = ["full"] }
@@ -33,6 +30,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 anyhow = "1"
 colored = "3"
+ratatui = "0.30"
+crossterm = { version = "0.28", features = ["event-stream"] }
+dirs = "6"
+toml_edit = { version = "0.22", features = ["serde"] }
 axum = "0.7"
-tower-http = { version = "0.5", features = ["cors"] }
 num_cpus = "1"

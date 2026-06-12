@@ -29,6 +29,8 @@ pub enum PersistenceError {
     NotFound(String),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("autre: {0}")]
+    Other(String),
 }
 
 pub type Result<T> = std::result::Result<T, PersistenceError>;
@@ -54,6 +56,11 @@ impl StampedEntry {
             created_at: Utc::now(),
             tags: Vec::new(),
         }
+    }
+
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = id.into();
+        self
     }
 
     pub fn with_parent(mut self, parent: impl Into<String>) -> Self {
