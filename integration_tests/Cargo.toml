@@ -1,0 +1,26 @@
+[package]
+name = "soul_integration_tests"
+version = "0.1.0"
+edition = "2021"
+description = "Integration tests for SoulSystem multi-crate workflows"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+
+[dependencies]
+soul_scheduler = { path = "../soul_scheduler" }
+soul_ipc = { path = "../soul_ipc" }
+soul_storage = { path = "../soul_storage" }
+soul_matrix_engine = { path = "../soul_matrix_engine" }
+soul_orchestrator = { path = "../soul_orchestrator" }
+soul_agent_runtime = { path = "../soul_agent_runtime" }
+soul_telemetry = { path = "../soul_telemetry" }
+semantic_firewall = { path = "../semantic_firewall" }
+ontological_self_healing = { path = "../ontological_self_healing" }
+neural_graph_compiler = { path = "../neural_graph_compiler" }
+neural_cluster_sync = { path = "../neural_cluster_sync" }
+neural_chaos_monkey = { path = "../neural_chaos_monkey" }
+scirust_affective_core = { path = "../scirust_affective_core" }
+semantic_neuromodulator = { path = "../semantic_neuromodulator" }
+
+tokio = { version = "1", features = ["full"] }
+scirust = { package = "scirust-core", path = "../scirust/scirust-core" }
