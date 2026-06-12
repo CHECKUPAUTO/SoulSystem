@@ -1,28 +1,36 @@
 //! # soul_persistence — Mémoire long terme
 //!
-//! Combine un KV store Sled (clés/valeurs binaires) avec un **lineage
-//! registry** : chaque entrée persistée a un identifiant unique + un
-//! pointeur optionnel vers son parent (provenance) — pattern emprunté à
-//! forge-core pour la traçabilité d'artefacts auto-générés.
+//! KV store redb (remplace sled v0.34 abandonné) avec lineage registry.
+//! redb est un KV store pur Rust, activement maintenu, compatible WASM.
 //!
 //! Toutes les écritures sont *append-only* : on n'écrase jamais une clé,
-//! on en crée une nouvelle version. Cela permet à l'entité de revenir en
-//! arrière ou de comparer des versions d'un même concept.
+//! on en crée une nouvelle version.
 
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
+use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{Deserialize, Serialize};
-use sled::Db;
 use std::collections::BTreeMap;
 use std::path::Path;
 use thiserror::Error;
 use uuid::Uuid;
 
-/// Erreurs de la couche persistance.
+const ENTRIES_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("entries");
+
 #[derive(Debug, Error)]
 pub enum PersistenceError {
-    #[error("erreur sled: {0}")]
-    Sled(#[from] sled::Error),
+    #[error("redb: {0}")]
+    Redb(#[from] redb::Error),
+    #[error("database: {0}")]
+    Database(#[from] redb::DatabaseError),
+    #[error("table: {0}")]
+    Table(#[from] redb::TableError),
+    #[error("commit: {0}")]
+    Commit(#[from] redb::CommitError),
+    #[error("storage: {0}")]
+    Storage(#[from] redb::StorageError),
+    #[error("transaction: {0}")]
+    Transaction(#[from] redb::TransactionError),
     #[error("serde_json: {0}")]
     Json(#[from] serde_json::Error),
     #[error("introuvable: {0}")]
@@ -35,7 +43,6 @@ pub enum PersistenceError {
 
 pub type Result<T> = std::result::Result<T, PersistenceError>;
 
-/// Entrée persistée : valeur typée + provenance (parent) + métadonnées.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StampedEntry {
     pub id: String,
@@ -72,20 +79,24 @@ impl StampedEntry {
         self.tags = tags;
         self
     }
+
+    fn to_bytes(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(self)?)
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        Ok(serde_json::from_slice(bytes)?)
+    }
 }
 
-/// Mémoire long-terme : KV store Sled + index secondaire par `kind` + index
-/// de lignée.
 pub struct LongTermMemory {
-    db: Db,
-    /// Cache d'index : kind -> liste d'ids (recalculé à l'ouverture).
+    db: Database,
     index: Mutex<BTreeMap<String, Vec<String>>>,
 }
 
 impl LongTermMemory {
-    /// Ouvre (ou crée) la mémoire à un chemin donné.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let db = sled::open(path)?;
+        let db = Database::create(path)?;
         let mut ltm = Self {
             db,
             index: Mutex::new(BTreeMap::new()),
@@ -94,9 +105,9 @@ impl LongTermMemory {
         Ok(ltm)
     }
 
-    /// Ouvre une mémoire en mémoire (pour les tests).
     pub fn open_temporary() -> Result<Self> {
-        let db = sled::Config::new().temporary(true).open()?;
+        let db = Database::builder()
+            .create_with_backend(redb::backends::InMemoryBackend::default())?;
         let mut ltm = Self {
             db,
             index: Mutex::new(BTreeMap::new()),
@@ -108,45 +119,53 @@ impl LongTermMemory {
     fn rebuild_index(&mut self) -> Result<()> {
         let mut idx = self.index.lock();
         idx.clear();
-        for kv in self.db.iter() {
-            let (_, v) = kv?;
-            if let Ok(entry) = serde_json::from_slice::<StampedEntry>(&v) {
-                idx.entry(entry.kind.clone())
-                    .or_default()
-                    .push(entry.id.clone());
+        let txn = self.db.begin_read()?;
+        if let Ok(table) = txn.open_table(ENTRIES_TABLE) {
+            for kv in table.iter()? {
+                let (_, v) = kv?;
+                if let Ok(entry) = StampedEntry::from_bytes(v.value()) {
+                    idx.entry(entry.kind.clone())
+                        .or_default()
+                        .push(entry.id.clone());
+                }
             }
         }
         Ok(())
     }
 
-    /// Écrit une nouvelle entrée. Retourne l'ID créé.
     pub fn put(&self, entry: StampedEntry) -> Result<String> {
-        let bytes = serde_json::to_vec(&entry)?;
-        self.db.insert(entry.id.as_bytes(), bytes)?;
-        self.db.flush()?;
+        let bytes = entry.to_bytes()?;
+        let id = entry.id.clone();
+        let kind = entry.kind.clone();
+
+        let txn = self.db.begin_write()?;
+        {
+            let mut table = txn.open_table(ENTRIES_TABLE)?;
+            table.insert(id.as_str(), bytes.as_slice())?;
+        }
+        txn.commit()?;
+
         self.index
             .lock()
-            .entry(entry.kind.clone())
+            .entry(kind)
             .or_default()
-            .push(entry.id.clone());
-        Ok(entry.id)
+            .push(id.clone());
+        Ok(id)
     }
 
-    /// Récupère une entrée par ID.
     pub fn get(&self, id: &str) -> Result<StampedEntry> {
-        let Some(bytes) = self.db.get(id.as_bytes())? else {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(ENTRIES_TABLE)?;
+        let Some(bytes) = table.get(id)? else {
             return Err(PersistenceError::NotFound(id.into()));
         };
-        let entry: StampedEntry = serde_json::from_slice(&bytes)?;
-        Ok(entry)
+        StampedEntry::from_bytes(bytes.value())
     }
 
-    /// Liste les IDs d'un certain type.
     pub fn list_by_kind(&self, kind: &str) -> Vec<String> {
         self.index.lock().get(kind).cloned().unwrap_or_default()
     }
 
-    /// Renvoie la dernière entrée d'un certain type (par date de création).
     pub fn latest(&self, kind: &str) -> Result<StampedEntry> {
         let ids = self.list_by_kind(kind);
         let mut latest: Option<StampedEntry> = None;
@@ -161,7 +180,6 @@ impl LongTermMemory {
         latest.ok_or_else(|| PersistenceError::NotFound(format!("kind={kind}")))
     }
 
-    /// Renvoie l'arbre généalogique d'une entrée (parents successifs).
     pub fn lineage(&self, id: &str) -> Result<Vec<StampedEntry>> {
         let mut chain = Vec::new();
         let mut cur = Some(self.get(id)?);
@@ -175,17 +193,16 @@ impl LongTermMemory {
         Ok(chain)
     }
 
-    /// Compte le nombre d'entrées.
     pub fn len(&self) -> usize {
-        self.db.len()
+        let txn = self.db.begin_read().ok();
+        let table = txn.and_then(|t| t.open_table(ENTRIES_TABLE).ok());
+        table.map(|t| t.len().unwrap_or(0) as usize).unwrap_or(0)
     }
 
     pub fn is_empty(&self) -> bool {
-        self.db.is_empty()
+        self.len() == 0
     }
 }
-
-// ── Kinds conventionnels ───────────────────────────────────
 
 pub const KIND_GOAL: &str = "goal";
 pub const KIND_PLAN: &str = "plan";
