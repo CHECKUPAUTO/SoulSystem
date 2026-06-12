@@ -1,0 +1,120 @@
+name: OpenEvolve — @evolve tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      path:
+        description: "Source path to scan (file or directory)"
+        required: false
+        default: "src"
+      iterations:
+        description: "Override iteration count"
+        required: false
+        default: "100"
+  pull_request:
+    types: [labeled]
+    paths:
+      - "src/**"
+      - "**/*.rs"
+      - "**/*.py"
+      - "**/*.go"
+
+# Only react to PRs labeled `evolve`.
+jobs:
+  scan:
+    name: Scan @evolve annotations
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'evolve'
+    runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.scan.outputs.tags }}
+      has_tags: ${{ steps.scan.outputs.has_tags }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install openevolve binary
+        run: cargo build --release --bin openevolve
+
+      - id: scan
+        name: Discover annotations
+        run: |
+          PATH_ARG="${{ inputs.path || 'src' }}"
+          ./target/release/openevolve evolve-tag "$PATH_ARG" --json > /tmp/tags.json
+          echo "tags=$(jq -c . /tmp/tags.json)" >> "$GITHUB_OUTPUT"
+          COUNT=$(jq 'length' /tmp/tags.json)
+          echo "has_tags=$([ "$COUNT" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "Found $COUNT @evolve tag(s)"
+          jq -r '.[] | "  - \(.source_file):\(.line) fn=\(.function_name) fitness=\(.fitness)"' /tmp/tags.json
+
+  evolve:
+    name: Run evolution per tag
+    needs: scan
+    if: needs.scan.outputs.has_tags == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ${{ fromJson(needs.scan.outputs.tags) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build openevolve + evaluator
+        run: |
+          cargo build --release --bin openevolve
+          if [ -f "${{ matrix.tag.fitness }}" ]; then
+            echo "fitness file exists: ${{ matrix.tag.fitness }}"
+          fi
+
+      - name: Start Ollama (cached models)
+        run: |
+          curl -fsSL https://ollama.ai/install.sh | sh
+          nohup ollama serve > ollama.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:11434/api/version; then break; fi
+            sleep 1
+          done
+          ollama pull qwen2.5-coder:7b
+        env:
+          OLLAMA_NUM_PARALLEL: 1
+
+      - name: Run evolution
+        run: |
+          ITER="${{ inputs.iterations || matrix.tag.iterations || '100' }}"
+          ./target/release/openevolve evolve \
+            -p "${{ matrix.tag.source_file }}" \
+            -e "${{ matrix.tag.fitness }}" \
+            -i "$ITER"
+
+      - name: Upload best program
+        uses: actions/upload-artifact@v4
+        with:
+          name: best-${{ matrix.tag.function_name }}
+          path: openevolve_output/best/
+
+      - name: Post results as PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const tag = ${{ toJson(matrix.tag) }};
+            let body = `### 🧬 OpenEvolve — \`${tag.function_name}\`\n\n`;
+            try {
+              const best = fs.readFileSync('openevolve_output/best/best_program.rs', 'utf8');
+              body += '```rust\n' + best.slice(0, 4000) + '\n```\n';
+            } catch (e) {
+              body += `_no best program found: ${e.message}_\n`;
+            }
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
