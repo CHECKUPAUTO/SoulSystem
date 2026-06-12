@@ -75,6 +75,7 @@ struct AnthropicStreamDelta {
 pub struct AnthropicProvider {
     http: reqwest::Client,
     base_url: String,
+    #[allow(dead_code)]
     api_key: Zeroizing<String>,
     default_model: String,
     temperature: f32,

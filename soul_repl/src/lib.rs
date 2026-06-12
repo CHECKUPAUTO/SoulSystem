@@ -117,7 +117,7 @@ enum LlmEvent {
 
 // ─── Focus States ──────────────────────────────────────────────────────
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum Focus {
     Input,
     ModelDialog,
@@ -1726,5 +1726,44 @@ mod tests {
         assert_eq!(base64_encode("Hello"), "SGVsbG8=");
         assert_eq!(base64_encode("Hi"), "SGk=");
         assert_eq!(base64_encode(""), "");
+    }
+
+    // ── ProviderOpt tests ────────────────────────────────────
+
+    #[test]
+    fn provider_opt_labels() {
+        assert_eq!(ProviderOpt::Ollama.label(), "Ollama");
+        assert_eq!(ProviderOpt::OpenAI.label(), "OpenAI");
+        assert_eq!(ProviderOpt::Anthropic.label(), "Anthropic");
+    }
+
+    #[test]
+    fn provider_opt_from_kind() {
+        assert_eq!(ProviderOpt::from_kind(&ProviderKind::Ollama), ProviderOpt::Ollama);
+        assert_eq!(ProviderOpt::from_kind(&ProviderKind::OpenAI), ProviderOpt::OpenAI);
+        assert_eq!(ProviderOpt::from_kind(&ProviderKind::Anthropic), ProviderOpt::Anthropic);
+    }
+
+    // ── ToastLevel tests ─────────────────────────────────────
+
+    #[test]
+    fn toast_level_colors() {
+        assert_ne!(ToastLevel::Info.color(), ToastLevel::Error.color());
+        assert_ne!(ToastLevel::Success.color(), ToastLevel::Warning.color());
+    }
+
+    #[test]
+    fn toast_level_icons() {
+        assert!(!ToastLevel::Info.icon().is_empty());
+        assert!(!ToastLevel::Error.icon().is_empty());
+    }
+
+    // ── Focus enum tests ─────────────────────────────────────
+
+    #[test]
+    fn focus_default_input() {
+        assert_eq!(Focus::Input, Focus::Input);
+        assert_ne!(Focus::Input, Focus::HelpDialog);
+        assert_ne!(Focus::CommandPalette, Focus::FileBrowser);
     }
 }
