@@ -1,0 +1,10 @@
+[package]
+name = "jit_demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+jit_compiler = { path = "../jit_compiler" }
+dynamic_loader = { path = "../dynamic_loader" }
+ffi_bridge = { path = "../ffi_bridge" }
+anyhow = { workspace = true }

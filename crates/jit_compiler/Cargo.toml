@@ -1,0 +1,10 @@
+[package]
+name = "jit_compiler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ffi_bridge = { path = "../ffi_bridge" }
+anyhow = { workspace = true }
+tempfile = "3.8"
+log = { workspace = true }
