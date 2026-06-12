@@ -23,7 +23,7 @@ use clap::Parser;
 use colored::Colorize;
 use soul_entity::{EntityConfig, SoulEntity};
 use soul_gateway::{serve as serve_gateway, GatewayState};
-use soul_llm::LlmConfig;
+use soul_llm::{LlmConfig, ProviderKind};
 use soul_openclaw::{Skill, SkillVersion};
 use soul_sandbox::SandboxPolicy;
 use std::net::SocketAddr;
@@ -43,13 +43,21 @@ struct Cli {
     #[arg(long, env = "SOUL_MEMORY_PATH")]
     memory: Option<PathBuf>,
 
-    /// URL du serveur Ollama.
-    #[arg(long, env = "SOUL_OLLAMA_URL", default_value = "http://127.0.0.1:11434")]
-    ollama_url: String,
+    /// URL du serveur LLM (Ollama, OpenAI, etc.).
+    #[arg(long, env = "SOUL_LLM_URL", default_value = "http://127.0.0.1:11434")]
+    llm_url: String,
 
-    /// Modèle Ollama à utiliser.
+    /// Modèle LLM à utiliser.
     #[arg(long, default_value = "qwen3:8b")]
     model: String,
+
+    /// Provider LLM (ollama, openai, anthropic).
+    #[arg(long, env = "SOUL_LLM_PROVIDER", default_value = "ollama")]
+    provider: ProviderKind,
+
+    /// Clé API du provider (OpenAI, Anthropic, etc.).
+    #[arg(long, env = "SOUL_LLM_API_KEY")]
+    api_key: Option<String>,
 
     /// Active la boucle autonome en arrière-plan.
     #[arg(long, env = "SOUL_AUTONOMOUS", default_value_t = false)]
@@ -102,12 +110,13 @@ async fn main() -> anyhow::Result<()> {
     let entity_config = EntityConfig {
         name: cli.name.clone(),
         llm: LlmConfig {
-            base_url: cli.ollama_url.clone(),
+            provider: cli.provider,
+            base_url: cli.llm_url.clone(),
             model: cli.model.clone(),
             temperature: 0.7,
             http_timeout: Duration::from_secs(30),
             connect_timeout: Duration::from_secs(5),
-            auth_token: None,
+            auth_token: cli.api_key.clone(),
             max_tokens: 2048,
             goal_token_budget: 50000,
             tokens_per_minute_budget: 100000,
@@ -192,7 +201,13 @@ async fn main() -> anyhow::Result<()> {
                     let hub = hub_for_metrics.clone();
                     async move {
                         exporter.update_from_hub(&hub);
-                        soul_telemetry::gather_metrics()
+                        match soul_telemetry::gather_metrics() {
+                            Ok(metrics) => metrics,
+                            Err(e) => {
+                                tracing::error!("Failed to gather metrics: {e}");
+                                String::from("# HELP metrics_error Failed to encode metrics\n")
+                            }
+                        }
                     }
                 }
             }))
@@ -229,12 +244,13 @@ async fn main() -> anyhow::Result<()> {
     if cli.repl {
         info!("démarrage du REPL interactif");
         let llm_cfg = LlmConfig {
-            base_url: cli.ollama_url.clone(),
+            provider: cli.provider,
+            base_url: cli.llm_url.clone(),
             model: cli.model.clone(),
             temperature: 0.7,
             http_timeout: Duration::from_secs(30),
             connect_timeout: Duration::from_secs(5),
-            auth_token: None,
+            auth_token: cli.api_key.clone(),
             max_tokens: 2048,
             goal_token_budget: 50000,
             tokens_per_minute_budget: 100000,
@@ -286,7 +302,7 @@ fn print_banner(cli: &Cli) {
         cli.name,
         cli.gateway,
         cli.metrics,
-        cli.ollama_url,
+        cli.llm_url,
         cli.model,
         cli.memory.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "/tmp".into()),
         if cli.autonomous { "oui" } else { "non" }

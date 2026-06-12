@@ -3,14 +3,14 @@
 use colored::Colorize;
 use std::sync::Arc;
 
-use soul_llm::{LlmConfig, OllamaClient};
+use soul_llm::{LlmClient, LlmConfig};
 use soul_persistence::LongTermMemory;
 use soul_planner::{CognitiveLoop, Goal, GoalStatus};
 use soul_sandbox::Sandbox;
 use soul_tools::ToolRegistry;
 
 pub struct ReplState {
-    pub llm: OllamaClient,
+    pub llm: LlmClient,
     pub planner: CognitiveLoop,
     pub tools: ToolRegistry,
     pub sandbox: Arc<Sandbox>,
@@ -25,7 +25,7 @@ impl ReplState {
             reg.register(t);
         }
         Self {
-            llm: OllamaClient::new(config),
+            llm: LlmClient::new(config).expect("failed to init LLM client"),
             planner: CognitiveLoop::new(),
             tools: reg,
             sandbox: Arc::new(Sandbox::new(soul_sandbox::SandboxPolicy::default())),
@@ -44,11 +44,11 @@ impl ReplState {
         let alive = self.llm.is_alive().await;
         let models = if alive {
             match self.llm.list_models().await {
-                Ok(m) => m.join(", "),
+                Ok(m) => m.iter().map(|m| m.name.as_str()).collect::<Vec<_>>().join(", "),
                 Err(_) => "erreur".into(),
             }
         } else {
-            "Ollama non connecté".into()
+            "Provider non connecté".into()
         };
         let success_rate = self.planner.history.success_rate();
         let recent_obs = self.planner.memory.recent_observations(3);
@@ -100,7 +100,7 @@ impl ReplState {
             return "❌ ask <message>".into();
         }
         match self.llm.generate(msg).await {
-            Ok(resp) => resp.response.bright_cyan().to_string(),
+            Ok(resp) => resp.text.bright_cyan().to_string(),
             Err(e) => format!("❌ Erreur LLM: {}", e),
         }
     }
@@ -335,7 +335,7 @@ impl ReplState {
         match self.llm.list_models().await {
             Ok(models) => models
                 .iter()
-                .map(|m| format!("  {}", m.bright_green()))
+                .map(|m| format!("  {}", m.name.bright_green()))
                 .collect::<Vec<_>>()
                 .join("\n"),
             Err(e) => format!("❌ {}", e),
