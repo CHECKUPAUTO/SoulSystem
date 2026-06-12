@@ -1,8 +1,12 @@
 [package]
 name = "soul_tools"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2021"
-description = "Tool discovery, execution, file operations, and permission model"
+description = "System tool discovery and execution framework with sandboxed command allowlists for agent capabilities"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["tools", "system", "discovery", "execution", "sandbox", "allowlist", "agent"]
+categories = ["os", "embedded", "development-tools", "security"]
 
 [dependencies]
 serde = { workspace = true }

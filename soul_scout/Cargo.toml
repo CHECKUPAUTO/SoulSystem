@@ -1,0 +1,9 @@
+[package]
+name = "soul_scout"
+version = "0.1.0"
+edition = "2021"
+description = "System reconnaissance and hardware capability probing for adaptive runtime configuration"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["scout", "reconnaissance", "hardware", "capabilities", "probing", "adaptive"]
+categories = ["embedded", "os", "system"]

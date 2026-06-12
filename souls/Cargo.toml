@@ -1,0 +1,37 @@
+[package]
+name = "souls"
+version = "0.1.0"
+edition = "2021"
+description = "Main SoulSystem binary: autonomous entity with HTTP/WS gateway, REPL, clinical console, and OpenClaw skills"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["soulsystem", "autonomous", "entity", "gateway", "repl", "clinical", "opencawl", "cli"]
+categories = ["machine-learning", "embedded", "command-line-utilities"]
+
+[[bin]]
+name = "souls"
+path = "src/main.rs"
+
+[dependencies]
+soul_entity = { path = "../soul_entity" }
+soul_gateway = { path = "../soul_gateway" }
+soul_llm = { path = "../soul_llm" }
+soul_sandbox = { path = "../soul_sandbox" }
+soul_openclaw = { path = "../soul_openclaw" }
+soul_repl = { path = "../soul_repl" }
+soul_telemetry = { path = "../soul_telemetry" }
+
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+toml = "0.8"
+clap = { version = "4", features = ["derive", "env"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+anyhow = { workspace = true }
+colored = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true, features = ["event-stream"] }
+dirs = { workspace = true }
+axum = "0.7"
+num_cpus = "1"

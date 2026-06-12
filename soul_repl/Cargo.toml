@@ -1,8 +1,12 @@
 [package]
 name = "soul_repl"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2021"
-description = "Interactive REPL with autonomous agent, conversation context, and streaming"
+description = "Interactive TUI for autonomous entity with LLM integration, planning, tool execution, and sandboxed environment"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["tui", "repl", "interactive", "llm", "autonomous", "entity"]
+categories = ["development-tools", "machine-learning", "command-line-utilities"]
 
 [dependencies]
 soul_llm = { path = "../soul_llm" }

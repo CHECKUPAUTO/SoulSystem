@@ -1,38 +1,50 @@
-# Contributing to SoulSystem
+# Guide de Contribution
 
-## Code Style
-- Rust edition 2021/2024, nightly features used
-- Follow standard Rust formatting (`cargo fmt`)
-- Add tests for all new functionality
-- Keep documentation in English
+Merci de l'intérêt que vous portez au projet **OS-AGENTS** ! Nous accueillons avec plaisir les contributions de la communauté pour améliorer ce framework de système d'exploitation cognitif.
 
-## Git Workflow
-1. Create a feature branch from `main`
-2. Make your changes with descriptive commit messages
-3. Run `cargo test` and `cargo clippy` before committing
-4. Create a pull request with a clear description
+## 🛠 Comment contribuer ?
 
-## Continuous Integration
-The project uses GitHub Actions with the following pipeline:
-1. **Check**: Verify compilation
-2. **Test**: Run all unit and integration tests
-3. **Clippy**: Lint check with clippy
-4. **Format**: Verify code formatting
+### 1. Rapporter des bogues
+Si vous trouvez un bogue, veuillez ouvrir une "Issue" sur GitHub en fournissant :
+- Une description claire du problème.
+- Les étapes pour reproduire le bogue.
+- Votre environnement (version de Rust, OS, matériel).
 
-## Project Structure
-- `src/` — Root binary crate (soulsystem)
-- `soul_*/` — Autonomous entity crates (LLM, planner, tools, REPL)
-- `soul-*/` — Infrastructure crates (memory, daemon, sandbox, etc.)
-- `soullink-brain/` — Neural mesh crates (HNN, memory hierarchy, MoE, etc.)
-- `scirust-*/` — Scientific computing framework
-- `crates/` — Shared tooling (dashboard, TUI, chaos testing)
-- `docs/` — Documentation
-- `scripts/` — Build/deploy/maintenance scripts
+### 2. Proposer des fonctionnalités
+Toute idée d'amélioration est la bienvenue. Ouvrez une issue pour en discuter avant de commencer le développement.
 
-## Testing
-- Run all tests: `cargo test --workspace`
-- Run specific crate tests: `cargo test -p soul-memory`
-- Check code quality: `cargo clippy --workspace`
+### 3. Soumettre des modifications (Pull Requests)
+1. **Forkez** le dépôt.
+2. Créez une **branche** descriptive (`feature/mon-amelioration` ou `fix/mon-correctif`).
+3. Appliquez vos modifications.
+4. Assurez-vous que votre code respecte les conventions du projet (voir ci-dessous).
+5. Lancez les tests.
+6. Soumettez une **Pull Request**.
 
-## Need Help?
-Open an issue or contact the SoulLink Mesh Team.
+## 📏 Conventions de Code
+
+- **Langue** :
+  - Les commentaires de bas niveau et le code lui-même doivent être en **anglais**.
+  - La documentation de haut niveau et les commentaires conceptuels peuvent être en **français** ou **anglais**.
+- **Style** : Utilisez `cargo fmt` pour formater votre code avant de soumettre.
+- **Sécurité** : Soyez extrêmement prudent avec l'utilisation de blocs `unsafe`. Ils doivent être documentés avec une section `// SAFETY:`.
+- **Performance** : Ce projet est axé sur la performance. Évitez les allocations inutiles dans le "chemin chaud" (hot path).
+
+## 🧪 Tests
+
+Avant de soumettre une modification, assurez-vous que tout fonctionne correctement :
+
+```bash
+# Vérification globale
+./check.sh
+
+# Lancer les tests unitaires
+cargo test
+```
+
+## 📜 Code de Conduite
+
+Veuillez rester respectueux et professionnel dans toutes vos interactions au sein du projet.
+
+---
+*Merci de contribuer à l'évolution de Soul System !*

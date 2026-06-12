@@ -1,0 +1,9 @@
+[package]
+name = "ontological_self_healing"
+version = "0.1.0"
+edition = "2021"
+description = "Ontological self-healing: detects and repairs NaN, infinite, and out-of-bounds state values to maintain [min, max] invariants"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["self-healing", "nan", "invariants", "state-repair", "robustness"]
+categories = ["embedded", "safety", "algorithms"]

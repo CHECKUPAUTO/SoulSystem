@@ -1,0 +1,18 @@
+[package]
+name = "soul_persistence"
+version = "0.2.0"
+edition = "2021"
+description = "Persistent memory layer using redb KV store with lineage registry for parent tracking and event sourcing"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["persistence", "redb", "kv-store", "lineage", "event-sourcing", "memory"]
+categories = ["database", "embedded", "data-structures"]
+
+[dependencies]
+redb = "2"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["v4"] }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }

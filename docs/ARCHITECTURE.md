@@ -1,28 +1,41 @@
-# SoulSystem Unified Architecture
+# Architecture détaillée de Soul System
 
-## Monorepo Structure
+Soul System est conçu comme un système d'exploitation pour agents autonomes, séparant strictement la gestion des ressources matérielles de la logique cognitive.
 
-SoulSystem is an industrial-grade monorepo containing:
-- **Core Orchestrator**: Agent coordination logic and system heartbeat.
-- **Message Bus**: Binary-serialized (`bincode`) central communication hub.
-- **SciRust Ecosystem**: Full deep learning framework (autodiff, core, gpu, simd).
-- **SciRust-TN**: Tensor-Train compression for high-dimensional neural states.
-- **AVID Ecosystem**: Advanced digital organism for web exploration and API cloning.
-- **BoundSystem**: Hardened sandbox using bubblewrap and seccomp.
-- **SoulMemory**: Vector knowledge base with SciRust embeddings.
+## 1. La Dualité du Système
 
-## Message Bus Specifications
+Le projet est divisé en deux sous-systèmes principaux qui communiquent via des interfaces bien définies.
 
-Messages are serialized using `bincode` for maximum performance.
-Topics include:
-- `hnn.status`: Hamiltonian Neural Network energy metrics.
-- `avid.clone_request`: Trigger AVID to clone a target URL.
-- `synergy.detection`: Cross-module opportunistic discoveries.
+### A. Le Noyau Runtime (`soul_kernel`)
+C'est la couche de bas niveau, équivalente au noyau d'un OS traditionnel, mais optimisée pour les charges de travail IA.
 
-## Security Model
+- **Gestion du Temps et des Tâches** (`soul_scheduler`) : Un ordonnanceur qui gère des milliers de micro-tâches d'agents. Il utilise le vol de travail (work-stealing) pour équilibrer la charge entre les cœurs CPU.
+- **Accélération Matérielle** (`soul_matrix_engine`) : Au lieu de dépendre entièrement de bibliothèques externes lourdes, il possède son propre moteur de calcul matriciel optimisé pour les instructions SIMD (Single Instruction, Multiple Data) du processeur.
+- **Communication** (`soul_ipc` & `soul_cluster`) : Permet aux agents de s'envoyer des messages soit localement sur la même machine, soit à travers un réseau via UDP.
 
-All untrusted code (Python scripts, extracted snippets) runs within the **BoundSystem** sandbox:
-1. No network access by default.
-2. Resource limits (CPU, Memory, Disk).
-3. System call filtering (seccomp).
-4. Code signing verification for all dynamic loads.
+### B. Le Système Cognitif (`soul_system_bin`)
+C'est la couche d'intelligence et de sécurité sémantique.
+
+- **Affectivité** (`scirust_affective_core`) : Simule des états émotionnels complexes qui influencent le comportement des agents.
+- **Sécurité Constitutionnelle** (`semantic_firewall`) : Analyse les "pensées" (vecteurs d'activation) des agents pour bloquer toute dérive dangereuse ou pathologique avant qu'elle ne soit exécutée ou transmise.
+- **Auto-Réparation** (`ontological_self_healing`) : Surveille l'intégrité logique du système et répare les incohérences de l'état interne.
+
+## 2. Flux de Données
+
+```mermaid
+graph TD
+    S[Capteurs/Perception] -->|Signaux Bruts| P[soul_perception]
+    P -->|Messages| Bus[soul_ipc]
+    Bus -->|Input| C[Cortex Récurrent]
+    C -->|Activations| FW[semantic_firewall]
+    FW -->|Veto/OK| Sch[soul_scheduler]
+    Sch -->|Exécution| ME[soul_matrix_engine]
+    ME -->|Sortie| Act[Actionneurs/Output]
+```
+
+## 3. Optimisations Matérielles
+
+Soul System n'est pas un framework IA "agnostique". Il est conçu pour extraire le maximum de performance du silicium :
+- **Conscience du Cache** : Les données sont structurées pour minimiser les "cache misses".
+- **Affinité CPU** : Les threads sont épinglés à des cœurs physiques spécifiques pour éviter les coûts de migration de contexte.
+- **Zero-Copy** : Les données transitent entre les modules avec un minimum de copies en mémoire.

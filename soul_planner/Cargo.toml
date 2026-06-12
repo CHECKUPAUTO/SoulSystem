@@ -1,8 +1,12 @@
 [package]
 name = "soul_planner"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2021"
-description = "LLM-powered cognitive loop with goal/plan/evaluate/decide"
+description = "Cognitive loop implementation (observe → plan → act → evaluate → decide) with goal management for autonomous agents"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["planner", "cognitive-loop", "observe-plan-act", "goal-management", "autonomous", "agent"]
+categories = ["machine-learning", "embedded", "algorithms"]
 
 [dependencies]
 soul_llm = { path = "../soul_llm" }

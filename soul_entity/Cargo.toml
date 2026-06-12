@@ -1,0 +1,39 @@
+[package]
+name = "soul_entity"
+version = "0.1.0"
+edition = "2021"
+description = "Autonomous digital entity aggregating LLM, planner, tools, sandbox, persistence, OpenClaw, and cognitive subsystems"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["entity", "autonomous", "digital", "llm", "planner", "tools", "sandbox", "persistence", "opencawl"]
+categories = ["machine-learning", "embedded", "os"]
+
+[dependencies]
+soul_llm = { path = "../soul_llm" }
+soul_planner = { path = "../soul_planner" }
+soul_tools = { path = "../soul_tools" }
+soul_sandbox = { path = "../soul_sandbox" }
+soul_persistence = { path = "../soul_persistence" }
+soul_openclaw = { path = "../soul_openclaw" }
+soul_gateway = { path = "../soul_gateway" }
+soul_journal = { path = "../soul_journal" }
+soul_forge = { path = "../soul_forge" }
+soul_telemetry = { path = "../soul_telemetry" }
+soul_orchestrator = { path = "../soul_orchestrator" }
+soul_evolution = { path = "../soul_evolution" }
+neural_cluster_sync = { path = "../neural_cluster_sync" }
+neural_chaos_monkey = { path = "../neural_chaos_monkey" }
+neural_graph_compiler = { path = "../neural_graph_compiler" }
+neural_metacognition = { path = "../neural_metacognition" }
+neural_clinical_console = { path = "../neural_clinical_console" }
+ontological_self_healing = { path = "../ontological_self_healing" }
+ecosystem_synapse_linker = { path = "../ecosystem_synapse_linker" }
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["v4"] }
+parking_lot = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "sync", "fs"] }

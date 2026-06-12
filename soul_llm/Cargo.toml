@@ -2,7 +2,11 @@
 name = "soul_llm"
 version = "0.2.0"
 edition = "2021"
-description = "Ollama LLM client with conversation context, streaming, and tool calling"
+description = "Multi-provider LLM client with streaming, token budgeting, and connection pooling"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["llm", "openai", "anthropic", "ollama", "streaming", "multi-provider"]
+categories = ["machine-learning", "api-client", "async", "network-programming"]
 
 [dependencies]
 serde = { workspace = true }

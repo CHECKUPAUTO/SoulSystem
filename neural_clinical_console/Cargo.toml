@@ -1,0 +1,14 @@
+[package]
+name = "neural_clinical_console"
+version = "0.1.0"
+edition = "2021"
+description = "Clinical TCP/HTTP console for real-time cognitive system introspection, metacognition inspection, and live debugging"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["clinical", "console", "introspection", "metacognition", "debugging", "tcp", "http", "live"]
+categories = ["development-tools", "monitoring", "embedded", "machine-learning"]
+
+[dependencies]
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "macros", "sync", "time", "io-util"] }
+neural_metacognition = { path = "../neural_metacognition" }
+tracing = { workspace = true }

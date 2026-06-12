@@ -1,0 +1,12 @@
+[package]
+name = "neural_cluster_sync"
+version = "0.1.0"
+edition = "2021"
+description = "Monotonic CRDT merge-max synchronization for distributed cognitive state; commutative, associative, idempotent convergence"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["crdt", "merge-max", "distributed", "sync", "convergence", "monotonic"]
+categories = ["distributed-systems", "algorithms", "embedded"]
+
+[dev-dependencies]
+proptest = "1"
