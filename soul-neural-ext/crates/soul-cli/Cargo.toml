@@ -10,6 +10,6 @@ soul-minillm = { path = "../soul-minillm" }
 soul-embed = { path = "../soul-embed" }
 soul-identity = { path = "../soul-identity" }
 soul-memory-store = { path = "../soul-memory-store" }
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true }
 anyhow = "1"
 rustyline = "12"

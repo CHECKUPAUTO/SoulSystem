@@ -9,6 +9,11 @@ keywords = ["planner", "cognitive-loop", "observe-plan-act", "goal-management", 
 categories = ["machine-learning", "embedded", "algorithms"]
 
 [dependencies]
-uuid = { workspace = true, features = ["v4"] }
-chrono = { workspace = true, features = ["serde"] }
-serde = { workspace = true, features = ["derive"] }
+soul_llm = { path = "../soul_llm" }
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tracing = "0.1"
+chrono = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+reqwest = { workspace = true }

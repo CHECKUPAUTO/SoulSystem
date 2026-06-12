@@ -10,15 +10,15 @@ description = "Semantic comprehension engine for the AVID autonomous system"
 avid-core = { path = "../avid-core" }
 thiserror = "2"
 anyhow = "1"
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 serde_json = "1"
-tokio = { version = "1", features = ["rt", "macros", "full"] }
+tokio = { workspace = true }
 tracing = "0"
 lopdf = "0.33"
 garde = { version = "0", features = ["derive"] }
 async-trait = "0.1"
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { workspace = true }
 handlebars = "6"
 futures-util = "0.3"
 uuid = { version = "1", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }

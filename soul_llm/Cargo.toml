@@ -9,12 +9,11 @@ keywords = ["llm", "openai", "anthropic", "ollama", "streaming", "multi-provider
 categories = ["machine-learning", "api-client", "async", "network-programming"]
 
 [dependencies]
-async-trait = { workspace = true }
-reqwest = { workspace = true, features = ["json", "stream"] }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-dashmap = { workspace = true }
-chrono = { workspace = true, features = ["serde"] }
-parking_lot = { workspace = true }
-futures = { workspace = true }
-zeroize = { workspace = true }
+serde = { workspace = true }
+serde_json = "1"
+reqwest = { workspace = true }
+tokio = { workspace = true }
+futures = "0.3"
+tracing = "0.1"
+thiserror = "2"
+soullink-circuit = { path = "../soullink-brain/soullink-circuit" }

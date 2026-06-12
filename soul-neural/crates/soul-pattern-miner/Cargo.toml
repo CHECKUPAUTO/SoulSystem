@@ -5,5 +5,5 @@ edition.workspace = true
 description = "Symbolic pattern discovery from data series"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 fastrand = "2"
