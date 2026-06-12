@@ -1,0 +1,12 @@
+2026-04-09 09:30 | PARTIAL | sessions: 311, orphans: 5 (archived), missing_transcripts: 5
+  - Doctor archived 5 orphan transcript files
+  - Main session transcript has only 1 line (possible append issue)
+  - Cleanup skipped: allowlist restriction on --enforce --fix-missing
+
+2026-04-09 10:01 | OK | sessions: 3, orphans: 0, missing_transcripts: 0
+  - Sessions JSON: 3 sessions (main + 2 cron runs)
+  - All sessions have matching transcript files
+  - No orphaned transcript files detected
+  - Cron jobs: 9 active (1 running now - this session)
+  - Status: HEALTHY
+  - Note: openclaw CLI unavailable (allowlist restriction), analysis via API tools
