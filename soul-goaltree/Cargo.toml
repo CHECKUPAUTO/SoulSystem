@@ -5,14 +5,14 @@ edition = "2021"
 description = "Hierarchical goal decomposition and tracking"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tokio = { workspace = true }
 tracing = "0.1"
 thiserror = "2"
 soul-memory = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

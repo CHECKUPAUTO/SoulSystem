@@ -7,4 +7,4 @@ repository = "https://github.com/CHECKUPAUTO/SoulNeural"
 
 [dependencies]
 fastrand = "2"
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }

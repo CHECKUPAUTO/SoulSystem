@@ -10,11 +10,11 @@ description = "Web exploration engine for the AVID autonomous system"
 avid-core = { path = "../avid-core" }
 avid-anticlone = { path = "../avid-anticlone" }
 thiserror = "2"
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 serde_json = "1"
-tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }
+tokio = { workspace = true }
 tracing = "0"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { workspace = true }
 url = "2"
 html5ever = "0.39"
 markup5ever_rcdom = "0.39"

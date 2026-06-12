@@ -5,10 +5,10 @@ edition = "2021"
 description = "Ollama LLM client with conversation context, streaming, and tool calling"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 serde_json = "1"
-reqwest = { version = "0.12", features = ["json", "stream"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "time"] }
+reqwest = { workspace = true }
+tokio = { workspace = true }
 futures = "0.3"
 tracing = "0.1"
 thiserror = "2"

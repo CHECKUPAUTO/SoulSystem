@@ -12,7 +12,7 @@ soul-tools = { path = "../soul-tools" }
 soul-minillm = { path = "../soul-minillm" }
 soul-rstdp = { path = "../soul-rstdp" }
 async-trait = "0.1"
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true }
 anyhow = "1"
 serde_json = "1"
 rand = "0.8"

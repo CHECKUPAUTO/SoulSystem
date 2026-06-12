@@ -5,12 +5,12 @@ edition = "2021"
 description = "Self-code modification with backup and rollback"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync"] }
+tokio = { workspace = true }
 tracing = "0.1"
 thiserror = "2"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 diff = "0.1"
 
