@@ -14,7 +14,7 @@
 //! Si l'audit échoue N fois de suite, il force un rollback + changement de stratégie.
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::{error, info, warn};
 
 // ─────────────────────────────────────────────
@@ -364,7 +364,7 @@ impl Auditor {
             .iter()
             .filter(|(c, _)| input.cycle >= *c)
             .map(|(_, f)| *f)
-            .last()
+            .next_back()
             .unwrap_or(0.0);
 
         if input.avg_fitness < expected_fitness && input.cycle > 10 {
@@ -482,9 +482,7 @@ impl Auditor {
                 AuditAction::ForceRollback
             } else if self.consecutive_failures >= 3 {
                 AuditAction::SwitchToDeep
-            } else if self.consecutive_failures >= 2 {
-                AuditAction::IncreaseMutation
-            } else if overall_verdict == AuditVerdict::Fail {
+            } else if self.consecutive_failures >= 2 || overall_verdict == AuditVerdict::Fail {
                 AuditAction::IncreaseMutation
             } else {
                 AuditAction::Continue

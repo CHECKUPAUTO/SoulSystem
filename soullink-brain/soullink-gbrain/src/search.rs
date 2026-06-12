@@ -32,6 +32,12 @@ struct Bm25Doc {
     dl: usize,
 }
 
+impl Default for Bm25Index {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Bm25Index {
     pub fn new() -> Self {
         Self {
@@ -214,7 +220,7 @@ impl HybridSearcher {
             *combined.entry(res.label).or_insert(0.0) += 0.4 * res.score as f64;
         }
 
-        let max_bm25 = bm25_results.get(0).map(|r| r.1).unwrap_or(1.0).max(1.0);
+        let max_bm25 = bm25_results.first().map(|r| r.1).unwrap_or(1.0).max(1.0);
         for (id, score) in bm25_results {
             *combined.entry(id).or_insert(0.0) += 0.3 * (score / max_bm25);
         }

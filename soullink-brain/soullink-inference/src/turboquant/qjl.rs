@@ -60,7 +60,7 @@ impl QJLQuantizer {
         let increment = 1.0 / 4.0; // 1 / (2^3 / 2)
 
         let n = x.len();
-        let packed_len = (n * 3 + 7) / 8; // ceil(n*3/8) bytes
+        let packed_len = (n * 3).div_ceil(8); // ceil(n*3/8) bytes
         let mut packed = vec![0u8; packed_len];
         let mut bit_pos = 0u32;
 
@@ -80,7 +80,6 @@ impl QJLQuantizer {
 
     /// Unpack 3-bit values back to f32.
     pub fn unpack_3bit(packed: &[u8], n: usize, x_max: f32) -> Vec<f32> {
-        let half_range = 3.5;
         let increment = 1.0 / 4.0;
         let mut result = Vec::with_capacity(n);
         let mut bit_pos = 0u32;

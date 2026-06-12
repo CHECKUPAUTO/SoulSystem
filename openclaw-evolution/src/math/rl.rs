@@ -4,7 +4,6 @@
 //!
 //! Pour entraîner les paramètres de surface d'énergie via RL.
 
-use crate::math::optimizer::Adam;
 use serde::{Deserialize, Serialize};
 
 /// Configuration PPO
@@ -65,6 +64,12 @@ pub struct RolloutBuffer {
     pub advantages: Vec<f32>,
     /// Returns (valeur cible)
     pub returns: Vec<f32>,
+}
+
+impl Default for RolloutBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RolloutBuffer {

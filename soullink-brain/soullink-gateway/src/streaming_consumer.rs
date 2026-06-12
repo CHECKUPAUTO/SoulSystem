@@ -249,7 +249,7 @@ fn parse_sse_events(
                 futures::future::ready(Some(events))
             },
         )
-        .flat_map(|batch| futures::stream::iter(batch.into_iter()))
+        .flat_map(futures::stream::iter)
 }
 
 #[derive(Default)]

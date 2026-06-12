@@ -285,6 +285,11 @@ impl EpisodicStore {
     pub fn len(&self) -> usize {
         self.entries.len()
     }
+
+    /// True si le store est vide.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 }
 
 // ── Semantic Store ──────────────────────────────────────────────────────
@@ -419,6 +424,11 @@ impl SemanticStore {
     pub fn len(&self) -> usize {
         self.entries.len()
     }
+
+    /// True si le store est vide.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 }
 
 // ── Consolidation Engine ────────────────────────────────────────────────
@@ -482,10 +492,11 @@ impl ConsolidationEngine {
 
     /// Run a single consolidation cycle.
     pub async fn consolidate(&self) -> ConsolidationResult {
-        let mut result = ConsolidationResult::default();
-
-        // 1. Decay episodic memories
-        result.decayed = self.episodic.decay();
+        let mut result = ConsolidationResult {
+            // 1. Decay episodic memories
+            decayed: self.episodic.decay(),
+            ..Default::default()
+        };
 
         // 2. Get recent episodic entries above threshold
         let candidates: Vec<MemoryEntry> = self
@@ -848,7 +859,7 @@ mod tests {
 
         let result = engine.consolidate().await;
         assert!(result.promoted >= 3);
-        assert!(episodic.len() == 0);
-        assert!(semantic.len() >= 1);
+        assert!(episodic.is_empty());
+        assert!(!semantic.is_empty());
     }
 }

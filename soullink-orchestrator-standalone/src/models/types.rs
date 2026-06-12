@@ -17,7 +17,7 @@ pub struct BrainConfig {
 }
 
 impl BrainConfig {
-    pub fn new(name: &str, port: u16, speciality: Vec<&str>) -> Self {
+    pub fn new(_name: &str, port: u16, speciality: Vec<&str>) -> Self {
         Self {
             port,
             url: format!("http://localhost:{}", port),

@@ -8,7 +8,6 @@ use crate::nn::init::Initializer;
 use crate::nn::linear::Linear;
 use crate::nn::module::Module;
 use crate::nn::rng::PcgEngine;
-use crate::nn::rope::rope_apply;
 use crate::tensor::tensor3d::Var3D;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -308,6 +307,8 @@ impl MultiHeadAttention {
 
     /// GQA: répète les têtes KV pour correspondre au nombre de têtes Q.
     /// Si num_kv_heads == num_heads, c'est un no-op (MHA standard).
+    /// Stub en attente de Tensor::cat — conservé pour l'implémentation GQA.
+    #[allow(dead_code)]
     fn repeat_kv_heads(&self, x: Tensor, _seq_len: usize, _d_head: usize) -> Tensor {
         let repeat = self.n_heads / self.num_kv_heads;
         if repeat <= 1 {

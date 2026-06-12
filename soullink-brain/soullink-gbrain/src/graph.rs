@@ -105,12 +105,11 @@ impl KnowledgeGraph {
             }
         }
 
-        if (e1.entity_type == "Person" && e2.entity_type == "Event")
-            || (e1.entity_type == "Event" && e2.entity_type == "Person")
+        if ((e1.entity_type == "Person" && e2.entity_type == "Event")
+            || (e1.entity_type == "Event" && e2.entity_type == "Person"))
+            && (ctx.contains("attended") || ctx.contains("spoke") || ctx.contains("at"))
         {
-            if ctx.contains("attended") || ctx.contains("spoke") || ctx.contains("at") {
-                return "attended".to_string();
-            }
+            return "attended".to_string();
         }
 
         "mentioned_in".to_string()

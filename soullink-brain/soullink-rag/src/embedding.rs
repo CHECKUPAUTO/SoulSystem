@@ -7,7 +7,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use tracing::{info, instrument, warn};
+use tracing::{instrument, warn};
 
 /// Ollama embedding request.
 #[derive(Debug, Serialize)]

@@ -11,7 +11,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::warn;
 
 pub struct EmbedClient {
     cfg: EmbedCfg,

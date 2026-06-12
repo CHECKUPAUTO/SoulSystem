@@ -22,6 +22,11 @@ pub struct PortfolioEngine {
 }
 
 impl PortfolioEngine {
+    /// P&L total depuis le démarrage : cash actuel + P&L réalisé - capital initial.
+    pub fn total_pnl(&self) -> Decimal {
+        self.portfolio.cash() + self.portfolio.realized_pnl() - self.starting_capital
+    }
+
     /// Create a new paper trading engine.
     pub fn new(
         starting_cash: Decimal,

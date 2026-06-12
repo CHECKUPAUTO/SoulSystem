@@ -33,9 +33,9 @@ pub fn filter_symbolic(mut synergies: Vec<Synergy>) -> Vec<Synergy> {
                 (extract_exprs(desc_i), extract_exprs(desc_j))
             {
                 let match_1 =
-                    parse_both_and_compare(&e1_a, &e2_a) && parse_both_and_compare(&e1_b, &e2_b);
+                    parse_both_and_compare(e1_a, e2_a) && parse_both_and_compare(e1_b, e2_b);
                 let match_2 =
-                    parse_both_and_compare(&e1_a, &e2_b) && parse_both_and_compare(&e1_b, &e2_a);
+                    parse_both_and_compare(e1_a, e2_b) && parse_both_and_compare(e1_b, e2_a);
 
                 if match_1 || match_2 {
                     used[j] = true;
@@ -58,8 +58,7 @@ pub fn filter_symbolic(mut synergies: Vec<Synergy>) -> Vec<Synergy> {
 
 /// Applique tous les filtres disponibles par ordre.
 pub fn apply_all(synergies: Vec<Synergy>) -> Vec<Synergy> {
-    let filtered = filter_symbolic(synergies);
-    filtered
+    filter_symbolic(synergies)
 }
 
 fn extract_exprs(desc: &str) -> Option<(&str, &str)> {

@@ -46,11 +46,64 @@ impl PageProvider for TextPageProvider {
 }
 
 fn read_test_document() -> String {
-    let path = "/mnt/nvme/soullink_brain/soullink-v13.5/ARCHITECTURE.md";
-    std::fs::read_to_string(path).expect("Failed to read ARCHITECTURE.md")
+    // Document synthétique embarqué : le test doit être hermétique (pas de
+    // dépendance à un fichier absolu sur la machine de dev). ~12 Ko, plusieurs
+    // sections, mentionne « guardian module » pour les recherches.
+    let sections = [
+        (
+            "Guardian Module",
+            "The guardian module supervises GPU thermals and SM clock health. \
+         It performs hang detection by tracking the SM clock against a 500 MHz floor and an \
+         adaptive boost range, then triggers a controlled reset when a stall persists past the \
+         configured threshold. The guardian also paces power limits to keep the device inside a \
+         safe thermal envelope.",
+        ),
+        (
+            "Mesh Orchestrator",
+            "The orchestrator routes queries across the organ mesh, selecting \
+         the cheapest capable model for each request. It maintains a service registry, applies \
+         circuit breakers around flaky providers, and aggregates streaming responses back to the \
+         caller over the internal bus.",
+        ),
+        (
+            "Memory Hierarchy",
+            "Working, episodic and semantic stores form a tiered memory. \
+         Consolidation decays low-importance episodic entries, clusters similar ones, and promotes \
+         durable clusters into the semantic store for long-term recall.",
+        ),
+        (
+            "Inference Engine",
+            "The inference engine picks an execution target — GPU, NUMA-pinned \
+         CPU, or an Ollama fallback — based on a hardware snapshot and the requested quantization. \
+         TurboQuant compresses the KV cache to fit larger contexts in limited VRAM.",
+        ),
+        (
+            "Autonomy Loop",
+            "The autonomy loop observes system metrics, plans an action, executes it \
+         through the tool registry, evaluates the outcome, and decides whether to continue. \
+         Self-healing actions remediate common faults such as high CPU, memory pressure, and full \
+         disks.",
+        ),
+        (
+            "Security Layer",
+            "The security layer audits every privileged action into an immutable \
+         hash chain, rate-limits sensitive endpoints, blocks known-bad IPs, and scans content for \
+         leaked secrets using both pattern and entropy detectors.",
+        ),
+    ];
+
+    let mut doc = String::with_capacity(16 * 1024);
+    // Plusieurs passes pour dépasser ~12 Ko et garantir > 5 chunks.
+    for pass in 0..4 {
+        for (title, body) in &sections {
+            doc.push_str(&format!("## {title} (section {pass})\n\n{body}\n\n"));
+        }
+    }
+    doc
 }
 
 #[tokio::test]
+#[ignore = "nécessite une instance Ollama locale (embeddings + recherche)"]
 async fn soulflow_full_ingest_and_search() {
     let text = read_test_document();
     println!("📄 Document loaded: {} chars", text.len());
@@ -69,7 +122,7 @@ async fn soulflow_full_ingest_and_search() {
 
     // 2. Ingest via PageAwareStore (uses Ollama embed internally)
     let store_dir = tempfile::tempdir().expect("tempdir");
-    let embed_config = EmbedConfig {
+    let _embed_config = EmbedConfig {
         ollama_url: "http://127.0.0.1:11434".to_string(),
         model: "nomic-embed-text".to_string(),
         dimension: 768,

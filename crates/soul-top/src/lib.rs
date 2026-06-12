@@ -22,14 +22,13 @@
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
     Frame,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
 
 // ── Data Model ──────────────────────────────────────────────────────────
 

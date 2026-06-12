@@ -21,9 +21,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tracing::{debug, error, info, warn};
+use tracing::warn;
 
 /// Configuration for the TradingView bridge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,7 +138,12 @@ impl CryptoBridge {
     pub async fn screenshot(&self, region: &str) -> Result<Vec<u8>, String> {
         let output = self.run_tv_command(&["screenshot", "-r", region]).await?;
         // Base64 decode the screenshot data
-        base64::decode(&output).map_err(|e| format!("decode screenshot: {e}"))
+        {
+            use base64::Engine as _;
+            base64::engine::general_purpose::STANDARD
+                .decode(&output)
+                .map_err(|e| format!("decode screenshot: {e}"))
+        }
     }
 
     /// Stream quotes — returns a channel of market ticks.

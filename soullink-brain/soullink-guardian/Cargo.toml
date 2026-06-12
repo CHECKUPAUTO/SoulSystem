@@ -29,7 +29,7 @@ arc-swap = { workspace = true }
 parking_lot = { workspace = true }
 
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
 
 thiserror = { workspace = true }
 anyhow = { workspace = true }

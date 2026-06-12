@@ -19,7 +19,6 @@
 
 use std::collections::HashMap;
 
-use crate::config::load_default;
 use crate::provider;
 
 /// Load provider configurations from the gateway config TOML.
@@ -69,7 +68,7 @@ pub fn load_provider_configs() -> HashMap<String, provider::ProviderConfig> {
                         let api_key = cfg
                             .get("api_key")
                             .and_then(|v| v.as_str())
-                            .map(|s| resolve_env_var(s));
+                            .map(resolve_env_var);
 
                         let models: Vec<String> = cfg
                             .get("models")

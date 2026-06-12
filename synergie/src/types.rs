@@ -106,20 +106,15 @@ impl Synergy {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SynergyStatus {
+    #[default]
     Proposed,
     Investigating,
     InProgress,
     Implemented,
     Rejected,
     Stale,
-}
-
-impl Default for SynergyStatus {
-    fn default() -> Self {
-        SynergyStatus::Proposed
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

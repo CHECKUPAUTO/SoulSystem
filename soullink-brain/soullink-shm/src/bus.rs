@@ -111,6 +111,10 @@ impl ShmBus {
     }
 
     /// Open an existing bus from a received mmap fd.
+    ///
+    /// # Safety
+    /// `fd` doit référencer une région mmap valide de `total_size` octets,
+    /// initialisée par un `Bus::create` côté producteur.
     pub unsafe fn open(fd: OwnedFd, total_size: usize) -> Result<Self> {
         let region =
             ShmRegion::from_fd(fd, total_size).context("failed to open bus shared memory")?;

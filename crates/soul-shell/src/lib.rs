@@ -24,8 +24,6 @@
 //! - `exit` — Exit the shell
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 // ── Command Model ───────────────────────────────────────────────────────
 

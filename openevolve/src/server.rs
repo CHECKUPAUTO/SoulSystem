@@ -84,7 +84,10 @@ pub async fn run_server(cfg: Config, db: ProgramDatabase, bind: &str) -> Result<
         .finish()
         .context("build governor config")?;
 
-    let evolve_router = Router::new().route("/evolve", post(evolve));
+    // Limite l'endpoint coûteux /evolve (burst 2, fenêtre 10 s).
+    let evolve_router = Router::new()
+        .route("/evolve", post(evolve))
+        .layer(tower_governor::GovernorLayer::new(governor_conf));
 
     let v1 = Router::new()
         .route("/health", get(health))

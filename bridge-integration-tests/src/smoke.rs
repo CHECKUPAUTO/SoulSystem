@@ -174,16 +174,12 @@ async fn main() -> anyhow::Result<()> {
 
     // ─── Affichage récapitulatif ───
     println!();
+    println!("  {:<22} {:<55} {:<10} OK", "Bridge", "Résultat", "Latence");
     println!(
-        "  {:<22} {:<55} {:<10} {}",
-        "Bridge", "Résultat", "Latence", "OK"
-    );
-    println!(
-        "  {} {} {} {}",
+        "  {} {} {} ──",
         "─".repeat(22),
         "─".repeat(55),
         "─".repeat(10),
-        "──"
     );
     for (name, msg, dur, ok) in &all_results {
         println!(

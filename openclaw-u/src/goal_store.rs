@@ -1,6 +1,9 @@
 //! Persistent goal store (claude-goal compat)
 //! External agents (Claude Code, scripts) write goals to ~/.soulsystem/goal.json.
 //! openclaw-u reads and processes them each heartbeat cycle.
+//!
+//! NOTE: pas encore câblé au heartbeat — allow(dead_code) en attendant.
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::fs;

@@ -134,7 +134,7 @@ async fn fetch_orchestrator_mesh(client: &reqwest::Client) -> String {
 async fn forward_orch_to_soulsystem(client: &reqwest::Client) -> String {
     // Demande au SoulSystem (9023) de relayer une query vers l'orch (9020) via /api/bridges/probe
     match client
-        .post(&format!("{SOULSYSTEM_URL}/api/bridges/probe"))
+        .post(format!("{SOULSYSTEM_URL}/api/bridges/probe"))
         .send()
         .await
     {

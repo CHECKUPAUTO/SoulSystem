@@ -48,7 +48,7 @@ pub fn cosine_sim_batch(
     #[cfg(not(feature = "cutlass"))]
     {
         let _ = (queries, database, stream);
-        return Err(CutlassError::FeatureDisabled);
+        Err(CutlassError::FeatureDisabled)
     }
 
     #[cfg(feature = "cutlass")]
@@ -90,7 +90,7 @@ pub fn topk(
     #[cfg(not(feature = "cutlass"))]
     {
         let _ = (similarities, k, stream);
-        return Err(CutlassError::FeatureDisabled);
+        Err(CutlassError::FeatureDisabled)
     }
 
     #[cfg(feature = "cutlass")]
@@ -133,7 +133,7 @@ pub fn hnn_verlet_step(
     #[cfg(not(feature = "cutlass"))]
     {
         let _ = (q, p, masses, alpha, beta, dt, stream);
-        return Err(CutlassError::FeatureDisabled);
+        Err(CutlassError::FeatureDisabled)
     }
 
     #[cfg(feature = "cutlass")]

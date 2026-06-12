@@ -9,7 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::api::ApiState;
 use crate::provider::registry::ProviderRegistry;
@@ -56,6 +56,12 @@ pub struct RpcRegistry {
     methods: RwLock<HashMap<String, Box<dyn MethodHandler>>>,
 }
 
+impl Default for RpcRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RpcRegistry {
     pub fn new() -> Self {
         Self {
@@ -93,13 +99,7 @@ impl RpcRegistry {
     pub async fn build_default(registry: Arc<ProviderRegistry>) -> Self {
         let rpc = Self::new();
 
-        let api = ApiState {
-            registry: registry.clone(),
-        };
-        let state = Arc::new(RpcState {
-            api: api.clone(),
-            providers: registry.clone(),
-        });
+        let _ = registry; // l'état RPC est construit par l'appelant au dispatch
 
         // Health / Diagnostics
         rpc.register(Box::new(HealthHandler)).await;
@@ -290,7 +290,6 @@ impl MethodHandler for ModelsListHandler {
 mod tests {
     use super::*;
     use crate::provider::registry::ProviderRegistry;
-    use crate::provider::ProviderConfig;
 
     #[tokio::test]
     async fn test_registry_empty() {

@@ -12,7 +12,6 @@ use tracing::{debug, error, info, warn};
 use super::protocol::*;
 use super::session::SessionStore;
 use crate::api::ApiState;
-use crate::rpc::{RpcError, RpcRegistry, RpcState};
 
 /// Thread-safe error type for WS handler.
 type HandlerResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;

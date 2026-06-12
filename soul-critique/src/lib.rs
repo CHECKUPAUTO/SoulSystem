@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -235,14 +234,12 @@ impl CritiqueEngine {
 
 pub struct ReflexionLoop {
     engine: CritiqueEngine,
-    max_rounds: usize,
 }
 
 impl ReflexionLoop {
     pub fn new(threshold: f64, max_rounds: usize) -> Self {
         Self {
             engine: CritiqueEngine::new(threshold).with_max_iterations(max_rounds),
-            max_rounds,
         }
     }
 

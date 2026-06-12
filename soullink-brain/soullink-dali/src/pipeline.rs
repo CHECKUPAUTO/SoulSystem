@@ -83,7 +83,7 @@ impl DaliPipelineBuilder {
         #[cfg(not(feature = "dali"))]
         {
             let _ = (self.batch_size, self.num_threads, self.device, self.ops);
-            return Err(DaliError::FeatureDisabled);
+            Err(DaliError::FeatureDisabled)
         }
 
         #[cfg(feature = "dali")]
@@ -137,6 +137,21 @@ impl DaliPipeline {
     pub fn builder() -> DaliPipelineBuilder {
         DaliPipelineBuilder::new()
     }
+
+    /// Nombre de threads de prétraitement configurés.
+    pub fn num_threads(&self) -> u32 {
+        self.num_threads
+    }
+
+    /// Périphérique cible (CPU/GPU) du pipeline.
+    pub fn device(&self) -> Device {
+        self.device.clone()
+    }
+
+    /// Vrai si le pipeline a été construit (toujours faux en mode stub).
+    pub fn is_built(&self) -> bool {
+        self.built
+    }
     pub fn batch_size(&self) -> u32 {
         self.batch_size
     }
@@ -169,7 +184,7 @@ impl DaliPipeline {
         #[cfg(not(feature = "dali"))]
         {
             let _ = (idx, dst);
-            return Err(DaliError::FeatureDisabled);
+            Err(DaliError::FeatureDisabled)
         }
 
         #[cfg(feature = "dali")]

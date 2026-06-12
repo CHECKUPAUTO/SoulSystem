@@ -4,14 +4,10 @@
 //! Routes requests to cheap or primary models based on task complexity,
 //! with pattern overrides for fast-path routing.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 
-use async_trait::async_trait;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
 use soullink_circuit::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 
@@ -165,6 +161,7 @@ impl ComplexityScorer {
         // Check pattern overrides first
         for pat in &self.patterns {
             if pat.regex.is_match(prompt) {
+                tracing::debug!(pattern = %pat.name, tier = ?pat.tier, "pattern override matched");
                 let s = pat.tier.to_score();
                 return ComplexityScore {
                     reasoning: if pat.tier == Tier::Flash { 5 } else { s },
@@ -494,18 +491,19 @@ impl SmartRouter {
         }
 
         // If cheap is open and we'd normally route there, cascade to primary
-        if score.tier <= Tier::Standard && cheap_state == CircuitState::Open {
-            if primary_state == CircuitState::Closed {
-                return RouteDecision {
-                    tier: score.tier,
-                    score: score.total,
-                    provider: ProviderChoice::CircuitBreakerFallback,
-                    reason: format!(
-                        "tier={:?}, score={}, cheap circuit OPEN → cascade to {}",
-                        score.tier, score.total, self.primary_name
-                    ),
-                };
-            }
+        if score.tier <= Tier::Standard
+            && cheap_state == CircuitState::Open
+            && primary_state == CircuitState::Closed
+        {
+            return RouteDecision {
+                tier: score.tier,
+                score: score.total,
+                provider: ProviderChoice::CircuitBreakerFallback,
+                reason: format!(
+                    "tier={:?}, score={}, cheap circuit OPEN → cascade to {}",
+                    score.tier, score.total, self.primary_name
+                ),
+            };
         }
 
         // Default: primary model

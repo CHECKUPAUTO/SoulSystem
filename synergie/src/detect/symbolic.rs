@@ -99,7 +99,7 @@ fn compute_score(expr: &scirust_symbolic::Expr, project_count: usize) -> u8 {
     let raw = depth.min(10) as f64 / 10.0;
     let proj_factor = (project_count as f64).min(5.0) / 5.0;
     let combined = (raw * 0.6 + proj_factor * 0.4) * 10.0;
-    (combined.round() as u8).max(1).min(10)
+    (combined.round() as u8).clamp(1, 10)
 }
 
 fn score_to_value(score: u8) -> String {

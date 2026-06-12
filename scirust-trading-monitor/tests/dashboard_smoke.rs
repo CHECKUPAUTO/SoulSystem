@@ -2,7 +2,7 @@
 //! Smoke test : démarre le monitor, vérifie que / renvoie le dashboard,
 //! puis émet un event news et vérifie que le client SSE le reçoit.
 
-use scirust_trading_core::{CodifiedEvent, EventBus, EventTiming, SourceId};
+use scirust_trading_core::{CodifiedEvent, EventBus, EventTiming};
 use scirust_trading_monitor::{MonitorConfig, MonitorServer};
 use scirust_trading_persistence::QueryApi;
 use std::sync::Arc;
@@ -47,7 +47,7 @@ async fn dashboard_loads_and_streams_an_event() {
     let bus2 = bus.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(150)).await;
-        let mut ev = CodifiedEvent::builder(SourceId::new("smoke"), "smoke test news")
+        let mut ev = CodifiedEvent::builder("smoke", "smoke test news")
             .reliability(0.9)
             .timing(EventTiming::Observed(chrono::Utc::now()))
             .build();

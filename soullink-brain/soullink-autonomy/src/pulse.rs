@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::interval;
-use tracing::{info, instrument, warn};
+use tracing::info;
 
 /// Snapshot of the entire mesh state at a point in time.
 #[derive(Debug, Clone, Serialize, Deserialize)]

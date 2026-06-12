@@ -41,7 +41,8 @@ impl Detector for CoCommitDetector {
         };
 
         // (pa, pb) → liste de paires de fichiers avec jaccard.
-        let mut inter: HashMap<(String, String), Vec<(String, String, f32)>> = HashMap::new();
+        type FilePairs = Vec<(String, String, f32)>;
+        let mut inter: HashMap<(String, String), FilePairs> = HashMap::new();
         for (a, b, jac) in pairs {
             let (Some(pa), Some(pb)) = (find_owner(&a), find_owner(&b)) else {
                 continue;

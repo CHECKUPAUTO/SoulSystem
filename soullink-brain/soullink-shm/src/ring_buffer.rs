@@ -39,6 +39,11 @@ unsafe impl Send for ShmRingBuffer {}
 unsafe impl Sync for ShmRingBuffer {}
 
 impl ShmRingBuffer {
+    /// Taille totale (en-tête compris) de la région partagée sous-jacente.
+    pub fn region_len(&self) -> usize {
+        self.len
+    }
+
     /// Create a new ring buffer in the given shared memory region.
     ///
     /// `data_size` is the usable capacity in bytes (excluding header).
@@ -63,6 +68,11 @@ impl ShmRingBuffer {
     }
 
     /// Open an existing ring buffer (e.g., from a received mmap fd).
+    ///
+    /// # Safety
+    /// `ptr` doit pointer vers une région d'au moins `len` octets contenant
+    /// un ring buffer initialisé par `create` (en-tête magic valide), et
+    /// rester valide pendant toute la durée de vie du buffer.
     pub unsafe fn open(ptr: *mut u8, len: usize) -> Self {
         let header = ptr as *const RingHeader;
         let magic = (*header).magic;
@@ -192,9 +202,8 @@ impl ShmRingBuffer {
         let h = self.header();
         let head = h.head.load(Ordering::Relaxed);
         let tail = h.tail.load(Ordering::Relaxed);
-        let used = head.wrapping_sub(tail) as usize;
         // Approximate: doesn't account for length prefixes
-        used
+        head.wrapping_sub(tail) as usize
     }
 
     /// Returns true if the buffer is empty.

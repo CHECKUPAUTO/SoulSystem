@@ -211,9 +211,7 @@ impl KnowledgeGraph {
             .map(|edge_ids| {
                 edge_ids
                     .iter()
-                    .filter_map(|eid| {
-                        self.edges.get(eid).and_then(|e| self.nodes.get(&e.target))
-                    })
+                    .filter_map(|eid| self.edges.get(eid).and_then(|e| self.nodes.get(&e.target)))
                     .collect()
             })
             .unwrap_or_default()
@@ -237,9 +235,7 @@ impl KnowledgeGraph {
             .map(|edge_ids| {
                 edge_ids
                     .iter()
-                    .filter_map(|eid| {
-                        self.edges.get(eid).and_then(|e| self.nodes.get(&e.source))
-                    })
+                    .filter_map(|eid| self.edges.get(eid).and_then(|e| self.nodes.get(&e.source)))
                     .collect()
             })
             .unwrap_or_default()
@@ -266,7 +262,8 @@ impl KnowledgeGraph {
 
         // Dijkstra's algorithm with edge weights
         // Use (cost_x1000, node) to avoid f64 Ord issues
-        let mut distances: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        let mut distances: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
         let mut prev: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         let mut visited = std::collections::HashSet::new();
 
@@ -413,16 +410,8 @@ impl KnowledgeGraph {
             .nodes
             .keys()
             .filter(|id| {
-                let out_empty = self
-                    .adj_out
-                    .get(*id)
-                    .map(|v| v.is_empty())
-                    .unwrap_or(true);
-                let in_empty = self
-                    .adj_in
-                    .get(*id)
-                    .map(|v| v.is_empty())
-                    .unwrap_or(true);
+                let out_empty = self.adj_out.get(*id).map(|v| v.is_empty()).unwrap_or(true);
+                let in_empty = self.adj_in.get(*id).map(|v| v.is_empty()).unwrap_or(true);
                 out_empty && in_empty
             })
             .cloned()
@@ -484,7 +473,9 @@ impl KnowledgeGraph {
         let keywords: Vec<&str> = query_lower.split_whitespace().collect();
 
         // Find nodes whose label matches any keyword
-        let mut matched: Vec<(&String, &Node)> = self.nodes.iter()
+        let mut matched: Vec<(&String, &Node)> = self
+            .nodes
+            .iter()
             .filter(|(_, node)| {
                 let label_lower = node.label.to_lowercase();
                 keywords.iter().any(|kw| label_lower.contains(kw))
@@ -517,13 +508,19 @@ impl KnowledgeGraph {
                     relations.push(format!("← {:?} ← {}", edge.edge_type, source.label));
                 }
             }
-            ctx.push_str(&format!("  - [{}] {}: {}\n", &id[..8], node.label, relations.join(", ")));
+            ctx.push_str(&format!(
+                "  - [{}] {}: {}\n",
+                &id[..8],
+                node.label,
+                relations.join(", ")
+            ));
         }
         ctx
     }
 
     pub fn persist(&self, path: &Path) -> Result<()> {
-        let json = serde_json::to_string_pretty(self).map_err(|e| GraphError::Serde(e.to_string()))?;
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| GraphError::Serde(e.to_string()))?;
         std::fs::write(path, json).map_err(|e| GraphError::Io(e.to_string()))
     }
 
@@ -675,7 +672,7 @@ mod tests {
         let mut g = KnowledgeGraph::new();
         let a = g.add_node(Node::new(NodeType::Task, "Fix login bug"));
         let b = g.add_node(Node::new(NodeType::Bug, "Auth timeout"));
-        let c = g.add_node(Node::new(NodeType::Concept, "Unrelated"));
+        let _c = g.add_node(Node::new(NodeType::Concept, "Unrelated"));
         g.add_edge(Edge::new(&a, &b, EdgeType::CausedBy)).unwrap();
 
         let ctx = g.context_for_query("login", 5);

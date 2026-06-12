@@ -118,16 +118,23 @@ pub async fn proxy_handler(State(state): State<Arc<AppState>>, req: Request<Body
             let headers = resp.headers().clone();
             let body = resp.bytes().await.unwrap_or_default();
 
-            let response = axum::response::Response::builder()
-                .status(status)
-                .body(Body::from(body.to_vec()))
-                .unwrap_or_else(|_| {
-                    axum::response::Response::builder()
-                        .status(StatusCode::BAD_GATEWAY)
-                        .body(Body::from("proxy error"))
-                        .unwrap()
-                });
-            response
+            let mut builder = axum::response::Response::builder().status(status);
+            for (name, value) in headers.iter() {
+                // En-têtes hop-by-hop recalculés par axum/hyper.
+                if matches!(
+                    name.as_str(),
+                    "connection" | "transfer-encoding" | "content-length"
+                ) {
+                    continue;
+                }
+                builder = builder.header(name, value);
+            }
+            builder.body(Body::from(body.to_vec())).unwrap_or_else(|_| {
+                axum::response::Response::builder()
+                    .status(StatusCode::BAD_GATEWAY)
+                    .body(Body::from("proxy error"))
+                    .unwrap()
+            })
         }
         Err(e) => {
             tracing::warn!(prefix = %prefix, target = %target_url, error = %e, "Proxy request failed");

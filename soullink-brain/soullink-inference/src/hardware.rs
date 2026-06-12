@@ -250,6 +250,7 @@ pub fn pin_thread_to_numa_node(_node_id: u32, _cpu_cores: &[u32]) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{Priority, Quantization};
 
     #[test]
     fn parse_cpu_list_ranges() {
@@ -323,5 +324,3 @@ mod tests {
         assert!(Priority::Embed < Priority::Dream);
     }
 }
-
-use crate::types::{Priority, Quantization};

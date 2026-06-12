@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::info;
 
 // ── Cache LRU prédictif ─────────────────────────────────────────────
 
@@ -148,7 +148,7 @@ impl RagMiddleware {
             if ollama_ok {
                 info!("RagMiddleware: Ollama disponible sur {}", url);
             } else {
-                warn!("RagMiddleware: Ollama indisponible, RAG en mode dégradé");
+                tracing::warn!("RagMiddleware: Ollama indisponible, RAG en mode dégradé");
             }
         }
 

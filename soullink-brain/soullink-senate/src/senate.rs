@@ -3,7 +3,6 @@
 use crate::aggregator::{AggregatedResult, AggregationStrategy};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use tracing::{info, instrument};
 
 /// An expert in the senate.

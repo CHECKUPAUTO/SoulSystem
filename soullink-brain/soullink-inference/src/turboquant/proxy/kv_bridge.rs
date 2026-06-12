@@ -28,7 +28,8 @@ pub struct KVBridge {
     gpu_capacity: usize,
     /// Offload threshold (0.0-1.0, e.g. 0.8 = offload when 80% full)
     offload_threshold: f64,
-    /// llama-server base URL
+    /// llama-server base URL — réservé au offload HTTP réel (stub actuel).
+    #[allow(dead_code)]
     llama_url: String,
 }
 

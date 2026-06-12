@@ -39,7 +39,10 @@ pub async fn run_autonomous_loop(
     config: AutonomousLoopConfig,
     shutdown: Arc<AtomicBool>,
 ) {
-    info!("Autonomous loop starting (tick: {}s)", config.tick_interval_secs);
+    info!(
+        "Autonomous loop starting (tick: {}s)",
+        config.tick_interval_secs
+    );
 
     setup_default_alerts(entity);
     entity.register_healing_actions();
@@ -111,14 +114,20 @@ async fn execute_cycle(entity: &mut AutonomousEntity, cycle: usize) -> CycleResu
     let mem = metrics.memory_usage;
     let procs = metrics.process_count;
 
-    observations.push(format!("CPU: {:.1}%, RAM: {:.1}%, Processes: {}", cpu, mem, procs));
+    observations.push(format!(
+        "CPU: {:.1}%, RAM: {:.1}%, Processes: {}",
+        cpu, mem, procs
+    ));
 
     if let Some(gpu) = entity.monitor.gpu.get_gpu_info() {
         observations.push(format!(
             "GPU: {}°C, {:.0}% util, {}MB/{}MB VRAM",
             gpu.temperature, gpu.utilization, gpu.memory_used, gpu.memory_total
         ));
-        entity.monitor.predictive.record("gpu_temp", gpu.temperature as f64);
+        entity
+            .monitor
+            .predictive
+            .record("gpu_temp", gpu.temperature as f64);
     }
 
     entity.monitor.predictive.record("cpu", cpu as f64);
@@ -127,7 +136,10 @@ async fn execute_cycle(entity: &mut AutonomousEntity, cycle: usize) -> CycleResu
     let disks = entity.monitor.disk.get_disks();
     for d in &disks {
         if d.usage_percent > 80.0 {
-            observations.push(format!("DISK WARNING: {} at {:.0}%", d.mount_point, d.usage_percent));
+            observations.push(format!(
+                "DISK WARNING: {} at {:.0}%",
+                d.mount_point, d.usage_percent
+            ));
         }
     }
 
@@ -135,7 +147,12 @@ async fn execute_cycle(entity: &mut AutonomousEntity, cycle: usize) -> CycleResu
 
     let cron_results = entity.tick_cron();
     for (task_id, success, output) in &cron_results {
-        observations.push(format!("Cron {}: {} - {}", task_id, if *success { "OK" } else { "FAIL" }, output.chars().take(50).collect::<String>()));
+        observations.push(format!(
+            "Cron {}: {} - {}",
+            task_id,
+            if *success { "OK" } else { "FAIL" },
+            output.chars().take(50).collect::<String>()
+        ));
     }
 
     let workflow_results = entity.tick_workflows();
@@ -254,7 +271,11 @@ fn setup_default_alerts(entity: &mut AutonomousEntity) {
 fn log_cycle_result(result: &CycleResult) {
     let mut parts = vec![
         format!("[Cycle {}]", result.cycle),
-        if result.action_taken { "ACTION".to_string() } else { "OBSERVE".to_string() },
+        if result.action_taken {
+            "ACTION".to_string()
+        } else {
+            "OBSERVE".to_string()
+        },
         format!("Decision: {}", result.decision),
     ];
 
@@ -322,16 +343,21 @@ async fn serve_dashboard(port: u16, _data_dir: String) {
 </html>"#.to_string();
 
     let app = Router::new()
-        .route("/", get(move || {
-            let html = html.clone();
-            async move { axum::response::Html(html) }
-        }))
-        .route("/api/status", get(|| async {
-            axum::Json(serde_json::json!({"status": "running"}))
-        }))
-        .route("/api/activity", get(|| async {
-            axum::Json(serde_json::json!({"activity": []}))
-        }));
+        .route(
+            "/",
+            get(move || {
+                let html = html.clone();
+                async move { axum::response::Html(html) }
+            }),
+        )
+        .route(
+            "/api/status",
+            get(|| async { axum::Json(serde_json::json!({"status": "running"})) }),
+        )
+        .route(
+            "/api/activity",
+            get(|| async { axum::Json(serde_json::json!({"activity": []})) }),
+        );
 
     let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await {
         Ok(l) => l,

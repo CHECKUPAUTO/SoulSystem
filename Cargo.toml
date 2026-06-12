@@ -154,7 +154,7 @@ exclude = [
 [workspace.package]
 version = "13.5.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.85"
 authors = ["SoulLink Mesh Team"]
 license = "MIT"
 repository = "internal"

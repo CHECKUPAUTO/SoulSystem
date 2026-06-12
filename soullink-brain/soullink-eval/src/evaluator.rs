@@ -175,8 +175,8 @@ mod tests {
     #[test]
     fn dry_run_computes_loss() {
         let eval = BrainEvaluator::new(EvalConfig::default());
-        let a: Vec<f32> = (0..64).map(|i| (i as f32 * 0.01 + 1.0)).collect();
-        let b: Vec<f32> = (0..64).map(|i| (i as f32 * 0.01 + 3.0)).collect();
+        let a: Vec<f32> = (0..64).map(|i| i as f32 * 0.01 + 1.0).collect();
+        let b: Vec<f32> = (0..64).map(|i| i as f32 * 0.01 + 3.0).collect();
         let result = eval.evaluate_dry_run(&a, &b);
         assert!(result.loss >= 0.0);
         assert!(result.similarity >= -1.0 && result.similarity <= 1.0);
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn identical_vectors_near_zero_loss() {
         let eval = BrainEvaluator::new(EvalConfig::default());
-        let v: Vec<f32> = (0..128).map(|i| (i as f32 * 0.01 + 1.0)).collect();
+        let v: Vec<f32> = (0..128).map(|i| i as f32 * 0.01 + 1.0).collect();
         let result = eval.compute_loss(&v, &v);
         assert!(
             result.loss < 0.01,

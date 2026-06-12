@@ -178,7 +178,8 @@ impl TelegramBot {
         if let Some(token) = &self.token {
             let url = format!("https://api.telegram.org/bot{}/sendMessage", token);
             let client = reqwest::Client::new();
-            let _ = client.post(&url)
+            let _ = client
+                .post(&url)
                 .json(&serde_json::json!({
                     "chat_id": chat_id,
                     "text": text,

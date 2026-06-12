@@ -6,7 +6,7 @@ use crate::ollama::InferenceMode;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {

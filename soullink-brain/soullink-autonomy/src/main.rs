@@ -7,7 +7,6 @@
 
 use soullink_autonomy::afferent::AfferentNerve;
 use soullink_autonomy::dream::{DreamConfig, DreamCycle};
-use soullink_autonomy::node::NodeId;
 use soullink_autonomy::pulse::AutonomyPulse;
 use std::sync::Arc;
 use tracing::info;
@@ -46,12 +45,12 @@ async fn main() {
 
     // Spawn pulse loop (1Hz)
     let pulse_clone = pulse.clone();
-    let pulse_handle = tokio::spawn(async move {
+    let _pulse_handle = tokio::spawn(async move {
         pulse_clone.run(pulse_interval_ms).await;
     });
 
     // Spawn dream loop
-    let dream_handle = tokio::spawn(async move {
+    let _dream_handle = tokio::spawn(async move {
         dream.run().await;
     });
 

@@ -563,12 +563,12 @@ mod tests {
         };
         let controller = BrowserController::new(config);
 
-        assert_eq!(controller.config.headless, false);
+        assert!(!controller.config.headless);
         assert_eq!(controller.config.viewport_width, 800);
         assert_eq!(controller.config.viewport_height, 600);
         assert_eq!(controller.config.user_agent, Some("test-agent".into()));
         assert_eq!(controller.config.timeout_ms, 5000);
-        assert_eq!(controller.config.disable_javascript, true);
+        assert!(controller.config.disable_javascript);
         assert_eq!(controller.config.proxy, Some("http://proxy:8080".into()));
     }
 
@@ -605,7 +605,7 @@ mod tests {
         let config = BrowserConfig::default();
         assert_eq!(config.viewport_height, 720);
         assert_eq!(config.timeout_ms, 30000);
-        assert!(config.disable_javascript == false);
+        assert!(!config.disable_javascript);
         assert!(config.proxy.is_none());
         assert!(config.user_agent.is_none());
     }

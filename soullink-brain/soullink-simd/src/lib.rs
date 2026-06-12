@@ -168,7 +168,7 @@ pub fn pad_to_multiple_of_8(v: &[f32]) -> Vec<f32> {
         v.to_vec()
     } else {
         let mut out = v.to_vec();
-        out.extend(std::iter::repeat(0.0f32).take(8 - rem));
+        out.extend(std::iter::repeat_n(0.0f32, 8 - rem));
         out
     }
 }
@@ -242,7 +242,7 @@ mod bench {
             .collect()
     }
 
-    fn normalize(v: &mut Vec<f32>) {
+    fn normalize(v: &mut [f32]) {
         let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
         if norm > 0.0 {
             v.iter_mut().for_each(|x| *x /= norm);

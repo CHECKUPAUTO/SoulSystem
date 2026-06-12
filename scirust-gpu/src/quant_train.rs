@@ -156,7 +156,7 @@ impl QuantizationAwareTrainer {
         pos += 8;
 
         let n = rows * cols;
-        let num_blocks = (n + block_size - 1) / block_size;
+        let num_blocks = n.div_ceil(block_size);
 
         let mut scale = Vec::with_capacity(num_blocks);
         let mut zero = Vec::with_capacity(num_blocks);

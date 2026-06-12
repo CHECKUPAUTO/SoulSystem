@@ -14,8 +14,14 @@ matrixmultiply = "0.3.10"
 num-bigint = "0.4"
 num-traits = "0.2"
 half = "2.4"
+blas = { version = "0.22", optional = true }
+rayon = { version = "1", optional = true }
 
 [features]
 default = []
 gpu = []
 portable-simd = ["scirust-simd/portable-simd"]
+# Backend BLAS (OpenBLAS/MKL) — nécessite une implémentation BLAS système.
+blas = ["dep:blas"]
+# Parallélisation des GEMM par rayon.
+rayon = ["dep:rayon"]

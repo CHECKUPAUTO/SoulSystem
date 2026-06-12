@@ -8,9 +8,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-use std::time::Duration;
 use tokio::task::JoinSet;
-use tracing::info;
 
 /// État global de l'application
 #[derive(Clone)]
@@ -284,7 +282,7 @@ impl AppState {
     }
 
     /// Itérateur sur les cerveaux
-    pub fn brains_iter(&self) -> dashmap::iter::Iter<String, BrainConfig> {
+    pub fn brains_iter(&self) -> dashmap::iter::Iter<'_, String, BrainConfig> {
         self.brains.iter()
     }
 }

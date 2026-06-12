@@ -8,11 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::RwLock;
 use uuid::Uuid;
-
-use soul_agent_core::AgentEvent;
-use soul_llm::LlmConfig;
 
 #[derive(Error, Debug)]
 pub enum SubAgentError {

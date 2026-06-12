@@ -62,7 +62,9 @@ mod tests {
         let large_values: Vec<f32> = vec![500.0, -500.0, 0.0];
         let scale = compute_scale(&large_values);
         let quantized = quantize_tensor(&large_values, scale);
-        assert!(quantized.iter().all(|&x| x >= -128 && x <= 127));
+        assert_eq!(quantized[0], 127);
+        assert_eq!(quantized[1], -127);
+        assert_eq!(quantized[2], 0);
     }
 
     #[test]

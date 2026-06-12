@@ -127,10 +127,11 @@ impl NetworkMonitor {
     fn get_interfaces(&self) -> Vec<NetworkInterface> {
         let output = match std::process::Command::new("cat")
             .arg("/proc/net/dev")
-            .output() {
-                Ok(o) => o,
-                Err(_) => return Vec::new(),
-            };
+            .output()
+        {
+            Ok(o) => o,
+            Err(_) => return Vec::new(),
+        };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         stdout
@@ -165,7 +166,8 @@ impl NetworkMonitor {
             .ok()
             .and_then(|o| {
                 let stdout = String::from_utf8_lossy(&o.stdout);
-                stdout.lines()
+                stdout
+                    .lines()
                     .find(|l| l.contains("TCP:"))
                     .and_then(|l| l.split_whitespace().nth(1))
                     .and_then(|s| s.parse().ok())
@@ -180,7 +182,8 @@ impl NetworkMonitor {
             .ok()
             .and_then(|o| {
                 let stdout = String::from_utf8_lossy(&o.stdout);
-                stdout.lines()
+                stdout
+                    .lines()
                     .find(|l| l.contains("time="))
                     .and_then(|l| l.split("time=").nth(1))
                     .and_then(|s| s.split(' ').next())
@@ -228,10 +231,11 @@ impl DiskMonitor {
     pub fn get_disks(&self) -> Vec<DiskInfo> {
         let output = match std::process::Command::new("df")
             .args(["-h", "--output=source,target,size,used,avail,pcent"])
-            .output() {
-                Ok(o) => o,
-                Err(_) => return Vec::new(),
-            };
+            .output()
+        {
+            Ok(o) => o,
+            Err(_) => return Vec::new(),
+        };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         stdout
@@ -258,10 +262,18 @@ impl DiskMonitor {
     pub fn get_io(&self) -> DiskIO {
         let output = match std::process::Command::new("cat")
             .arg("/proc/diskstats")
-            .output() {
-                Ok(o) => o,
-                Err(_) => return DiskIO { reads_completed: 0, writes_completed: 0, read_bytes: 0, write_bytes: 0 },
-            };
+            .output()
+        {
+            Ok(o) => o,
+            Err(_) => {
+                return DiskIO {
+                    reads_completed: 0,
+                    writes_completed: 0,
+                    read_bytes: 0,
+                    write_bytes: 0,
+                }
+            }
+        };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut reads = 0u64;
@@ -289,7 +301,12 @@ impl DiskMonitor {
             }
         }
 
-        DiskIO { reads_completed: reads, writes_completed: writes, read_bytes, write_bytes }
+        DiskIO {
+            reads_completed: reads,
+            writes_completed: writes,
+            read_bytes,
+            write_bytes,
+        }
     }
 }
 
