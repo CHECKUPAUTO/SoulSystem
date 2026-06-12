@@ -36,6 +36,21 @@ pub struct VectorStore {
     records: Box<[UnsafeCell<VectorRecord>]>,
 }
 
+// SAFETY:
+// 1. `count` is AtomicUsize and provides all synchronization between writer and readers.
+// 2. The writer calls `insert` which writes to `records[idx]` then does a Release store
+//    on `count` — readers use Acquire load of `count` to see all vector data before the
+//    index is visible.
+// 3. Readers only access `records[i]` where `i < count(Acquire)` — they never touch a
+//    slot that the writer is currently mutating (the writer only mutates `records[count(Relaxed)]`).
+// 4. Multiple concurrent readers are safe: each reads a VectorRecord (Copy type) from a
+//    slot that is not being written to. The data is read-only after the writer's Release store.
+// INVARIANT: The writer must only mutate `records[count]` (the next free slot) and then
+//    increment `count` with Release. Readers must only read slots with index < count(Acquire).
+// FAILURE: If the writer mutated a slot that readers could see (index < count), readers
+//    would see torn data — UB. The protocol (single-writer, count-based visibility) prevents this.
+//    If `insert` is called concurrently from multiple threads, `count` load is Relaxed so
+//    two writers could pick the same slot — this is safe ONLY if the caller serializes writes.
 unsafe impl Sync for VectorStore {}
 unsafe impl Send for VectorStore {}
 
@@ -65,6 +80,21 @@ impl VectorStore {
             return false;
         }
 
+        // SAFETY:
+        // 1. `idx` is read from `count` (Relaxed) and checked against MAX_VECTORS — if
+        //    idx >= MAX_VECTORS we return false immediately, so `idx` is a valid slot index.
+        // 2. `self.records[idx].get()` returns a raw pointer to the UnsafeCell — safe to
+        //    dereference because:
+        //    a) The caller (scheduler) ensures only one thread calls `insert` at a time
+        //       (single-writer protocol), so no concurrent mutation of this slot.
+        //    b) No reader can see slot `idx` until after the Release store on `count` below.
+        // 3. `(*slot).id = id` and `(*slot).data.copy_from_slice(vector)` write a u64 and
+        //    a fixed-size array of f32 — both are plain data, no drop glue, no invalid values.
+        // INVARIANT: This slot (`records[idx]`) must NOT be read by any thread until the
+        //    Release store on `count` makes it visible. The slot is "owned" by the writer.
+        // FAILURE: If two writers call `insert` simultaneously (both see the same `idx`),
+        //    they write to the same slot concurrently — data race, UB. The scheduler must
+        //    serialize calls to `insert`. If `idx >= MAX_VECTORS`, we return false — no access.
         unsafe {
             let slot = self.records[idx].get();
             (*slot).id = id;
@@ -99,6 +129,21 @@ impl VectorStore {
         let mut write_idx = 0usize;
 
         for i in 0..current_count {
+            // SAFETY:
+            // 1. `i < current_count` where `current_count` was read via Acquire from `count`.
+            //    This guarantees slot `i` was fully written by the writer before `count` was
+            //    incremented, so the data in `records[i]` is complete and stable.
+            // 2. `self.records[i].get()` returns a valid pointer into the UnsafeCell. We only
+            //    read from it (immutable borrow) — no mutation occurs here.
+            // 3. `current_count <= MAX_VECTORS` (guaranteed by the insert bounds check), so
+            //    `i` is always a valid index into the `records` array.
+            // 4. The record is a Copy type — reading it is a simple bitwise copy.
+            // INVARIANT: We only reach this line when `i < current_count(Acquire)`, which
+            //    means the writer has finished writing this slot and we observe the complete
+            //    data via happens-before (Release in insert -> Acquire in load of count).
+            // FAILURE: If we read a slot at index >= count (impossible by loop bound), we'd
+            //    read uninitialized/garbage data — UB. The loop bound `0..current_count`
+            //    prevents this.
             let record = unsafe { &*self.records[i].get() };
 
             // Calcul du produit scalaire et des normes — hautement auto-vectorisable.

@@ -113,12 +113,14 @@ impl PrometheusMetrics {
     }
 }
 
-pub fn gather_metrics() -> String {
+pub fn gather_metrics() -> Result<String, String> {
     let encoder = TextEncoder::new();
     let metric_families = REGISTRY.gather();
     let mut buffer = Vec::new();
-    encoder.encode(&metric_families, &mut buffer).unwrap();
-    String::from_utf8(buffer).unwrap()
+    encoder
+        .encode(&metric_families, &mut buffer)
+        .map_err(|e| format!("Failed to encode metrics: {e}"))?;
+    String::from_utf8(buffer).map_err(|e| format!("Invalid UTF-8 in metrics: {e}"))
 }
 
 pub struct PrometheusExporter {
@@ -167,7 +169,7 @@ mod tests {
         metrics.set_active_workers(8);
         metrics.set_queue_depth(42);
         
-        let output = gather_metrics();
+        let output = gather_metrics().expect("Failed to gather metrics");
         assert!(output.contains("soul_tasks_executed_total"));
         assert!(output.contains("soul_tasks_stolen_total"));
         assert!(output.contains("soul_thermal_backoff_events_total"));

@@ -54,6 +54,27 @@ impl LockFreeTaskDeque {
             return false;
         }
 
+        // SAFETY:
+        // 1. `t` (tail) is loaded with Relaxed ordering — only the owner thread reads/writes
+        //    `tail`, so there is no concurrent modification of `t`.
+        // 2. `h` (head) is loaded with Acquire ordering — this sees the latest steal
+        //    operations. The check `(t - h) < DEQUE_CAPACITY` ensures the slot at
+        //    `t & DEQUE_MASK` is not being read by any stealer (stealers only touch
+        //    slots with index in `[h, t)`).
+        // 3. `self.buffer[t & DEQUE_MASK].get()` returns a pointer to the UnsafeCell.
+        //    We have exclusive access to this slot because:
+        //    a) We are the only owner (only one thread calls push/pop).
+        //    b) `t` is the next write position, and no stealer can reach it (stealers
+        //       stop at `h`, which is <= t).
+        // 4. We write `Some(task)` BEFORE storing the new tail — this ensures the data
+        //    is in place before any stealer can observe the new element.
+        // 5. The Release store on `tail` (line below) publishes the write to stealers
+        //    who use Acquire on `head`.
+        // INVARIANT: `task` must be written to the slot before `tail` is incremented.
+        //    The slot must not be simultaneously read by a stealer (guaranteed by the
+        //    capacity check).
+        // FAILURE: If we wrote past DEQUE_CAPACITY, we'd overwrite a slot a stealer is
+        //    reading — data race, UB. The bounds check prevents this.
         unsafe {
             let slot = self.buffer[t & DEQUE_MASK].get();
             // Write the task before updating tail so it's visible to stealers.
@@ -75,6 +96,23 @@ impl LockFreeTaskDeque {
 
         if h <= t {
             let slot = self.buffer[t & DEQUE_MASK].get();
+            // SAFETY:
+            // 1. `t` was decremented from the original tail — we are the owner and `t` is
+            //    within `[head, old_tail)`, so this slot contains a valid element (or None
+            //    if already consumed by a concurrent stealer).
+            // 2. The SeqCst fence (above) ensures all writes from the producer (push) are
+            //    visible before we read the slot. This prevents reading stale/partial data.
+            // 3. `self.buffer[t & DEQUE_MASK].get()` — safe to dereference because:
+            //    a) We are the sole owner (only one thread calls pop).
+            //    b) `h <= t` (checked above) confirms the slot is in the valid range.
+            //    c) No stealer can access this slot — a stealer would need CAS on `head`
+            //       to advance past this index, but we haven't released it yet.
+            // 4. `.take()` replaces the slot with `None` and returns the inner Task —
+            //    this is safe because Task is Copy and the slot is in a valid state.
+            // INVARIANT: We only take from a slot that is within the current bounds
+            //    [head, tail). The fence ensures we see the complete Task written by push.
+            // FAILURE: If we read a slot that a stealer already took (h > t after the CAS
+            //    on head below), we'd get None — handled by the h == t CAS logic below.
             let task = unsafe { (*slot).take() };
 
             // Empty — try to empty the deque (helps stealer see it's empty)
@@ -115,6 +153,26 @@ impl LockFreeTaskDeque {
                 .compare_exchange(h, h.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed)
                 .is_ok()
             {
+                // SAFETY:
+                // 1. CAS on `head` succeeded — this stealer exclusively owns the slot at index
+                //    `h & DEQUE_MASK`. No other stealer can CAS the same `h` (they'd fail and
+                //    retry with the new head value).
+                // 2. The owner never reads/writes slots at indices in `[head, tail)` — the
+                //    owner only writes to `tail` and reads `head` for capacity checks.
+                //    So there is no data race between owner and stealer on this slot.
+                // 3. `self.buffer[h & DEQUE_MASK].get()` returns a valid pointer. We dereference
+                //    it because we hold exclusive access via the CAS.
+                // 4. `seq_cst` fence + Acquire loads ensure we see the complete `Some(task)`
+                //    written by the owner's push (which wrote `Some(task)` before storing tail
+                //    with Release).
+                // 5. `.take()` replaces the slot with `None` — safe because the slot is in a
+                //    valid state (`Some(task)` from push; if it were None, `h >= t` and we
+                //    would have returned None earlier).
+                // INVARIANT: The slot at `h` must contain `Some(task)` when we take it.
+                //    This is guaranteed because `h < t` (checked above) means the owner
+                //    pushed this element and hasn't popped it yet.
+                // FAILURE: If multiple stealers CAS the same `head`, all but one fail — the
+                //    winner takes the element, losers retry. No double-take is possible.
                 let task = unsafe { (*slot).take() };
                 return task;
             }

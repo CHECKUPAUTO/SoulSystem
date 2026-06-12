@@ -22,7 +22,7 @@ impl ClinicalStreamingServer {
     pub async fn start_streaming(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let listener = TcpListener::bind(format!("0.0.0.0:{}", self.listen_port)).await?;
         self.is_active.store(true, Ordering::SeqCst);
-        println!("[CLINICAL] Server ecoute sur le port {}", self.listen_port);
+        tracing::info!(port = self.listen_port, "ClinicalStreamingServer en écoute");
 
         loop {
             if !self.is_active.load(Ordering::SeqCst) {

@@ -130,6 +130,9 @@ impl SoulsConfig {
 }
 
 /// Profils prédéfinis (F.3).
+///
+/// Utilisé quand le chargement TOML est activé via `--config`.
+/// Pour l'instant, les valeurs par défaut sont hardcodées dans main.rs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Profile {
     Dev,
@@ -137,7 +140,6 @@ pub enum Profile {
     Test,
 }
 
-#[allow(dead_code)]
 impl Profile {
     pub fn from_env() -> Self {
         match std::env::var("SOUL_PROFILE").as_deref() {

@@ -62,6 +62,22 @@ fn register_scheduler_metrics() {
 
 /// Pin the calling thread to a specific CPU core via sched_setaffinity.
 fn enforce_cpu_affinity(core_id: usize) -> bool {
+    // SAFETY:
+    // 1. `cpuset` is stack-allocated and zero-initialized via `std::mem::zeroed()` —
+    //    this produces a valid, empty cpu_set_t (all bits cleared).
+    // 2. `CPU_SET(core_id, &mut cpuset)` sets the bit for `core_id` — this is a macro
+    //    that writes to the cpuset in a type-safe way (no pointer validity issues).
+    // 3. `sched_setaffinity(0, ...)` with tid=0 targets the calling thread — no need
+    //    to obtain a thread ID. The size parameter is `size_of::<cpu_set_t>()`, which
+    //    matches the kernel's expected size for the cpuset.
+    // 4. `core_id` must be < the number of CPU cores on the system — if it exceeds the
+    //    kernel's maximum, the call returns -1 (ENIVAL) and we return false gracefully.
+    //    No memory corruption occurs — the kernel validates the cpuset before using it.
+    // INVARIANT: `core_id` should be a valid CPU index (0..num_cpus). The function
+    //    handles out-of-range gracefully by returning false.
+    // FAILURE: Returns false if the kernel rejects the affinity (e.g., core_id too large,
+    //    or the process lacks CAP_SYS_NICE). The thread continues running on whatever
+    //    core the OS scheduler chose — no UB, just degraded locality.
     unsafe {
         let mut cpuset: libc::cpu_set_t = std::mem::zeroed();
         libc::CPU_SET(core_id, &mut cpuset);
@@ -127,7 +143,7 @@ impl AgentScheduler {
             return;
         }
 
-        eprintln!(
+        tracing::info!(
             "[SOUL OS] Core Engine initialized.\n -> Arch: {:?}\n -> SIMD Vectorization: {:?}\n -> Topology: {:?}\n -> Cores Probed: {}\n -> L1-D Line Size: {}B",
             self.manifest.arch,
             self.manifest.simd,
@@ -141,7 +157,7 @@ impl AgentScheduler {
             .spawn_thermal_sampler(std::time::Duration::from_millis(100))
         {
             Ok(_handle) => {}
-            Err(e) => eprintln!(
+            Err(e) => tracing::error!(
                 "[CRITICAL] echec spawn thermal-sampler: {e} -> protection thermique inactive"
             ),
         }
@@ -156,7 +172,7 @@ impl AgentScheduler {
                     let local_worker = &workers_ref[worker_idx];
 
                     if !enforce_cpu_affinity(local_worker.core_id) {
-                        eprintln!(
+                        tracing::error!(
                             "[CRITICAL] Affinity bonding failure on Core #{}",
                             local_worker.core_id
                         );

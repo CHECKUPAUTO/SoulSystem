@@ -3,6 +3,8 @@
 //! Ce module active et coordonne les crates historiquement orphelins du
 //! workspace, chacun avec un rôle précis dans la boucle cognitive :
 //!
+//! ## Sous-systèmes intégrés
+//!
 //! | Crate | Rôle |
 //! |---|---|
 //! | `soul_journal` | Append-only mmap log (haute fréquence, durable) |
@@ -17,7 +19,22 @@
 //! | `neural_metacognition` | Ring buffer de télémétrie cognitive |
 //! | `neural_clinical_console` | Endpoint de monitoring TCP/HTTP |
 //! | `ontological_self_healing` | Réparation NaN/Inf/hors-bornes |
-//! | `ecosystem_synapse_linker` | Graphe de synapses (routes goals→skills) |
+//! | `ecosystéma_synapse_linker` | Graphe de synapses (routes goals→skills) |
+//!
+//! ## Sous-systèmes planifiés (pas encore intégrés)
+//!
+//! | Crate | Rôle |
+//! |---|---|
+//! | `soul_perception` | Parser zero-copy pour signaux DATA_/ERR_ → bus IPC |
+//! | `soul_cortex` | Réseau récurrent pour état caché de conscience |
+//! | `soul_scout` | Client TCP de recherche (SearXNG) |
+//! | `scirust_affective_core` | État affectif et drives homeostatiques |
+//! | `soul_cluster` | Communication UDP clusterisée |
+//! | `soul_acoustic` | Traitement audio et VAD |
+//! | `soul_attention` | Cache d'attention multi-tête |
+//! | `soul_guard` | Garde-fous et limites de sécurité |
+//! | `soul_surgery` | Chirurgie de mémoire et réparation |
+//! | `soul_matrix_engine` | Moteur matriciel pour calcul tensoriel |
 
 use chrono::Utc;
 use ecosystem_synapse_linker::linker::agent::SynapticLinkerAgent;
@@ -25,6 +42,7 @@ use neural_chaos_monkey::ChaosMonkey;
 use neural_clinical_console::ClinicalStreamingServer;
 use neural_cluster_sync as crdt;
 use neural_graph_compiler::GraphCompiler;
+use neural_metacognition::api::init_auditor;
 use neural_metacognition::SystemAuditor;
 use ontological_self_healing as healer;
 use parking_lot::Mutex;
@@ -115,7 +133,7 @@ impl Subsystems {
 
             graph: Mutex::new(GraphCompiler::new(0)),
 
-            auditor: Arc::new(SystemAuditor::new()),
+            auditor: init_auditor(),
 
             linker: Arc::new(SynapticLinkerAgent::new()),
 
@@ -390,7 +408,7 @@ impl Subsystems {
     /// Renvoie un handle de shutdown. Utilise l'auditor partagé pour
     /// exposer `/health` et `/metrics` aux clients.
     pub fn start_clinical_console(&self, port: u16) -> std::io::Result<ClinicalHandle> {
-        let server = Arc::new(ClinicalStreamingServer::new(self.auditor.clone(), port));
+        let server = neural_clinical_console::api::init_console(self.auditor.clone(), port);
         let server_clone = server.clone();
         let handle = tokio::spawn(async move {
             if let Err(e) = server_clone.start_streaming().await {

@@ -9,4 +9,4 @@ keywords = ["metacognition", "self-audit", "monitoring", "confidence", "error-de
 categories = ["machine-learning", "neuroscience", "embedded", "safety"]
 
 [dependencies]
-parking_lot = "0.12.3"
+tracing = "0.1"
