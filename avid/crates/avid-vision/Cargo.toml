@@ -10,9 +10,9 @@ description = "Pattern recognition engine for the AVID autonomous system"
 avid-core = { path = "../avid-core" }
 thiserror = "2"
 anyhow = "1"
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 serde_json = "1"
-tokio = { version = "1", features = ["rt", "macros", "full"] }
+tokio = { workspace = true }
 tracing = "0"
 garde = { version = "0", features = ["derive"] }
 async-trait = "0.1"
@@ -22,4 +22,4 @@ tesseract = "0.15"
 lru = "0.12"
 chromiumoxide = { version = "0.7", features = ["async-std-runtime"] }
 futures = "0.3"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }

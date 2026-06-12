@@ -5,9 +5,9 @@ edition = "2021"
 description = "Background autonomous loop with persistent goals and sub-agent support"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "signal"] }
+tokio = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 thiserror = "2"
@@ -18,7 +18,7 @@ soul_tools = { path = "../soul_tools" }
 soul-memory = { workspace = true }
 soul_subagents = { path = "../soul-subagents" }
 soul_eventbus = { path = "../soul-eventbus" }
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]

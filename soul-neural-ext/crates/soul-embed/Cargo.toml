@@ -6,5 +6,5 @@ description = "Embedding engine using MiniLLM backbone"
 
 [dependencies]
 scirust-core = { path = "../scirust-core" }
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true }
 anyhow = "1"

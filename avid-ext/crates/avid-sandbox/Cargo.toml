@@ -16,5 +16,5 @@ tempfile = "3"
 which = "7"
 thiserror = "2"
 tracing = "0"
-tokio = { version = "1", features = ["process", "io-util", "fs", "time", "rt", "macros"] }
+tokio = { workspace = true }
 libc = "0"

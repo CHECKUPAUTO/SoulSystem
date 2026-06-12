@@ -23,7 +23,7 @@ all = ["sqlite", "postgres", "mysql"]
 
 [dependencies]
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "any"] }
-tokio = { version = "1", features = ["time", "macros"] }
+tokio = { workspace = true }
 anyhow = "1"
 tracing = "0.1"
 thiserror = "2"
