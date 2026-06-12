@@ -1,0 +1,2124 @@
+{
+  "timestamp": "2026-05-13T21:25:28+02:00",
+  "synergies": [
+    {
+      "id": "74148960",
+      "type": "deduplication",
+      "source_project": "AVID",
+      "target_project": "OpenEvolve",
+      "description": "Fonction 'new()' dupliquée dans 6 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/gomoco2/src/main.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-scout/src/client.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-scout/src/lib.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-scout/src/ml_classifier.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-scout/src/metrics.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 7.199999999999999
+    },
+    {
+      "id": "a90aa430",
+      "type": "deduplication",
+      "source_project": "AVID",
+      "target_project": "OpenEvolve",
+      "description": "Fonction 'stats(&self)' dupliquée dans 6 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-tokenjuice/src/lib.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-tokenjuice/src/middleware.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-knowledge-graph/src/graph.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-inference/src/turboquant/proxy/kv_bridge.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-inference/src/turboquant/proxy/server.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 7.199999999999999
+    },
+    {
+      "id": "2739cec1",
+      "type": "bridge",
+      "source_project": "SoulLink organs",
+      "target_project": "SoulLink organs",
+      "description": "Crate 'name' utilisée par 12 projets — possible abstraction commune",
+      "evidence": [
+        "SoulLink organs: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "OpenClaw CRE: Cargo.toml",
+        "OpenClaw core: Cargo.toml",
+        "OpenClaw core: Cargo.toml",
+        "OpenClaw core: Cargo.toml",
+        "OpenClaw core: Cargo.toml",
+        "OpenEvolve: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 6.0
+    },
+    {
+      "id": "aris-openevolve",
+      "type": "fusion",
+      "source_project": "ARIS",
+      "target_project": "OpenEvolve",
+      "description": "ARIS (analyse codebase) + OpenEvolve (optimisation) = pipeline auto-optimisation",
+      "evidence": [
+        "ARIS analyse src/main.rs → rapport",
+        "OpenEvolve optimise src/main.rs → code amélioré",
+        "Boucle: analyze → evolve → test → PR"
+      ],
+      "priority": 5,
+      "effort_estimate": "1m",
+      "value_estimate": "critical",
+      "status": "proposed",
+      "auto_score": 5.0
+    },
+    {
+      "id": "790f6f10",
+      "type": "deduplication",
+      "source_project": "OpenClaw core",
+      "target_project": "SoulLink brain",
+      "description": "Fonction 'count(&self)' dupliquée dans 4 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-scout/src/cache.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-inference/src/standby.rs",
+        "OpenClaw CRE: /root/openclaw-cre/src/sqlite_store.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-vision/src/models.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-skills/src/registry.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 4.8
+    },
+    {
+      "id": "3cf62e13",
+      "type": "deduplication",
+      "source_project": "ARIS",
+      "target_project": "SoulLink brain",
+      "description": "Fonction 'get(&self, name: &str)' dupliquée dans 4 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-model-router/src/registry.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-skills/src/registry.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-wasm-organ/src/lib.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-vision/src/models.rs",
+        "ARIS: /root/aris/crates/runtime/src/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 4.8
+    },
+    {
+      "id": "f06cfcc3",
+      "type": "bridge",
+      "source_project": "SoulLink organs",
+      "target_project": "SoulLink organs",
+      "description": "Crate 'path' utilisée par 8 projets — possible abstraction commune",
+      "evidence": [
+        "SoulLink organs: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "OpenClaw core: Cargo.toml",
+        "OpenClaw core: Cargo.toml",
+        "OpenClaw core: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 4.0
+    },
+    {
+      "id": "gbrain-kg",
+      "type": "bridge",
+      "source_project": "SoulLink gbrain",
+      "target_project": "AVID knowledge-graph",
+      "description": "Fusionner le graphe de connaissances SoulLink avec AVID KG pour un graphe unifié",
+      "evidence": [
+        "soullink-gbrain/src/graph.rs — graphe neural",
+        "avid-knowledge-graph/src/graph.rs — graphe sémantique",
+        "Même trait Node, Edge, Query"
+      ],
+      "priority": 4,
+      "effort_estimate": "1s",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 4.0
+    },
+    {
+      "id": "5af0291f",
+      "type": "deduplication",
+      "source_project": "ARIS",
+      "target_project": "AVID",
+      "description": "Fonction 'model(&self)' dupliquée dans 3 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-core/src/llm.rs",
+        "OpenClaw core: /root/.openclaw/workspace/openhuman-extract/routing/policy.rs",
+        "ARIS: /root/aris/crates/runtime/src/config.rs",
+        "ARIS: /root/aris/crates/runtime/src/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 3.5999999999999996
+    },
+    {
+      "id": "440f0f71",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "AVID",
+      "description": "Fonction 'get(&self, key: &str)' dupliquée dans 3 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-vision/src/cache.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-workflow/src/context.rs",
+        "ARIS: /root/aris/crates/runtime/src/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 3.5999999999999996
+    },
+    {
+      "id": "db4f4a95",
+      "type": "deduplication",
+      "source_project": "ARIS",
+      "target_project": "SoulLink brain",
+      "description": "Fonction 'as_str(&self)' dupliquée dans 3 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-gbrain/src/types.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-gbrain/src/types.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-routing/src/lib.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-portfolio/src/types.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-vision/src/types.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 3.5999999999999996
+    },
+    {
+      "id": "53d6ad8b",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenEvolve",
+      "description": "Fonction 'success_rate(&self)' dupliquée dans 3 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-inference/src/turboquant/proxy/metrics.rs",
+        "OpenEvolve: /root/openevolve/src/repair.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/repair.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 3.5999999999999996
+    },
+    {
+      "id": "31ccece4",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenEvolve",
+      "description": "Fonction 'record_success(&self)' dupliquée dans 3 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-circuit/src/lib.rs",
+        "OpenEvolve: /root/openevolve/src/repair.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/repair.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 3.5999999999999996
+    },
+    {
+      "id": "7a27108e",
+      "type": "deduplication",
+      "source_project": "ARIS",
+      "target_project": "OpenEvolve",
+      "description": "Fonction 'label(&self)' dupliquée dans 3 projets",
+      "evidence": [
+        "OpenClaw core: /root/.openclaw/workspace/openhuman-extract/routing/policy.rs",
+        "OpenEvolve: /root/openevolve/src/analysis.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/analysis.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 3.5999999999999996
+    },
+    {
+      "id": "b315fff3",
+      "type": "bridge",
+      "source_project": "AVID",
+      "target_project": "SoulLink brain",
+      "description": "Crate 'version' utilisée par 7 projets — possible abstraction commune",
+      "evidence": [
+        "AVID: Cargo.toml",
+        "SoulLink brain: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "OpenClaw CRE: Cargo.toml",
+        "OpenClaw core: Cargo.toml",
+        "OpenEvolve: Cargo.toml",
+        "ARIS: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 3.5
+    },
+    {
+      "id": "3984ec8b",
+      "type": "bridge",
+      "source_project": "AVID",
+      "target_project": "SoulLink brain",
+      "description": "Crate 'edition' utilisée par 7 projets — possible abstraction commune",
+      "evidence": [
+        "AVID: Cargo.toml",
+        "SoulLink brain: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "OpenClaw CRE: Cargo.toml",
+        "OpenClaw core: Cargo.toml",
+        "OpenEvolve: Cargo.toml",
+        "ARIS: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 3.5
+    },
+    {
+      "id": "70ac45ef",
+      "type": "bridge",
+      "source_project": "AVID",
+      "target_project": "SoulLink brain",
+      "description": "Crate 'license' utilisée par 5 projets — possible abstraction commune",
+      "evidence": [
+        "AVID: Cargo.toml",
+        "SoulLink brain: Cargo.toml",
+        "OpenClaw core: Cargo.toml",
+        "OpenEvolve: Cargo.toml",
+        "ARIS: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 2.5
+    },
+    {
+      "id": "fd81657b",
+      "type": "bridge",
+      "source_project": "SoulLink brain",
+      "target_project": "SoulLink organs",
+      "description": "Crate 'serde_json' utilisée par 5 projets — possible abstraction commune",
+      "evidence": [
+        "SoulLink brain: Cargo.toml",
+        "SoulLink organs: Cargo.toml",
+        "OpenClaw CRE: Cargo.toml",
+        "OpenClaw core: Cargo.toml",
+        "OpenEvolve: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 2.5
+    },
+    {
+      "id": "b9ce6a6f",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "AVID",
+      "description": "Fonction 'build_router(state: AppState)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-server/src/api.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-inference/src/turboquant/proxy/router.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "f8bbdd9e",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "AVID",
+      "description": "Fonction 'config(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-scout/src/swarm.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-inference/src/turboquant/proxy/server.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-onednn/src/lib.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-eval/src/evaluator.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-svs/src/lib.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "848b9767",
+      "type": "deduplication",
+      "source_project": "AVID",
+      "target_project": "ARIS",
+      "description": "Fonction 'parse(source: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-scout/src/robots.rs",
+        "ARIS: /root/aris/crates/runtime/src/json.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "a3bb2ef2",
+      "type": "deduplication",
+      "source_project": "AVID",
+      "target_project": "ARIS",
+      "description": "Fonction 'from_env()' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-core/src/config.rs",
+        "ARIS: /root/aris/crates/api/src/client.rs",
+        "ARIS: /root/aris/crates/api/src/client.rs",
+        "ARIS: /root/aris/crates/runtime/src/remote.rs",
+        "ARIS: /root/aris/crates/runtime/src/remote.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "4f6d6e92",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "AVID",
+      "description": "Fonction 'health_check(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-core/src/memory.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-crypto-bridge/src/lib.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-cutlass/src/stream.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-inference/src/turboquant/proxy/server.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-onednn/src/lib.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "5650aa79",
+      "type": "deduplication",
+      "source_project": "AVID",
+      "target_project": "ARIS",
+      "description": "Fonction 'to_json(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-mimic/src/recorder.rs",
+        "ARIS: /root/aris/crates/runtime/src/session.rs",
+        "ARIS: /root/aris/crates/runtime/src/session.rs",
+        "ARIS: /root/aris/crates/runtime/src/session.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "73d2825e",
+      "type": "deduplication",
+      "source_project": "AVID",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'remaining(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-tokenjuice/src/lib.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-tokenjuice/src/middleware.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-tokenjuice/src/budget.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-tokenjuice/src/budget.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "5f481bb2",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "AVID",
+      "description": "Fonction 'new(capacity: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-vision/src/cache.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-bus/src/bus.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "9c6db7cc",
+      "type": "deduplication",
+      "source_project": "AVID",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'clear(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-vision/src/cache.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-vision/src/cache.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-skills/src/registry.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "85bced6d",
+      "type": "deduplication",
+      "source_project": "AVID",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'area(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-vision/src/types.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-vision-types.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-vision/src/types.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "94a68d5e",
+      "type": "deduplication",
+      "source_project": "AVID",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'unregister(&mut self, name: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-model-router/src/registry.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-vision/src/models.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "1faebf2a",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "AVID",
+      "description": "Fonction 'len(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-model-router/src/registry.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-skills/src/registry.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-memory/src/graph.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-reasoning/src/tree.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-cutlass/src/memory.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "6276f0ec",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "AVID",
+      "description": "Fonction 'is_empty(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-model-router/src/registry.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-skills/src/registry.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-memory/src/graph.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-reasoning/src/tree.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-cutlass/src/memory.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "49bcd249",
+      "type": "deduplication",
+      "source_project": "AVID",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'registry(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-model-router/src/router.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-skills/src/engine.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "a4e488a9",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "AVID",
+      "description": "Fonction 'parse(s: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-knowledge-graph/src/entity.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-knowledge-graph/src/relationship.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-gateway/src/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "de6198a7",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "AVID",
+      "description": "Fonction 'all()' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-knowledge-graph/src/entity.rs",
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-knowledge-graph/src/relationship.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-autonomy/src/node.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "b269a025",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "AVID",
+      "description": "Fonction 'get_entity(&self, id: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "AVID: /mnt/nvme_secondary/system_root/AVID/crates/avid-knowledge-graph/src/graph.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-gbrain/src/store.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "eaeef35a",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'touch(&mut self)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-memory/src/concept.rs",
+        "OpenClaw core: /root/.openclaw/workspace/orchestrator_backup/src/src/lifecycle.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-vision/src/cache.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "ef87d419",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "ARIS",
+      "description": "Fonction 'load()' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-guardian/src/config.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "e01fd32f",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'run(self)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-guardian/src/metrics_server.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-guardian/src/kmsg_reader.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-orchestrator/src/ipc_client.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-proxy/src/proxy.rs",
+        "OpenClaw core: /root/.openclaw/workspace/orchestrator_backup/src/src/ipc_client.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "3ec6aaf4",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'load_from(path: &Path)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-orchestrator/src/config.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-gateway/src/config.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-core/src/secrets.rs",
+        "OpenClaw core: /root/.openclaw/workspace/orchestrator_backup/src/src/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "7c7a8e94",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'load_default()' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-orchestrator/src/config.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-gateway/src/config.rs",
+        "SoulLink brain: /root/soullink-brain/soullink-core/src/secrets.rs",
+        "OpenClaw core: /root/.openclaw/workspace/orchestrator_backup/src/src/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "ea02096b",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'format_for_prompt(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-orchestrator/src/mesh_context.rs",
+        "OpenClaw core: /root/.openclaw/workspace/orchestrator_backup/src/src/mesh_context.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "2f817eac",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'compose_prompt(ctx: &MeshContext)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-orchestrator/src/ollama_bridge.rs",
+        "OpenClaw core: /root/.openclaw/workspace/orchestrator_backup/src/src/ollama_bridge.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "1cabf76a",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'generate(cfg: &OllamaConfig, ctx: &MeshContext)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-orchestrator/src/ollama_bridge.rs",
+        "OpenClaw core: /root/.openclaw/workspace/orchestrator_backup/src/src/ollama_bridge.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "c2dd504a",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'attractor_score(attractor: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-orchestrator/src/routing.rs",
+        "OpenClaw core: /root/.openclaw/workspace/soullink-orchestrator/src/models/types.rs",
+        "OpenClaw core: /root/.openclaw/workspace/orchestrator_backup/src/src/routing.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "885a343d",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'merge_concepts(results: &HashMap<String, Value>)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-orchestrator/src/routing.rs",
+        "OpenClaw core: /root/.openclaw/workspace/soullink-orchestrator/src/utils/helpers.rs",
+        "OpenClaw core: /root/.openclaw/workspace/orchestrator_backup/src/src/routing.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "550ae917",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'build(ctx: &MeshContext, reason: Option<&str>)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-orchestrator/src/synth_fallback.rs",
+        "OpenClaw core: /root/.openclaw/workspace/orchestrator_backup/src/src/synth_fallback.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "9bda8ebb",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'search(&self, query: &str, limit: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-gbrain/src/search.rs",
+        "OpenClaw core: /root/.openclaw/workspace/rust-migration/iron-review/src/codewiki.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "1fa33ed8",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'list(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-secrets/src/store.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-vision/src/models.rs",
+        "OpenClaw core: /root/.openclaw/workspace/avid-skills/src/registry.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "325dd997",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'from_file(path: &Path)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-workflow/src/config.rs",
+        "OpenClaw core: /root/.openclaw/workspace/openevolve-rust/src/config.rs",
+        "OpenClaw core: /root/.openclaw/workspace/rust-migration/open-evolve/src/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "f07275b2",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'is_gpu(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-vector/src/device.rs",
+        "OpenClaw core: /root/.openclaw/workspace/scirust-v9/scirust-simd-upgrade-v9/scirust-core/src/nn/conv2d.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "2023bb38",
+      "type": "deduplication",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'is_available(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "SoulLink brain: /root/soullink-brain/soullink-trt/src/engine.rs",
+        "OpenClaw core: /root/.openclaw/workspace/orchestrator_backup/src/src/lifecycle.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "0b910bd5",
+      "type": "deduplication",
+      "source_project": "ARIS",
+      "target_project": "OpenClaw CRE",
+      "description": "Fonction 'save(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenClaw CRE: /root/openclaw-cre/src/storage.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "21444ad2",
+      "type": "deduplication",
+      "source_project": "ARIS",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'total_tokens(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenClaw core: /root/.openclaw/workspace/avid-tokenjuice/src/tracker.rs",
+        "ARIS: /root/aris/crates/api/src/types.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "96043b77",
+      "type": "deduplication",
+      "source_project": "ARIS",
+      "target_project": "OpenClaw core",
+      "description": "Fonction 'as_str(self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenClaw core: /root/.openclaw/workspace/openhuman-extract/routing/policy.rs",
+        "ARIS: /root/aris/crates/runtime/src/sandbox.rs",
+        "ARIS: /root/aris/crates/runtime/src/permissions.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "48e75dce",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'load(path: &Path)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/config.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "6749a46e",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'validate(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/config.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "052b7801",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'save(&self, path: &Path)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/config.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/config.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "547111d4",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'new(config: &EvolutionConfig, save_dir: &Path)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "b5b32bf2",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'resume(&mut self, _language: &str, population_per_island: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "a078afd4",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'add(&mut self, mut program: Program)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "1c94a857",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'select_parent(&self, island: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "5413795c",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'select_two_parents(&self, island: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "87128e94",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'select_two_parents_nsga2(&self, island: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "f75f3b90",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'select_diverse_parent(&self, island: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "9151f639",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'migrate(&mut self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "00249e87",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'island_count(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "efc35d19",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'population_size(&self, island: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "f42c6c8f",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'top_entries(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "3c855774",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'all_programs(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "22afc9c0",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'island_programs(&self, island: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "ffc3dc34",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'mark_pareto(&mut self, id: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "41a8dc64",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'push_context(&mut self, ctx: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/database.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/database.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "d49c8cfd",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'new(code: String, language: &str, generation: u32, island: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/program.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/program.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "d28b195f",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'initial(code: String, language: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/program.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/program.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "2358c486",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'metrics_vector(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/program.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/program.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "dd74488b",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'cosine_similarity(a: &[f64], b: &[f64])' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/program.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/program.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "7bdd8522",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'compute_novelty(program: &Program, population: &[Program])' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/program.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/program.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "dd920e43",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'new(config: Config, eval_path: &str, out: &Path)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/evolution.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/engine.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "27754535",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'set_event_tx(&mut self, tx: broadcast::Sender<serde_json::Value>)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/evolution.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/engine.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "6031a3d2",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'run(&mut self, initial_code: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/evolution.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/engine.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "a9d440fb",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'run_watch(&mut self, initial: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/evolution.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/engine.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "632920ce",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'start_server(addr: SocketAddr, db_path: PathBuf)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/server.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/server.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "ecb60a40",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'from_program(program: &Program)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/pareto.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/pareto.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "2565dead",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'dominates(&self, other: &Self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/pareto.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/pareto.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "5f924131",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'fast_non_dominated_sort(objectives: &[MultiObjective])' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/pareto.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/pareto.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "7f27b38e",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'crowding_distance(objectives: &[MultiObjective], fronts: &[Vec<usize>])' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/pareto.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/pareto.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "6ff9b84b",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'nsga2_select(programs: &[Program], n: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/pareto.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/pareto.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "6c88563d",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'docker_available()' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/sandbox.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/sandbox.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "79bd83a8",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'check_escape_risk(code: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/sandbox.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/sandbox.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "c2b6b426",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'penalty(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/analysis.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/analysis.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "e86149cf",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'analyze(code: &str, language: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/analysis.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/analysis.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "5c7db43f",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'from_code(code: &str, language: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/analysis.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/analysis.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "256663ba",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'orphans(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/analysis.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/analysis.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "9203e452",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'cycles(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/analysis.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/analysis.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "5e0cd32d",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'new(config: &ProviderConfig)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/providers.rs",
+        "OpenEvolve: /root/openevolve/src/providers.rs",
+        "OpenEvolve: /root/openevolve/src/providers.rs",
+        "OpenEvolve: /root/openevolve/src/providers.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/providers.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "252f17cb",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'create_provider(config: &ProviderConfig)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/providers.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/providers.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "2ca92e12",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'record_attempt(&self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/repair.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/repair.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "b1955ce9",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'new(evaluator_path: &str, config: &EvaluatorConfig, sandbox_config: &SandboxConfig)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/evaluator.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/evaluator.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "78404533",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'validate_syntax(&self, code: &str, language: &str, work_dir: &Path)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/evaluator.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/evaluator.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "61d91d38",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'diff_semantic(before: &str, after: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/semantic_diff.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/semantic_diff.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "698aba5e",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'extract_code(response: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/llm.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/llm.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "04769e1d",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'mutate(&mut self)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/meta_evolution.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/meta_evolution.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "fdef5d63",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'new(structured_rate: f64)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/mutation_engine.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/mutation.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "932640b2",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'mutate(&mut self, program: &Program)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/mutation_engine.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/mutation.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "9ce87401",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'structured_mutate(&mut self, program: &Program)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/mutation_engine.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/mutation.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "a635671f",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'creative_mutate(&mut self, program: &Program)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/mutation_engine.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/mutation.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "9b651d76",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'applicable_ops(tree: &Tree, _code: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/mutation_engine.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/mutation.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "5f562b65",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'apply_patch(diff: &str, repo: &Path)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/auto_pr.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/auto_pr.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "cf5b4f2f",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'scan_journal(&self, lines: usize)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/diagnostic.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/diagnostic.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "e9fd9eca",
+      "type": "deduplication",
+      "source_project": "OpenEvolve",
+      "target_project": "ARIS",
+      "description": "Fonction 'success_rate(&self, language: &str)' dupliquée dans 2 projets",
+      "evidence": [
+        "OpenEvolve: /root/openevolve/src/prompt_memory.rs",
+        "ARIS: /root/aris/crates/aris-cli/src/evolve/prompt_memory.rs"
+      ],
+      "priority": 4,
+      "effort_estimate": "1j",
+      "value_estimate": "high",
+      "status": "proposed",
+      "auto_score": 2.4
+    },
+    {
+      "id": "f3d0a430",
+      "type": "bridge",
+      "source_project": "AVID",
+      "target_project": "SoulLink brain",
+      "description": "Crate 'resolver' utilisée par 4 projets — possible abstraction commune",
+      "evidence": [
+        "AVID: Cargo.toml",
+        "SoulLink brain: Cargo.toml",
+        "OpenEvolve: Cargo.toml",
+        "ARIS: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 2.0
+    },
+    {
+      "id": "ae4a9914",
+      "type": "bridge",
+      "source_project": "AVID",
+      "target_project": "OpenClaw CRE",
+      "description": "Crate 'description' utilisée par 4 projets — possible abstraction commune",
+      "evidence": [
+        "AVID: Cargo.toml",
+        "OpenClaw CRE: Cargo.toml",
+        "OpenClaw core: Cargo.toml",
+        "OpenEvolve: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 2.0
+    },
+    {
+      "id": "883e8b6a",
+      "type": "bridge",
+      "source_project": "AVID",
+      "target_project": "SoulLink brain",
+      "description": "Crate 'strip' utilisée par 4 projets — possible abstraction commune",
+      "evidence": [
+        "AVID: Cargo.toml",
+        "SoulLink brain: Cargo.toml",
+        "SoulLink brain: Cargo.toml",
+        "SoulLink brain: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 2.0
+    },
+    {
+      "id": "97998b10",
+      "type": "bridge",
+      "source_project": "SoulLink brain",
+      "target_project": "SoulLink brain",
+      "description": "Crate 'inherits' utilisée par 3 projets — possible abstraction commune",
+      "evidence": [
+        "SoulLink brain: Cargo.toml",
+        "SoulLink brain: Cargo.toml",
+        "OpenClaw core: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.5
+    },
+    {
+      "id": "7abfa135",
+      "type": "bridge",
+      "source_project": "AVID",
+      "target_project": "SoulLink brain",
+      "description": "Crate 'rust-version' utilisée par 2 projets — possible abstraction commune",
+      "evidence": [
+        "AVID: Cargo.toml",
+        "SoulLink brain: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.0
+    },
+    {
+      "id": "95bfcd14",
+      "type": "bridge",
+      "source_project": "AVID",
+      "target_project": "SoulLink brain",
+      "description": "Crate 'repository' utilisée par 2 projets — possible abstraction commune",
+      "evidence": [
+        "AVID: Cargo.toml",
+        "SoulLink brain: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.0
+    },
+    {
+      "id": "a8719603",
+      "type": "bridge",
+      "source_project": "AVID",
+      "target_project": "SoulLink brain",
+      "description": "Crate 'lto' utilisée par 2 projets — possible abstraction commune",
+      "evidence": [
+        "AVID: Cargo.toml",
+        "SoulLink brain: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.0
+    },
+    {
+      "id": "e23ca124",
+      "type": "bridge",
+      "source_project": "AVID",
+      "target_project": "SoulLink brain",
+      "description": "Crate 'panic' utilisée par 2 projets — possible abstraction commune",
+      "evidence": [
+        "AVID: Cargo.toml",
+        "SoulLink brain: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.0
+    },
+    {
+      "id": "4d70e6ac",
+      "type": "bridge",
+      "source_project": "SoulLink brain",
+      "target_project": "SoulLink organs",
+      "description": "Crate 'dashmap' utilisée par 2 projets — possible abstraction commune",
+      "evidence": [
+        "SoulLink brain: Cargo.toml",
+        "SoulLink organs: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.0
+    },
+    {
+      "id": "5b21fff1",
+      "type": "bridge",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw CRE",
+      "description": "Crate 'parking_lot' utilisée par 2 projets — possible abstraction commune",
+      "evidence": [
+        "SoulLink brain: Cargo.toml",
+        "OpenClaw CRE: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.0
+    },
+    {
+      "id": "845812de",
+      "type": "bridge",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenClaw CRE",
+      "description": "Crate 'thiserror' utilisée par 2 projets — possible abstraction commune",
+      "evidence": [
+        "SoulLink brain: Cargo.toml",
+        "OpenClaw CRE: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.0
+    },
+    {
+      "id": "48dd03c8",
+      "type": "bridge",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenEvolve",
+      "description": "Crate 'regex' utilisée par 2 projets — possible abstraction commune",
+      "evidence": [
+        "SoulLink brain: Cargo.toml",
+        "OpenEvolve: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.0
+    },
+    {
+      "id": "edfc241d",
+      "type": "bridge",
+      "source_project": "SoulLink brain",
+      "target_project": "OpenEvolve",
+      "description": "Crate 'tempfile' utilisée par 2 projets — possible abstraction commune",
+      "evidence": [
+        "SoulLink brain: Cargo.toml",
+        "OpenEvolve: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.0
+    },
+    {
+      "id": "d4e5cf09",
+      "type": "bridge",
+      "source_project": "SoulLink organs",
+      "target_project": "OpenEvolve",
+      "description": "Crate 'sha2' utilisée par 2 projets — possible abstraction commune",
+      "evidence": [
+        "SoulLink organs: Cargo.toml",
+        "OpenEvolve: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.0
+    },
+    {
+      "id": "c90d36ec",
+      "type": "bridge",
+      "source_project": "OpenClaw CRE",
+      "target_project": "OpenEvolve",
+      "description": "Crate 'async-trait' utilisée par 2 projets — possible abstraction commune",
+      "evidence": [
+        "OpenClaw CRE: Cargo.toml",
+        "OpenEvolve: Cargo.toml"
+      ],
+      "priority": 3,
+      "effort_estimate": "1s",
+      "value_estimate": "medium",
+      "status": "proposed",
+      "auto_score": 1.0
+    }
+  ],
+  "connections": {
+    "OpenClaw core": [
+      "OpenEvolve"
+    ]
+  },
+  "stats": {
+    "total": 125,
+    "by_type": {
+      "bridge": 22,
+      "deduplication": 102,
+      "fusion": 1
+    },
+    "by_priority": {
+      "3": 21,
+      "4": 103,
+      "5": 1
+    }
+  }
+}

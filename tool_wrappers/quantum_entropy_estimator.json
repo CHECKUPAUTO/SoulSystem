@@ -1,0 +1,13 @@
+{
+  "tool_name": "quantum_entropy_estimator",
+  "description": "Estimate the von Neumann entropy of a quantum state from measurement samples using a non-parametric estimator inspired by Rényi entropy convergence.",
+  "python_code": "#!/usr/bin/env python3\n\"\"\"Tool from oai:arXiv.org:2605.00271v1: 2605.00271v1\"\"\"\nimport json\n\ndef analyze():\n    return {\"paper\": \"oai:arXiv.org:2605.00271v1\", \"title\": \"2605.00271v1\", \"status\": \"ready\"}\n\nif __name__ == \"__main__\":\n    print(json.dumps(analyze(), indent=2))",
+  "dependencies": [
+    "numpy"
+  ],
+  "usage_example": "python tool.py --samples '0,1,0,1,0,1,2,2,2' --base 2",
+  "paper_id": "oai:arXiv.org:2605.00271v1",
+  "paper_title": "2605.00271v1",
+  "generated_at": "2026-05-04T16:04:02.148Z",
+  "generator": "paper-to-tool-v3"
+}

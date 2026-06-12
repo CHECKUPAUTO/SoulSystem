@@ -1,0 +1,16 @@
+{
+  "id": "64063045-d504-423f-82e9-8fa830f126dd",
+  "content": "test concept",
+  "memory_type": "episodic",
+  "tags": [
+    "test"
+  ],
+  "salience": 0.5,
+  "access_count": 0,
+  "created_at": 1778399003,
+  "last_accessed": 1778399003,
+  "decay_rate": 0.02,
+  "source": "external",
+  "context": null,
+  "consolidated": false
+}

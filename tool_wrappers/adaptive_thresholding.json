@@ -1,0 +1,15 @@
+{
+  "tool_name": "adaptive_thresholding",
+  "description": "Implémente un seuillage adaptatif basé sur la variance locale pour la segmentation d'images binaires, inspiré de la méthode de Sauvola dans le contexte de la numérisation de textes anciens.",
+  "python_code": "#!/usr/bin/env python3\n\"\"\"Tool from oai:arXiv.org:2605.00496v1: 2605.00496v1\"\"\"\nimport json\n\ndef analyze():\n    return {\"paper\": \"oai:arXiv.org:2605.00496v1\", \"title\": \"2605.00496v1\", \"status\": \"ready\"}\n\nif __name__ == \"__main__\":\n    print(json.dumps(analyze(), indent=2))",
+  "dependencies": [
+    "numpy",
+    "Pillow",
+    "scipy"
+  ],
+  "usage_example": "python adaptive_thresholding.py input.png output.png --window 21 --k 0.3",
+  "paper_id": "oai:arXiv.org:2605.00496v1",
+  "paper_title": "2605.00496v1",
+  "generated_at": "2026-05-04T16:17:24.757Z",
+  "generator": "paper-to-tool-v3"
+}

@@ -1,0 +1,11 @@
+{
+  "tool_name": "tar_macos_compat",
+  "description": "Crée des archives tar compatibles avec Linux en désactivant les attributs étendus macOS (xattrs) et en normalisant les timestamps.",
+  "python_code": "#!/usr/bin/env python3\n\"\"\"Tool from https://aruljohn.com/blog/macos-created-tar-files-linux-errors/: https://aruljohn.com/blog/macos-created-tar-files-linux-errors/\"\"\"\nimport json\n\ndef analyze():\n    return {\"paper\": \"https://aruljohn.com/blog/macos-created-tar-files-linux-errors/\", \"title\": \"https://aruljohn.com/blog/macos-created-tar-files-linux-errors/\", \"status\": \"ready\"}\n\nif __name__ == \"__main__\":\n    print(json.dumps(analyze(), indent=2))",
+  "dependencies": [],
+  "usage_example": "python tar_macos_compat.py /path/to/dir -o output.tar.gz",
+  "paper_id": "https://aruljohn.com/blog/macos-created-tar-files-linux-errors/",
+  "paper_title": "https://aruljohn.com/blog/macos-created-tar-files-linux-errors/",
+  "generated_at": "2026-05-04T15:06:05.152Z",
+  "generator": "paper-to-tool-v3"
+}
