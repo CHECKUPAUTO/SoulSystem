@@ -92,6 +92,8 @@ struct Cli {
 enum Command {
     /// Lance l'entité avec le gateway et la boucle autonome.
     Run,
+    /// Ouvre le TUI interactif (terminal riche).
+    Tui,
     /// Configuration interactive du LLM et des paramètres.
     Config {
         /// Affiche la configuration actuelle et quitte.
@@ -146,6 +148,32 @@ async fn main() -> anyhow::Result<()> {
                     &key[key.len().saturating_sub(4)..]
                 );
             }
+            return Ok(());
+        }
+        Some(Command::Tui) => {
+            let persisted = config::load_config();
+            let provider = cli.provider;
+            let llm_url = cli.llm_url.clone();
+            let model = cli.model.clone();
+            let api_key = cli.api_key.clone();
+
+            let llm_cfg = LlmConfig {
+                provider,
+                base_url: llm_url,
+                model,
+                temperature: persisted.llm.temperature,
+                http_timeout: Duration::from_secs(30),
+                connect_timeout: Duration::from_secs(5),
+                auth_token: api_key,
+                max_tokens: persisted.llm.max_tokens,
+                goal_token_budget: 50000,
+                tokens_per_minute_budget: 100000,
+                pool_max_idle: 10,
+                pool_idle_timeout: Duration::from_secs(30),
+            };
+            let mut repl_state = soul_repl::ReplState::new(llm_cfg);
+            repl_state.entity_name = cli.name.clone();
+            soul_repl::run_repl(&mut repl_state).await;
             return Ok(());
         }
         Some(Command::Run) | None => {}

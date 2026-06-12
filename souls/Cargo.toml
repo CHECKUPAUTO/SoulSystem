@@ -30,7 +30,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 anyhow = "1"
 colored = "3"
-dialoguer = { version = "0.11", features = ["password", "fuzzy-select"] }
+ratatui = "0.30"
+crossterm = { version = "0.28", features = ["event-stream"] }
 dirs = "6"
 toml_edit = { version = "0.22", features = ["serde"] }
 axum = "0.7"
