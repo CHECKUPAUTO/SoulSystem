@@ -1,0 +1,36 @@
+{
+  "active_projects": [
+    {
+      "id": "sai-ci-2026-05-06",
+      "name": "SAI v1.0 — CI GitHub Actions",
+      "status": "completed",
+      "constraints": [
+        "Langue : français uniquement",
+        "Pas de confirmation intermédiaire en mode projet",
+        "Safety > Speed toujours"
+      ],
+      "next_steps": [
+        "Améliorer verify.sh avec support Rust/TypeScript natif"
+      ],
+      "blockers": [],
+      "last_updated": "2026-05-06T01:10:00+02:00"
+    }
+  ],
+  "global_constraints": [
+    "Langue : français uniquement",
+    "Pas de confirmation intermédiaire en mode projet",
+    "Safety > Speed toujours"
+  ],
+  "recent_lessons": [
+    {
+      "date": "2026-05-06T01:10:00+02:00",
+      "lesson": "Le auto-verify sur verify.sh lui-même déclenche des faux positifs car le script contient les patterns regex. Fix : skip self-check. De même, les tableaux markdown contiennent 'pass' → skip stub sur .md.",
+      "context": "CI GitHub Actions SAI"
+    }
+  ],
+  "session_meta": {
+    "last_updated": "2026-05-06T01:10:00+02:00",
+    "current_mode": "interactive",
+    "current_project_id": null
+  }
+}
