@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/soul-core",
+    "crates/soul-cortex",
+    "crates/soul-embed",
+    "crates/soul-hnn",
+    "crates/soul-identity",
+    "crates/soul-learner",
+    "crates/soul-memory-store",
+    "crates/soul-minillm",
+    "crates/soul-monitor",
+    "crates/soul-pattern-miner",
+    "crates/soul-quant",
+    "crates/soul-rstdp",
+    "crates/soul-snn",
+    "crates/soul-symbolic",
+    "crates/soul-tools",
+    "crates/soul-cli",
+    "crates/scirust-core",
+    "crates/scirust-autodiff",
+    "crates/scirust-gpu",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Tarek (CortexSynapse)"]
+repository = "https://github.com/CHECKUPAUTO/SoulNeural"
+description = "Neural engine: HNN, embeddings, MiniLLM, symbolic reasoning, R-STDP, TurboQuant"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+opt-level = 3
