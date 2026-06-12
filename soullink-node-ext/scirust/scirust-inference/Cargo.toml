@@ -10,7 +10,7 @@ scirust-simd = { path = "../scirust-simd" }
 scirust-autodiff = { path = "../scirust-autodiff" }
 rayon = { version = "1.10", optional = true }
 ndarray = "0.15"
-serde = { version = "1", features = ["derive"], optional = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 half = { version = "2", optional = true }
 

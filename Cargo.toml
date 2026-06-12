@@ -1,69 +1,330 @@
 [workspace]
+resolver = "2"
 members = [
-    "scirust_affective_core",
-    "semantic_neuromodulator",
-    "neural_metacognition",
-    "ecosystem_synapse_linker",
-    "neural_clinical_console",
-    "semantic_firewall",
-    "neural_cluster_sync",
-    "neural_graph_compiler",
-    "neural_chaos_monkey",
-    "ontological_self_healing",
-    "soul_scheduler",
-    "soul_matrix_engine",
-    "soul_storage",
-    "soul_ipc",
-    "soul_evolution",
-    "soul_agent_runtime",
-    "soul_telemetry",
-    "soul_journal",
-    "soul_forge",
-    "soul_orchestrator",
-
+    "crates/soulsystem-common",
+    "soulsystem-multiagent",
+    "openclaw-u",
+    "soullink-brain/soullink-core",
+    "soullink-brain/soullink-nvml",
+    "soullink-brain/soullink-guardian",
+    "soullink-brain/soullink-orchestrator",
+    "soullink-brain/soullink-decision-v13",
+    "soullink-brain/soullink-gateway",
+    "soullink-brain/soullink-simd",
+    "soullink-brain/soullink-vector",
+    "soullink-brain/soullink-memory",
+    "soullink-brain/soullink-workflow",
+    "soullink-brain/soullink-crypto-bridge",
+    "soullink-brain/soullink-portfolio",
+    "soullink-brain/soullink-security",
+    "soullink-brain/soullink-eval",
+    "soullink-brain/soullink-bus",
+    "soullink-brain/soullink-actions",
+    "soullink-brain/soullink-senate",
+    "soullink-brain/soullink-reasoning",
+    "soullink-brain/soullink-vision",
+    "soullink-brain/soullink-autonomy",
+    "soullink-brain/soullink-inference",
+    "soullink-brain/soullink-proxy",
+    "soullink-brain/soullink-trt",
+    "soullink-brain/soullink-rag",
+    "soullink-brain/soullink-dali",
+    "soullink-brain/soullink-cutlass",
+    "soullink-brain/soullink-cli",
+    "soullink-brain/soullink-svs",
+    "soullink-brain/soullink-onednn",
+    "soullink-brain/soullink-secrets",
+    "soullink-brain/soullink-hooks",
+    "soullink-brain/soullink-allowlist",
+    "soullink-brain/soullink-gate",
+    "soullink-brain/soullink-circuit",
+    "soullink-brain/soullink-routing",
+    "soullink-brain/soullink-wasm-organ",
+    "soullink-brain/soullink-gbrain",
+    "soullink-brain/soullink-shm",
+    "soullink-brain/soullink-vram",
+    "soullink-brain/soullink-registry",
+    "soullink-brain/soullink-trainer",
+    "soullink-brain/soullink-memory-hierarchy",
+    "soullink-brain/soullink-moe",
+    "crates/soul-top",
+    "crates/soul-chaos",
+    "crates/soul-shell",
+    "crates/soul-dashboard",
+    "soullink-organs",
+    "avid-soullink",
+    "avid-rstdp",
+    "avid-anticlone-service",
+    "scirust-trading-core",
+    "scirust-trading-engine",
+    "scirust-trading-observer",
+    "scirust-trading-persistence",
+    "scirust-trading-news",
+    "scirust-trading-monitor",
+    "scirust-trading-pipeline",
+    "scirust-simd",
+    "scirust-gpu",
+    "soullink-metabolism",
+    "bound-system",
+    "brain-system-rs",
+    "openclaw-evolution",
+    "synergie",
+    "soullink-orchestrator-standalone",
+    "openevolve",
+    # Unified bridge (replaces 9 individual bridges)
+    "soul-bridge",
+    "forges/forge-core",
+    "forges/forge",
+    "forges/forge-bridge",
+    # forge-bridge (now in forges/forge-bridge)
+    # Autonomous entity crates
     "soul_llm",
     "soul_planner",
     "soul_tools",
     "soul_repl",
-    "soul_persistence",
-    "soul_sandbox",
-    "soul_gateway",
-    "soul_openclaw",
-    "soul_entity",
-    "souls",
-    "test_telemetry",
+    "soul-agent-core",
+    "soul-memory",
+    "soul-daemon",
+    "soul-sandbox",
+    "soul-browser",
+    "soul-subagents",
+    "soul-goaltree",
+    "soul-automodify",
+    "soul-eventbus",
+    "soul-webfetch",
+    "soul-scheduler",
+    # Quality improvement crates
+    "soul-mcp",
+    "soul-skills",
+    "soul-compaction",
+    "soul-protocol",
+    "soul-wasm",
+    "soul-designtree",
+    "soul-inference",
+    "soul-critique",
+    # AVID ecosystem (24 crates)
+    "avid/crates/avid-anticlone",
+    "avid/crates/avid-cli",
+    "avid/crates/avid-cobalt",
+    "avid/crates/avid-core",
+    "avid/crates/avid-cortex",
+    "avid/crates/avid-critic",
+    "avid/crates/avid-db",
+    "avid/crates/avid-forge",
+    "avid/crates/avid-gomogo",
+    "avid/crates/avid-hnn",
+    "avid/crates/avid-intel",
+    "avid/crates/avid-k8s",
+    "avid/crates/avid-knowledge-graph",
+    "avid/crates/avid-mimic",
+    "avid/crates/avid-model-router",
+    "avid/crates/avid-orchestrator",
+    "avid/crates/avid-sandbox",
+    "avid/crates/avid-scout",
+    "avid/crates/avid-security",
+    "avid/crates/avid-server",
+    "avid/crates/avid-skills",
+    "avid/crates/avid-tokenjuice",
+    "avid/crates/avid-tui",
+    "avid/crates/avid-vision",
 ]
-resolver = "2"
+
+exclude = [
+    "soul-neural",
+    "soullink-node",
+    "turboquant",
+    # External repos merged via subtree — not part of main workspace build
+    "os-agents",
+    "intel-integrations",
+    "openclaw-gateway",
+    "scirust-trading",
+    "openevolve-ext",
+    "avid-ext",
+    "neural-store",
+    "soul-neural-ext",
+    "jit-agentic-engine",
+    "agent-swarm",
+    "soullink-node-ext",
+    "soul-project",
+    "soullink-orchestrator-ext",
+    "synergie-ext",
+    "openclaw-evolution-ext",
+]
+
+[workspace.package]
+version = "13.5.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["SoulLink Mesh Team"]
+license = "MIT"
+repository = "internal"
 
 [workspace.dependencies]
-soul_telemetry = { path = "soul_telemetry" }
-
-# External shared dependencies — versions et features unifiées
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal", "net", "io-util", "io-std"] }
 tracing = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
-parking_lot = "0.12"
-tokio = { version = "1", features = ["full"] }
-uuid = "1"
-thiserror = "1"
-async-trait = "0.1"
-lazy_static = "1.4"
-prometheus = "0.13"
-anyhow = "1"
-ratatui = "0.30"
-crossterm = { version = "0.28", features = ["event-stream"] }
-colored = "3"
-dirs = "6"
-futures = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tempfile = "3"
+arc-swap = "1.7"
 dashmap = "6"
-reqwest = { version = "0.12", features = ["json", "stream"] }
-zeroize = { version = "1", features = ["zeroize_derive"] }
+parking_lot = "0.12"
+ahash = "0.8"
+metrics = "0.23"
+metrics-exporter-prometheus = { version = "0.15", default-features = false, features = ["http-listener"] }
+async-trait = "0.1"
+subtle = "2.5"
+uuid = { version = "1", features = ["v4", "serde"] }
+rmp-serde = "1.1"
+futures = { version = "0.3", default-features = false, features = ["std"] }
+wiremock = "0.6"
+criterion = { version = "0.5", default-features = false, features = ["async_tokio", "html_reports"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "tokio", "tower-log"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tower-http = { version = "0.6", default-features = false, features = ["trace", "cors", "limit", "set-header"] }
+hyper = { version = "1", features = ["server", "http1", "http2"] }
+nvml-wrapper = { version = "0.9", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+toml = "0.8"
+regex = "1.10"
+thiserror = "2"
+anyhow = "1"
+rand = "0.8"
+tokio-stream = { version = "0.1", features = ["sync"] }
+clap = { version = "4", features = ["derive"] }
+# local workspace crates
+ansi-converter = { path = "ansi-converter" }
+bus = { path = "bus" }
+bound-system = { path = "bound-system" }
+clawd = { path = "clawd" }
+local-skills = { path = "local-skills" }
+model-router = { path = "model-router" }
+pty-terminal = { path = "pty-terminal" }
+soul-memory = { path = "soul-memory" }
+soul-bridge = { path = "soul-bridge" }
+spinner = { path = "spinner" }
+terminal-stream = { path = "terminal-stream" }
+scirust-autodiff = { path = "scirust-autodiff" }
+scirust-core = { path = "scirust-core" }
+soulsystem-common = { path = "crates/soulsystem-common" }
+
+# external crates referenced as workspace deps
+
+[package]
+name = "soulsystem"
+version = "0.6.0"
+edition = "2021"
+description = "SoulSystem — Autonomous digital agent ecosystem"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bus = { workspace = true }
+soul-bridge = { workspace = true }
+soul-memory = { workspace = true }
+soulsystem-common = { workspace = true }
+bound-system = { workspace = true }
+clawd = { workspace = true }
+ansi-converter = { workspace = true }
+terminal-stream = { workspace = true }
+pty-terminal = { workspace = true }
+local-skills = { workspace = true }
+model-router = { workspace = true }
+spinner = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+sled = "0.34"
+seahash = "4.1"
+chrono = { workspace = true }
+sha2 = "0.10"
+hostname = "0.4"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
+rand = "0.8"
+ed25519-dalek = { version = "2", optional = true }
+rusqlite = { version = "0.32", features = ["bundled"] }
+which = "8"
+sysinfo = "0.31"
+clap = { workspace = true }
+tar = "0.4"
+flate2 = "1"
+reqwest = { workspace = true }
+teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
+axum = { workspace = true }
+soullink-memory = { path = "soullink-brain/soullink-memory" }
+soullink-rag = { path = "soullink-brain/soullink-rag" }
+soullink-autonomy = { path = "soullink-brain/soullink-autonomy" }
+soullink-circuit = { path = "soullink-brain/soullink-circuit" }
+
+# Ponts d'intégration (unified)
+
+portable-pty = "0.8"
+libc = "0.2"
+tempfile = { workspace = true }
+tokio-tungstenite = "0.29.0"
+futures-util = "0.3.32"
+
+# Autonomous entity crates
+soul_llm = { path = "soul_llm" }
+soul_agent_core = { path = "soul-agent-core" }
+soul_planner = { path = "soul_planner" }
+soul_tools = { path = "soul_tools" }
+soul_repl = { path = "soul_repl" }
+soul_daemon = { path = "soul-daemon" }
+soul_sandbox = { path = "soul-sandbox" }
+soul_browser = { path = "soul-browser" }
+soul_subagents = { path = "soul-subagents" }
+soul_goaltree = { path = "soul-goaltree" }
+soul_automodify = { path = "soul-automodify" }
+soul_eventbus = { path = "soul-eventbus" }
+soul-dashboard = { path = "crates/soul-dashboard" }
+soul_mcp = { path = "soul-mcp" }
+soul_skills = { path = "soul-skills" }
+soul_compaction = { path = "soul-compaction" }
+soul_protocol = { path = "soul-protocol" }
+soul_wasm = { path = "soul-wasm" }
+soul_designtree = { path = "soul-designtree" }
+soul_inference = { path = "soul-inference" }
+soul_critique = { path = "soul-critique" }
+soul_scheduler = { path = "soul-scheduler" }
+uuid = { version = "1", features = ["v4"] }
+rustyline = "14"
+colored = "2"
+
+[features]
+dev = []
+gpu = []
+ed25519 = ["dep:ed25519-dalek"]
+default = ["ed25519"]
 
 [profile.release]
-opt-level = 3
 lto = "fat"
 codegen-units = 1
+strip = true
 panic = "abort"
-debug = false
 
+[workspace.lints.rust]
+dead_code = "allow"
+unused_imports = "allow"
+unused_variables = "allow"
+unused_mut = "allow"
+unused_assignments = "allow"
+unused_unsafe = "allow"
+unused_comparisons = "allow"
+unreachable_pub = "allow"
+non_camel_case_types = "allow"
+non_snake_case = "allow"
+deprecated = "allow"
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(blas)', 'cfg(rayon)'] }
+missing_docs = "allow"
+
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true
+codegen-units = 256

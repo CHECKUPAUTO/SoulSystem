@@ -11,7 +11,7 @@ repository = "https://github.com/CHECKUPAUTO/AVID"
 # CLI
 clap = { version = "4", features = ["derive", "string"] }
 # HTTP client
-reqwest = { version = "0.12", features = ["json", "cookies", "rustls-tls", "http2"], default-features = false }
+reqwest = { workspace = true }
 tokio = { workspace = true }
 # Proxy server
 hyper = { version = "1", features = ["full"] }
