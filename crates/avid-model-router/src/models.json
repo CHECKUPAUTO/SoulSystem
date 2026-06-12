@@ -1,0 +1,73 @@
+{
+  "models": [
+    {
+      "name": "deepseek-v4-pro:cloud",
+      "provider": "ollama",
+      "base_url": "http://localhost:11434",
+      "capabilities": [
+        "codeGeneration",
+        "codeReview",
+        "planning",
+        "analysis",
+        "summarization",
+        "creative"
+      ],
+      "max_tokens": 131072,
+      "cost_per_1k_tokens": 0.0,
+      "priority": 10,
+      "avg_latency_ms": 2500
+    },
+    {
+      "name": "qwen3:4b",
+      "provider": "ollama",
+      "base_url": "http://localhost:11434",
+      "capabilities": [
+        "fastChat",
+        "summarization",
+        "codeGeneration"
+      ],
+      "max_tokens": 8192,
+      "cost_per_1k_tokens": 0.0,
+      "priority": 5,
+      "avg_latency_ms": 300
+    },
+    {
+      "name": "kimi-k2.6:cloud",
+      "provider": "ollama",
+      "base_url": "http://localhost:11434",
+      "capabilities": [
+        "codeReview",
+        "planning",
+        "analysis",
+        "codeGeneration",
+        "creative"
+      ],
+      "max_tokens": 131072,
+      "cost_per_1k_tokens": 0.0,
+      "priority": 20,
+      "avg_latency_ms": 3000
+    },
+    {
+      "name": "gemma4:31b-cloud",
+      "provider": "ollama",
+      "base_url": "http://localhost:11434",
+      "capabilities": [
+        "codeGeneration",
+        "codeReview",
+        "analysis",
+        "summarization",
+        "fastChat"
+      ],
+      "max_tokens": 32768,
+      "cost_per_1k_tokens": 0.0,
+      "priority": 15,
+      "avg_latency_ms": 2000
+    }
+  ],
+  "default_model": "deepseek-v4-pro:cloud",
+  "fallback_chain": [
+    "kimi-k2.6:cloud",
+    "gemma4:31b-cloud",
+    "qwen3:4b"
+  ]
+}
