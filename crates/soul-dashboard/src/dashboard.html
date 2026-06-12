@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SoulSystem Dashboard</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0a0a0f; color: #e0e0e0; }
+.header { background: #12121a; border-bottom: 1px solid #1a1a2e; padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
+.header h1 { font-size: 1.2em; color: #00d4ff; }
+.header .status { padding: 4px 12px; border-radius: 12px; font-size: 0.8em; font-weight: 600; }
+.healthy { background: #0a2e1a; color: #00ff88; border: 1px solid #00ff88; }
+.degraded { background: #2e1a0a; color: #ffaa00; border: 1px solid #ffaa00; }
+.container { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 24px; max-width: 1200px; margin: 0 auto; }
+.card { background: #12121a; border: 1px solid #1a1a2e; border-radius: 8px; padding: 16px; }
+.card h2 { font-size: 0.9em; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+.stat { font-size: 2em; font-weight: 700; color: #00d4ff; }
+.stat-row { display: flex; gap: 24px; }
+.stat-item { text-align: center; }
+.stat-label { font-size: 0.75em; color: #666; margin-top: 4px; }
+.organ-list { list-style: none; }
+.organ-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #1a1a2e; }
+.organ-dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot-green { background: #00ff88; }
+.dot-red { background: #ff4444; }
+.organ-name { flex: 1; }
+.organ-meta { font-size: 0.8em; color: #666; }
+.event-list { list-style: none; max-height: 300px; overflow-y: auto; }
+.event-item { padding: 6px 0; border-bottom: 1px solid #1a1a2e; font-size: 0.85em; display: flex; gap: 8px; }
+.event-time { color: #666; min-width: 60px; }
+.event-kind { padding: 2px 6px; border-radius: 4px; font-size: 0.8em; font-weight: 600; }
+.kind-heartbeat { background: #0a2e1a; color: #00ff88; }
+.kind-error { background: #2e0a0a; color: #ff4444; }
+.kind-turbulence { background: #2e2e0a; color: #ffaa00; }
+.kind-default { background: #1a1a2e; color: #888; }
+.full-width { grid-column: 1 / -1; }
+.turb-item { padding: 8px 0; border-bottom: 1px solid #1a1a2e; }
+.sev-low { color: #888; }
+.sev-medium { color: #ffaa00; }
+.sev-high { color: #ff6600; }
+.sev-critical { color: #ff4444; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>SoulSystem Dashboard</h1>
+  <span id="status" class="status healthy">LOADING</span>
+  <span style="flex:1"></span>
+  <span id="clock" style="color:#666; font-size:0.85em;"></span>
+</div>
+<div class="container">
+  <div class="card">
+    <h2>System Health</h2>
+    <div class="stat-row">
+      <div class="stat-item"><div class="stat" id="organs-healthy">-</div><div class="stat-label">Organs Healthy</div></div>
+      <div class="stat-item"><div class="stat" id="organs-total">-</div><div class="stat-label">Total Organs</div></div>
+      <div class="stat-item"><div class="stat" id="events-count">-</div><div class="stat-label">Bus Events</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Organs</h2>
+    <ul class="organ-list" id="organs-list"></ul>
+  </div>
+  <div class="card full-width">
+    <h2>Recent Events</h2>
+    <ul class="event-list" id="events-list"></ul>
+  </div>
+  <div class="card full-width">
+    <h2>Turbulence</h2>
+    <ul id="turbulence-list"></ul>
+  </div>
+</div>
+<script>
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+async function refresh() {
+  try {
+    const [healthRes, organsRes, eventsRes, turbRes] = await Promise.all([
+      fetch('/api/health'), fetch('/api/organs'), fetch('/api/events'), fetch('/api/turbulence')
+    ]);
+    const health = await healthRes.json();
+    const organs = await organsRes.json();
+    const events = await eventsRes.json();
+    const turb = await turbRes.json();
+
+    const statusEl = document.getElementById('status');
+    statusEl.textContent = health.status.toUpperCase();
+    statusEl.className = 'status ' + (health.status === 'healthy' ? 'healthy' : 'degraded');
+
+    document.getElementById('organs-healthy').textContent = health.organs_healthy;
+    document.getElementById('organs-total').textContent = health.organs_total;
+    document.getElementById('events-count').textContent = health.events_count;
+
+    // Safe DOM rendering using textContent to prevent XSS
+    const organsList = document.getElementById('organs-list');
+    organsList.replaceChildren(...organs.map(o => {
+      const li = document.createElement('li');
+      li.className = 'organ-item';
+      const dot = document.createElement('span');
+      dot.className = 'organ-dot ' + (o.healthy ? 'dot-green' : 'dot-red');
+      const name = document.createElement('span');
+      name.className = 'organ-name';
+      name.textContent = o.name;
+      const meta = document.createElement('span');
+      meta.className = 'organ-meta';
+      meta.textContent = o.avg_latency_ms + 'ms · ' + o.vram_used_mib + 'MiB';
+      li.append(dot, name, meta);
+      return li;
+    }));
+
+    const eventsList = document.getElementById('events-list');
+    eventsList.replaceChildren(...events.map(e => {
+      const li = document.createElement('li');
+      li.className = 'event-item';
+      const time = document.createElement('span');
+      time.className = 'event-time';
+      time.textContent = e.timestamp.substring(0, 8);
+      const kind = document.createElement('span');
+      const kindClass = e.kind === 'Heartbeat' ? 'kind-heartbeat' : e.kind === 'Error' ? 'kind-error' : e.kind === 'Turbulence' ? 'kind-turbulence' : 'kind-default';
+      kind.className = 'event-kind ' + kindClass;
+      kind.textContent = e.kind;
+      const src = document.createElement('span');
+      src.textContent = e.source;
+      li.append(time, kind, src);
+      return li;
+    }));
+
+    const turbList = document.getElementById('turbulence-list');
+    turbList.replaceChildren(...turb.map(t => {
+      const li = document.createElement('li');
+      li.className = 'turb-item';
+      const sev = document.createElement('span');
+      sev.className = 'sev-' + t.severity;
+      sev.textContent = t.severity;
+      li.append(sev, ' — ' + t.message);
+      return li;
+    }));
+  } catch(e) { console.error('Refresh failed:', e); }
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

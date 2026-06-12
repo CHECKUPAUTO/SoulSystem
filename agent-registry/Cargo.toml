@@ -1,0 +1,26 @@
+[package]
+name = "agent-registry"
+version = "0.1.0"
+edition = "2021"
+description = "Agent d'orchestration — wire SoulSystem, orchestrateur, AVID, scirust, SoulNeural, openevolve, synergie en un point central"
+
+[[bin]]
+name = "agent_registry"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+
+# Bridges unifiés — soul-bridge remplace 9 bridges individuels
+soul-bridge = { path = "../soul-bridge" }
+forge-bridge = { path = "../forges/forge-bridge" }
+
+[[bin]]
+name = "e2e"
+path = "src/bin/e2e.rs"

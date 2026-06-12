@@ -1,0 +1,29 @@
+[package]
+name = "soullink-rag"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — Page-aware RAG with sliding window, BM25 hybrid, and metadata enrichment"
+
+[dependencies]
+soullink-vector = { path = "../soullink-vector" }
+soullink-memory = { path = "../soullink-memory" }
+soullink-simd = { path = "../soullink-simd" }
+soullink-eval = { path = "../soullink-eval" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+sled = "0.34"
+parking_lot = { workspace = true }
+futures = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

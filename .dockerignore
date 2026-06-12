@@ -1,0 +1,13 @@
+.git/
+target/
+node_modules/
+data/
+*.md
+*.csv
+*.pdf
+*.png
+.env
+secrets.env
+*.pem
+*.key
+*.bak

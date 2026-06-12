@@ -1,0 +1,16 @@
+[Unit]
+Description=SoulLink Monolith v2.0 — Hamiltonian Engine + 5 Organs
+After=network.target soullink-orchestrator.service
+Wants=soullink-orchestrator.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soullink-monolith
+WorkingDirectory=/mnt/nvme/soullink_brain
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=soullink.target

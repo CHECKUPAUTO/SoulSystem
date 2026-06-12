@@ -1,0 +1,21 @@
+[package]
+name = "soullink-reasoning"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — Tree of Thoughts reasoning with eval-based pruning"
+
+[dependencies]
+soullink-simd = { path = "../soullink-simd" }
+soullink-eval = { path = "../soullink-eval" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

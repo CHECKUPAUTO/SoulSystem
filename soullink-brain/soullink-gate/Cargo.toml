@@ -1,0 +1,16 @@
+[package]
+name = "soullink-gate"
+version = "0.1.0"
+edition = "2021"
+description = "Approval gate for tool execution with persistent permissions (IronClaw-inspired)"
+
+[dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync", "fs"] }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

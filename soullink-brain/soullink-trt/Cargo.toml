@@ -1,0 +1,29 @@
+[package]
+name = "soullink-trt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — TensorRT-LLM bindings for direct GPU inference (stub mode + FFI)"
+
+[features]
+default = []
+# Enable real TensorRT-LLM FFI (requires libnvinfer.so + libtensorrt_llm.so)
+trt-llm = ["cxx"]
+
+[dependencies]
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+serde = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
+
+[dependencies.cxx]
+version = "1.0"
+optional = true
+
+[build-dependencies]
+cxx-build = { version = "1.0", optional = true }

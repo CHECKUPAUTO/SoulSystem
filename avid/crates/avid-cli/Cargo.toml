@@ -1,0 +1,17 @@
+[package]
+name = "avid-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "avid"
+path = "src/main.rs"
+
+[dependencies]
+avid-server = { path = "../avid-server" }
+avid-tui = { path = "../avid-tui" }
+avid-scout = { path = "../avid-scout" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+serde_json = "1"

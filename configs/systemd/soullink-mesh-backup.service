@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink Mesh Backup Service
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/mnt/nvme/soullink_brain
+ExecStart=/bin/sh -c 'if [ -x /mnt/nvme/soullink_brain/scripts/mesh_backup.sh ]; then exec /mnt/nvme/soullink_brain/scripts/mesh_backup.sh; else echo "[$(date -Iseconds)] mesh_backup.sh not found — skipping" >&2; exit 0; fi'
+StandardOutput=append:/mnt/nvme/soullink_brain/backups/backup.log
+StandardError=append:/mnt/nvme/soullink_brain/backups/backup.log
+
+[Install]
+WantedBy=soullink.target

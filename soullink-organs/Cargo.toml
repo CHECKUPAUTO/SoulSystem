@@ -1,0 +1,40 @@
+[package]
+name = "soullink-organs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink organ services — foresight, homeostasis, creativity, social, validation"
+
+[[bin]]
+name = "soullink-foresight"
+path = "src/foresight.rs"
+
+[[bin]]
+name = "soullink-homeostasis"
+path = "src/homeostasis.rs"
+
+[[bin]]
+name = "soullink-creativity"
+path = "src/creativity.rs"
+
+[[bin]]
+name = "soullink-social"
+path = "src/social.rs"
+
+[[bin]]
+name = "soullink-validation"
+path = "src/validation.rs"
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dashmap = { workspace = true }
+minreq = { version = "2", features = ["https"] }
+sha2 = "0.10"
+chrono = { workspace = true }

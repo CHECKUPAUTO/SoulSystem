@@ -1,0 +1,95 @@
+# ZeroBot — Docker Compose
+# Orchestrates: API server, toolbox containers, ChromaDB, optional Ollama
+
+services:
+  agent-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: zerobot-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/zerobot
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - chromadb_data:/zerobot/data/chromadb
+    environment:
+      - ZEROBOT_CONFIG=/zerobot/config.yaml
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - ZEROBOT_ENV=production
+    depends_on:
+      - chromadb
+    networks:
+      - zerobot-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  chromadb:
+    image: ghcr.io/chroma-core/chroma:0.5.5
+    container_name: zerobot-chromadb
+    volumes:
+      - chromadb_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=FALSE
+    ports:
+      - "8001:8000"
+    networks:
+      - zerobot-net
+    restart: unless-stopped
+
+  # Optional: local LLM via Ollama (uncomment to use)
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: zerobot-ollama
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   ports:
+  #     - "11434:11434"
+  #   networks:
+  #     - zerobot-net
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+
+  # Toolbox container (runs on-demand via Docker SDK, but kept alive for faster start)
+  toolbox:
+    build:
+      context: .
+      dockerfile: Dockerfile.toolbox
+    container_name: zerobot-toolbox
+    # NO network access — security by isolation
+    networks: []
+    # network_mode: none  # explicitly disabled
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /workspace:noexec,nosuid,size=100m
+      - /tmp:noexec,nosuid,size=100m
+    profiles:
+      - donotstart  # started on-demand by Docker SDK
+    # If started manually, sleep forever
+    command: ["sleep", "infinity"]
+
+networks:
+  zerobot-net:
+    driver: bridge
+    internal: false  # API network needs outbound for API calls (OpenAI)
+
+volumes:
+  chromadb_data:
+  # ollama_data:

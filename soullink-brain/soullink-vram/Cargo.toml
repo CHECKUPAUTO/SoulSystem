@@ -1,0 +1,16 @@
+[package]
+name = "soullink-vram"
+version = "13.5.0"
+edition = "2021"
+description = "SoulSystem — Dynamic VRAM management with pressure-based model eviction"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+dashmap = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

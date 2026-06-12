@@ -1,0 +1,19 @@
+//! soullink-trt — TensorRT-LLM bindings for direct GPU inference.
+//!
+//! Two modes:
+//! - **Stub** (default): Compiles without TRT-LLM libraries. All generate calls
+//!   return `TrtError::FeatureDisabled`, triggering Ollama fallback.
+//! - **trt-llm** feature: Full FFI via cxx. Direct GPU inference bypassing HTTP.
+//!
+//! Architecture: Model load → create session → generate/generate_stream → drop session.
+
+pub mod batch;
+pub mod engine;
+pub mod types;
+
+#[cfg(feature = "trt-llm")]
+pub mod ffi;
+
+pub use batch::BatchScheduler;
+pub use engine::TrtEngine;
+pub use types::{BatchItem, GenerationConfig, GenerationResult, StreamChunk, TrtConfig, TrtError};

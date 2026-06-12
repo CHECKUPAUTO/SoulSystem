@@ -1,0 +1,76 @@
+# SPLIT EN 2 GROUPES — workspace.members explicite + exclude pour les extras
+#
+# Avant : `members = ["crates/*"]` → tout le workspace doit compiler.
+# Une régression dans un crate extras (cobalt, hnn, intel, security, gomogo)
+# casse la CI complète et bloque toute évolution du cœur.
+#
+# Après : seulement le CŒUR est dans `members`. Les extras sont `exclude`és
+# du workspace principal mais restent dans le repo et peuvent être buildés
+# séparément (manifest-path explicite ou job CI dédié).
+#
+# Rationale :
+# - Préserve l'historique git : aucun fichier déplacé physiquement
+# - Pas de duplication : chaque crate reste dans `crates/`
+# - CI principale verte tant que le pipeline cœur compile
+# - Job CI séparé (extras.yml) tente les extras en mode non-bloquant
+
+[workspace]
+resolver = "2"
+
+# ─── CŒUR — le pipeline principal (16 crates) ─────────────────────
+# Toute modification doit garder ce groupe à 100 % vert.
+members = [
+    "crates/avid-anticlone",
+    "crates/avid-sandbox",
+    "crates/avid-core",
+    "crates/avid-cortex",
+    "crates/avid-mimic",
+    "crates/avid-scout",
+    "crates/avid-vision",
+    "crates/avid-skills",
+    "crates/avid-tokenjuice",
+    "crates/avid-model-router",
+    "crates/avid-knowledge-graph",
+    "crates/avid-critic",
+    "crates/avid-forge",
+    "crates/avid-orchestrator",
+    "crates/avid-server",
+    "crates/avid-tui",
+    "crates/avid-cli",
+    # Ajouts post-chantier 1 (decouple kube/sqlx) :
+    "crates/avid-k8s",
+    "crates/avid-db",
+]
+
+# ─── EXTRAS — modules autonomes, build séparé ─────────────────────
+# Ces crates n'ont aucune dépendance sur les autres avid-*. Ils
+# peuvent (et doivent) être buildés indépendamment :
+#   cargo build --manifest-path crates/avid-cobalt/Cargo.toml
+exclude = [
+    "crates/avid-cobalt",
+    "crates/avid-gomogo",
+    "crates/avid-hnn",
+    "crates/avid-intel",
+    "crates/avid-security",
+]
+
+# ─── Métadonnées partagées (inchangées) ───────────────────────────
+[workspace.package]
+version       = "0.1.0"
+edition       = "2021"
+rust-version  = "1.88"
+license       = "MIT OR Apache-2.0"
+authors       = ["CHECKUPAUTO"]
+repository    = "https://github.com/CHECKUPAUTO/AVID"
+documentation = "https://github.com/CHECKUPAUTO/AVID"
+description   = "Autonomous Verification & Intelligent Development — LLM-driven engineering intelligence with plagiarism detection and sandboxed code execution"
+
+[profile.release]
+lto              = "fat"
+codegen-units    = 1
+panic            = "abort"
+strip            = "symbols"
+opt-level        = 3
+debug            = false
+overflow-checks  = false
+incremental      = false

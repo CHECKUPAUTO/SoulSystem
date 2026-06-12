@@ -1,0 +1,7 @@
+target/
+Cargo.lock
+openevolve_output/
+openevolve_output_*/
+*.log
+.env
+.DS_Store

@@ -1,0 +1,29 @@
+[package]
+name = "clawd"
+version = "0.6.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal"] }
+teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+sled = "0.34"
+chrono = "0.4"
+reqwest = { workspace = true }
+bus = { workspace = true }
+soul-memory = { workspace = true }
+bound-system = { workspace = true }
+ansi-converter = { workspace = true }
+terminal-stream = { workspace = true }
+pty-terminal = { workspace = true }
+local-skills = { workspace = true }
+model-router = { workspace = true }
+rand = "0.8"
+regex = "1"
+uuid = { version = "1", features = ["v4"] }
+axum = { workspace = true }
+tracing-subscriber = { workspace = true }

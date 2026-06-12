@@ -1,0 +1,26 @@
+[Unit]
+Description=SoulLink Node v6.0+ with TurboQuant Neural Mesh
+Documentation=man:soullink-node(7)
+After=network-online.target turboquant-proxy.service turboquant-watch.service
+Requires=turboquant-proxy.service turboquant-watch.service
+Wants=network-online.target
+ConditionPathExists=/root/soullink-node/Cargo.toml
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/soullink-node
+Environment="OLLAMA_HOST=http://127.0.0.1:11435"
+Environment="PORT=8084"
+Environment="RUST_LOG=soullink_node=info,warn"
+ExecStartPre=/bin/sh -c 'test -x /root/soullink-node/target/release/soullink-node || (cd /root/soullink-node && cargo build --release 2>&1 || echo "BUILD_FAILED")'
+ExecStart=/root/soullink-node/target/release/soullink-node brain 8084
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=soullink-turboquant
+
+[Install]
+WantedBy=soullink.target

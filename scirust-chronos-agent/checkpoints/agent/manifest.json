@@ -1,0 +1,19 @@
+{
+  "format_version": 1,
+  "agent_version": "0.5.0",
+  "global_step": 985,
+  "timestamp": 1779921338,
+  "score_net_config": {
+    "d_latent": 16,
+    "d_t": 32,
+    "d_cond": 16,
+    "d_hidden": 128
+  },
+  "potential_config": {
+    "d_q": 8,
+    "d_h": 32
+  },
+  "replay_size": 256,
+  "episodic_size": 64,
+  "semantic_size": 991
+}

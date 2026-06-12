@@ -1,0 +1,79 @@
+# cargo-deny configuration
+# Install: cargo install cargo-deny --locked
+# Run: cargo deny check
+
+[dependencies]
+# Allow duplicates where version difference is acceptable
+skip = [
+    { name = "ahash" },
+    { name = "getrandom" },
+    { name = "cpufeatures" },
+]
+skip-tree = [
+    { name = "criterion" },
+    # These crates have many versions due to transitive deps via multiple major framework versions
+    { name = "windows-sys" },
+    { name = "nix" },
+    { name = "tungstenite" },
+    { name = "hashbrown" },
+    { name = "itertools" },
+    { name = "tokio-tungstenite" },
+    { name = "rand" },
+    { name = "hyper" },
+    { name = "h2" },
+    { name = "reqwest" },
+    { name = "rustls" },
+    { name = "base64" },
+    { name = "shlex" },
+    { name = "teloxide" },
+    { name = "actix-web" },
+]
+
+[advisories]
+unmaintained = "deny"
+notice = "deny"
+unsound = "deny"
+severity-threshold = "low"
+ignore = []
+
+[licenses]
+unlicensed = "deny"
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "0BSD",
+]
+default = "deny"
+confidence-threshold = 0.92
+
+[bans]
+# Warn on multiple versions instead of deny, since many are transitive
+# and can't be resolved without upstream changes
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+deny = []
+skip = [
+    { name = "ahash" },
+    { name = "getrandom" },
+    { name = "cpufeatures" },
+    { name = "windows-sys" },
+    { name = "nix" },
+    { name = "tungstenite" },
+    { name = "hashbrown" },
+    { name = "itertools" },
+    { name = "tokio-tungstenite" },
+    { name = "rand" },
+    { name = "hyper" },
+    { name = "h2" },
+    { name = "reqwest" },
+    { name = "rustls" },
+    { name = "base64" },
+    { name = "shlex" },
+]

@@ -1,0 +1,23 @@
+46-    #[must_use]
+47-    pub fn new(agent: AgentBase) -> Self {
+48-        Self { agent }
+49-    }
+50-
+51:    pub async fn clone_api(&self, _spec: &APISpec) -> Result<CloneOutput, MimicError> {
+52-        let user_prompt = "Clone the API spec provided in previous context.".to_string();
+53-        let output: CloneOutput = self
+54-            .agent
+55-            .chat_and_parse(
+56-                MIMIC_SYSTEM_PROMPT,
+--
+60-            )
+61-            .await?;
+62-        Ok(output)
+63-    }
+64-
+65:    pub async fn clone_logic(&self, description: &str) -> Result<CloneOutput, MimicError> {
+66-        let user_prompt = format!("Clone logic: {description}");
+67-        let output: CloneOutput = self
+68-            .agent
+69-            .chat_and_parse(
+70-                MIMIC_SYSTEM_PROMPT,

@@ -1,0 +1,36 @@
+[package]
+name = "avid-hnn"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+description = "Hamiltonian Neural Network — learns energy surfaces via Dual-number autodiff"
+repository = "https://github.com/CHECKUPAUTO/AVID"
+documentation = "https://github.com/CHECKUPAUTO/AVID"
+
+# `scirust-autodiff` is an external crate developed alongside AVID.
+# It is NOT on crates.io and NOT vendored in this repository.
+#
+# To keep `cargo check --workspace` green for everyone (CI, fresh
+# clones, other devs), the dependency is now behind the `autodiff`
+# feature, OFF by default. The crate compiles to an inert shell
+# without it and exposes only the type definitions.
+#
+# To actually use the HNN training loops, enable the feature locally:
+#   cargo build -p avid-hnn --features autodiff
+# Or set the env var CARGO_PROFILE_DEV_PACKAGES=avid-hnn:autodiff if
+# you want it enabled by default on your machine.
+#
+# Permanent fixes (pick one, then drop this feature gate):
+#   1. Publish scirust-autodiff to crates.io
+#   2. Add it as a git submodule under `vendor/scirust-autodiff` and
+#      change the path to `path = "../../vendor/scirust-autodiff"`
+#   3. Move avid-hnn out of the main workspace into a separate
+#      experimental workspace.
+
+[features]
+default = []
+autodiff = ["dep:scirust-autodiff"]
+
+[dependencies]
+scirust-autodiff = { path = "/root/scirust/scirust-autodiff", optional = true }

@@ -1,0 +1,15 @@
+[Unit]
+Description=SoulLink Pacemaker — Autonomous Neural Heartbeat (Kuramoto + I_bg + R-STDP)
+After=network.target soullink-orchestrator.service
+Wants=soullink-orchestrator.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soullink-pacemaker
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=soullink_pacemaker=info
+WorkingDirectory=/opt/soullink-pacemaker
+
+[Install]
+WantedBy=soullink.target

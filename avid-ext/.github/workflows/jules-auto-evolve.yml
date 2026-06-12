@@ -1,0 +1,40 @@
+name: Jules — Auto-Evolve AVID (gated)
+
+on:
+  schedule:
+    - cron: '0 2 * * 1' # Lundi 2h UTC (1×/semaine)
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'Prompt personnalisé pour Jules'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  evolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Invoke Jules
+        uses: google-labs-code/jules-invoke@v1
+        with:
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          starting_branch: 'main'
+          prompt: |
+            Tu es l'agent d'évolution AVID. Lis d'abord `docs/JULES_CONTRACT.md`
+            à la racine du repo : ce fichier définit les règles strictes que tu
+            DOIS respecter, sans exception.
+            
+            Mission de la semaine :
+            1. Identifier UN besoin réel non couvert (issues GitHub, CHANGELOG, README).
+            2. Implémenter avec : intégration EXPLICITE dans lib.rs, utilisation
+               effective, tests non-triviaux, documentation rustdoc complète.
+            3. Soumettre une PR conventionnelle (`feat(scope): ...`).
+            
+            Si aucun besoin clair : OUVRIR UNE ISSUE. Pas de code spéculatif.

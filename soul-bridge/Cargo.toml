@@ -1,0 +1,17 @@
+[package]
+name = "soul-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Unified bridge to all external subsystems — replaces 9 individual bridge crates"
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(soul_neural)'] }

@@ -1,0 +1,88 @@
+{
+  "date": "2026-05-15T16:40:00+02:00",
+  "kernel": "6.12.85+deb13-amd64",
+  "repos": {
+    "total": 31,
+    "private": 30,
+    "public": ["SoulNeural"],
+    "key": {
+      "AVID": "Auto-évolutif — 15 crates, pipeline Scout→Vision→Cortex→Mimic→Critic",
+      "scirust": "Socle mathématique — tenseur ND, autodiff, SIMD, GPU",
+      "SoulNeural": "PUBLIC 🌐 Système 3 cognitif — 15 crates, 3545 lignes Rust",
+      "AGENT-SWARM": "Orchestrateur multi-agent — 15 agents spécialisés, bus broadcast",
+      "SoulSystem": "SoulLink Neural Mesh + OpenClaw-U",
+      "SYNERGIE": "Détecteur de synergies cross-repo",
+      "OPENCLAW": "Framework agentique, gateway Telegram/WhatsApp"
+    }
+  },
+  "soulneural": {
+    "crates": 15,
+    "lines_of_code": 3545,
+    "structure": {
+      "soul-core": "Traits Système 3 (CognitiveState, Critic, NarrativeMemory, Tool, Goal) — 73 lignes",
+      "soul-hnn": "Hamiltonian Neural Network — état (q,p), symplectic integrator — 4+ lignes (core dans hnn/hamiltonian.rs)",
+      "soul-embed": "Embedder async thread-safe — 46 lignes",
+      "soul-minillm": "MiniLLM wrapper + DPO réel (LoRA adapter, DpoBuffer) — 107 lignes + dpo.rs",
+      "soul-symbolic": "Moteur de calcul formel — 1085 lignes",
+      "soul-pattern-miner": "Pattern mining symbolique — 527 lignes",
+      "soul-rstdp": "R-STDP optimizer neuromorphique — 119 lignes",
+      "soul-quant": "Quantization-aware training — 1 ligne (stub)",
+      "soul-cortex": "Fusion HNN→LLM (symplectic bias, perceive/generate) — 57 lignes + symplectic_bias.rs",
+      "soul-identity": "Mémoire narrative (HNSW), self-model, goals — 119 lignes",
+      "soul-snn": "SNN récurrent + SNNDecoder (intent decoding) — 161 lignes",
+      "soul-tools": "ToolOrchestrator, planification par recettes — 44 lignes",
+      "soul-learner": "Boucles d'entraînement (Scenario trait, QAScenario) — 52 lignes",
+      "soul-memory-store": "VectorStore HNSW avec persistance, metrics Prometheus — 219 lignes",
+      "soul-monitor": "Interface monitoring HTTP/JSON — 31 lignes"
+    },
+    "all_tests": true,
+    "tests_detailed": {
+      "soul-core": "0/0",
+      "soul-hnn": "8/8 ✅",
+      "soul-embed": "0/0",
+      "soul-minillm": "4/4 ✅ (incl. DPO buffer, loss, LoRA shape)",
+      "soul-symbolic": "9/9 ✅",
+      "soul-pattern-miner": "5/5 ✅",
+      "soul-rstdp": "9/9 ✅",
+      "soul-quant": "0/0",
+      "soul-cortex": "5/5 ✅ (incl. symplectic bias)",
+      "soul-identity": "0/0",
+      "soul-snn": "0/0",
+      "soul-tools": "0/0",
+      "soul-learner": "0/0",
+      "soul-memory-store": "2/2 ✅ (persistence, dedup)",
+      "soul-monitor": "0/0"
+    },
+    "integration_test": "PASS — symplectic_bias ✅ DPO buffer ✅ HNSW store ✅"
+  },
+  "agent-swarm": {
+    "lines": 2033,
+    "agents": 15
+  },
+  "services": {
+    "soullink_openclaw_running": 34,
+    "kernel_patched_cve_31431": true,
+    "services_monitored": true
+  },
+  "three_pillars": {
+    "symplectic_bias": {
+      "file": "crates/soul-cortex/src/symplectic_bias.rs",
+      "status": "COMPLETE",
+      "features": "init_projection(), apply_symplectic_bias(), Prometheus metrics, clamp, top-k, 5 tests"
+    },
+    "dpo_reel": {
+      "file": "crates/soul-minillm/src/dpo.rs",
+      "status": "COMPLETE",
+      "features": "DPOPair, LoRAAdapter, DpoBuffer (thread-safe), dpo_step_real(), sequence_logprob(), Prometheus metrics, 3 tests"
+    },
+    "memory_hnsw": {
+      "file": "crates/soul-memory-store/src/lib.rs",
+      "status": "COMPLETE",
+      "features": "HnswVectorStore (save/load), SharedVectorStore (thread-safe), insert_tracked/search_tracked, Prometheus metrics, 2 tests"
+    },
+    "identity_hnsw_integration": {
+      "file": "crates/soul-identity/src/lib.rs",
+      "status": "COMPLETE — remplace ring buffer linéaire par SharedVectorStore"
+    }
+  }
+}

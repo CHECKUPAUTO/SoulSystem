@@ -1,0 +1,53 @@
+{
+  "title": "STRESS TEST: GRAND CHAOS",
+  "description": "Validation de la stabilite, reactivite et auto-correction sous conditions narratives extremes.",
+  "scenarios": [
+    {
+      "scenario": "Flash-Crash Semantique",
+      "recovery_steps": 0,
+      "max_latent_variance": 0.0,
+      "hypernetwork_activations": 0,
+      "coherence_baseline_before": -0.0,
+      "coherence_baseline_after": 1.15946615270951,
+      "max_regret": 0.18258374602174937,
+      "regret_spike_at_step": 33,
+      "pca_jump_distance": 0.0,
+      "memory_sync_dropped": false,
+      "total_steps": 90
+    },
+    {
+      "scenario": "Boucle de Recursivite",
+      "recovery_steps": 0,
+      "max_latent_variance": 0.0,
+      "hypernetwork_activations": 0,
+      "coherence_baseline_before": -0.0,
+      "coherence_baseline_after": 1.2876068605196056,
+      "max_regret": 0.19296934758145445,
+      "regret_spike_at_step": 33,
+      "pca_jump_distance": 0.0,
+      "memory_sync_dropped": false,
+      "total_steps": 90
+    },
+    {
+      "scenario": "Bruit Blanc",
+      "recovery_steps": 0,
+      "max_latent_variance": 0.0,
+      "hypernetwork_activations": 0,
+      "coherence_baseline_before": -0.0,
+      "coherence_baseline_after": 1.1778722992744235,
+      "max_regret": 0.18241918989855277,
+      "regret_spike_at_step": 33,
+      "pca_jump_distance": 0.0,
+      "memory_sync_dropped": false,
+      "total_steps": 90
+    }
+  ],
+  "grand_total": {
+    "total_hn_activations": 0,
+    "avg_recovery_steps": 0.0,
+    "worst_max_regret": 0.19296934758145445,
+    "avg_pca_jump": 0.0,
+    "all_sync_dropped": false,
+    "verdict": "Validee — retablissement rapide, attracteur stable."
+  }
+}

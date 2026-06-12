@@ -1,0 +1,30 @@
+[package]
+name = "avid-anticlone"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Python AST fingerprinting and structural similarity engine for code originality detection"
+repository = "https://github.com/CHECKUPAUTO/AVID"
+documentation = "https://docs.rs/avid-anticlone"
+keywords = ["ast", "fingerprint", "similarity", "python", "originality"]
+categories = ["development-tools", "parsing"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"], optional = true }
+rustpython-parser = "0.4"
+rustpython-ast = { version = "0.4", features = ["visitor"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+garde = { version = "0", features = ["derive"] }
+sha2 = "0.10"
+hex = "0.4"
+
+[features]
+cli = ["dep:clap"]
+
+[[bin]]
+name = "anticlone-cli"
+path = "src/main.rs"
+required-features = ["cli"]

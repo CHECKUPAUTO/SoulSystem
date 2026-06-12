@@ -1,0 +1,1186 @@
+
+===== ROOT TREE =====
+./ARCHITECTURE_V2.md
+./AUTONOMOUS_LOOP_EXAMPLE.md
+./avid_audit.txt
+./.cargo/config.toml
+./Cargo.lock
+./Cargo.toml
+./CHANGELOG.md
+./.claude/sessions/session-1778156569919.json
+./.claude/sessions/session-1778156582586.json
+./.clippy.toml
+./CODE_OF_CONDUCT.md
+./CONTRIBUTING.md
+./crates/avid-anticlone/Cargo.toml
+./crates/avid-core/Cargo.toml
+./crates/avid-cortex/Cargo.toml
+./crates/avid-mimic/Cargo.toml
+./crates/avid-orchestrator/Cargo.toml
+./crates/avid-sandbox/Cargo.toml
+./crates/avid-scout/Cargo.toml
+./crates/avid-server/Cargo.toml
+./crates/avid-tui/Cargo.toml
+./crates/avid-vision/Cargo.toml
+./.env
+./.env.example
+./EXAMPLES.md
+./.git/COMMIT_EDITMSG
+./.git/config
+./.git/description
+./.git/FETCH_HEAD
+./.git/filter-repo/already_ran
+./.git/filter-repo/changed-refs
+./.git/filter-repo/commit-map
+./.git/filter-repo/first-changed-commits
+./.git/filter-repo/ref-map
+./.git/filter-repo/suboptimal-issues
+./.git/HEAD
+./.git/hooks/applypatch-msg.sample
+./.git/hooks/commit-msg.sample
+./.git/hooks/fsmonitor-watchman.sample
+./.git/hooks/post-update.sample
+./.git/hooks/pre-applypatch.sample
+./.git/hooks/pre-commit.sample
+./.git/hooks/pre-merge-commit.sample
+./.git/hooks/prepare-commit-msg.sample
+./.git/hooks/pre-push.sample
+./.git/hooks/pre-rebase.sample
+./.git/hooks/pre-receive.sample
+./.git/hooks/push-to-checkout.sample
+./.git/hooks/sendemail-validate.sample
+./.git/hooks/update.sample
+./.github/workflows/ci.yml
+./.github/workflows/jules-auto-evolve.yml
+./.github/workflows/jules-avid-v3.yml
+./.github/workflows/jules-bug-fix.yml
+./.gitignore
+./.git/index
+./.git/info/exclude
+./.git/info/refs
+./.git/logs/HEAD
+./.git/ORIG_HEAD
+./.git/packed-refs
+./home/soullink.db
+./home/soullink.db-shm
+./home/soullink.db-wal
+./install.sh
+./.jules/bolt.md
+./justfile
+./LICENSE-APACHE
+./LICENSE-MIT
+./.mailmap
+./Makefile
+./NEXT_STEPS_FROM_ARIS_RESEARCH.md
+./PROMPT_INFORMATION_COMPLETE.md
+./README.md
+./RESEARCH_BY_ARIS_ON_AVID.md
+./run.sh
+./rust-toolchain.toml
+./SECURITY.md
+./target/CACHEDIR.TAG
+./target/debug/avid-server
+./target/debug/avid-server.d
+./target/debug/.cargo-lock
+./target/release/avid
+./target/release/avid.d
+./target/release/avid-server
+./target/release/avid-server.d
+./target/release/avid-tui
+./target/release/avid-tui.d
+./target/release/.cargo-lock
+./target/release/libavid_anticlone.d
+./target/release/libavid_anticlone.rlib
+./target/release/libavid_core.d
+./target/release/libavid_core.rlib
+./target/release/libavid_cortex.d
+./target/release/libavid_cortex.rlib
+./target/release/libavid_mimic.d
+./target/release/libavid_mimic.rlib
+./target/release/libavid_orchestrator.d
+./target/release/libavid_orchestrator.rlib
+./target/release/libavid_sandbox.d
+./target/release/libavid_sandbox.rlib
+./target/release/libavid_scout.d
+./target/release/libavid_scout.rlib
+./target/release/libavid_server.d
+./target/release/libavid_server.rlib
+./target/release/libavid_tui.d
+./target/release/libavid_tui.rlib
+./target/release/libavid_vision.d
+./target/release/libavid_vision.rlib
+./target/.rustc_info.json
+
+===== README =====
+
+--- ./README.md ---
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/AVID-Organisme%20Num%C3%A9rique%20Intelligent-8b5cf6?style=for-the-badge">
+    <img src="https://img.shields.io/badge/AVID-Organisme%20Num%C3%A9rique%20Intelligent-7c3aed?style=for-the-badge" alt="AVID">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://github.com/CHECKUPAUTO/AVID/actions"><img src="https://img.shields.io/github/actions/workflow/status/CHECKUPAUTO/AVID/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://crates.io"><img src="https://img.shields.io/badge/rustc-1.88%2B-orange?style=flat-square&logo=rust" alt="Rust 1.88+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-blue?style=flat-square" alt="License"></a>
+  <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-8b5cf6?style=flat-square" alt="Security"></a>
+  <img src="https://img.shields.io/badge/status-production--ready-brightgreen?style=flat-square" alt="Status">
+</p>
+
+---
+
+**AVID** (Autonomous Verification & Intelligent Development) est un **organisme numérique intelligent** qui explore le web, comprend des documents complexes, reconnaît des patterns, et crée des clones intelligents d'API innovantes à forte valeur ajoutée.
+
+## Vision
+
+AVID n'est pas un simple générateur de code. C'est un organisme numérique autonome capable de :
+
+- **Explorer** le web pour découvrir des ressources, APIs, et innovations
+- **Comprendre** des papers académiques, documentations techniques, notices d'utilisation
+- **Reconnaître** des patterns d'architecture, de design, et de logique métier
+- **Cloner intelligemment** des solutions innovantes en créant des implémentations équivalentes
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    AVID — Organisme Numérique                │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │  SCOUT      │  │  VISION     │  │  CORTEX     │         │
+│  │  (Web)      │  │  (Patterns) │  │  (Compréhension)│     │
+│  │             │  │             │  │             │         │
+│  │ • Crawl     │  │ • UI comps  │  │ • Papers    │         │
+│  │ • Extract   │  │ • Architecture│ • Docs      │         │
+│  │ • Navigate  │  │ • Workflows │  │ • Notices   │         │
+│  │ • Cache     │  │ • Patterns  │  │ • Articles  │         │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘         │
+│         │                │                │                  │
+│         └────────────────┼────────────────┘                  │
+│                          │                                   │
+│                   ┌──────▼──────┐                           │
+│                   │   MIMIC     │                           │
+│                   │  (Clonage)  │                           │
+│                   │             │                           │
+│                   │ • API       │                           │
+│                   │ • Logic     │                           │
+│                   │ • Data      │                           │
+│                   │ • Code      │                           │
+│                   └──────┬──────┘                           │
+│                          │                                   │
+│                   ┌──────▼──────┐                           │
+│                   │  ORIGINAL   │                           │
+│                   │  (Anti-clone)│                           │
+│                   └──────┬──────┘                           │
+│                          │                                   │
+│                   ┌──────▼──────┐                           │
+│                   │   FORGE     │                           │
+│                   │ (Production)│                           │
+│                   └─────────────┘                           │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Capacités
+
+### 🔍 Scout — Exploration Web
+- Visite automatique de sites web
+- Extraction de contenu structuré
+- Suivi de liens et navigation profonde
+- Cache intelligent des pages visitées
+
+### 👁️ Vision — Reconnaissance de Patterns
+- Analyse de structures de pages web
+- Identification de composants UI réutilisables
+- Détection de patterns d'architecture
+- Extraction de workflows métier
+
+### 🧠 Cortex — Compréhension Sémantique
+- Lecture et compréhension de papers académiques
+- Analyse de documentations techniques
+- Extraction de concepts clés
+- Génération de résumés structurés
+
+### 🎭 Mimic — Clonage Intelligent
+- Analyse d'API innovantes
+- Extraction de modèles de données
+- Reconstruction de logique métier
+- Génération de code équivalent
+
+## Pipeline de Clonage
+
+```
+URL → Scout (fetch) → Vision (analyze) → Cortex (understand) → Mimic (clone) → Original (verify) → Forge (produce)
+
+Example: API innovante
+1. Scout visite la page de documentation de l'API
+2. Vision identifie les endpoints, les modèles de données
+3. Cortex comprend la logique métier, les flux de données
+4. Mimic reconstruit l'API avec une architecture équivalente
+5. Original vérifie l'originalité du code généré
+6. Forge produit le code final prêt pour la production
+```
+
+## Crates
+
+### avid-core
+- **Agents** — Planner, CoreDesign, Critic
+- **Orchestrator** — Coordination du pipeline
+- **Memory** — Persistance SQLite WAL
+- **LLM Client** — Ollama, OpenAI, Anthropic
+
+### avid-scout (nouveau)
+- **ScoutEngine** — Crawler web asynchrone
+- **PageExtractor** — Extraction de contenu
+- **LinkFollower** — Navigation profonde
+- **ContentCache** — Cache intelligent
+
+### avid-vision (nouveau)
+- **VisionEngine** — Analyseur de structure
+- **PatternDetector** — Détection de patterns
+- **ComponentExtractor** — Extraction de composants
+- **ArchitectureAnalyzer** — Analyse d'architecture
+
+### avid-cortex (nouveau)
+- **CortexEngine** — Moteur de compréhension
+- **PaperReader** — Lecteur de papers
+- **DocParser** — Parseur de documentations
+- **KnowledgeExtractor** — Extracteur de connaissances
+
+### avid-mimic (nouveau)
+- **MimicEngine** — Moteur de clonage
+- **APIAnalyzer** — Analyseur d'API
+- **LogicExtractor** — Extracteur de logique
+- **CodeGenerator** — Générateur de code
+
+### avid-anticlone
+- **AST Fingerprinting** — Empreinte structurelle
+- **Node Histogram** — Distribution des nœuds
+- **Call-graph Edges** — Graphe d'appels
+- **Weighted Jaccard** — Similarité pondérée
+
+### avid-sandbox
+- **RLIMIT_CPU/AS/NPROC** — Limites ressources
+- **PR_SET_NO_NEW_PRIVS** — Privilèges limités
+- **Network Namespace** — Isolation réseau
+- **Process Group Isolation** — Isolation processus
+
+### avid-server
+- **axum 0.7** — API HTTP
+- **Queue** — Redis / SQLite
+- **Metrics** — Prometheus
+- **Healthz** — Health checks
+
+## Quick Start
+
+### Prerequisites
+
+- **Rust** 1.88+ (via [rustup](https://rustup.rs))
+- **Python 3** (pour l'exécution sandbox)
+- **Ollama** (pour l'inférence LLM)
+
+### Installation
+
+```bash
+git clone https://github.com/CHECKUPAUTO/AVID.git
+cd AVID
+./install.sh
+```
+
+### Configuration
+
+```bash
+# .env
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=deepseek-v4-pro:cloud
+SCOUT_DEPTH=3
+VISION_THRESHOLD=0.85
+CORTEX_MAX_TOKENS=4096
+MIMIC_ORIGINALITY_MIN=0.7
+```
+
+### Usage
+
+```bash
+# Démarrer le serveur
+cargo run --bin avid-server
+
+# Soumettre une tâche de clonage
+curl -X POST http://localhost:3000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://api.example.com/docs",
+    "type": "api_clone",
+    "depth": 2
+  }'
+```
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/tasks` | POST | Soumettre une tâche de clonage |
+| `/tasks/{id}` | GET | Récupérer le statut d'une tâche |
+| `/tasks/{id}/result` | GET | Récupérer le résultat |
+| `/scout` | POST | Lancer une exploration web |
+| `/vision` | POST | Analyser une page web |
+| `/cortex` | POST | Comprendre un document |
+| `/mimic` | POST | Cloner une API |
+| `/healthz` | GET | Health check |
+| `/metrics` | GET | Métriques Prometheus |
+
+## Security
+
+
+===== MANIFESTS =====
+
+--- ./Cargo.toml ---
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+rust-version = "1.88"
+license      = "MIT OR Apache-2.0"
+authors      = ["CHECKUPAUTO"]
+repository   = "https://github.com/CHECKUPAUTO/AVID"
+documentation = "https://github.com/CHECKUPAUTO/AVID"
+description  = "Autonomous Verification & Intelligent Development — LLM-driven engineering intelligence with plagiarism detection and sandboxed code execution"
+
+[profile.release]
+lto              = "fat"
+codegen-units    = 1
+panic            = "abort"
+strip            = "symbols"
+opt-level        = 3
+debug            = false
+overflow-checks  = false
+incremental      = false
+
+--- ./crates/avid-tui/Cargo.toml ---
+[package]
+name = "avid-tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures = "0.3"
+color-eyre = "0.6"
+throbber-widgets-tui = "0.8"
+tui-input = "0.11"
+avid-core = { path = "../avid-core" }
+
+--- ./crates/avid-cortex/Cargo.toml ---
+[package]
+name = "avid-cortex"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Semantic comprehension engine for the AVID autonomous system"
+
+[dependencies]
+avid-core = { path = "../avid-core" }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt", "macros"] }
+tracing = "0"
+lopdf = "0.33"
+garde = { version = "0", features = ["derive"] }
+
+--- ./crates/avid-sandbox/Cargo.toml ---
+[package]
+name = "avid-sandbox"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hardened subprocess sandbox for executing untrusted Python code under rlimits"
+repository = "https://github.com/CHECKUPAUTO/AVID"
+documentation = "https://docs.rs/avid-sandbox"
+keywords = ["sandbox", "python", "rlimit", "security", "execution"]
+categories = ["development-tools", "os"]
+
+[dependencies]
+nix = { version = "0", features = ["signal", "process", "resource"] }
+tempfile = "3"
+which = "7"
+thiserror = "2"
+tracing = "0"
+tokio = { version = "1", features = ["process", "io-util", "fs", "time", "rt", "macros"] }
+libc = "0"
+
+--- ./crates/avid-vision/Cargo.toml ---
+[package]
+name = "avid-vision"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pattern recognition engine for the AVID autonomous system"
+
+[dependencies]
+avid-core = { path = "../avid-core" }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt", "macros"] }
+tracing = "0"
+garde = { version = "0", features = ["derive"] }
+
+--- ./crates/avid-orchestrator/Cargo.toml ---
+[package]
+name = "avid-orchestrator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+avid-core = { path = "../avid-core" }
+avid-scout = { path = "../avid-scout" }
+avid-vision = { path = "../avid-vision" }
+avid-cortex = { path = "../avid-cortex" }
+avid-mimic = { path = "../avid-mimic" }
+avid-anticlone = { path = "../avid-anticlone" }
+avid-sandbox = { path = "../avid-sandbox" }
+
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0"
+prometheus = { version = "0", features = ["process"] }
+time = "0"
+hex = "0.4"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+r2d2 = "0.8"
+r2d2_sqlite = "0.25"
+
+--- ./crates/avid-anticlone/Cargo.toml ---
+[package]
+name = "avid-anticlone"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Python AST fingerprinting and structural similarity engine for code originality detection"
+repository = "https://github.com/CHECKUPAUTO/AVID"
+documentation = "https://docs.rs/avid-anticlone"
+keywords = ["ast", "fingerprint", "similarity", "python", "originality"]
+categories = ["development-tools", "parsing"]
+
+[dependencies]
+rustpython-parser = "0.4"
+rustpython-ast = { version = "0.4", features = ["visitor"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+garde = { version = "0", features = ["derive"] }
+sha2 = "0.10"
+hex = "0.4"
+
+--- ./crates/avid-mimic/Cargo.toml ---
+[package]
+name = "avid-mimic"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Intelligent cloning engine for the AVID autonomous system"
+
+[dependencies]
+avid-core = { path = "../avid-core" }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt", "macros"] }
+tracing = "0"
+garde = { version = "0", features = ["derive"] }
+
+--- ./crates/avid-core/Cargo.toml ---
+[package]
+name = "avid-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "LLM-driven agent pipeline, task orchestration, queue, and memory persistence for the AVID system"
+repository = "https://github.com/CHECKUPAUTO/AVID"
+documentation = "https://docs.rs/avid-core"
+keywords = ["llm", "agent", "orchestrator", "queue", "ollama"]
+categories = ["development-tools"]
+
+[dependencies]
+avid-anticlone = { path = "../avid-anticlone" }
+avid-sandbox = { path = "../avid-sandbox" }
+
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+garde = { version = "0", features = ["derive"] }
+thiserror = "2"
+anyhow = "1"
+tracing = "0"
+tracing-subscriber = { version = "0", features = ["json", "env-filter"] }
+prometheus = { version = "0", features = ["process"] }
+dotenvy = "0.15"
+redis = { version = "0.27", features = ["tokio-comp"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.25"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+subtle = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+async-trait = "0.1"
+futures = "0.3"
+bytes = "1"
+time = "0"
+humantime = "2"
+sha2 = "0.10"
+hex = "0.4"
+rustpython-parser = "0.4"
+rustpython-ast = "0.4"
+
+--- ./crates/avid-scout/Cargo.toml ---
+[package]
+name = "avid-scout"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Web exploration engine for the AVID autonomous system"
+
+[dependencies]
+avid-core = { path = "../avid-core" }
+avid-anticlone = { path = "../avid-anticlone" }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }
+tracing = "0"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+url = "2"
+html5ever = "0.39"
+markup5ever_rcdom = "0.39"
+futures = "0.3"
+encoding_rs = "0.8"
+rusqlite = { version = "0.32", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.25"
+cookie = "0.18"
+regex = "1"
+lopdf = "0.33"
+chrono = "0.4"
+quick-xml = { version = "0.37", features = ["serialize"] }
+
+--- ./crates/avid-server/Cargo.toml ---
+[package]
+name = "avid-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "HTTP API server for the AVID autonomous engineering intelligence system"
+repository = "https://github.com/CHECKUPAUTO/AVID"
+documentation = "https://docs.rs/avid-server"
+keywords = ["api", "server", "engineering", "axum", "agent"]
+categories = ["web-programming", "development-tools"]
+
+[[bin]]
+name = "avid-server"
+path = "src/main.rs"
+
+[dependencies]
+avid-core = { path = "../avid-core" }
+
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["limit", "trace"] }
+hyper = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0"
+subtle = "2"
+uuid = { version = "1", features = ["v4"] }
+anyhow = "1"
+prometheus = { version = "0", features = ["process"] }
+futures = "0.3"
+bytes = "1"
+which = "7"
+time = "0"
+r2d2_sqlite = "0.25"
+rusqlite = { version = "0.32", features = ["bundled"] }
+r2d2 = "0.8"
+garde = { version = "0", features = ["derive"] }
+
+[dev-dependencies]
+wiremock = "0.6"
+tempfile = "3"
+
+===== ENTRYPOINTS =====
+
+--- ./crates/avid-tui/src/main.rs ---
+use avid_core::models::{TaskRequest, TaskResult};
+use color_eyre::Result;
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{prelude::*, widgets::*};
+use reqwest::Client;
+use std::io;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use throbber_widgets_tui::ThrobberState;
+use tui_input::backend::crossterm::EventHandler;
+use tui_input::Input;
+
+#[derive(PartialEq, Clone, Copy, Debug)]
+enum AppState {
+    Input,
+    Processing,
+    TaskDetail,
+}
+
+#[derive(Default, Clone)]
+struct WorkerStats {
+    total_tasks: u64,
+    queue_depth: u64,
+}
+
+struct App {
+    input: Input,
+    state: AppState,
+    throbber_state: ThrobberState,
+    logs: Vec<String>,
+    history: Vec<TaskResult>,
+    history_state: ListState,
+    stats: WorkerStats,
+    selected_task: Option<TaskResult>,
+}
+
+impl App {
+    fn new() -> Self {
+        Self {
+            input: Input::default(),
+            state: AppState::Input,
+            throbber_state: ThrobberState::default(),
+            logs: vec!["AVID Digital Organism v3.0 initialized.".to_string()],
+            history: Vec::new(),
+            history_state: ListState::default(),
+            stats: WorkerStats::default(),
+            selected_task: None,
+        }
+    }
+
+    fn on_tick(&mut self) {
+        self.throbber_state.calc_next();
+    }
+
+    fn next_history(&mut self) {
+        if self.history.is_empty() { return; }
+        let i = match self.history_state.selected() {
+            Some(i) => {
+                if i >= self.history.len().saturating_sub(1) {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.history_state.select(Some(i));
+    }
+
+    fn prev_history(&mut self) {
+        if self.history.is_empty() { return; }
+        let i = match self.history_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.history.len().saturating_sub(1)
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.history_state.select(Some(i));
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    color_eyre::install()?;
+    let mut terminal = setup_terminal()?;
+    let app = Arc::new(Mutex::new(App::new()));
+
+    let app_clone = Arc::clone(&app);
+    tokio::spawn(async move {
+        let client = Client::builder().timeout(Duration::from_secs(5)).build().unwrap();
+        loop {
+            // Poll metrics
+            if let Ok(resp) = client.get("http://localhost:3000/metrics").send().await {
+                if let Ok(text) = resp.text().await {
+                    let mut stats = WorkerStats::default();
+                    for line in text.lines() {
+                        if line.starts_with("avid_tasks_total") {
+                            if let Some(val) = line.split_whitespace().last() {
+                                if let Ok(n) = val.parse::<u64>() { stats.total_tasks = n; }
+                            }
+                        } else if line.starts_with("avid_queue_depth") {
+                            if let Some(val) = line.split_whitespace().last() {
+                                if let Ok(n) = val.parse::<u64>() { stats.queue_depth = n; }
+                            }
+                        }
+                    }
+                    if let Ok(mut a) = app_clone.lock() { a.stats = stats; }
+                }
+            }
+
+            // Poll history
+            if let Ok(resp) = client.get("http://localhost:3000/tasks")
+                .header("Authorization", "Bearer dev-token")
+                .send().await {
+                if let Ok(tasks) = resp.json::<Vec<TaskResult>>().await {
+                    if let Ok(mut a) = app_clone.lock() { a.history = tasks; }
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
+
+    let res = run_app(&mut terminal, Arc::clone(&app)).await;
+    restore_terminal(&mut terminal)?;
+    res
+}
+
+fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    Ok(Terminal::new(backend)?)
+}
+
+fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+    Ok(())
+}
+
+async fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: Arc<Mutex<App>>,
+) -> Result<()> {
+    let tick_rate = Duration::from_millis(100);
+    let mut last_tick = Instant::now();
+
+    loop {
+        {
+            let app_guard = app.lock().unwrap();
+            terminal.draw(|f| ui(f, &app_guard))?;
+        }
+
+        let timeout = tick_rate
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or_else(|| Duration::from_secs(0));
+
+        if event::poll(timeout)? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    let mut should_break = false;
+                    let mut submission_content = None;
+                    let mut detail_task_id = None;
+
+                    {
+                        let mut app_guard = app.lock().unwrap();
+                        match app_guard.state {
+                            AppState::Input => match key.code {
+                                KeyCode::Enter => {
+                                    if let Some(idx) = app_guard.history_state.selected() {
+                                        if let Some(task) = app_guard.history.get(idx) {
+                                            detail_task_id = Some(task.task_id.clone());
+                                        }
+                                    } else {
+                                        let content = app_guard.input.value().to_string();
+                                        if !content.is_empty() {
+                                            submission_content = Some(content);
+                                            app_guard.state = AppState::Processing;
+                                            app_guard.input.reset();
+                                        }
+                                    }
+                                }
+                                KeyCode::Char('j') | KeyCode::Down => app_guard.next_history(),
+                                KeyCode::Char('k') | KeyCode::Up => app_guard.prev_history(),
+                                KeyCode::Esc => should_break = true,
+                                _ => {
+                                    app_guard.input.handle_event(&Event::Key(key));
+                                }
+                            },
+                            AppState::Processing => {
+                                if key.code == KeyCode::Esc {
+                                    app_guard.state = AppState::Input;
+                                }
+                            }
+                            AppState::TaskDetail => {
+                                if key.code == KeyCode::Esc || key.code == KeyCode::Enter {
+                                    app_guard.state = AppState::Input;
+                                }
+                            }
+                        }
+                    }
+
+                    if should_break { return Ok(()); }
+
+                    if let Some(task_id) = detail_task_id {
+                         let app_clone = Arc::clone(&app);
+                         tokio::spawn(async move {
+                             let client = Client::builder().timeout(Duration::from_secs(5)).build().unwrap();
+                             if let Ok(resp) = client.get(format!("http://localhost:3000/tasks/{}", task_id))
+
+--- ./crates/avid-server/src/main.rs ---
+#![forbid(unsafe_code)]
+#![deny(warnings)]
+#![warn(clippy::pedantic, clippy::nursery)]
+#![allow(clippy::module_name_repetitions)]
+
+mod api;
+
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use anyhow::Context;
+use tracing::info;
+
+use avid_core::config::Config;
+use avid_core::llm::LlmClient;
+use avid_core::log_setup::setup_logging;
+use avid_core::memory::MemoryStore;
+use avid_core::orchestrator::{Metrics, Orchestrator};
+use avid_core::queue::create_queue;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let config = Config::from_env().unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(78);
+    });
+    setup_logging(&config.log_level);
+
+    // Check python3 is available
+    let python_path = which::which("python3")
+        .context("python3 not found on PATH — required for sandbox execution")?;
+
+    info!("using python3 at {}", python_path.display());
+
+    // Initialize LLM client
+    let llm = LlmClient::new(config.ollama_url.clone(), config.ollama_model.clone())
+        .await
+        .context("failed to connect to Ollama — is OLLAMA_URL reachable?")?;
+    let llm = Arc::new(llm);
+
+    // Initialize memory store
+    let pool_size = u32::try_from(config.workers + 2).unwrap_or(4);
+    let memory = MemoryStore::new(&config.soullink_db_path(), pool_size)
+        .context("failed to initialize memory store")?;
+    let memory = Arc::new(memory);
+
+    // SQLite pool for queue (shared with memory's pool or separate)
+    let sqlite_manager = r2d2_sqlite::SqliteConnectionManager::file(config.soullink_db_path())
+        .with_flags(
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+                | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        );
+    let queue_sqlite_pool = r2d2::Pool::builder()
+        .max_size(4)
+        .build(sqlite_manager)?;
+
+    // Initialize queue tables within the same SQLite DB
+    avid_core::queue::SqliteQueue::init_table(&queue_sqlite_pool)?;
+
+    // Create queue backend
+    let queue = create_queue(&config.redis_url, queue_sqlite_pool)
+        .await
+        .context("failed to initialize queue")?;
+    let queue = Arc::new(queue);
+
+    // Initialize metrics
+    let metrics = Metrics::new().context("failed to register prometheus metrics")?;
+    let metrics = Arc::new(metrics);
+
+    // Build orchestrator
+    let config = Arc::new(config);
+    let orchestrator = Orchestrator::new(
+        Arc::clone(&config),
+        Arc::clone(&queue),
+        Arc::clone(&memory),
+        Arc::clone(&llm),
+        Arc::clone(&metrics),
+    );
+
+    // Spawn workers
+    orchestrator.spawn_workers();
+
+    // Build router
+    let app_state = api::AppState {
+        config: Arc::clone(&config),
+        queue: Arc::clone(&queue),
+        memory: Arc::clone(&memory),
+        llm: Arc::clone(&llm),
+    };
+
+    let router = api::build_router(app_state);
+
+    // Bind and serve
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
+    info!("AVID server listening on {addr}");
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, router)
+        .await
+        .context("server error")?;
+
+    Ok(())
+}
+
+===== GITHUB WORKFLOWS =====
+
+--- .github/workflows/jules-auto-evolve.yml ---
+name: Jules — Auto-Evolve AVID
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'Prompt personnalisé pour Jules'
+        required: false
+        default: ''
+
+jobs:
+  evolve:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: Invoke Jules
+        uses: google-labs-code/jules-invoke@v1.0.0
+        with:
+          prompt: |
+            Tu es l'agent d'évolution AVID. Mission :
+            
+            Analyser le workspace AVID (827 fichiers Rust, 12 crates) et proposer
+            des améliorations concrètes. Focus sur :
+            - Compléter avid-cortex, avid-mimic, avid-vision (squelettes)
+            - Intégrer avid-tokenjuice dans le pipeline LLM
+            - Ajouter des modules scout manquants
+            - Améliorer la résilience (circuit breaker, retry)
+            
+            Règles :
+            - Zero stub (todo!, unimplemented! interdits)
+            - cargo check + cargo test doivent passer
+            - PR avec changements + tests
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          starting_branch: 'main'
+
+--- .github/workflows/jules-avid-v3.yml ---
+name: Jules — AVID v3 Hardening
+
+on:
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: 'Domaine à focaliser (all, db, sandbox, tui, scout)'
+        required: false
+        default: 'all'
+
+jobs:
+  evolve:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: Invoke Jules
+        uses: google-labs-code/jules-invoke@v1.0.0
+        with:
+          prompt: |
+            Tu es l'architecte d'AVID. Mission : durcir et améliorer le système.
+            827 fichiers Rust, 12 crates, pipeline Planner→Designer→Critic→AntiClone→Sandbox.
+
+            Priorité 1 — SQLite : ajouter busy_timeout + Mutex global + pool max_size=4
+            Priorité 2 — LLM resilience : retry avec backoff, circuit breaker 5 échecs→pause 30s
+            Priorité 3 — Sandbox : timeout subprocess, seccomp basique, test anti-écriture /etc
+            Priorité 4 — TUI : statut workers temps réel, historique tâches, barre progression
+            Priorité 5 — Scout : 5-10 nouveaux extracteurs (openapi, graphql, license, changelog...)
+
+            Règles :
+            - Zero stub
+            - cargo check + cargo test doivent passer
+            - Tests unitaires pour tout nouveau code
+            - PR avec tous les changements
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          starting_branch: 'main'
+
+--- .github/workflows/ci.yml ---
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'LICENSE-*', '.env.example']
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: "-D warnings"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      matrix:
+        toolchain: ["1.88", "stable"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust ${{ matrix.toolchain }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
+
+      - name: Override toolchain
+        run: rustup override set ${{ matrix.toolchain }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends python3
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+  release-check:
+    name: Release build check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: quality
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Override toolchain
+        run: rustup override set stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends python3
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+
+      - name: Build release
+        run: cargo build --release --workspace
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: avid-server-release
+          path: target/release/avid-server
+          retention-days: 7
+
+--- .github/workflows/jules-bug-fix.yml ---
+name: Jules — Auto-Fix Bugs
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  fix-bug:
+    if: github.event.label.name == 'bug' || github.event.label.name == 'jules'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: Invoke Jules
+        uses: google-labs-code/jules-invoke@v1.0.0
+        with:
+          prompt: |
+            Bug report : ${{ github.event.issue.title }}
+            
+            ${{ github.event.issue.body }}
+            
+            Processus :
+            1. Analyser le bug dans le contexte AVID
+            2. Identifier la cause racine
+            3. Implémenter un fix minimal
+            4. Ajouter un test de régression
+            5. Vérifier cargo check + cargo test
+            
+            Livrable : PR avec fix + test
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          starting_branch: 'main'

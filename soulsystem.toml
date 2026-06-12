@@ -1,0 +1,12 @@
+[paths]
+config_dir = "/opt/soulsystem/config"
+data_dir = "/var/lib/soulsystem-service/data"
+log_dir = "/var/log/soulsystem"
+
+[ws_bridge]
+listen = "127.0.0.1:9022"
+shared_secret = ""
+
+# SoulSystem ne poll PAS Telegram
+# Il fournit des services (terminal, skills) via WS et HTTP API
+# Telegram est géré exclusivement par OpenClaw Gateway

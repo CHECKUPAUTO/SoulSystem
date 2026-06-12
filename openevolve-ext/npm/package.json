@@ -1,0 +1,35 @@
+{
+  "name": "openevolve",
+  "version": "0.2.1",
+  "description": "OpenEvolve — Self-evolving codebase automation — CLI installer and updater",
+  "main": "cli.js",
+  "bin": {
+    "openevolve-install": "./cli.js",
+    "openevolve-update": "./cli.js"
+  },
+  "scripts": {
+    "install": "node cli.js install",
+    "update": "node cli.js update",
+    "postinstall": "node cli.js postinstall"
+  },
+  "keywords": [
+    "openevolve",
+    "rust",
+    "cli",
+    "checkupauto"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CHECKUPAUTO/openevolve.git"
+  },
+  "author": "CHECKUPAUTO Contributors",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "os": ["linux", "darwin"],
+  "files": [
+    "cli.js",
+    "README.md"
+  ]
+}

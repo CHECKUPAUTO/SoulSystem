@@ -1,0 +1,25 @@
+[Unit]
+Description=Projects Clone (Axum)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=projectsclone
+Group=projectsclone
+WorkingDirectory=/opt/projects-clone
+EnvironmentFile=/etc/projects-clone/env
+ExecStart=/opt/projects-clone/server
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+# Hardening
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/projects-clone
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

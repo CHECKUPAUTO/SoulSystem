@@ -1,0 +1,60 @@
+[Unit]
+Description=SoulLink V13.5 — Mesh Orchestrator (axum + reqwest pool)
+Documentation=https://internal/soullink/architecture
+After=network-online.target soullink-guardian.service
+Wants=network-online.target soullink-guardian.service
+
+[Service]
+Type=simple
+ExecStart=/opt/soullink/bin/orchestrator 9020 /mnt/nvme/soullink_brain
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+EnvironmentFile=/etc/soullink/secrets.env
+Environment="RUST_LOG=soullink_orchestrator=info,warn"
+Environment="ORCH_BIND=127.0.0.1"
+
+# Phase 3: UDS client needs to connect to /run/soullink/guardian.sock.
+# The directory is owned by soullink; orchestrator runs as the same user.
+BindReadOnlyPaths=/run/soullink
+
+User=soullink
+Group=soullink
+NoNewPrivileges=true
+
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+
+# Needs read access to brain_dir to spawn Python workers.
+ReadOnlyPaths=/etc/soullink
+ReadWritePaths=/mnt/nvme/soullink_brain/logs /var/lib/soullink
+
+LimitNOFILE=65536
+LimitNPROC=1024
+MemoryMax=2G
+CPUWeight=100
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=soullink-orchestrator
+
+[Install]
+WantedBy=soullink.target

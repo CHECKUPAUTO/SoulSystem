@@ -1,0 +1,39 @@
+[package]
+name = "soullink-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — shared types, auth middleware, validation"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+scirust-core = { path = "../../scirust-core" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
+subtle = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+arc-swap = { workspace = true }
+reqwest = { workspace = true }
+rmp-serde = { workspace = true }
+
+[features]
+default = ["ipc-async"]
+ipc-async = []
+testing = []
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "net"] }
+reqwest = { workspace = true }
+tempfile = { workspace = true }

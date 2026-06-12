@@ -1,0 +1,17 @@
+[package]
+name = "bus"
+version = "0.6.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+soullink-shm = { path = "../soullink-brain/soullink-shm", optional = true }
+anyhow = { workspace = true }
+
+[features]
+default = []
+shm = ["soullink-shm"]

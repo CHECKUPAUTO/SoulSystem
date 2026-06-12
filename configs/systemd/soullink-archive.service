@@ -1,0 +1,15 @@
+[Unit]
+Description=SoulLink V12 Lobe Archive — Indexation philosophique
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/mnt/nvme/soullink_brain
+ExecStart=/bin/sh -c 'if [ -f "/mnt/nvme/soullink_brain/brain_v12_archive.py" ]; then exec ; else echo "[2026-05-04T10:58:50+02:00] /mnt/nvme/soullink_brain/brain_v12_archive.py not found — service skipped" >&2; exit 0; fi'
+Restart=always
+RestartSec=3
+Environment="PYTHONPATH=/mnt/nvme/soullink_brain"
+
+[Install]
+WantedBy=soullink.target

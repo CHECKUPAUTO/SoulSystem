@@ -1,0 +1,38 @@
+[package]
+name = "avid-scout"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+description = "Web exploration engine for the AVID autonomous system"
+
+[dependencies]
+avid-core = { path = "../avid-core" }
+avid-anticlone = { path = "../avid-anticlone" }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }
+tracing = "0"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+url = "2"
+html5ever = "0.39"
+markup5ever_rcdom = "0.39"
+futures = "0.3"
+encoding_rs = "0.8"
+rusqlite = { version = "0.32", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.25"
+cookie = "0.18"
+regex = "1"
+lopdf = "0.33"
+chrono = "0.4"
+quick-xml = { version = "0.37", features = ["serialize"] }
+async-trait = "0.1"
+# Headless Chrome via CDP — requires chromium in PATH
+chromiumoxide = { version = "0.7", default-features = false, features = ["tokio-runtime"] }
+base64 = "0.22"
+native-tls = "0.2"
+hex = "0.4"
+x509-parser = "0.16"
+sha2 = "0.10"

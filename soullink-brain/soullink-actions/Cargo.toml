@@ -1,0 +1,20 @@
+[package]
+name = "soullink-actions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — Async tool execution framework with validation"
+
+[dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "process"] }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

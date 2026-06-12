@@ -1,0 +1,9 @@
+[package]
+name = "scirust-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+scirust-autodiff = { path = "../scirust-autodiff" }
+ndarray = "0.15"
+rand = "0.8"

@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink Creativity Organ v6.1
+After=network.target soullink-orchestrator.service
+Wants=soullink-orchestrator.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soullink-creativity $PORT
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=soullink.target

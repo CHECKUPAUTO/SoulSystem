@@ -1,0 +1,37 @@
+[workspace]
+members = [
+    "soullink-ssm",
+    "soullink-node",
+    "hnn",
+    "jepa",
+]
+resolver = "2"
+
+# ── Archived (Famille B / OpenClaw) ──
+# openclaw-config-parser, openclaw-session-store,
+# openclaw-agent-pipeline, openclaw-gateway,
+# openclaw-core, openclaw-homeosync, dragon_hatchling_core
+# See soullink-deploy/ which was also archived.
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+authors = ["SoulLink Team"]
+
+[workspace.dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "2"
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+
+# Profile géré par workspace root Cargo.toml
+# [profile.release]
+# opt-level = 3
+# lto = "fat"
+# codegen-units = 1
+# panic = "unwind"

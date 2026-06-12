@@ -1,0 +1,14 @@
+[package]
+name = "soullink-svs"
+version.workspace = true
+edition.workspace = true
+description = "SoulLink V13.5 — Intel ScalableVectorSearch bindings (AVX-512/AVX2)"
+
+[features]
+default = []
+svs_ffi = []
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }

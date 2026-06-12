@@ -1,0 +1,21 @@
+[package]
+name = "soullink-dali"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+# Stub mode by default; enable `dali` on machines with the NVIDIA DALI SDK
+# (e.g. Jetson) for the real FFI bindings.
+default = []
+dali = ["dep:cxx"]
+
+[dependencies]
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+cxx = { version = "1", optional = true }
+
+[build-dependencies]
+cxx-build = { version = "1" }
+cc = { version = "1" }
