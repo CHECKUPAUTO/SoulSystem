@@ -1,0 +1,54 @@
+[workspace]
+members = [
+    "scirust_affective_core",
+    "semantic_neuromodulator",
+    "neural_metacognition",
+    "ecosystem_synapse_linker",
+    "neural_clinical_console",
+    "semantic_firewall",
+    "neural_cluster_sync",
+    "neural_graph_compiler",
+    "neural_chaos_monkey",
+    "ontological_self_healing",
+    "soul_scheduler",
+    "soul_matrix_engine",
+    "soul_storage",
+    "soul_ipc",
+    "soul_evolution",
+    "soul_agent_runtime",
+    "soul_perception",
+    "soul_telemetry",
+    "soul_cluster",
+    "soul_surgery",
+    "soul_journal",
+    "soul_forge",
+    "soul_cortex",
+    "soul_scout",
+    "soul_guard",
+    "soul_orchestrator",
+    "soul_attention",
+    "soul_acoustic",
+
+    "soul_llm",
+    "soul_planner",
+    "soul_tools",
+    "soul_repl",
+    "soul_persistence",
+    "soul_sandbox",
+    "soul_gateway",
+    "soul_openclaw",
+    "soul_entity",
+    "souls", "test_telemetry",
+]
+resolver = "2"
+
+[workspace.dependencies]
+soul_telemetry = { path = "soul_telemetry" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+debug = false
+

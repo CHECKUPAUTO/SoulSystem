@@ -1,0 +1,12 @@
+[package]
+name = "soul_journal"
+version = "0.1.0"
+edition = "2021"
+description = "Write-ahead log (WAL) for durable cognitive state persistence with crash recovery guarantees"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["wal", "write-ahead-log", "persistence", "crash-recovery", "durability", "journal"]
+categories = ["database", "embedded", "os", "filesystem"]
+
+[dependencies]
+libc = "0.2"
