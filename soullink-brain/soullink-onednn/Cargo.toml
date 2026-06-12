@@ -1,0 +1,9 @@
+[package]
+name = "soullink-onednn"
+version.workspace = true
+edition.workspace = true
+description = "SoulLink V13.5 — Intel oneDNN bindings (AVX-512/AVX2 primitives)"
+
+[dependencies]
+anyhow = { workspace = true }
+tracing = { workspace = true }

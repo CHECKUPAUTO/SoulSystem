@@ -1,0 +1,12 @@
+[package]
+name = "soul_cluster"
+version = "0.1.0"
+edition = "2021"
+description = "UDP-based cluster communication with NetworkPacket serialization for distributed agent coordination across nodes"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["cluster", "udp", "distributed", "network", "coordination", "serialization"]
+categories = ["network-programming", "distributed-systems", "embedded"]
+
+[dependencies]
+soul_ipc = { path = "../soul_ipc" }

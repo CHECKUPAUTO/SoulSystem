@@ -1,0 +1,19 @@
+[package]
+name = "soul_designtree"
+version = "0.1.0"
+edition = "2021"
+description = "Design tree with OpenSpec lifecycle for feature development"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+thiserror = "2"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { workspace = true }
+sled = "0.34"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -1,0 +1,33 @@
+name: Jules — Auto-Fix Bugs
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  fix-bug:
+    if: github.event.label.name == 'bug' || github.event.label.name == 'jules'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: Invoke Jules
+        uses: google-labs-code/jules-invoke@v1.0.0
+        with:
+          prompt: |
+            Bug report : ${{ github.event.issue.title }}
+            
+            ${{ github.event.issue.body }}
+            
+            Processus :
+            1. Analyser le bug dans le contexte AVID
+            2. Identifier la cause racine
+            3. Implémenter un fix minimal
+            4. Ajouter un test de régression
+            5. Vérifier cargo check + cargo test
+            
+            Livrable : PR avec fix + test
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          starting_branch: 'main'

@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink Blackboard v2.0 (GWT + Agent Spawner)
+After=network.target soullink-pacemaker.service
+Wants=soullink-pacemaker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soullink-blackboard
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=soullink_blackboard=info
+
+[Install]
+WantedBy=soullink.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink Auto-Evolution
+After=network.target soullink-node.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/soullink-node
+ExecStart=/bin/sh -c 'curl -sf -X POST http://localhost:8084/api/evolve -H "Content-Type: application/json" -d "{\"cycles\":3}" || echo "[$(date -Iseconds)] evolve API unreachable"'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=soullink.target

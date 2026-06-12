@@ -1,0 +1,271 @@
+//! HNSW Index — Hybrid search strategy for vector similarity.
+//!
+//! Brute-force for < 10k, HNSW for >= 10k.
+
+use half::f16;
+use parking_lot::RwLock;
+use tracing::{info, instrument};
+use anyhow::Result;
+use dashmap::DashMap;
+use hnsw::{Hnsw, Searcher, Params};
+use rand_pcg::Pcg64;
+use space::{Metric, Neighbor};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COSINE METRIC — implemented for Vec<f32> (owned feature type)
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct CosineMetric;
+
+impl Metric<Vec<f32>> for CosineMetric {
+    type Unit = u32;
+
+    fn distance(&self, a: &Vec<f32>, b: &Vec<f32>) -> u32 {
+        let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+        let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let cos_sim = if norm_a == 0.0 || norm_b == 0.0 { 0.0 } else { dot / (norm_a * norm_b) };
+        (1.0 - cos_sim).to_bits()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEARCH STRATEGY
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SearchStrategy {
+    BruteForce,
+    Hnsw,
+}
+
+impl SearchStrategy {
+    pub fn select(count: usize) -> Self {
+        if count < 10_000 { SearchStrategy::BruteForce } else { SearchStrategy::Hnsw }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PARAMETERS & RESULT
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct HnswParams {
+    pub ef_construction: usize,
+}
+
+impl Default for HnswParams {
+    fn default() -> Self { Self { ef_construction: 200 } }
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub id: String,
+    pub score: f32,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VECTOR STORE — brute-force + HNSW hybrid
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HNSW_M: usize = 16;
+const HNSW_M0: usize = 32;
+
+type HnswIndex = Hnsw<CosineMetric, Vec<f32>, Pcg64, HNSW_M, HNSW_M0>;
+
+pub struct VectorStore {
+    vectors: DashMap<String, Vec<f32>>,
+    vectors_f16: DashMap<String, Vec<f16>>,
+    hnsw: RwLock<Option<HnswIndex>>,
+    searcher: RwLock<Searcher<u32>>,
+    id_map: DashMap<usize, String>,
+    next_id: RwLock<usize>,
+    params: HnswParams,
+}
+
+impl VectorStore {
+    pub fn new(params: HnswParams) -> Self {
+        Self {
+            vectors: DashMap::new(),
+            vectors_f16: DashMap::new(),
+            hnsw: RwLock::new(None),
+            searcher: RwLock::new(Searcher::default()),
+            id_map: DashMap::new(),
+            next_id: RwLock::new(0),
+            params,
+        }
+    }
+
+    pub fn new_default() -> Self { Self::new(HnswParams::default()) }
+
+    #[instrument(skip(self, vector))]
+    pub fn insert(&self, label: String, vector: Vec<f32>) -> Result<()> {
+        let f16_vec: Vec<f16> = vector.iter().map(|&v| f16::from_f32(v)).collect();
+        self.vectors_f16.insert(label.clone(), f16_vec);
+        self.vectors.insert(label.clone(), vector.clone());
+
+        let count = self.vectors.len();
+
+        if SearchStrategy::select(count) == SearchStrategy::Hnsw && self.hnsw.read().is_none() {
+            self.build_hnsw_index()?;
+        }
+
+        if let Some(ref mut idx) = *self.hnsw.write() {
+            let id = {
+                let mut next = self.next_id.write();
+                let id = *next;
+                *next += 1;
+                id
+            };
+            self.id_map.insert(id, label);
+            idx.insert(vector, &mut *self.searcher.write());
+        }
+
+        Ok(())
+    }
+
+    #[instrument(skip(self, query))]
+    pub fn search(&self, query: &[f32], top_k: usize) -> Vec<SearchResult> {
+        match SearchStrategy::select(self.vectors.len()) {
+            SearchStrategy::BruteForce => self.brute_force_search(query, top_k),
+            SearchStrategy::Hnsw => self.hnsw_search(query, top_k),
+        }
+    }
+
+    fn brute_force_search(&self, query: &[f32], top_k: usize) -> Vec<SearchResult> {
+        use soullink_simd::{cosine_dispatch, pad_to_multiple_of_8};
+        let query_padded = pad_to_multiple_of_8(query);
+
+        let mut scores: Vec<(String, f32)> = self.vectors
+            .iter()
+            .map(|entry| {
+                let doc_padded = pad_to_multiple_of_8(entry.value());
+                let score = cosine_dispatch(&query_padded, &doc_padded);
+                (entry.key().clone(), score)
+            })
+            .collect();
+
+        let k = top_k.min(scores.len()).max(1);
+        if k < scores.len() {
+            scores.select_nth_unstable_by(k - 1, |a, b| {
+                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        scores.truncate(k);
+        scores.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        scores.into_iter()
+            .map(|(id, score)| SearchResult { id, score })
+            .collect()
+    }
+
+    /// Parallel batch search — uses Rayon for multi-query workloads.
+    /// Optimal on multi-socket systems (dual Xeon, 64+ threads).
+    pub fn batch_search(&self, queries: &[Vec<f32>], top_k: usize) -> Vec<Vec<SearchResult>> {
+        use rayon::prelude::*;
+
+        queries.par_iter().map(|query| {
+            self.search(query, top_k)
+        }).collect()
+    }
+
+    fn hnsw_search(&self, query: &[f32], top_k: usize) -> Vec<SearchResult> {
+        let guard = self.hnsw.read();
+        if let Some(ref idx) = *guard {
+            let mut neighbors = vec![Neighbor { index: usize::MAX, distance: u32::MAX }; top_k];
+            // nearest() takes a &Feature — query.to_vec() creates a Vec<f32> for comparison
+            let query_vec = query.to_vec();
+            idx.nearest(&query_vec, HNSW_M0, &mut *self.searcher.write(), &mut neighbors);
+
+            neighbors.iter()
+                .filter(|n| n.index != usize::MAX)
+                .filter_map(|n| {
+                    self.id_map.get(&n.index).map(|label| {
+                        let dist = f32::from_bits(n.distance);
+                        SearchResult { id: label.clone(), score: 1.0 - dist }
+                    })
+                })
+                .collect()
+        } else {
+            drop(guard);
+            self.brute_force_search(query, top_k)
+        }
+    }
+
+    fn build_hnsw_index(&self) -> Result<()> {
+        let count = self.vectors.len();
+        info!("Building HNSW index for {} vectors", count);
+
+        let params = Params::new().ef_construction(self.params.ef_construction);
+        let mut idx = HnswIndex::new_params(CosineMetric, params);
+        let mut searcher = self.searcher.write();
+        let id_map = DashMap::new();
+        let mut next_id = 0usize;
+
+        for entry in self.vectors.iter() {
+            let label = entry.key().clone();
+            let vector = entry.value().clone();
+            idx.insert(vector, &mut *searcher);
+            id_map.insert(next_id, label);
+            next_id += 1;
+        }
+
+        *self.hnsw.write() = Some(idx);
+        // Update id_map atomically
+        self.id_map.clear();
+        for pair in id_map.iter() {
+            self.id_map.insert(*pair.key(), pair.value().clone());
+        }
+        *self.next_id.write() = next_id;
+
+        info!("HNSW index built: {} vectors", count);
+        Ok(())
+    }
+
+    pub fn len(&self) -> usize { self.vectors.len() }
+    pub fn is_empty(&self) -> bool { self.vectors.is_empty() }
+    pub fn strategy(&self) -> SearchStrategy { SearchStrategy::select(self.len()) }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COSINE SIMILARITY — brute-force helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm_a == 0.0 || norm_b == 0.0 { 0.0 } else { dot / (norm_a * norm_b) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_strategy_threshold() {
+        assert_eq!(SearchStrategy::select(0), SearchStrategy::BruteForce);
+        assert_eq!(SearchStrategy::select(9999), SearchStrategy::BruteForce);
+        assert_eq!(SearchStrategy::select(10_000), SearchStrategy::Hnsw);
+    }
+
+    #[test]
+    fn vector_store_brute_force() {
+        let store = VectorStore::new_default();
+        store.insert("cat".into(), vec![1.0, 0.0, 0.0, 0.0]).unwrap();
+        store.insert("dog".into(), vec![0.9, 0.1, 0.0, 0.0]).unwrap();
+        store.insert("car".into(), vec![0.0, 0.0, 0.0, 1.0]).unwrap();
+
+        let results = store.search(&[1.0, 0.0, 0.0, 0.0], 2);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "cat");
+    }
+
+    #[test]
+    fn f16_precision() {
+        let val = 0.75f32;
+        let f16 = f16::from_f32(val);
+        assert!((f16.to_f32() - val).abs() < 0.01);
+    }
+}

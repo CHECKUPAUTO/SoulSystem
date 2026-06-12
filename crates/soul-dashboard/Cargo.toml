@@ -1,0 +1,17 @@
+[package]
+name = "soul-dashboard"
+version = "13.5.0"
+edition = "2021"
+description = "SoulSystem — Web dashboard for monitoring organ health and system status"
+
+[dependencies]
+axum = { workspace = true, features = ["ws", "query"] }
+tokio = { workspace = true }
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tower-http = { workspace = true, features = ["cors", "set-header"] }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }

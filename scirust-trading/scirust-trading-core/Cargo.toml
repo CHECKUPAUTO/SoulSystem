@@ -1,0 +1,12 @@
+[package]
+name = "scirust-trading-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = "1"
+chrono = { workspace = true }
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "2"

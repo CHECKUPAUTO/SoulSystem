@@ -1,0 +1,32 @@
+[Unit]
+Description=SYNERGIE v3 — Agent autonome de détection de synergies
+Documentation=https://github.com/CHECKUPAUTO/SYNERGIE
+After=network-online.target tribe.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=synergie
+Group=synergie
+WorkingDirectory=/var/lib/synergie
+EnvironmentFile=-/etc/synergie/synergie.env
+ExecStart=/usr/local/bin/synergie --config /etc/synergie/synergie.toml daemon
+Restart=on-failure
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=5
+
+# Sandbox
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/var/lib/synergie /mnt/nvme/soullink_brain /tmp
+
+# Log
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=synergie
+
+[Install]
+WantedBy=multi-user.target

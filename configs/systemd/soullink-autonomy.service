@@ -1,0 +1,23 @@
+[Unit]
+After=network.target soullink-orchestrator.service
+Wants=soullink-orchestrator.service
+Description=SoulLink Autonomy — 1Hz Hamiltonian pulse, dream cycle, afferent nerves
+
+[Service]
+Type=simple
+ExecStart=/opt/soullink/bin/soullink-autonomy
+Environment=ORCHESTRATOR_URL=http://127.0.0.1:9020
+Environment=PULSE_INTERVAL_MS=1000
+Environment=DREAM_INTERVAL_SECS=600
+Environment=MEMORY_DB_PATH=/var/lib/soullink/memory
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=soullink.target

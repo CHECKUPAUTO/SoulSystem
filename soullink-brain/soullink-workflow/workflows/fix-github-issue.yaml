@@ -1,0 +1,38 @@
+name: fix-github-issue
+description: "Classify issue → investigate → implement → validate → PR"
+nodes:
+  - id: classify
+    prompt: "Classify this GitHub issue by severity and type"
+    context: true  # inject HNN mesh state
+
+  - id: investigate
+    depends_on: [classify]
+    prompt: "Investigate the classified issue. Explore the codebase."
+
+  - id: implement
+    depends_on: [investigate]
+    loop:
+      prompt: "Implement the fix based on investigation"
+      until: ALL_TASKS_COMPLETE
+      max_iterations: 5
+      fresh_context: true
+
+  - id: validate
+    depends_on: [implement]
+    bash: "cargo test --workspace"
+    timeout: 120
+
+  - id: review
+    depends_on: [validate]
+    prompt: "Review all changes. Fix any issues."
+
+  - id: approve
+    depends_on: [review]
+    loop:
+      prompt: "Present changes for review"
+      until: APPROVED
+      interactive: true
+
+  - id: create-pr
+    depends_on: [approve]
+    bash: "git push && gh pr create"

@@ -1,0 +1,29 @@
+[package]
+name = "soullink-workflow"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — Deterministic workflow engine with AI loops (Archon-inspired, Rust-native)"
+
+[dependencies]
+soullink-core = { path = "../soullink-core" }
+soullink-memory = { path = "../soullink-memory", optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "process", "fs"] }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+petgraph = "0.7"
+reqwest = { workspace = true }
+futures = { workspace = true }
+
+[features]
+default = []
+memory = ["soullink-memory"]
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -16,8 +16,8 @@ path = "src/main.rs"
 libc = "0.2.155"
 soul_scheduler = { path = "../soul_scheduler" }
 soul_orchestrator = { path = "../soul_orchestrator" }
-tracing = "0.1"
+tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-chrono = "0.4"
+chrono = { workspace = true }
 walkdir = "2"
 fastrand = "2"

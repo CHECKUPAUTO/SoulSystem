@@ -1,0 +1,32 @@
+[package]
+name = "soullink-orchestrator-v3"
+version = "3.0.0"
+edition = "2021"
+authors = ["SoulLink Team <soullink@example.com>"]
+description = "SoulLink Neural Mesh Orchestrator v3 (standalone)"
+license = "MIT"
+repository = "https://github.com/yourusername/soullink-orchestrator"
+keywords = ["neural", "mesh", "orchestrator", "ai", "soullink"]
+categories = ["network-programming", "web-programming::http-server"]
+rust-version = "1.70"
+
+[[bin]]
+name = "soullink-orchestrator-v3"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+futures = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dashmap = { workspace = true }
+reqwest = { workspace = true }
+minreq = { version = "2.11", features = ["json-using-serde", "https-native"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }

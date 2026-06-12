@@ -1,0 +1,22 @@
+[package]
+name = "soullink-vision"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — Image embedding pipeline (CLIP/Moondream) via RTX 4060"
+
+[dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+chrono = { workspace = true }
+base64 = "0.22"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

@@ -1,0 +1,11 @@
+[package]
+name = "soulsystem-mesh"
+version = "1.0.0"
+edition = "2021"
+description = "SoulSystem Mesh — méta-crate liant tous les composants de l'écosystème"
+
+[dependencies]
+# Cœur SoulSystem
+soulsystem = { path = "../" }
+# Ponts d'intégration unifiés (soul-bridge remplace 9 bridges individuels)
+soul-bridge = { path = "../soul-bridge" }

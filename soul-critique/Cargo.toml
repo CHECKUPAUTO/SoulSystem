@@ -1,0 +1,18 @@
+[package]
+name = "soul_critique"
+version = "0.1.0"
+edition = "2021"
+description = "Self-critique loop with Reflexion pattern quality scoring"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+reqwest = { workspace = true }
+tokio = { workspace = true }
+thiserror = "2"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

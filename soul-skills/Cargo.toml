@@ -1,0 +1,19 @@
+[package]
+name = "soul_skills"
+version = "0.1.0"
+edition = "2021"
+description = "Standardized skill system (Claude Code / OpenCode compatible .skills/ format)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+async-trait = "0.1"
+thiserror = "2"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

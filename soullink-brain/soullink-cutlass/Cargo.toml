@@ -1,0 +1,16 @@
+[package]
+name = "soullink-cutlass"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+cutlass = ["dep:cust"]
+
+[dependencies]
+thiserror = { workspace = true }
+tracing = { workspace = true }
+cust = { version = "0.3", optional = true }
+
+[build-dependencies]
+cc = "1.0"

@@ -1,0 +1,49 @@
+[Unit]
+Description=SoulLink Gateway — messaging bridge (Telegram / WhatsApp)
+After=network-online.target soullink-orchestrator.service
+Wants=network-online.target soullink-orchestrator.service
+PartOf=soullink.target
+
+[Service]
+Type=simple
+User=soullink
+Group=soullink
+ExecStart=/opt/soullink/bin/soullink-gateway
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+EnvironmentFile=/etc/soullink/secrets.env
+Environment="RUST_LOG=soullink_gateway=info,warn"
+Environment="SOULLINK_GATEWAY_CONFIG=/etc/soullink/gateway.toml"
+
+# Hardening — no NVIDIA / hardware capabilities needed
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Read-only config / secrets
+ReadOnlyPaths=/etc/soullink
+
+# Guardian UDS (if we later want gateway → guardian snapshots)
+# BindReadOnlyPaths=/run/soullink
+
+[Install]
+WantedBy=soullink.target

@@ -1,0 +1,20 @@
+[package]
+name = "soul_subagents"
+version = "0.1.0"
+edition = "2021"
+description = "Sub-agent spawning and task delegation"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tracing = "0.1"
+thiserror = "2"
+soul_agent_core = { path = "../soul-agent-core" }
+soul_llm = { path = "../soul_llm" }
+soul_tools = { path = "../soul_tools" }
+uuid = { version = "1", features = ["v4"] }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

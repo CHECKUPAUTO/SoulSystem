@@ -1,0 +1,20 @@
+[package]
+name = "avid-sandbox"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hardened subprocess sandbox for executing untrusted Python code under rlimits"
+repository = "https://github.com/CHECKUPAUTO/AVID"
+documentation = "https://docs.rs/avid-sandbox"
+keywords = ["sandbox", "python", "rlimit", "security", "execution"]
+categories = ["development-tools", "os"]
+
+[dependencies]
+nix = { version = "0", features = ["signal", "process", "resource"] }
+tempfile = "3"
+which = "7"
+thiserror = "2"
+tracing = "0"
+tokio = { workspace = true }
+libc = "0"

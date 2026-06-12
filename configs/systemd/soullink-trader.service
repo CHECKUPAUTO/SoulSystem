@@ -1,0 +1,21 @@
+[Unit]
+Description=SoulLink Portfolio Engine (Paper Trading)
+After=network.target soullink-orchestrator.service
+Wants=soullink-orchestrator.service
+
+[Service]
+Type=simple
+ExecStart=/opt/soullink/bin/soullink-trader
+Restart=on-failure
+RestartSec=30
+Environment=RUST_LOG=info
+
+# Security hardening
+User=soullink
+Group=soullink
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/soullink
+
+[Install]
+WantedBy=soullink.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=SoulLink Motor Organ — Device Takeover
+After=network.target
+ConditionPathExists=/mnt/nvme/soullink_brain/soullink-motor/Cargo.toml
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/mnt/nvme/soullink_brain/soullink-motor
+Environment=MOTOR_PORT=7879
+Environment=MEMORY_ORGAN_URL=http://localhost:9030
+ExecStartPre=/bin/sh -c 'test -x /mnt/nvme/soullink_brain/soullink-motor/target/release/soullink-motor || (cd /mnt/nvme/soullink_brain/soullink-motor && cargo build --release 2>/dev/null || true)'
+ExecStart=/mnt/nvme/soullink_brain/soullink-motor/target/release/soullink-motor
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=soullink.target

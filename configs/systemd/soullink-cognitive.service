@@ -1,0 +1,35 @@
+[Unit]
+Description=SoulLink Cognitive Service - Cerveau IA autonome
+Documentation=https://github.com/soullink/cognitive
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/mnt/nvme/soullink_master_v2
+Environment="OMP_NUM_THREADS=4"
+Environment="OPENBLAS_NUM_THREADS=4"
+ExecStart=/bin/sh -c 'if [ -f "/mnt/nvme/soullink_master_v2/soullink_cognitive_service_v2.py" ]; then exec ; else echo "[2026-05-04T10:58:50+02:00] /mnt/nvme/soullink_master_v2/soullink_cognitive_service_v2.py not found — service skipped" >&2; exit 0; fi'
+ExecStartPost=/bin/echo "SoulLink Cognitive Service démarré"
+Restart=always
+RestartSec=10
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=soullink-cognitive
+
+# Resource limits
+MemoryMax=8G
+CPUQuota=200%
+
+# Watchdog
+WatchdogSec=300
+NotifyAccess=all
+
+[Install]
+WantedBy=soullink.target

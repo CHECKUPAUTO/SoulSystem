@@ -1,0 +1,15 @@
+[package]
+name = "soul-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+soul-cortex = { path = "../soul-cortex" }
+soul-hnn = { path = "../soul-hnn" }
+soul-minillm = { path = "../soul-minillm" }
+soul-embed = { path = "../soul-embed" }
+soul-identity = { path = "../soul-identity" }
+soul-memory-store = { path = "../soul-memory-store" }
+tokio = { workspace = true }
+anyhow = "1"
+rustyline = "12"

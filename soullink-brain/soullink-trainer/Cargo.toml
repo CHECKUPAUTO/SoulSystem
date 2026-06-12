@@ -1,0 +1,16 @@
+[package]
+name = "soullink-trainer"
+version = "13.5.0"
+edition = "2021"
+description = "SoulSystem — Fine-tuning pipeline: harvest trajectories, filter, export, train"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

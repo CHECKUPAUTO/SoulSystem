@@ -131,7 +131,7 @@ impl SelfImprovementLoop {
         let valid_proposals: Vec<&ImprovementProposal> = proposals
             .iter()
             .enumerate()
-            .filter(|(i, _)| validation_results.get(*i).map_or(false, |r| r.1.valid))
+            .filter(|(i, _)| validation_results.get(*i).is_some_and(|r| r.1.valid))
             .map(|(_, p)| p)
             .collect();
 
@@ -579,8 +579,10 @@ impl SelfImprovementLoop {
             }
         }
 
-        let mut config = EvolutionConfig::default();
-        config.output_dir = output_dir.to_path_buf();
+        let config = EvolutionConfig {
+            output_dir: output_dir.to_path_buf(),
+            ..Default::default()
+        };
 
         let mut loop_state = Self::new(config);
         loop_state.iteration = iteration;

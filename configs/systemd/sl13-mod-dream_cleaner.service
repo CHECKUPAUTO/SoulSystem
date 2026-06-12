@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink V13 Module dream_cleaner
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/mnt/nvme/soullink_brain
+ExecStart=/usr/bin/python3 /mnt/nvme/soullink_brain/dream_cleaner.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

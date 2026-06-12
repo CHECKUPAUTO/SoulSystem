@@ -6,7 +6,6 @@
 ///
 /// Agent IDs are computed as an FNV-1a hash of the lowercase agent name, ensuring
 /// deterministic and collision-resistant mapping across restarts.
-
 use crate::audit::Auditor;
 use crate::types::EvolutionConfig;
 use soul_orchestrator::SovereignOrchestrator;
@@ -30,8 +29,10 @@ pub struct AgentRegistryEntry {
 /// Two different names **can** collide (standard 32-bit hash), but the probability
 /// across O(100) agents is negligible.
 pub fn scan_agents(agents_dir: &Path) -> HashMap<u32, AgentRegistryEntry> {
-    let mut config = EvolutionConfig::default();
-    config.agents_dir = agents_dir.to_path_buf();
+    let config = EvolutionConfig {
+        agents_dir: agents_dir.to_path_buf(),
+        ..Default::default()
+    };
 
     let audits = Auditor::audit_agents(&config);
     let mut registry = HashMap::new();

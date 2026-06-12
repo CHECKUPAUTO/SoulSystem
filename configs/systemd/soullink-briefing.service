@@ -1,0 +1,16 @@
+[Unit]
+Description=SoulLink Morning Briefing Service
+Documentation=https://github.com/soullink/cognitive
+After=network.target ollama.service sound.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/mnt/nvme/soullink_master_v2
+Environment="OMP_NUM_THREADS=4"
+Environment="OPENBLAS_NUM_THREADS=4"
+ExecStartPre=/bin/sleep 5
+ExecStart=/bin/sh -c 'if [ -f "/mnt/nvme/soullink_master_v2/26_soul_morning_briefing.py" ]; then exec ; else echo "[2026-05-04T10:58:50+02:00] /mnt/nvme/soullink_master_v2/26_soul_morning_briefing.py not found — service skipped" >&2; exit 0; fi'
+
+[Install]
+WantedBy=soullink.target

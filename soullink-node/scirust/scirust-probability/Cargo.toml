@@ -1,0 +1,10 @@
+[package]
+name = "scirust-probability"
+version = "0.1.0"
+edition = "2021"
+description = "Probabilistic inference engine for SciRust: Bayesian networks, consistency checking, hypothesis verification"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+scirust-symbolic = { path = "/root/scirust/scirust-symbolic" }
+scirust-reasoning = { path = "/root/scirust/scirust-reasoning" }

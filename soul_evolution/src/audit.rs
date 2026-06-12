@@ -18,7 +18,7 @@ impl Auditor {
         let walker = walkdir::WalkDir::new(dir).max_depth(1);
         for entry in walker.into_iter().filter_map(|e| e.ok()) {
             let path = entry.path();
-            if path.extension().map_or(true, |e| e != "md") {
+            if path.extension().is_none_or(|e| e != "md") {
                 continue;
             }
             let agent_def = match Self::parse_agent_file(path) {
@@ -261,7 +261,7 @@ fn count_md_files(dir: &Path) -> usize {
         .max_depth(1)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "md"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
         .count()
 }
 
@@ -313,6 +313,7 @@ fn check_naming_convention(name: &str) -> Option<String> {
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_quality_score(
     has_valid_fm: bool,
     has_name: bool,

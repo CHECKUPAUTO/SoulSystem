@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink Integration Organ — Global Workspace Theory cross-organ synthesis
+After=network.target soullink-orchestrator.service soullink-memory.service soullink-reflex.service
+Wants=soullink-orchestrator.service soullink-memory.service soullink-reflex.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soullink-integration $PORT
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=soullink.target

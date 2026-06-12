@@ -1,0 +1,56 @@
+name: idea-to-pr
+description: "Feature idea → plan → implement → validate → PR → parallel reviews → self-fix"
+nodes:
+  - id: brainstorm
+    prompt: "Given this feature idea, brainstorm implementation approaches"
+    context: true
+
+  - id: plan
+    depends_on: [brainstorm]
+    prompt: "Create a detailed implementation plan from the brainstorm"
+
+  - id: implement
+    depends_on: [plan]
+    loop:
+      prompt: "Implement the feature according to the plan"
+      until: ALL_TASKS_COMPLETE
+      max_iterations: 8
+      fresh_context: true
+
+  - id: validate
+    depends_on: [implement]
+    bash: "cargo test --workspace"
+    timeout: 180
+
+  - id: create-pr
+    depends_on: [validate]
+    bash: "git push && gh pr create --fill"
+
+  - id: review-security
+    depends_on: [create-pr]
+    prompt: "Review this PR for security issues and vulnerabilities"
+
+  - id: review-style
+    depends_on: [create-pr]
+    prompt: "Review this PR for code style and best practices"
+
+  - id: review-architecture
+    depends_on: [create-pr]
+    prompt: "Review this PR for architectural soundness"
+
+  - id: aggregate-reviews
+    depends_on: [review-security, review-style, review-architecture]
+    prompt: "Aggregate all review feedback. Identify critical issues."
+
+  - id: self-fix
+    depends_on: [aggregate-reviews]
+    loop:
+      prompt: "Fix issues identified in reviews"
+      until: ALL_TASKS_COMPLETE
+      max_iterations: 5
+      fresh_context: true
+
+  - id: final-validate
+    depends_on: [self-fix]
+    bash: "cargo test --workspace && cargo clippy -- -D warnings"
+    timeout: 180

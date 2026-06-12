@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink Affect Organ — Valence-driven emotional modulation and self-regulation
+After=network.target soullink-orchestrator.service
+Wants=soullink-orchestrator.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soullink-affect $PORT
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=soullink.target

@@ -1,0 +1,25 @@
+[package]
+name = "avid-vision"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+description = "Pattern recognition engine for the AVID autonomous system"
+
+[dependencies]
+avid-core = { path = "../avid-core" }
+thiserror = "2"
+anyhow = "1"
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tracing = "0"
+garde = { version = "0", features = ["derive"] }
+async-trait = "0.1"
+ort = "2.0.0-rc.12"
+image = "0.25"
+tesseract = "0.15"
+lru = "0.12"
+chromiumoxide = { version = "0.7", features = ["async-std-runtime"] }
+futures = "0.3"
+chrono = { workspace = true }

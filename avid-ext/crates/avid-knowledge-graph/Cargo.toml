@@ -1,0 +1,25 @@
+[package]
+name = "avid-knowledge-graph"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Memory Tree / Knowledge Graph for AVID — entity-relationship graph backed by SQLite with LLM extraction"
+repository = "https://github.com/CHECKUPAUTO/AVID"
+documentation = "https://docs.rs/avid-knowledge-graph"
+keywords = ["knowledge-graph", "entity", "relationship", "memory-tree", "sqlite"]
+categories = ["development-tools", "data-structures"]
+
+[dependencies]
+avid-core = { path = "../avid-core" }
+
+thiserror = "2"
+serde = { workspace = true }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+tokio = { workspace = true }
+tracing = "0"
+
+[dev-dependencies]
+tempfile = "3"

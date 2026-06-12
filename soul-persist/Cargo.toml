@@ -1,0 +1,18 @@
+[package]
+name = "soul_persist"
+version = "0.1.0"
+edition = "2021"
+description = "Persistent storage for agent memory, goals, and conversations"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+sled = "0.34"
+chrono = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+thiserror = "2"
+tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

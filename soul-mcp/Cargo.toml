@@ -1,0 +1,23 @@
+[package]
+name = "soul_mcp"
+version = "0.1.0"
+edition = "2021"
+description = "MCP (Model Context Protocol) client + server + transport for SoulSystem"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["codec"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+futures = { version = "0.3", default-features = false, features = ["std"] }
+async-trait = "0.1"
+thiserror = "2"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+bytes = "1"
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = "3"

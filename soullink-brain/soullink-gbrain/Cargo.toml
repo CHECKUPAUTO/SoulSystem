@@ -1,0 +1,31 @@
+[package]
+name = "soullink-gbrain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SoulLink GBrain — Knowledge Graph + Hybrid Search inspired by GBrain"
+
+[dependencies]
+soullink-core = { path = "../soullink-core" }
+soullink-memory = { path = "../soullink-memory" }
+
+tokio = { workspace = true }
+axum = { workspace = true, features = ["query"] }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+regex = { workspace = true }
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

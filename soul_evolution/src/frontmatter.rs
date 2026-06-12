@@ -144,8 +144,7 @@ fn parse_key_value(line: &str) -> Option<(String, FrontmatterValue)> {
 
 pub fn extract_body(content: &str) -> &str {
     let content = content.trim_start();
-    if content.starts_with(FM_DELIMITER) {
-        let after_first = &content[FM_DELIMITER.len()..];
+    if let Some(after_first) = content.strip_prefix(FM_DELIMITER) {
         if let Some(end_pos) = after_first.find(FM_DELIMITER) {
             let after_fm = &after_first[end_pos + FM_DELIMITER.len()..];
             return after_fm.trim();

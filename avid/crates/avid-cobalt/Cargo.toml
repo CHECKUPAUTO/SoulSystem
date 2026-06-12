@@ -1,0 +1,20 @@
+[package]
+name = "avid-cobalt"
+version = "0.1.0"
+edition = "2021"
+description = "Cobalt.tools media downloader engine — porté dans AVID"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = "1"
+reqwest = { workspace = true }
+anyhow = "1"
+tracing = "0.1"
+regex = "1"
+url = "2"
+
+[lib]
+name = "avid_cobalt"
+path = "src/lib.rs"

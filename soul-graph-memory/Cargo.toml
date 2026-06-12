@@ -1,0 +1,20 @@
+[package]
+name = "soul_graph_memory"
+version = "0.1.0"
+edition = "2021"
+description = "Knowledge graph memory with typed node/edge relations"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+thiserror = "2"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { workspace = true }
+dashmap = "6"
+sled = "0.34"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true }

@@ -1,0 +1,15 @@
+[Unit]
+Description=SoulLink Native Core V12
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/mnt/nvme/soullink_brain/
+Environment=PYTHONPATH=/mnt/nvme/soullink_brain/
+ExecStart=/bin/sh -c 'if [ -f "/mnt/nvme/soullink_brain/crypto_v12_rocksdb.py" ]; then exec ; else echo "[2026-05-04T10:58:50+02:00] /mnt/nvme/soullink_brain/crypto_v12_rocksdb.py not found — service skipped" >&2; exit 0; fi'
+Restart=always
+Nice=-20
+
+[Install]
+WantedBy=soullink.target

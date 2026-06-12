@@ -1,0 +1,68 @@
+[Unit]
+Description=SoulLink V13.5 — Core Guardian (thermal + homeostasis + emergency reflex)
+Documentation=https://internal/soullink/architecture
+After=network-online.target nvidia-persistenced.service
+Wants=network-online.target
+ConditionPathExists=/dev/nvidia0
+
+[Service]
+Type=simple
+ExecStartPre=+/opt/soullink/bin/preflight.sh
+ExecStart=/opt/soullink/bin/core_guardian
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+# ── Secrets / environment ────────────────────────────────────────────────────
+EnvironmentFile=/etc/soullink/secrets.env
+Environment="RUST_LOG=soullink_guardian=info,warn"
+
+# Phase 3: /run/soullink for the UDS socket. systemd creates this at
+# ExecStart with mode 0755 owned by the service user; removes on stop.
+RuntimeDirectory=soullink
+RuntimeDirectoryMode=0755
+
+# ── Privileges ───────────────────────────────────────────────────────────────
+# NVML set_power_management_limit requires CAP_SYS_ADMIN. We drop everything
+# else and run under a dedicated system user.
+User=soullink
+Group=soullink
+AmbientCapabilities=CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_SYS_ADMIN
+NoNewPrivileges=true
+
+# ── Sandboxing ───────────────────────────────────────────────────────────────
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=no
+DeviceAllow=/dev/nvidia0 rwm
+DeviceAllow=/dev/nvidiactl rwm
+DeviceAllow=/dev/nvidia-uvm rwm
+DeviceAllow=/dev/nvidia-modeset rwm
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallFilter=@system-service @file-system @process
+SystemCallArchitectures=native
+
+# Read-only bind of the scripts directory; nothing else is writable.
+ReadOnlyPaths=/opt/soullink/scripts /etc/soullink
+
+# ── Resource limits ──────────────────────────────────────────────────────────
+LimitNOFILE=65536
+LimitNPROC=512
+MemoryMax=512M
+CPUWeight=80
+
+# ── Observability ────────────────────────────────────────────────────────────
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=soullink-guardian
+
+[Install]
+WantedBy=soullink.target

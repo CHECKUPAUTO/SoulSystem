@@ -1,0 +1,84 @@
+version: '3'
+
+services:
+  soulsystem:
+    build: .
+    ports:
+      - "9090:9090"
+    volumes:
+      - soulsystem_data:/var/lib/soulsystem
+      - ./config:/config:ro
+    environment:
+      - SOULSYSTEM_CONFIG_DIR=/config
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    env_file:
+      - .env
+    networks:
+      - soul-net
+
+  zerobot-api:
+    build:
+      context: ./zerobot
+      dockerfile: Dockerfile.api
+    container_name: zerobot-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./zerobot:/zerobot
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - chromadb_data:/zerobot/data/chromadb
+    environment:
+      - ZEROBOT_CONFIG=/zerobot/config.yaml
+      - ZEROBOT_ENV=production
+      - SOULSYSTEM_URL=http://soulsystem:9090
+    depends_on:
+      - zerobot-chromadb
+    networks:
+      - soul-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  zerobot-chromadb:
+    image: ghcr.io/chroma-core/chroma:0.5.5
+    container_name: zerobot-chromadb
+    volumes:
+      - chromadb_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=FALSE
+    networks:
+      - soul-net
+    restart: unless-stopped
+
+  # ZeroBot toolbox (on-demand via Docker SDK, kept as profile)
+  zerobot-toolbox:
+    build:
+      context: ./zerobot
+      dockerfile: Dockerfile.toolbox
+    container_name: zerobot-toolbox
+    networks: []
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /workspace:noexec,nosuid,size=100m
+      - /tmp:noexec,nosuid,size=100m
+    profiles:
+      - donotstart
+    command: ["sleep", "infinity"]
+
+networks:
+  soul-net:
+    driver: bridge
+
+volumes:
+  soulsystem_data:
+  chromadb_data:

@@ -1,0 +1,25 @@
+[package]
+name = "soul_agent_core"
+version = "0.1.0"
+edition = "2021"
+description = "Autonomous agent core — ReAct loop, safety, task queue, self-evolution"
+
+[dependencies]
+soul_llm = { path = "../soul_llm" }
+soul_planner = { path = "../soul_planner" }
+soul_tools = { path = "../soul_tools" }
+soul_compaction = { path = "../soul-compaction" }
+soul_critique = { path = "../soul-critique" }
+soullink-memory-hierarchy = { path = "../soullink-brain/soullink-memory-hierarchy" }
+soullink-autonomy = { path = "../soullink-brain/soullink-autonomy" }
+soullink-reasoning = { path = "../soullink-brain/soullink-reasoning" }
+soullink-trainer = { path = "../soullink-brain/soullink-trainer" }
+soul-memory = { workspace = true }
+soul_skills = { path = "../soul-skills" }
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tracing = "0.1"
+chrono = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+colored = "2"

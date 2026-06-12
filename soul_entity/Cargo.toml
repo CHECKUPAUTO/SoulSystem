@@ -20,7 +20,6 @@ soul_journal = { path = "../soul_journal" }
 soul_forge = { path = "../soul_forge" }
 soul_telemetry = { path = "../soul_telemetry" }
 soul_orchestrator = { path = "../soul_orchestrator" }
-soul_agent_runtime = { path = "../soul_agent_runtime" }
 soul_evolution = { path = "../soul_evolution" }
 neural_cluster_sync = { path = "../neural_cluster_sync" }
 neural_chaos_monkey = { path = "../neural_chaos_monkey" }
@@ -30,12 +29,11 @@ neural_clinical_console = { path = "../neural_clinical_console" }
 ontological_self_healing = { path = "../ontological_self_healing" }
 ecosystem_synapse_linker = { path = "../ecosystem_synapse_linker" }
 
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4"] }
-parking_lot = "0.12"
-async-trait = "0.1"
-thiserror = "1"
-tracing = "0.1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "fs"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["v4"] }
+parking_lot = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "sync", "fs"] }

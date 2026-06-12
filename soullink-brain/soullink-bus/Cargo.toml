@@ -1,0 +1,18 @@
+[package]
+name = "soullink-bus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — Wrapper backward-compatible pour le bus unifié"
+
+[dependencies]
+bus = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

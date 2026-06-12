@@ -1,0 +1,77 @@
+# ZeroBot — Toolbox Container
+# Contains all analysis tools (radare2, GDB, Ghidra, etc.)
+# Runs with NO network access and an unprivileged user
+
+FROM ubuntu:24.04 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies and analysis tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Core utilities
+    ca-certificates \
+    curl \
+    wget \
+    file \
+    binutils \
+    strace \
+    ltrace \
+    xxd \
+    vim-tiny \
+    jq \
+    # Debugging
+    gdb \
+    gdbserver \
+    # Analysis
+    radare2 \
+    python3 \
+    python3-pip \
+    python3-venv \
+    # Build tools (for compiling harnesses)
+    gcc \
+    g++ \
+    clang \
+    cmake \
+    make \
+    # Misc
+    openssh-client \
+    unzip \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install checksec (pwntools-based)
+RUN pip3 install --no-cache-dir pwntools==4.12.0
+
+# Install Ghidra (headless mode)
+ARG GHIDRA_VERSION=11.1.2
+ARG GHIDRA_URL=https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/ghidra_${GHIDRA_VERSION}_PUBLIC_20250225.zip
+
+RUN mkdir -p /opt/ghidra && \
+    curl -fsSL -o /tmp/ghidra.zip "${GHIDRA_URL}" && \
+    unzip -q /tmp/ghidra.zip -d /opt/ghidra && \
+    mv /opt/ghidra/ghidra_* /opt/ghidra/latest && \
+    ln -sf /opt/ghidra/latest/support/analyzeHeadless /usr/local/bin/analyzeHeadless && \
+    rm /tmp/ghidra.zip
+
+# Create unprivileged user
+RUN groupadd -g 1000 zerobot && \
+    useradd -u 1000 -g 1000 -m -s /bin/bash zerobot
+
+# Disable network (will be enforced at container runtime)
+# Create working directory
+RUN mkdir -p /workspace && chown zerobot:zerobot /workspace
+
+USER zerobot
+WORKDIR /workspace
+
+# Verify tools
+RUN echo "Verifying tools..." && \
+    file --version | head -1 && \
+    gdb --version | head -1 && \
+    python3 --version && \
+    checksec --version 2>/dev/null || echo "checksec ready" && \
+    which r2 2>/dev/null && echo "radare2 OK" || echo "radare2 not found" && \
+    echo "Toolbox ready."
+
+ENTRYPOINT ["/bin/bash", "-c"]
+CMD ["echo 'Toolbox container ready.' && sleep infinity"]

@@ -1,0 +1,20 @@
+[package]
+name = "soullink-secrets"
+version = "0.1.0"
+edition = "2021"
+description = "AES-256-GCM encrypted secret store with HKDF key derivation (IronClaw-inspired)"
+
+[dependencies]
+aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+secrecy = "0.8"
+rand = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+bincode = "1"
+tokio = { workspace = true, features = ["fs", "io-util"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

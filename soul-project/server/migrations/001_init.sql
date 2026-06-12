@@ -1,0 +1,14 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE TABLE users ( id UUID PRIMARY KEY DEFAULT gen_random_uuid(), email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW() );
+CREATE TABLE sessions ( token TEXT PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW() );
+CREATE INDEX idx_sessions_user ON sessions(user_id);
+CREATE TABLE projects ( id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', custom_instructions TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT 'claude-opus-4-7', context_budget_tokens INTEGER NOT NULL DEFAULT 180000, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW() );
+CREATE INDEX idx_projects_user ON projects(user_id, updated_at DESC);
+CREATE TABLE project_knowledge ( id UUID PRIMARY KEY DEFAULT gen_random_uuid(), project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE, kind TEXT NOT NULL CHECK (kind IN ('file', 'text')), name TEXT NOT NULL, content TEXT NOT NULL, raw_path TEXT, mime_type TEXT, size_bytes BIGINT, token_count INTEGER NOT NULL, sha256 TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (project_id, sha256) );
+CREATE INDEX idx_knowledge_project ON project_knowledge(project_id, position);
+CREATE TABLE conversations ( id UUID PRIMARY KEY DEFAULT gen_random_uuid(), project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE, title TEXT NOT NULL DEFAULT 'New chat', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW() );
+CREATE INDEX idx_conv_project ON conversations(project_id, updated_at DESC);
+CREATE TABLE messages ( id UUID PRIMARY KEY DEFAULT gen_random_uuid(), conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role TEXT NOT NULL CHECK (role IN ('user', 'assistant')), content TEXT NOT NULL, input_tokens INTEGER, output_tokens INTEGER, model TEXT, status TEXT NOT NULL DEFAULT 'complete' CHECK (status IN ('streaming', 'complete', 'error', 'cancelled')), error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), completed_at TIMESTAMPTZ );
+CREATE INDEX idx_msg_conv ON messages(conversation_id, created_at);
+CREATE OR REPLACE FUNCTION bump_project_updated() RETURNS TRIGGER AS $$ BEGIN UPDATE projects SET updated_at = NOW() WHERE id = NEW.project_id; RETURN NEW; END; $$ LANGUAGE plpgsql;
+CREATE TRIGGER trg_knowledge_bump AFTER INSERT OR UPDATE OR DELETE ON project_knowledge FOR EACH ROW EXECUTE FUNCTION bump_project_updated();

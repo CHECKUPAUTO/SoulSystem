@@ -10,5 +10,4 @@ categories = ["machine-learning", "neuroscience", "embedded"]
 
 [dependencies]
 scirust = { package = "scirust-core", path = "../../scirust/scirust-core" }
-parking_lot = "0.12.3"
-crossbeam-utils = "0.8.19"
+parking_lot = { workspace = true }

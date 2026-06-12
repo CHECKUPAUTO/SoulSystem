@@ -1,0 +1,51 @@
+[Unit]
+Description=SoulLink V14 — JEPA World Model + Active Inference + Mesh Integration
+Documentation=https://internal/soullink/v14
+After=network-online.target soullink-orchestrator.service
+Wants=network-online.target soullink-orchestrator.service
+
+[Service]
+Type=simple
+ExecStart=/opt/soullink-node/soullink-v14 v14-brain 9095 9020
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+Environment="RUST_LOG=soullink_v14=info,warn"
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=no
+RestrictAddressFamilies=AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+
+ReadOnlyPaths=/etc/soullink
+ReadWritePaths=/var/lib/soullink /mnt/nvme/soullink_brain/logs
+
+LimitNOFILE=65536
+LimitNPROC=1024
+MemoryMax=2G
+CPUWeight=80
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=soullink-v14
+
+[Install]
+WantedBy=soullink.target

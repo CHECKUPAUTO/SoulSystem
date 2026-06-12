@@ -1,0 +1,29 @@
+[package]
+name = "avid-db"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+description = "Generic SQL database diagnoser (Postgres/MySQL/SQLite) — extracted from avid-core"
+repository.workspace = true
+
+# Extracted from avid-core::integrations::database on 2026-05-17.
+# `sqlx` with sqlite+postgres+mysql features alone added ~80 transitive
+# crates to every avid-core consumer. Isolating it here keeps the core
+# lean — and lets users pick exactly which DB driver they need via
+# features rather than dragging all three.
+
+[features]
+default = ["sqlite"]
+sqlite   = ["sqlx/sqlite"]
+postgres = ["sqlx/postgres"]
+mysql    = ["sqlx/mysql"]
+# `all` enables every driver; same surface as the old hardcoded avid-core.
+all = ["sqlite", "postgres", "mysql"]
+
+[dependencies]
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "any"] }
+tokio = { workspace = true }
+anyhow = "1"
+tracing = "0.1"
+thiserror = "2"

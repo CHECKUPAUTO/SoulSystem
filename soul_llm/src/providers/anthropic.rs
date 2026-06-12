@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use zeroize::Zeroizing;
 
 // ── Anthropic wire types ─────────────────────────────────────
 
@@ -75,7 +76,7 @@ pub struct AnthropicProvider {
     http: reqwest::Client,
     base_url: String,
     #[allow(dead_code)]
-    api_key: String,
+    api_key: Zeroizing<String>,
     default_model: String,
     temperature: f32,
     max_tokens: usize,
@@ -117,7 +118,7 @@ impl AnthropicProvider {
         Ok(Self {
             http,
             base_url: config.base_url.trim_end_matches('/').to_string(),
-            api_key,
+            api_key: Zeroizing::new(api_key),
             default_model: config.model.clone(),
             temperature: config.temperature,
             max_tokens: config.max_tokens,

@@ -446,3 +446,171 @@ impl TlsConfig {
         Ok(Arc::new(config))
         }
     }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct MockEntity {
+        ask_calls: AtomicUsize,
+        goal_calls: AtomicUsize,
+        plan_calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl EntityHandle for MockEntity {
+        async fn ask(&self, prompt: &str) -> Result<String, String> {
+            self.ask_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(format!("echo: {prompt}"))
+        }
+        async fn status(&self) -> serde_json::Value {
+            serde_json::json!({"healthy": true, "goals": 0})
+        }
+        async fn create_goal(&self, desc: &str) -> Result<String, String> {
+            self.goal_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(format!("goal-{desc}"))
+        }
+        async fn plan(&self, goal_id: &str) -> Result<Vec<String>, String> {
+            self.plan_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![format!("step1-{goal_id}"), format!("step2-{goal_id}")])
+        }
+        async fn execute_plan(&self, _goal_id: &str) -> Result<String, String> {
+            Ok("executed".into())
+        }
+        async fn execute_shell(&self, cmd: &str) -> Result<String, String> {
+            Ok(format!("ran: {cmd}"))
+        }
+        async fn run_cycle(&self) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({"cycle": "ok"}))
+        }
+        async fn list_goals(&self) -> Vec<serde_json::Value> {
+            vec![serde_json::json!({"id": "g1", "desc": "test"})]
+        }
+        async fn replay_events(&self, _n: usize) -> Vec<EntityEvent> {
+            vec![]
+        }
+        async fn alert(&self, _level: &str, _msg: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    // ── EventHub tests ───────────────────────────────────────
+
+    #[test]
+    fn event_hub_publish_and_recent() {
+        let hub = EventHub::new(10);
+        hub.publish(EntityEvent::Heartbeat { ts: Utc::now() });
+        hub.publish(EntityEvent::Heartbeat { ts: Utc::now() });
+        assert_eq!(hub.len(), 2);
+        assert!(!hub.is_empty());
+        let recent = hub.recent(5);
+        assert_eq!(recent.len(), 2);
+    }
+
+    #[test]
+    fn event_hub_capacity() {
+        let hub = EventHub::new(3);
+        for i in 0..5 {
+            hub.publish(EntityEvent::Heartbeat { ts: Utc::now() });
+        }
+        assert_eq!(hub.len(), 3);
+    }
+
+    #[test]
+    fn event_hub_recent_zero() {
+        let hub = EventHub::new(10);
+        hub.publish(EntityEvent::Heartbeat { ts: Utc::now() });
+        assert_eq!(hub.recent(0).len(), 0);
+    }
+
+    #[test]
+    fn event_hub_recent_overflow() {
+        let hub = EventHub::new(5);
+        hub.publish(EntityEvent::Heartbeat { ts: Utc::now() });
+        assert_eq!(hub.recent(100).len(), 1);
+    }
+
+    // ── GatewayState tests ───────────────────────────────────
+
+    #[test]
+    fn gateway_state_creation() {
+        let entity = Arc::new(MockEntity { ask_calls: AtomicUsize::new(0), goal_calls: AtomicUsize::new(0), plan_calls: AtomicUsize::new(0) });
+        let state = GatewayState::new(entity);
+        assert!(state.events.is_empty());
+        assert_eq!(state.events.len(), 0);
+    }
+
+    // ── EntityEvent serialization ────────────────────────────
+
+    #[test]
+    fn entity_event_serialization() {
+        let ev = EntityEvent::GoalCreated {
+            id: "g1".into(),
+            description: "test goal".into(),
+            ts: Utc::now(),
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        assert!(json.contains("GoalCreated"));
+        assert!(json.contains("g1"));
+        assert!(json.contains("test goal"));
+    }
+
+    #[test]
+    fn entity_event_error_serialization() {
+        let ev = EntityEvent::Error {
+            message: "something broke".into(),
+            ts: Utc::now(),
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        assert!(json.contains("Error"));
+        assert!(json.contains("something broke"));
+    }
+
+    // ── MockEntity tests ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn mock_entity_ask() {
+        let entity = MockEntity { ask_calls: AtomicUsize::new(0), goal_calls: AtomicUsize::new(0), plan_calls: AtomicUsize::new(0) };
+        let resp = entity.ask("hello").await.unwrap();
+        assert_eq!(resp, "echo: hello");
+        assert_eq!(entity.ask_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn mock_entity_create_goal() {
+        let entity = MockEntity { ask_calls: AtomicUsize::new(0), goal_calls: AtomicUsize::new(0), plan_calls: AtomicUsize::new(0) };
+        let id = entity.create_goal("learn rust").await.unwrap();
+        assert_eq!(id, "goal-learn rust");
+    }
+
+    #[tokio::test]
+    async fn mock_entity_plan() {
+        let entity = MockEntity { ask_calls: AtomicUsize::new(0), goal_calls: AtomicUsize::new(0), plan_calls: AtomicUsize::new(0) };
+        let steps = entity.plan("g1").await.unwrap();
+        assert_eq!(steps.len(), 2);
+        assert!(steps[0].contains("g1"));
+    }
+
+    #[tokio::test]
+    async fn mock_entity_status() {
+        let entity = MockEntity { ask_calls: AtomicUsize::new(0), goal_calls: AtomicUsize::new(0), plan_calls: AtomicUsize::new(0) };
+        let status = entity.status().await;
+        assert_eq!(status["healthy"], true);
+    }
+
+    // ── GatewayError tests ───────────────────────────────────
+
+    #[test]
+    fn gateway_error_display() {
+        let err = GatewayError::BadRequest("invalid".into());
+        assert!(err.to_string().contains("invalid"));
+    }
+
+    #[test]
+    fn gateway_error_from_io() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+        let gw_err: GatewayError = io_err.into();
+        assert!(gw_err.to_string().contains("file missing"));
+    }
+}

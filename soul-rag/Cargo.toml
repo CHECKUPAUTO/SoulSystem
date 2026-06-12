@@ -1,0 +1,20 @@
+[package]
+name = "soul_rag"
+version = "0.1.0"
+edition = "2021"
+description = "RAG integration combining web fetch, browser, and memory"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tracing = "0.1"
+thiserror = "2"
+soul_webfetch = { path = "../soul-webfetch" }
+soul_browser = { path = "../soul-browser" }
+soul_persist = { path = "../soul-persist" }
+chrono = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

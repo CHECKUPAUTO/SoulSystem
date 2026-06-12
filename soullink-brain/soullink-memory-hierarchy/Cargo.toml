@@ -1,0 +1,17 @@
+[package]
+name = "soullink-memory-hierarchy"
+version = "13.5.0"
+edition = "2021"
+description = "SoulSystem — Hierarchical memory: episodic, semantic, working, consolidation"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+dashmap = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

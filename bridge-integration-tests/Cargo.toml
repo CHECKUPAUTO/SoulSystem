@@ -1,0 +1,21 @@
+[package]
+name = "bridge-integration-tests"
+version = "0.1.0"
+edition = "2021"
+description = "Tests d'intégration des 9 bridges SoulSystem ↔ écosystème"
+
+[[bin]]
+name = "smoke-bridges"
+path = "src/smoke.rs"
+
+[dependencies]
+# Bridges unifiés — soul-bridge remplace 9 bridges individuels
+soul-bridge = { path = "../soul-bridge" }
+forge-core = { path = "../forges/forge-core" }
+forge-bridge = { path = "../forges/forge-bridge" }
+
+# HTTP
+reqwest = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }

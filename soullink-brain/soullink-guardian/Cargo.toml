@@ -1,0 +1,38 @@
+[package]
+name = "soullink-guardian"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SoulLink V13.5 — Core Guardian binary (thermal, homeostasis, emergency reflex)"
+
+[[bin]]
+name = "core_guardian"
+path = "src/main.rs"
+
+[dependencies]
+soullink-core = { path = "../soullink-core" }
+soullink-nvml = { path = "../soullink-nvml" }
+
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+reqwest = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+
+arc-swap = { workspace = true }
+parking_lot = { workspace = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+once_cell = "1.21"

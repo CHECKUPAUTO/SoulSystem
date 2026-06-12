@@ -52,7 +52,7 @@ fn main() {
 
     let command = &args[1];
 
-    if command == &"optimize" {
+    if command == "optimize" {
         tracing_subscriber::fmt()
             .with_env_filter("soul_evolution=info")
             .with_target(false)
@@ -165,7 +165,7 @@ fn cmd_validate(_config: &EvolutionConfig) {
 
     for entry in walker.into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
-        if path.extension().map_or(true, |e| e != "md") {
+        if path.extension().is_none_or(|e| e != "md") {
             continue;
         }
         let result = Validator::validate_file(path);
@@ -228,13 +228,13 @@ fn cmd_status() {
     println!("╔══════════════════════════════════════════╗");
     println!("║        Agent Ecosystem Status            ║");
     println!("╚══════════════════════════════════════════╝");
-    println!("");
+    println!();
     println!("  Agents:      {}", report.agent_count);
     println!("  Commands:    {}", report.command_count);
     println!("  Skills:      {}", report.skill_count);
     println!("  Rules:       {}", report.rule_count);
     println!("  Health:      {:.1}%", report.ecosystem_health * 100.0);
-    println!("");
+    println!();
 
     let high_issues: usize = report
         .audits
@@ -249,7 +249,7 @@ fn cmd_status() {
     println!("  Languages:   {}", lang_coverage);
 
     if let Some(state) = persisted {
-        println!("");
+        println!();
         println!("  ── Evolution History ──");
         println!("  Iterations:  {}", state.iteration);
         if let Some(&last_health) = state.health_trajectory.last() {

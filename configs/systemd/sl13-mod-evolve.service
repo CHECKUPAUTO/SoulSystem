@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink V14 Module evolve - Self-Learning Engine
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 -u /mnt/nvme/soullink_brain/sl13-mod-evolve.py
+WorkingDirectory=/mnt/nvme/soullink_brain
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target

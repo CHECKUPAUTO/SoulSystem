@@ -1,0 +1,24 @@
+[package]
+name = "avid-soullink"
+version = "0.1.0"
+edition = "2021"
+description = "Bridge entre AVID et SoulLink — Blackboard, Memori, Intents"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true, features = ["stream"] }
+futures = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+sha2 = "0.10"
+hex = "0.4"
+time = "0.3"
+
+[dev-dependencies]
+wiremock = { workspace = true }
+tempfile = { workspace = true }

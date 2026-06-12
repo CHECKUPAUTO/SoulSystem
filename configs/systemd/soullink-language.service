@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink Language Organ — Grounded NL generation and context management
+After=network.target soullink-orchestrator.service soullink-memory.service
+Wants=soullink-orchestrator.service soullink-memory.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soullink-language $PORT
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=soullink.target

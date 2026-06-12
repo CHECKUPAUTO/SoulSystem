@@ -1,0 +1,42 @@
+[package]
+name = "avid-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "HTTP API server for the AVID autonomous engineering intelligence system"
+repository = "https://github.com/CHECKUPAUTO/AVID"
+documentation = "https://docs.rs/avid-server"
+keywords = ["api", "server", "engineering", "axum", "agent"]
+categories = ["web-programming", "development-tools"]
+
+[dependencies]
+avid-core = { path = "../avid-core" }
+avid-scout = { path = "../avid-scout" }
+
+tokio = { workspace = true }
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["limit", "trace"] }
+hyper = "1"
+serde = { workspace = true }
+serde_json = "1"
+tracing = "0"
+subtle = "2"
+reqwest = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+anyhow = "1"
+prometheus = { version = "0", features = ["process"] }
+futures = "0.3"
+bytes = "1"
+which = "7"
+time = "0"
+r2d2_sqlite = "0.25"
+rusqlite = { version = "0.32", features = ["bundled"] }
+r2d2 = "0.8"
+garde = { version = "0", features = ["derive"] }
+base64 = "0.22"
+
+[dev-dependencies]
+wiremock = "0.6"
+tempfile = "3"

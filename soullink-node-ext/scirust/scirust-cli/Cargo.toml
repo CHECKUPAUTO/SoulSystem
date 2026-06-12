@@ -1,0 +1,14 @@
+[package]
+name = "scirust-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["SciRust Team"]
+description = "SciRust CLI: end-to-end mathematical intelligence pipeline"
+publish = false
+
+[dependencies]
+scirust-symbolic = { path = "../scirust-symbolic" }
+scirust-reasoning = { path = "../scirust-reasoning" }
+scirust-learning = { path = "../scirust-learning" }
+scirust-bridge = { path = "../scirust-bridge" }
+scirust-autodiff = { path = "../scirust-autodiff" }

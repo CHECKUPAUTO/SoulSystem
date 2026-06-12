@@ -1,0 +1,15 @@
+[package]
+name = "soul_eventbus"
+version = "0.1.0"
+edition = "2021"
+description = "Shared event bus connecting agent, daemon, and dashboard"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tracing = "0.1"
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

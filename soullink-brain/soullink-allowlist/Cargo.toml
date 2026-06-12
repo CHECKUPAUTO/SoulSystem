@@ -1,0 +1,14 @@
+[package]
+name = "soullink-allowlist"
+version = "0.1.0"
+edition = "2021"
+description = "Domain allowlist with wildcard matching for network access control (IronClaw-inspired)"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+url = "2"
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -1,0 +1,18 @@
+[package]
+name = "soul_wasm"
+version = "0.2.0"
+edition = "2021"
+description = "WASM plugin sandbox for safe code execution"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+thiserror = "2"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+wasmtime = "45"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

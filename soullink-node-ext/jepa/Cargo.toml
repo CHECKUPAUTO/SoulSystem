@@ -1,0 +1,11 @@
+[package]
+name = "jepa"
+version = "0.1.0"
+edition = "2021"
+description = "Joint Embedding Predictive Architecture — SSM encoder + SciRust learning"
+
+[dependencies]
+soullink-ssm = { path = "../soullink-ssm" }
+scirust-core = { path = "../scirust/scirust-core" }
+ndarray = "0.16"
+rand = "0.8"

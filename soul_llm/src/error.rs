@@ -78,3 +78,62 @@ impl From<&str> for LlmError {
 }
 
 pub type Result<T> = std::result::Result<T, LlmError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn llm_error_display_network() {
+        assert!(LlmError::Network("timeout".into()).to_string().contains("network"));
+    }
+
+    #[test]
+    fn llm_error_display_auth() {
+        assert!(LlmError::Auth("bad key".into()).to_string().contains("auth"));
+    }
+
+    #[test]
+    fn llm_error_display_rate_limited() {
+        let e = LlmError::RateLimited { retry_after: Some(30) };
+        assert!(e.to_string().contains("retry after 30s"));
+    }
+
+    #[test]
+    fn llm_error_display_budget_exceeded() {
+        let e = LlmError::BudgetExceeded { goal_id: "g1".into(), used: 200, budget: 100 };
+        assert!(e.to_string().contains("g1"));
+    }
+
+    #[test]
+    fn llm_error_display_unknown_provider() {
+        assert!(LlmError::UnknownProvider("foo".into()).to_string().contains("foo"));
+    }
+
+    #[test]
+    fn llm_error_display_provider() {
+        assert!(LlmError::Provider("boom".into()).to_string().contains("provider error"));
+    }
+
+    #[test]
+    fn llm_error_display_serialization() {
+        assert!(LlmError::Serialization("bad json".into()).to_string().contains("serialization"));
+    }
+
+    #[test]
+    fn llm_error_display_unsupported() {
+        assert!(LlmError::Unsupported("no embeddings".into()).to_string().contains("unsupported"));
+    }
+
+    #[test]
+    fn llm_error_from_string() {
+        let e: LlmError = "hello".to_string().into();
+        assert!(e.to_string().contains("provider error"));
+    }
+
+    #[test]
+    fn llm_error_from_str() {
+        let e: LlmError = "world".into();
+        assert!(e.to_string().contains("provider error"));
+    }
+}

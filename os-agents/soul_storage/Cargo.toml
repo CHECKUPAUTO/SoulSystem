@@ -1,0 +1,12 @@
+[package]
+name = "soul_storage"
+version = "0.1.0"
+edition = "2021"
+description = "Lock-free vector store with zero-allocation KNN cosine similarity search (65K vectors × 1024-dim) for hot-path agent memory"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["vector-store", "knn", "cosine-similarity", "lock-free", "zero-copy"]
+categories = ["data-structures", "embedded", "science", "machine-learning"]
+
+[dependencies]
+soul_scheduler = { path = "../soul_scheduler" }

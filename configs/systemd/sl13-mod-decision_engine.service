@@ -1,0 +1,14 @@
+[Unit]
+Description=SoulLink V13 Module decision_engine
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/SoulSystem/soullink-brain
+ExecStart=/usr/local/bin/soul-decision-v13
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

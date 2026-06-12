@@ -1,0 +1,10 @@
+[package]
+name = "scirust-genetic"
+version = "0.1.0"
+edition = "2021"
+description = "Evolutionary and genetic programming algorithms for SciRust"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+scirust-symbolic = { path = "/root/scirust/scirust-symbolic" }
+scirust-reasoning = { path = "/root/scirust/scirust-reasoning" }

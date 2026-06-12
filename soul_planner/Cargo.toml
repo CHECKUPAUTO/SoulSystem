@@ -9,6 +9,6 @@ keywords = ["planner", "cognitive-loop", "observe-plan-act", "goal-management", 
 categories = ["machine-learning", "embedded", "algorithms"]
 
 [dependencies]
-uuid = { version = "1", features = ["v4"] }
-chrono = { version = "0.4", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }

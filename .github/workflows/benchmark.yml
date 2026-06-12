@@ -1,0 +1,39 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install benchmark dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends linux-tools-common linux-tools-generic
+
+      - name: Run benchmarks
+        run: |
+          cd soullink-brain
+          cargo bench --bench hnn_benchmark -- --output-format bencher | tee ../benchmark_results.txt
+
+      - name: Store benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark_results.txt
+
+      - name: Check for performance regression
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "TODO: Compare with main branch baseline"
+          echo "Install and use cargo-criterion for automated regression detection"

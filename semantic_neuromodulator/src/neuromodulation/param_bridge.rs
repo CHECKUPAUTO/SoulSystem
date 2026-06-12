@@ -9,6 +9,12 @@ pub struct AlgorithmicParameters {
     pub speculative_lookahead: AtomicU32,
 }
 
+impl Default for AlgorithmicParameters {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AlgorithmicParameters {
     pub fn new() -> Self {
         Self {

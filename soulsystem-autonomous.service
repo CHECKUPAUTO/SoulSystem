@@ -1,0 +1,24 @@
+[Unit]
+Description=SoulSystem Autonomous Entity
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/tarek/SoulSystem
+ExecStart=/home/tarek/SoulSystem/target/release/soulsystem --repl
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=RUST_LOG=info
+
+# Resources
+MemoryMax=2G
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

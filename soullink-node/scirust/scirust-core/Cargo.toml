@@ -1,0 +1,16 @@
+[package]
+name = "scirust-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+scirust-autodiff = { path = "/root/scirust/scirust-autodiff" }
+scirust-macros = { path = "/root/scirust/scirust-macros" }
+scirust-simd = { path = "/root/scirust/scirust-simd" }
+scirust-gpu = { path = "/root/scirust/scirust-gpu" }
+scirust-gpu-macros = { path = "/root/scirust/scirust-gpu-macros" }
+scirust-simd-macros = { path = "/root/scirust/scirust-simd-macros" }
+scirust-symbolic = { path = "/root/scirust/scirust-symbolic" }
+scirust-reasoning = { path = "/root/scirust/scirust-reasoning" }
+scirust-learning = { path = "/root/scirust/scirust-learning" }
+scirust-bridge = { path = "/root/scirust/scirust-bridge" }

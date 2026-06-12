@@ -1,0 +1,33 @@
+ARG TARGETARCH
+FROM debian:12-slim
+
+# Labels for multi-arch metadata
+LABEL org.opencontainers.image.authors="SoulLink Team"
+LABEL org.opencontainers.image.description="Clawd Multi-Arch Rootless Container"
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 clawd
+USER clawd
+WORKDIR /app
+
+# Copy binary (assumed to be pre-built for the target arch)
+COPY ./target/${TARGETARCH}/release/clawd /usr/local/bin/clawd
+
+# Volume configuration for logs
+VOLUME /var/log/clawd
+
+# Expose heartbeat port
+EXPOSE 9051
+
+# Healthcheck using curl as specified
+HEALTHCHECK --interval=30s --timeout=2s --retries=3 \
+  CMD curl -f http://localhost:9051/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/clawd"]

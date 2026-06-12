@@ -1,0 +1,13 @@
+[package]
+name = "scirust-bridge"
+version = "0.1.0"
+edition = "2021"
+authors = ["SciRust Team"]
+description = "IA bridge for SciRust: natural language parser and pipeline orchestrator"
+publish = false
+
+[dependencies]
+scirust-symbolic = { path = "/root/scirust/scirust-symbolic" }
+scirust-reasoning = { path = "/root/scirust/scirust-reasoning" }
+scirust-learning = { path = "/root/scirust/scirust-learning" }
+regex = "1.10"

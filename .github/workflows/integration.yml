@@ -1,0 +1,39 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libleptonica-dev libtesseract-dev
+
+      - name: Build workspace
+        run: cargo build
+
+      - name: Start avid-server (mock)
+        run: |
+          ./target/debug/avid-server --mock &
+          echo "PID=$!" >> $GITHUB_ENV
+          sleep 2
+
+      - name: Run integration tests
+        run: cargo test --test integration_hello
+
+      - name: Stop avid-server
+        if: always()
+        run: |
+          if [ -n "$PID" ]; then
+            kill $PID 2>/dev/null || true
+          fi

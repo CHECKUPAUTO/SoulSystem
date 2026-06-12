@@ -1,0 +1,13 @@
+[Unit]
+Description=SoulLink REM Sleep Cycle — decay + prune + consolidate + semantic_elision
+Documentation=man:soullink(7)
+After=network.target soullink-orchestrator.service soullink-memory.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/soullink-sleep-tick
+StandardOutput=journal
+StandardError=journal
+[Install]
+WantedBy=soullink.target

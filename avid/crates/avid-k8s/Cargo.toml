@@ -1,0 +1,22 @@
+[package]
+name = "avid-k8s"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+description = "Kubernetes diagnoser — extracted from avid-core to keep core lean"
+repository.workspace = true
+
+# Extracted from avid-core::integrations::kubernetes on 2026-05-17.
+# Previously, kube + k8s-openapi were pulled into every avid-core
+# consumer (= almost every crate of the workspace) for a single 70-line
+# diagnoser. That's ~150 transitive crates for code that 90% of users
+# don't need. This crate exists so consumers opt in explicitly.
+
+[dependencies]
+kube = { version = "0.98", features = ["runtime", "derive"] }
+k8s-openapi = { version = "0.24", features = ["latest"] }
+tokio = { workspace = true }
+anyhow = "1"
+tracing = "0.1"
+thiserror = "2"

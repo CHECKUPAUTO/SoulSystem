@@ -1,0 +1,29 @@
+[package]
+name = "soul-memory"
+version = "0.7.0"
+edition = "2021"
+description = "Unified memory system: vector store, persistence, conversations, knowledge graph, RAG"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tracing = "0.1"
+thiserror = "2"
+chrono = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+sled = "0.34"
+rusqlite = { version = "0.32", features = ["bundled"] }
+dashmap = "6"
+soulsystem-common = { path = "../crates/soulsystem-common" }
+soul_webfetch = { path = "../soul-webfetch", optional = true }
+soul_browser = { path = "../soul-browser", optional = true }
+anyhow = "1"
+tempfile = "3"
+
+[features]
+default = ["web"]
+web = ["soul_webfetch", "soul_browser"]
+
+[dev-dependencies]
+tempfile = "3"

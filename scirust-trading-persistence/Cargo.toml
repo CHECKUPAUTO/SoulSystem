@@ -1,0 +1,17 @@
+[package]
+name = "scirust-trading-persistence"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+scirust-trading-core = { path = "../scirust-trading-core" }
+scirust-trading-engine = { path = "../scirust-trading-engine" }
+rusqlite = { version = "0.32", features = ["bundled", "chrono", "uuid"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+async-trait = { workspace = true }

@@ -9,5 +9,4 @@ keywords = ["synapse", "linker", "ecosystem", "neural", "topology", "rewiring", 
 categories = ["machine-learning", "neuroscience", "embedded", "distributed-systems"]
 
 [dependencies]
-arc-swap = "1.7"
-parking_lot = "0.12.3"
+parking_lot = { workspace = true }
