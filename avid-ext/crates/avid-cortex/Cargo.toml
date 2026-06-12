@@ -1,0 +1,24 @@
+[package]
+name = "avid-cortex"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Semantic comprehension engine for the AVID autonomous system"
+
+[dependencies]
+avid-core = { path = "../avid-core" }
+thiserror = "2"
+anyhow = "1"
+serde = { workspace = true }
+serde_json = "1"
+tokio = { workspace = true }
+tracing = "0"
+lopdf = "0.33"
+garde = { version = "0", features = ["derive"] }
+async-trait = "0.1"
+reqwest = { workspace = true }
+handlebars = "6"
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { workspace = true }

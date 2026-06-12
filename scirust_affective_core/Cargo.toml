@@ -1,0 +1,13 @@
+[package]
+name = "scirust_affective_core"
+version = "0.1.0"
+edition = "2021"
+description = "Affective core implementing PAD (Pleasure-Arousal-Dominance) space with homeostatic drives and autograd emotional hooks for scirust"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["affective", "pad", "pleasure-arousal-dominance", "homeostatic", "autograd", "emotion"]
+categories = ["machine-learning", "neuroscience", "embedded"]
+
+[dependencies]
+scirust = { package = "scirust-core", path = "../../scirust/scirust-core" }
+parking_lot = { workspace = true }

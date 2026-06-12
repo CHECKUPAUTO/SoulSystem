@@ -21,7 +21,10 @@ impl PatchEngine {
     /// Le correctif est un patch diff ou le code de remplacement complet.
     /// Inclut validation du patch (compile-t-il ?) pour Rust.
     pub async fn generate_patch(&self, finding: &Finding) -> anyhow::Result<Option<String>> {
-        info!("Generating patch for: {} ({})", finding.title, finding.file_path);
+        info!(
+            "Generating patch for: {} ({})",
+            finding.title, finding.file_path
+        );
 
         // Si un POC existe, on peut s'en servir pour vérifier le patch
         let has_poc = finding.exploit_code.is_some();
@@ -96,7 +99,10 @@ If the finding is not patchable, respond with: "NOT_PATCHABLE""#,
             .send()
             .await?;
         let body: serde_json::Value = resp.json().await?;
-        let response = body["response"].as_str().unwrap_or("NOT_PATCHABLE").to_string();
+        let response = body["response"]
+            .as_str()
+            .unwrap_or("NOT_PATCHABLE")
+            .to_string();
         Ok(response)
     }
 

@@ -1,0 +1,35 @@
+{
+  "name": "openclaw-gateway",
+  "version": "2.0.0",
+  "description": "OpenClaw Gateway — Agent pipeline gateway — CLI installer and updater",
+  "main": "cli.js",
+  "bin": {
+    "openclaw-gateway-install": "./cli.js",
+    "openclaw-gateway-update": "./cli.js"
+  },
+  "scripts": {
+    "install": "node cli.js install",
+    "update": "node cli.js update",
+    "postinstall": "node cli.js postinstall"
+  },
+  "keywords": [
+    "openclaw-gateway",
+    "rust",
+    "cli",
+    "checkupauto"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CHECKUPAUTO/openclaw-gateway.git"
+  },
+  "author": "CHECKUPAUTO Contributors",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "os": ["linux", "darwin"],
+  "files": [
+    "cli.js",
+    "README.md"
+  ]
+}

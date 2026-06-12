@@ -122,6 +122,7 @@ impl ConfigLoader {
     }
 
     /// Charge la config, en cas d'erreur retourne (None, errors).
+    #[allow(dead_code)]
     pub fn try_load<T: Default + DeserializeOwned>(self) -> Result<T, Vec<String>> {
         let toml_str = self
             .read_toml()

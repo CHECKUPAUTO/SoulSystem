@@ -1,0 +1,11 @@
+[package]
+name = "scirust-learning"
+version = "0.1.0"
+edition = "2021"
+authors = ["SciRust Team"]
+description = "Learning layer for SciRust: pattern memory, function approximation, regression"
+publish = false
+
+[dependencies]
+scirust-symbolic = { path = "../scirust-symbolic" }
+ndarray = "0.15"

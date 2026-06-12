@@ -1,9 +1,9 @@
 [package]
 name = "avid-skills"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
 description = "Skill system for AVID — load, register, and execute SKILL.md-based agent skills"
 repository = "https://github.com/CHECKUPAUTO/AVID"
 documentation = "https://docs.rs/avid-skills"
@@ -13,11 +13,11 @@ categories = ["development-tools"]
 [dependencies]
 avid-core = { path = "../avid-core" }
 
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 serde_json = "1"
 serde_yaml = "0.9"
 thiserror = "2"
-tokio = { version = "1", features = ["rt", "sync", "time"] }
+tokio = { workspace = true }
 tracing = "0"
 walkdir = "2"
 

@@ -11,6 +11,7 @@
 //! `r2d2` connection pooling so async tasks share the same database without
 //! blocking each other.
 
+use crate::embedding::cosine;
 use crate::program::Program;
 use anyhow::{Context, Result};
 use r2d2::Pool;
@@ -412,23 +413,7 @@ fn bytes_to_embedding(b: &[u8]) -> Vec<f32> {
         .collect()
 }
 
-fn cosine(a: &[f32], b: &[f32]) -> f32 {
-    if a.is_empty() || a.len() != b.len() {
-        return 0.0;
-    }
-    let mut dot = 0.0f32;
-    let mut na = 0.0f32;
-    let mut nb = 0.0f32;
-    for i in 0..a.len() {
-        dot += a[i] * b[i];
-        na += a[i] * a[i];
-        nb += b[i] * b[i];
-    }
-    if na == 0.0 || nb == 0.0 {
-        return 0.0;
-    }
-    dot / (na.sqrt() * nb.sqrt())
-}
+// cosine() imported from crate::embedding (deduplicated)
 
 // Tiny num_cpus polyfill so we don't need the crate
 mod num_cpus {

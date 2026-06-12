@@ -80,7 +80,7 @@ impl PromptMemory {
         }
     }
 
-    pub fn success_rate(&self, language: &str) -> f64 {
+    pub fn language_success_rate(&self, language: &str) -> f64 {
         let m = self.records.lock();
         let mut total = 0.0;
         let mut count = 0u32;
@@ -119,7 +119,7 @@ mod tests {
         pm.record("Optimize for speed", "python", 0.9);
         let p = pm.select_prompt("python", "O(n)", 0.5, "default");
         assert_eq!(p, "Optimize for speed");
-        assert!(pm.success_rate("python") > 0.7);
+        assert!(pm.language_success_rate("python") > 0.7);
     }
 
     #[test]

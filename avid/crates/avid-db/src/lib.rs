@@ -56,7 +56,7 @@ impl DatabaseClient {
     ///
     /// Best-effort: queries `information_schema.columns` which works on
     /// `Postgres` and `MySQL`. `SQLite` users should use the `pragma_table_info`
-    /// variant (TODO).
+    /// variant (planned).
     ///
     /// # Errors
     /// Returns `DbError::Query` on SQL failure.

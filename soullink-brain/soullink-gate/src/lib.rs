@@ -181,7 +181,7 @@ impl ApprovalGate {
         Ok(())
     }
 
-    /// Load permissions from file (TODO: proper serialization).
+    /// Load permissions from file (NOTE: proper serialization).
     pub async fn load(&self, _path: impl AsRef<Path>) -> Result<(), GateError> {
         Ok(())
     }

@@ -6,7 +6,7 @@ use crate::types::CveEntry;
 
 /// Client pour la National Vulnerability Database (NVD) API 2.0
 pub struct NvdClient {
-#[allow(dead_code)]
+    #[allow(dead_code)]
     api_key: Option<String>,
     client: reqwest::Client,
     base_url: String,
@@ -38,11 +38,7 @@ impl NvdClient {
     /// Récupère les CVEs les plus récents
     pub async fn fetch_recent(&self, limit: usize) -> anyhow::Result<Vec<CveEntry>> {
         info!("Fetching recent CVEs (limit: {})", limit);
-        let url = format!(
-            "{}?resultsPerPage={}",
-            self.base_url,
-            limit.min(200),
-        );
+        let url = format!("{}?resultsPerPage={}", self.base_url, limit.min(200),);
         self.fetch_cve_list(&url).await
     }
 
@@ -139,8 +135,16 @@ fn parse_nvd_vuln(vuln: &serde_json::Value, cve_id: &str) -> CveEntry {
     let cvss_score = metrics["cvssMetricV31"]
         .as_array()
         .and_then(|arr| arr.first())
-        .or_else(|| metrics["cvssMetricV30"].as_array().and_then(|arr| arr.first()))
-        .or_else(|| metrics["cvssMetricV2"].as_array().and_then(|arr| arr.first()))
+        .or_else(|| {
+            metrics["cvssMetricV30"]
+                .as_array()
+                .and_then(|arr| arr.first())
+        })
+        .or_else(|| {
+            metrics["cvssMetricV2"]
+                .as_array()
+                .and_then(|arr| arr.first())
+        })
         .and_then(|m| m["cvssData"]["baseScore"].as_f64());
 
     let severity = cvss_score
@@ -159,7 +163,11 @@ fn parse_nvd_vuln(vuln: &serde_json::Value, cve_id: &str) -> CveEntry {
 
     let references: Vec<String> = cve_data["references"]
         .as_array()
-        .map(|arr| arr.iter().filter_map(|r| r["url"].as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|r| r["url"].as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     let affected_packages = extract_affected_packages(cve_data);

@@ -1,9 +1,9 @@
 [package]
 name = "avid-core"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
 description = "LLM-driven agent pipeline, task orchestration, queue, and memory persistence for the AVID system"
 repository = "https://github.com/CHECKUPAUTO/AVID"
 documentation = "https://docs.rs/avid-core"
@@ -14,8 +14,8 @@ categories = ["development-tools"]
 avid-anticlone = { path = "../avid-anticlone" }
 avid-sandbox = { path = "../avid-sandbox" }
 
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
+tokio = { workspace = true }
+serde = { workspace = true }
 serde_json = "1"
 garde = { version = "0", features = ["derive"] }
 thiserror = "2"
@@ -28,7 +28,7 @@ redis = { version = "0.27", features = ["tokio-comp"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.25"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { workspace = true }
 subtle = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 async-trait = "0.1"

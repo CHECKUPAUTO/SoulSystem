@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 ndarray = { version = "0.16", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }

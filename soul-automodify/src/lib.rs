@@ -56,9 +56,7 @@ impl AutoModifier {
     /// Backup a file before modification
     pub fn backup(&self, file_path: &Path) -> Result<PathBuf, AutoModifyError> {
         if !file_path.exists() {
-            return Err(AutoModifyError::NotFound(
-                file_path.display().to_string(),
-            ));
+            return Err(AutoModifyError::NotFound(file_path.display().to_string()));
         }
 
         let filename = file_path
@@ -146,10 +144,7 @@ impl AutoModifier {
     }
 
     /// Rollback a modification
-    pub fn rollback(
-        &mut self,
-        modification_id: &str,
-    ) -> Result<(), AutoModifyError> {
+    pub fn rollback(&mut self, modification_id: &str) -> Result<(), AutoModifyError> {
         let mod_entry = self
             .history
             .iter()
@@ -355,7 +350,9 @@ mod tests {
         std::fs::write(&file, "original").unwrap();
 
         modifier.modify(&file, "v1", "first change", false).unwrap();
-        modifier.modify(&file, "v2", "second change", false).unwrap();
+        modifier
+            .modify(&file, "v2", "second change", false)
+            .unwrap();
 
         assert_eq!(modifier.history().len(), 2);
         assert_eq!(modifier.history()[0].description, "first change");

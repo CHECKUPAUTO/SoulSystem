@@ -1,0 +1,16 @@
+{
+  "best": {
+    "gen": 0,
+    "id": "de540c81",
+    "score": 0.0
+  },
+  "elapsed": 2714,
+  "islands": [
+    10,
+    10,
+    10
+  ],
+  "iteration": 50,
+  "saved": 52,
+  "temperature": 0.6164391206351646
+}

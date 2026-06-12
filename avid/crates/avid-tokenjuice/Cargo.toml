@@ -1,9 +1,9 @@
 [package]
 name = "avid-tokenjuice"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
 description = "Token counting, budgeting, and middleware for LLM calls in the AVID system"
 repository = "https://github.com/CHECKUPAUTO/AVID"
 documentation = "https://docs.rs/avid-tokenjuice"
@@ -13,8 +13,8 @@ categories = ["development-tools"]
 [dependencies]
 avid-core = { path = "../avid-core" }
 
-tokio = { version = "1", features = ["sync"] }
-serde = { version = "1", features = ["derive"] }
+tokio = { workspace = true }
+serde = { workspace = true }
 thiserror = "2"
 tracing = "0"
 async-trait = "0.1"
@@ -23,5 +23,5 @@ async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
 wiremock = "0.6"
 garde = { version = "0.20", features = ["derive"] }
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 serde_json = "1"

@@ -34,8 +34,11 @@ pub struct DaliPipeline {
     #[cfg(feature = "dali")]
     handle: cxx::UniquePtr<dali_ffi::DaliPipelineHandle>,
     batch_size: u32,
+    #[cfg(feature = "dali")]
     num_threads: u32,
+    #[cfg(feature = "dali")]
     device: Device,
+    #[cfg(feature = "dali")]
     built: bool,
 }
 

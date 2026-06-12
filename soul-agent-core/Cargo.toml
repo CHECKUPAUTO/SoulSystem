@@ -10,10 +10,16 @@ soul_planner = { path = "../soul_planner" }
 soul_tools = { path = "../soul_tools" }
 soul_compaction = { path = "../soul-compaction" }
 soul_critique = { path = "../soul-critique" }
-serde = { version = "1", features = ["derive"] }
+soullink-memory-hierarchy = { path = "../soullink-brain/soullink-memory-hierarchy" }
+soullink-autonomy = { path = "../soullink-brain/soullink-autonomy" }
+soullink-reasoning = { path = "../soullink-brain/soullink-reasoning" }
+soullink-trainer = { path = "../soullink-brain/soullink-trainer" }
+soul-memory = { workspace = true }
+soul_skills = { path = "../soul-skills" }
+serde = { workspace = true }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "sync", "signal"] }
+tokio = { workspace = true }
 tracing = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 colored = "2"

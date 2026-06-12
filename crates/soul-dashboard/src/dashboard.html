@@ -96,23 +96,50 @@ async function refresh() {
     document.getElementById('organs-total').textContent = health.organs_total;
     document.getElementById('events-count').textContent = health.events_count;
 
+    // Safe DOM rendering using textContent to prevent XSS
     const organsList = document.getElementById('organs-list');
-    organsList.innerHTML = organs.map(o => `
-      <li class="organ-item">
-        <span class="organ-dot ${o.healthy ? 'dot-green' : 'dot-red'}"></span>
-        <span class="organ-name">${o.name}</span>
-        <span class="organ-meta">${o.avg_latency_ms}ms · ${o.vram_used_mib}MiB</span>
-      </li>`).join('');
+    organsList.replaceChildren(...organs.map(o => {
+      const li = document.createElement('li');
+      li.className = 'organ-item';
+      const dot = document.createElement('span');
+      dot.className = 'organ-dot ' + (o.healthy ? 'dot-green' : 'dot-red');
+      const name = document.createElement('span');
+      name.className = 'organ-name';
+      name.textContent = o.name;
+      const meta = document.createElement('span');
+      meta.className = 'organ-meta';
+      meta.textContent = o.avg_latency_ms + 'ms · ' + o.vram_used_mib + 'MiB';
+      li.append(dot, name, meta);
+      return li;
+    }));
 
     const eventsList = document.getElementById('events-list');
-    eventsList.innerHTML = events.map(e => {
+    eventsList.replaceChildren(...events.map(e => {
+      const li = document.createElement('li');
+      li.className = 'event-item';
+      const time = document.createElement('span');
+      time.className = 'event-time';
+      time.textContent = e.timestamp.substring(0, 8);
+      const kind = document.createElement('span');
       const kindClass = e.kind === 'Heartbeat' ? 'kind-heartbeat' : e.kind === 'Error' ? 'kind-error' : e.kind === 'Turbulence' ? 'kind-turbulence' : 'kind-default';
-      return `<li class="event-item"><span class="event-time">${e.timestamp.substring(0,8)}</span><span class="event-kind ${kindClass}">${e.kind}</span><span>${e.source}</span></li>`;
-    }).join('');
+      kind.className = 'event-kind ' + kindClass;
+      kind.textContent = e.kind;
+      const src = document.createElement('span');
+      src.textContent = e.source;
+      li.append(time, kind, src);
+      return li;
+    }));
 
     const turbList = document.getElementById('turbulence-list');
-    turbList.innerHTML = turb.map(t => `
-      <li class="turb-item"><span class="sev-${t.severity}">${t.severity}</span> — ${t.message}</li>`).join('');
+    turbList.replaceChildren(...turb.map(t => {
+      const li = document.createElement('li');
+      li.className = 'turb-item';
+      const sev = document.createElement('span');
+      sev.className = 'sev-' + t.severity;
+      sev.textContent = t.severity;
+      li.append(sev, ' — ' + t.message);
+      return li;
+    }));
   } catch(e) { console.error('Refresh failed:', e); }
 }
 

@@ -32,11 +32,21 @@ struct MemLimiter {
 }
 
 impl ResourceLimiter for MemLimiter {
-    fn memory_growing(&mut self, _current: usize, desired: usize, _maximum: Option<usize>) -> std::result::Result<bool, wasmtime::Error> {
+    fn memory_growing(
+        &mut self,
+        _current: usize,
+        desired: usize,
+        _maximum: Option<usize>,
+    ) -> std::result::Result<bool, wasmtime::Error> {
         Ok(desired <= self.memory_size)
     }
 
-    fn table_growing(&mut self, _current: usize, _desired: usize, _maximum: Option<usize>) -> std::result::Result<bool, wasmtime::Error> {
+    fn table_growing(
+        &mut self,
+        _current: usize,
+        _desired: usize,
+        _maximum: Option<usize>,
+    ) -> std::result::Result<bool, wasmtime::Error> {
         Ok(true)
     }
 
@@ -191,41 +201,58 @@ impl WasmPlugin {
         };
 
         let engine = Engine::default();
-        let mut store = Store::new(&engine, MemLimiter {
-            memory_size: self.sandbox.memory_limit_mb * 1024 * 1024,
-        });
+        let mut store = Store::new(
+            &engine,
+            MemLimiter {
+                memory_size: self.sandbox.memory_limit_mb * 1024 * 1024,
+            },
+        );
         store.limiter(|state| state);
 
         let mut linker = Linker::new(&engine);
 
         // WASI-like host functions
-        let stdout_buf: std::rc::Rc<std::cell::RefCell<Vec<u8>>> = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let stdout_buf: std::rc::Rc<std::cell::RefCell<Vec<u8>>> =
+            std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let _stdout_clone = stdout_buf.clone();
 
-        linker.func_wrap("env", "fd_write", move |fd: i32, _iovs: i32, _iovs_len: i32, _nwritten_out: i32| -> i32 {
-            // fd=1 is stdout, fd=2 is stderr
-            if fd == 1 || fd == 2 {
-                // In a real implementation, we'd read from WASM memory at iovs pointer
-                // For now, acknowledge the call and write dummy data
-                tracing::debug!(fd, "fd_write called from WASM");
-            }
-            0 // success
-        }).map_err(|e| WasmError::Runtime(e.to_string()))?;
-
-        linker.func_wrap("env", "proc_exit", move |code: i32| {
-            tracing::info!("WASM plugin exited with code: {}", code);
-        }).map_err(|e| WasmError::Runtime(e.to_string()))?;
-
-        linker.func_wrap("env", "environ_sizes_get", move |_a: i32, _b: i32| -> i32 { 0 })
+        linker
+            .func_wrap(
+                "env",
+                "fd_write",
+                move |fd: i32, _iovs: i32, _iovs_len: i32, _nwritten_out: i32| -> i32 {
+                    // fd=1 is stdout, fd=2 is stderr
+                    if fd == 1 || fd == 2 {
+                        // In a real implementation, we'd read from WASM memory at iovs pointer
+                        // For now, acknowledge the call and write dummy data
+                        tracing::debug!(fd, "fd_write called from WASM");
+                    }
+                    0 // success
+                },
+            )
             .map_err(|e| WasmError::Runtime(e.to_string()))?;
 
-        linker.func_wrap("env", "environ_get", move |_a: i32, _b: i32| -> i32 { 0 })
+        linker
+            .func_wrap("env", "proc_exit", move |code: i32| {
+                tracing::info!("WASM plugin exited with code: {}", code);
+            })
+            .map_err(|e| WasmError::Runtime(e.to_string()))?;
+
+        linker
+            .func_wrap("env", "environ_sizes_get", move |_a: i32, _b: i32| -> i32 {
+                0
+            })
+            .map_err(|e| WasmError::Runtime(e.to_string()))?;
+
+        linker
+            .func_wrap("env", "environ_get", move |_a: i32, _b: i32| -> i32 { 0 })
             .map_err(|e| WasmError::Runtime(e.to_string()))?;
 
         // Memory
         let memory = Memory::new(&mut store, MemoryType::new(16, Some(256)))
             .map_err(|e| WasmError::Runtime(e.to_string()))?;
-        linker.define(&store, "env", "memory", memory)
+        linker
+            .define(&store, "env", "memory", memory)
             .map_err(|e| WasmError::Runtime(e.to_string()))?;
 
         // Write input to WASM memory
@@ -237,22 +264,24 @@ impl WasmPlugin {
             .copy_from_slice(input_bytes);
 
         // Instantiate
-        let instance = linker.instantiate(&mut store, &module)
+        let instance = linker
+            .instantiate(&mut store, &module)
             .map_err(|e| WasmError::Runtime(e.to_string()))?;
 
         // Try to call exported function
-        let result: std::result::Result<(), WasmError> = if let Some(func) = instance.get_func(&mut store, &self.manifest.entry_point) {
-            func.call(&mut store, &[], &mut [])
-                .map_err(|e| WasmError::Trap(e.to_string()))?;
-            Ok(())
-        } else if let Some(func) = instance.get_func(&mut store, "_start") {
-            func.call(&mut store, &[], &mut [])
-                .map_err(|e| WasmError::Trap(e.to_string()))?;
-            Ok(())
-        } else {
-            // No entry point found, just instantiate
-            Ok(())
-        };
+        let result: std::result::Result<(), WasmError> =
+            if let Some(func) = instance.get_func(&mut store, &self.manifest.entry_point) {
+                func.call(&mut store, &[], &mut [])
+                    .map_err(|e| WasmError::Trap(e.to_string()))?;
+                Ok(())
+            } else if let Some(func) = instance.get_func(&mut store, "_start") {
+                func.call(&mut store, &[], &mut [])
+                    .map_err(|e| WasmError::Trap(e.to_string()))?;
+                Ok(())
+            } else {
+                // No entry point found, just instantiate
+                Ok(())
+            };
 
         let elapsed = start.elapsed().as_millis() as u64;
 
@@ -270,7 +299,10 @@ impl WasmPlugin {
             return Ok(PluginResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!("execution exceeded time limit: {elapsed}ms > {}ms", self.sandbox.time_limit_ms)),
+                error: Some(format!(
+                    "execution exceeded time limit: {elapsed}ms > {}ms",
+                    self.sandbox.time_limit_ms
+                )),
                 execution_time_ms: elapsed,
                 memory_used_bytes: memory.data(&store).len(),
             });
@@ -278,7 +310,10 @@ impl WasmPlugin {
 
         Ok(PluginResult {
             success: true,
-            output: format!("plugin '{}' executed with input: {} ({}ms)", self.manifest.name, input, elapsed),
+            output: format!(
+                "plugin '{}' executed with input: {} ({}ms)",
+                self.manifest.name, input, elapsed
+            ),
             error: None,
             execution_time_ms: elapsed,
             memory_used_bytes: memory.data(&store).len(),
@@ -349,8 +384,7 @@ impl PluginRegistry {
             let path = entry.path();
 
             if path.extension().and_then(|e| e.to_str()) == Some("wasm") {
-                let wasm_bytes =
-                    std::fs::read(&path).map_err(|e| WasmError::Io(e.to_string()))?;
+                let wasm_bytes = std::fs::read(&path).map_err(|e| WasmError::Io(e.to_string()))?;
 
                 let manifest_path = path.with_extension("json");
                 let manifest = if manifest_path.exists() {
@@ -489,10 +523,13 @@ mod tests {
     fn test_plugin_registry_remove() {
         let dir = tempfile::tempdir().unwrap();
         let mut reg = PluginRegistry::new(dir.path());
-        reg.register(WasmPlugin::new(vec![], PluginManifest {
-            name: "to-remove".into(),
-            ..Default::default()
-        }));
+        reg.register(WasmPlugin::new(
+            vec![],
+            PluginManifest {
+                name: "to-remove".into(),
+                ..Default::default()
+            },
+        ));
         assert!(reg.remove("to-remove").is_some());
         assert!(reg.get("to-remove").is_none());
     }

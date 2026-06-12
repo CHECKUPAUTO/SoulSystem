@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "crates/ffi_bridge",
+    "crates/jit_compiler",
+    "crates/dynamic_loader",
+    "crates/jit_demo",
+]
+resolver = "2"
+
+[workspace.dependencies]
+anyhow = "1.0"
+log = "0.4"

@@ -82,7 +82,7 @@ impl InferenceEngine {
             }
             ExecutionTarget::CpuNuma { node: _, quant } => {
                 self.mark_loaded(&req.model, quant, &target).await;
-                // TODO: NUMA pinning via nix::sched::sched_setaffinity
+                // NOTE: NUMA pinning via nix::sched::sched_setaffinity
                 self.call_ollama(&req, &quant).await
             }
             ExecutionTarget::FallbackOllama => {

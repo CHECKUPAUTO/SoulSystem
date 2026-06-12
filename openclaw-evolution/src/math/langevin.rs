@@ -97,6 +97,7 @@ impl LangevinIntegrator {
     /// Langevin complet (non-overdamped, second ordre)
     /// dq = p/m dt
     /// dp = -∇U dt - γp dt + σ dW
+    #[allow(dead_code)]
     pub fn step_full<F>(&self, state: &mut LangevinState, energy_fn: F, mass: f32)
     where
         F: Fn(&[f32]) -> (f32, Vec<f32>),

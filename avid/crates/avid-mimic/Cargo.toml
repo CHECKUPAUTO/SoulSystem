@@ -1,9 +1,9 @@
 [package]
 name = "avid-mimic"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
 description = "Intelligent cloning engine for the AVID autonomous system"
 
 [dependencies]
@@ -12,12 +12,12 @@ rustpython-parser = "0.4"
 avid-core = { path = "../avid-core" }
 thiserror = "2"
 anyhow = "1"
-serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["rt", "macros", "full"] }
+serde = { workspace = true }
+tokio = { workspace = true }
 tracing = "0"
 garde = { version = "0", features = ["derive"] }
 async-trait = "0.1"
 chromiumoxide = { version = "0.7", features = ["async-std-runtime"] }
 thirtyfour = "0.34"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }
 futures = "0.3"

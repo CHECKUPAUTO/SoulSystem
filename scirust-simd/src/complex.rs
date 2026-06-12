@@ -59,8 +59,6 @@ impl Complex<f32> {
 //  Helpers — transmuter slice de Complex en slice de scalaires        //
 // ------------------------------------------------------------------ //
 
-// Utilisés uniquement par les chemins SIMD ; sans la feature ils seraient
-// signalés comme code mort par `-D warnings`.
 #[cfg(feature = "portable-simd")]
 #[inline]
 fn as_f32(s: &[Complex<f32>]) -> &[f32] {

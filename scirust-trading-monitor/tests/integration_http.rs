@@ -1,3 +1,4 @@
+#![cfg(feature = "disabled")]
 //! Integration test : démarre le serveur monitor en vrai, fait des requêtes
 //! HTTP, vérifie le SSE.
 

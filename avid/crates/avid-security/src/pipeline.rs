@@ -2,11 +2,11 @@ use std::time::Instant;
 
 use tracing::{info, warn};
 
+use crate::exploit;
+use crate::patch;
 use crate::types::{Finding, PipelineReport, PipelineStage, ScanTarget, Severity};
 use crate::understand;
 use crate::validate;
-use crate::exploit;
-use crate::patch;
 
 /// Configuration du pipeline agentic de sécurité
 #[derive(Debug, Clone)]
@@ -52,8 +52,15 @@ impl AgenticPipeline {
         let mut report = PipelineReport::new(target.clone());
 
         // Stage 1: Understand — surface mapping
-        if self.config.enabled_stages.contains(&PipelineStage::Understand) {
-            info!("Stage 1/4: Understand — mapping attack surface for {}", target.path);
+        if self
+            .config
+            .enabled_stages
+            .contains(&PipelineStage::Understand)
+        {
+            info!(
+                "Stage 1/4: Understand — mapping attack surface for {}",
+                target.path
+            );
             let surface_items = understand::map_surface(&target.path)?;
             let inventory = understand::build_inventory(&target.path)?;
             for item in &surface_items {
@@ -66,13 +73,24 @@ impl AgenticPipeline {
                 );
                 report.findings.push(finding);
             }
-            info!("Stage 1 complete: {} surface items found, {} files", surface_items.len(), inventory.file_count);
+            info!(
+                "Stage 1 complete: {} surface items found, {} files",
+                surface_items.len(),
+                inventory.file_count
+            );
             report.stages_completed.push(PipelineStage::Understand);
         }
 
         // Stage 2: Validate — exploitability check
-        if self.config.enabled_stages.contains(&PipelineStage::Validate) {
-            info!("Stage 2/4: Validate — checking exploitability of {} findings", report.findings.len());
+        if self
+            .config
+            .enabled_stages
+            .contains(&PipelineStage::Validate)
+        {
+            info!(
+                "Stage 2/4: Validate — checking exploitability of {} findings",
+                report.findings.len()
+            );
             let validation_engine = validate::ValidationEngine::new(
                 self.config.llm_endpoint.clone(),
                 self.config.llm_model.clone(),
@@ -85,9 +103,11 @@ impl AgenticPipeline {
                     warn!("[EXPLOITABLE] {} — {}", finding.title, finding.file_path);
                 }
             }
-            info!("Stage 2 complete: {}/{} findings exploitable",
+            info!(
+                "Stage 2 complete: {}/{} findings exploitable",
                 report.findings.iter().filter(|f| f.is_exploitable).count(),
-                report.findings.len());
+                report.findings.len()
+            );
             report.stages_completed.push(PipelineStage::Validate);
         }
 
@@ -98,14 +118,19 @@ impl AgenticPipeline {
                 self.config.llm_endpoint.clone(),
                 self.config.llm_model.clone(),
             );
-            let exploitable: Vec<_> = report.findings.iter()
+            let exploitable: Vec<_> = report
+                .findings
+                .iter()
                 .filter(|f| f.is_exploitable)
                 .collect();
             let pocs = exploit_engine.generate_poc_batch(&exploitable).await?;
             for (finding, poc) in report.findings.iter_mut().zip(pocs.iter()) {
                 finding.exploit_code = poc.clone();
             }
-            info!("Stage 3 complete: {} POCs generated", pocs.iter().filter(|p| p.is_some()).count());
+            info!(
+                "Stage 3 complete: {} POCs generated",
+                pocs.iter().filter(|p| p.is_some()).count()
+            );
             report.stages_completed.push(PipelineStage::Exploit);
         }
 
@@ -120,7 +145,10 @@ impl AgenticPipeline {
             for (finding, patch) in report.findings.iter_mut().zip(patches.iter()) {
                 finding.patch_code = patch.clone();
             }
-            info!("Stage 4 complete: {} patches generated", patches.iter().filter(|p| p.is_some()).count());
+            info!(
+                "Stage 4 complete: {} patches generated",
+                patches.iter().filter(|p| p.is_some()).count()
+            );
             report.stages_completed.push(PipelineStage::Patch);
         }
 
@@ -131,8 +159,16 @@ impl AgenticPipeline {
             duration,
             report.findings.len(),
             report.findings.iter().filter(|f| f.is_exploitable).count(),
-            report.findings.iter().filter(|f| f.exploit_code.is_some()).count(),
-            report.findings.iter().filter(|f| f.patch_code.is_some()).count(),
+            report
+                .findings
+                .iter()
+                .filter(|f| f.exploit_code.is_some())
+                .count(),
+            report
+                .findings
+                .iter()
+                .filter(|f| f.patch_code.is_some())
+                .count(),
         );
         info!("{}", report.summary);
         Ok(report)

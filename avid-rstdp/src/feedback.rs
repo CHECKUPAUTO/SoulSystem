@@ -58,7 +58,7 @@ impl<C: NcpuCompiler> FeedbackLoop<C> {
 
         debug!(
             hash = %stats.hash, seen = stats.seen_count,
-            success_rate = stats.success_rate(),
+            success_rate = stats.pattern_success_rate(),
             originality_avg = stats.originality_avg(),
             "pattern observed"
         );
@@ -68,7 +68,7 @@ impl<C: NcpuCompiler> FeedbackLoop<C> {
                 pattern_hash: stats.hash.clone(),
                 canonical: stats.canonical.clone(),
                 seen_count: stats.seen_count,
-                success_rate: stats.success_rate(),
+                success_rate: stats.pattern_success_rate(),
                 originality_avg: stats.originality_avg(),
                 recent_plans: plan.map(|p| vec![p]).unwrap_or_default(),
             };
@@ -84,6 +84,6 @@ impl<C: NcpuCompiler> FeedbackLoop<C> {
         !stats.ncpu_compiled
             && stats.success_count >= config.compile_threshold
             && stats.originality_avg() >= config.originality_floor
-            && stats.success_rate() >= config.success_floor
+            && stats.pattern_success_rate() >= config.success_floor
     }
 }

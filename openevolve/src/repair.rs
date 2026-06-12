@@ -36,7 +36,7 @@ impl RepairStats {
     pub fn record_success(&self) {
         self.successes.fetch_add(1, Ordering::Relaxed);
     }
-    pub fn success_rate(&self) -> f64 {
+    pub fn repair_success_rate(&self) -> f64 {
         let a = self.attempts.load(Ordering::Relaxed);
         let s = self.successes.load(Ordering::Relaxed);
         if a == 0 {
@@ -107,6 +107,6 @@ mod tests {
         s.record_attempt();
         s.record_attempt();
         s.record_success();
-        assert_eq!(s.success_rate(), 0.5);
+        assert_eq!(s.repair_success_rate(), 0.5);
     }
 }

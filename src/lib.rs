@@ -28,6 +28,7 @@ pub mod memory_hub;
 pub mod memory_suggest;
 pub mod metrics;
 pub mod rag_middleware;
+pub mod self_healer;
 pub mod sleep_cycle;
 pub mod temporal_index;
 pub use spinner;
@@ -37,7 +38,5 @@ pub mod ws_bridge;
 
 // Autonomous entity modules
 pub mod autonomous;
-pub mod autonomous_loop;
-
 #[cfg(feature = "dev")]
 pub mod dev_dashboard;

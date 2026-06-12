@@ -1,0 +1,20 @@
+[package]
+name = "soul_sandbox"
+version = "0.2.0"
+edition = "2021"
+description = "Robust execution sandbox with shell parser, normalization, denylists, process group isolation, seccomp, and audit logging"
+license = "MIT"
+repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
+keywords = ["sandbox", "execution", "shell", "parser", "seccomp", "isolation", "audit", "security"]
+categories = ["security", "os", "embedded", "development-tools"]
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+chrono = { workspace = true, features = ["serde"] }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
+libc = "0.2"
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"

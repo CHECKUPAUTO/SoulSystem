@@ -107,11 +107,7 @@ impl Default for SandboxConfig {
             max_memory_mb: 512,
             max_cpu_secs: 30,
             max_output_bytes: 100_000,
-            allowed_dirs: vec![
-                "/tmp".into(),
-                "/root".into(),
-                "/home".into(),
-            ],
+            allowed_dirs: vec!["/tmp".into(), "/root".into(), "/home".into()],
             denied_dirs: vec![
                 "/etc/shadow".into(),
                 "/etc/passwd".into(),
@@ -184,11 +180,7 @@ pub struct SandboxExecutor {
 
 impl SandboxExecutor {
     pub fn new(config: SandboxConfig) -> Self {
-        let command_whitelist: HashSet<String> = config
-            .allowed_commands
-            .iter()
-            .cloned()
-            .collect();
+        let command_whitelist: HashSet<String> = config.allowed_commands.iter().cloned().collect();
         Self {
             config,
             command_whitelist,
@@ -226,10 +218,7 @@ impl SandboxExecutor {
 
         let result = tokio::time::timeout(
             timeout,
-            Command::new("sh")
-                .arg("-c")
-                .arg(&wrapped_cmd)
-                .output(),
+            Command::new("sh").arg("-c").arg(&wrapped_cmd).output(),
         )
         .await;
 
@@ -284,7 +273,11 @@ impl SandboxExecutor {
         while let Some(eq_pos) = remaining.find('=') {
             // Check if this looks like VAR= (uppercase letters/digits/underscores before '=')
             let before_eq = &remaining[..eq_pos];
-            if before_eq.chars().all(|c| c.is_uppercase() || c.is_numeric() || c == '_') && !before_eq.is_empty() {
+            if before_eq
+                .chars()
+                .all(|c| c.is_uppercase() || c.is_numeric() || c == '_')
+                && !before_eq.is_empty()
+            {
                 remaining = remaining[eq_pos + 1..].trim_start();
             } else {
                 break;
@@ -318,7 +311,7 @@ impl SandboxExecutor {
             "rm -rf /*",
             "mkfs",
             "dd if=",
-            ":(){ :|:&};:",  // fork bomb
+            ":(){ :|:&};:", // fork bomb
             "shutdown",
             "reboot",
             "halt",
@@ -370,7 +363,10 @@ impl SandboxExecutor {
 
         // CPU time limit
         if self.config.max_cpu_secs > 0 {
-            parts.push(format!("ulimit -t {} 2>/dev/null;", self.config.max_cpu_secs));
+            parts.push(format!(
+                "ulimit -t {} 2>/dev/null;",
+                self.config.max_cpu_secs
+            ));
         }
 
         // File size limit (100MB)
@@ -488,57 +484,140 @@ impl Default for SeccompWhitelist {
         // Basic I/O
         for syscall in &[
             // Basic I/O (safe)
-            "read", "write", "open", "close", "stat", "fstat", "lstat",
-            "poll", "lseek", "mmap", "mprotect", "munmap", "brk",
-            "access", "pipe", "select", "sched_yield",
-            "mremap", "msync", "mincore", "madvise",
-            "dup", "dup2", "nanosleep",
-            "getpid", "getppid", "getuid", "getgid", "geteuid", "getegid",
+            "read",
+            "write",
+            "open",
+            "close",
+            "stat",
+            "fstat",
+            "lstat",
+            "poll",
+            "lseek",
+            "mmap",
+            "mprotect",
+            "munmap",
+            "brk",
+            "access",
+            "pipe",
+            "select",
+            "sched_yield",
+            "mremap",
+            "msync",
+            "mincore",
+            "madvise",
+            "dup",
+            "dup2",
+            "nanosleep",
+            "getpid",
+            "getppid",
+            "getuid",
+            "getgid",
+            "geteuid",
+            "getegid",
             // File operations (safe subset)
-            "sendfile", "fcntl", "flock", "fsync", "fdatasync",
-            "truncate", "ftruncate", "getdents", "getcwd", "chdir", "fchdir",
-            "rename", "mkdir", "rmdir", "creat", "link", "unlink",
-            "readlink", "chmod", "fchmod", "chown", "fchown", "lchown",
-            "umask", "statfs", "fstatfs",
+            "sendfile",
+            "fcntl",
+            "flock",
+            "fsync",
+            "fdatasync",
+            "truncate",
+            "ftruncate",
+            "getdents",
+            "getcwd",
+            "chdir",
+            "fchdir",
+            "rename",
+            "mkdir",
+            "rmdir",
+            "creat",
+            "link",
+            "unlink",
+            "readlink",
+            "chmod",
+            "fchmod",
+            "chown",
+            "fchown",
+            "lchown",
+            "umask",
+            "statfs",
+            "fstatfs",
             // Process management (safe subset)
-            "clone", "fork", "vfork", "execve", "exit", "wait4",
-            "uname", "prctl", "arch_prctl",
+            "clone",
+            "fork",
+            "vfork",
+            "execve",
+            "exit",
+            "wait4",
+            "uname",
+            "prctl",
+            "arch_prctl",
             // Time
-            "gettimeofday", "clock_gettime", "clock_getres",
+            "gettimeofday",
+            "clock_gettime",
+            "clock_getres",
             // Signals (safe subset)
-            "rt_sigaction", "rt_sigprocmask", "rt_sigreturn",
+            "rt_sigaction",
+            "rt_sigprocmask",
+            "rt_sigreturn",
             // Scheduling
-            "sched_setparam", "sched_getparam", "sched_setscheduler",
-            "sched_getscheduler", "sched_get_priority_max",
-            "sched_get_priority_min", "sched_rr_get_interval",
-            "sched_setaffinity", "sched_getaffinity",
+            "sched_setparam",
+            "sched_getparam",
+            "sched_setscheduler",
+            "sched_getscheduler",
+            "sched_get_priority_max",
+            "sched_get_priority_min",
+            "sched_rr_get_interval",
+            "sched_setaffinity",
+            "sched_getaffinity",
             // Memory (safe subset)
-            "mlock", "munlock", "mlockall", "munlockall",
+            "mlock",
+            "munlock",
+            "mlockall",
+            "munlockall",
             // Misc safe
-            "gettid", "tkill", "getcpu",
+            "gettid",
+            "tkill",
+            "getcpu",
             // Epoll (for async I/O)
-            "epoll_create", "epoll_create1", "epoll_ctl", "epoll_wait",
-            "epoll_pwait", "eventfd", "eventfd2",
+            "epoll_create",
+            "epoll_create1",
+            "epoll_ctl",
+            "epoll_wait",
+            "epoll_pwait",
+            "eventfd",
+            "eventfd2",
             // Timerfd
-            "timerfd_create", "timerfd_settime", "timerfd_gettime",
+            "timerfd_create",
+            "timerfd_settime",
+            "timerfd_gettime",
             // Signalfd
-            "signalfd", "signalfd4",
+            "signalfd",
+            "signalfd4",
             // Pipe
             "pipe2",
             // Dup
             "dup3",
             // Inotify (file watching)
-            "inotify_init", "inotify_init1", "inotify_add_watch", "inotify_rm_watch",
+            "inotify_init",
+            "inotify_init1",
+            "inotify_add_watch",
+            "inotify_rm_watch",
             // Pselect/ppoll
-            "pselect6", "ppoll",
+            "pselect6",
+            "ppoll",
             // Writev/readv
-            "readv", "writev", "preadv", "pwritev",
+            "readv",
+            "writev",
+            "preadv",
+            "pwritev",
             // Fallocate
             "fallocate",
             // Accept
-            "accept", "accept4",
+            "accept",
+            "accept4",
             // Getrandom/memfd
-            "getrandom", "memfd_create",
+            "getrandom",
+            "memfd_create",
             // Copy file range
             "copy_file_range",
             // Statx
@@ -600,26 +679,76 @@ impl SeccompWhitelist {
 
         // Map syscall names to Linux x86_64 syscall numbers
         let syscall_map: Vec<(&str, usize)> = vec![
-            ("read", 0), ("write", 1), ("open", 2), ("close", 3),
-            ("stat", 4), ("fstat", 5), ("lstat", 6), ("poll", 7),
-            ("lseek", 8), ("mmap", 9), ("mprotect", 10), ("munmap", 11),
-            ("brk", 12), ("access", 21), ("pipe", 22), ("select", 23),
-            ("sched_yield", 24), ("dup", 32), ("dup2", 33),
-            ("nanosleep", 35), ("getpid", 39), ("getppid", 40),
-            ("getuid", 41), ("getgid", 42), ("geteuid", 43), ("getegid", 44),
-            ("fcntl", 72), ("flock", 73), ("fsync", 74), ("fdatasync", 75),
-            ("truncate", 76), ("ftruncate", 77), ("getcwd", 79), ("chdir", 80),
-            ("rename", 82), ("mkdir", 83), ("rmdir", 84), ("creat", 85),
-            ("link", 86), ("unlink", 87), ("readlink", 88),
-            ("chmod", 90), ("chown", 92), ("umask", 95),
-            ("gettimeofday", 96), ("clock_gettime", 228),
-            ("rt_sigaction", 13), ("rt_sigprocmask", 14), ("rt_sigreturn", 15),
-            ("uname", 63), ("prctl", 157), ("gettid", 186), ("tkill", 200),
-            ("getrandom", 318), ("clone", 56), ("fork", 57), ("vfork", 58),
-            ("execve", 59), ("exit", 60), ("wait4", 61),
-            ("epoll_create1", 291), ("epoll_ctl", 233), ("epoll_wait", 232),
-            ("eventfd2", 290), ("pipe2", 293), ("dup3", 292),
-            ("readv", 19), ("writev", 20), ("mlock", 149), ("munlock", 150),
+            ("read", 0),
+            ("write", 1),
+            ("open", 2),
+            ("close", 3),
+            ("stat", 4),
+            ("fstat", 5),
+            ("lstat", 6),
+            ("poll", 7),
+            ("lseek", 8),
+            ("mmap", 9),
+            ("mprotect", 10),
+            ("munmap", 11),
+            ("brk", 12),
+            ("access", 21),
+            ("pipe", 22),
+            ("select", 23),
+            ("sched_yield", 24),
+            ("dup", 32),
+            ("dup2", 33),
+            ("nanosleep", 35),
+            ("getpid", 39),
+            ("getppid", 40),
+            ("getuid", 41),
+            ("getgid", 42),
+            ("geteuid", 43),
+            ("getegid", 44),
+            ("fcntl", 72),
+            ("flock", 73),
+            ("fsync", 74),
+            ("fdatasync", 75),
+            ("truncate", 76),
+            ("ftruncate", 77),
+            ("getcwd", 79),
+            ("chdir", 80),
+            ("rename", 82),
+            ("mkdir", 83),
+            ("rmdir", 84),
+            ("creat", 85),
+            ("link", 86),
+            ("unlink", 87),
+            ("readlink", 88),
+            ("chmod", 90),
+            ("chown", 92),
+            ("umask", 95),
+            ("gettimeofday", 96),
+            ("clock_gettime", 228),
+            ("rt_sigaction", 13),
+            ("rt_sigprocmask", 14),
+            ("rt_sigreturn", 15),
+            ("uname", 63),
+            ("prctl", 157),
+            ("gettid", 186),
+            ("tkill", 200),
+            ("getrandom", 318),
+            ("clone", 56),
+            ("fork", 57),
+            ("vfork", 58),
+            ("execve", 59),
+            ("exit", 60),
+            ("wait4", 61),
+            ("epoll_create1", 291),
+            ("epoll_ctl", 233),
+            ("epoll_wait", 232),
+            ("eventfd2", 290),
+            ("pipe2", 293),
+            ("dup3", 292),
+            ("readv", 19),
+            ("writev", 20),
+            ("mlock", 149),
+            ("munlock", 150),
             ("getcpu", 309),
         ];
 
@@ -641,20 +770,60 @@ impl SeccompWhitelist {
         }
 
         let mut insns = vec![
-            SockFilter { code: 0x20, jt: 0, jf: 0, k: 4 },
-            SockFilter { code: 0x15, jt: 0, jf: 2, k: AUDIT_ARCH_X86_64 },
-            SockFilter { code: 0x06, jt: 0, jf: 0, k: SECCOMP_RET_ALLOW },
-            SockFilter { code: 0x06, jt: 0, jf: 0, k: SECCOMP_RET_KILL },
-            SockFilter { code: 0x20, jt: 0, jf: 0, k: 16 },
+            SockFilter {
+                code: 0x20,
+                jt: 0,
+                jf: 0,
+                k: 4,
+            },
+            SockFilter {
+                code: 0x15,
+                jt: 0,
+                jf: 2,
+                k: AUDIT_ARCH_X86_64,
+            },
+            SockFilter {
+                code: 0x06,
+                jt: 0,
+                jf: 0,
+                k: SECCOMP_RET_ALLOW,
+            },
+            SockFilter {
+                code: 0x06,
+                jt: 0,
+                jf: 0,
+                k: SECCOMP_RET_KILL,
+            },
+            SockFilter {
+                code: 0x20,
+                jt: 0,
+                jf: 0,
+                k: 16,
+            },
         ];
 
         // Check each allowed syscall
         for &nr in &allow_nrs {
-            insns.push(SockFilter { code: 0x15, jt: 0, jf: 1, k: nr as u32 });
-            insns.push(SockFilter { code: 0x06, jt: 0, jf: 0, k: SECCOMP_RET_ALLOW });
+            insns.push(SockFilter {
+                code: 0x15,
+                jt: 0,
+                jf: 1,
+                k: nr as u32,
+            });
+            insns.push(SockFilter {
+                code: 0x06,
+                jt: 0,
+                jf: 0,
+                k: SECCOMP_RET_ALLOW,
+            });
         }
 
-        insns.push(SockFilter { code: 0x06, jt: 0, jf: 0, k: SECCOMP_RET_KILL });
+        insns.push(SockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_KILL,
+        });
 
         // Apply the filter via prctl
         #[repr(C)]
@@ -738,10 +907,7 @@ impl Default for NamespaceConfig {
             ipc_namespace: true,
             user_namespace: false,
             read_only_root: false,
-            allowed_mounts: vec![
-                "/tmp".into(),
-                "/proc".into(),
-            ],
+            allowed_mounts: vec!["/tmp".into(), "/proc".into()],
         }
     }
 }
@@ -881,7 +1047,9 @@ mod tests {
         let sandbox = SandboxExecutor::new(SandboxConfig::default());
         assert!(sandbox.check_dangerous_patterns("rm -rf /").is_err());
         assert!(sandbox.check_dangerous_patterns("ls /tmp").is_ok());
-        assert!(sandbox.check_dangerous_patterns("mkfs.ext4 /dev/sda").is_err());
+        assert!(sandbox
+            .check_dangerous_patterns("mkfs.ext4 /dev/sda")
+            .is_err());
     }
 
     #[test]

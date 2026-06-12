@@ -24,4 +24,4 @@ fn run_signature_is_stable() {
 // open the real terminal (enable_raw_mode + alternate screen). Doing
 // that in a non-TTY CI environment fails immediately. A proper test
 // would require dependency injection of the Terminal backend — see
-// the TODO in #issue for v2 of the TUI.
+// the task in #issue for v2 of the TUI.

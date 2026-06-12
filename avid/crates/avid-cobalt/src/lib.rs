@@ -28,18 +28,38 @@ pub struct DownloadRequest {
     pub disable_metadata: bool,
 }
 
-fn default_video_quality() -> String { "1080".into() }
-fn default_audio_format() -> String { "mp3".into() }
-fn default_audio_bitrate() -> String { "128".into() }
-fn default_download_mode() -> String { "auto".into() }
-fn default_filename_style() -> String { "pretty".into() }
+fn default_video_quality() -> String {
+    "1080".into()
+}
+fn default_audio_format() -> String {
+    "mp3".into()
+}
+fn default_audio_bitrate() -> String {
+    "128".into()
+}
+fn default_download_mode() -> String {
+    "auto".into()
+}
+fn default_filename_style() -> String {
+    "pretty".into()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DownloadStatus {
-    Tunnel { url: String, filename: String },
-    Redirect { url: String },
-    Picker { items: Vec<MediaItem> },
-    Error { code: String, context: Option<serde_json::Value> },
+    Tunnel {
+        url: String,
+        filename: String,
+    },
+    Redirect {
+        url: String,
+    },
+    Picker {
+        items: Vec<MediaItem>,
+    },
+    Error {
+        code: String,
+        context: Option<serde_json::Value>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,16 +104,33 @@ impl CobaltEngine {
             .join("services");
 
         let supported_services = vec![
-            "bilibili".into(), "bluesky".into(), "dailymotion".into(),
-            "facebook".into(), "instagram".into(), "loom".into(),
-            "newgrounds".into(), "ok".into(), "pinterest".into(),
-            "reddit".into(), "rutube".into(), "snapchat".into(),
-            "soundcloud".into(), "streamable".into(), "tiktok".into(),
-            "tumblr".into(), "twitch".into(), "twitter".into(),
-            "vimeo".into(), "vk".into(), "youtube".into(),
+            "bilibili".into(),
+            "bluesky".into(),
+            "dailymotion".into(),
+            "facebook".into(),
+            "instagram".into(),
+            "loom".into(),
+            "newgrounds".into(),
+            "ok".into(),
+            "pinterest".into(),
+            "reddit".into(),
+            "rutube".into(),
+            "snapchat".into(),
+            "soundcloud".into(),
+            "streamable".into(),
+            "tiktok".into(),
+            "tumblr".into(),
+            "twitch".into(),
+            "twitter".into(),
+            "vimeo".into(),
+            "vk".into(),
+            "youtube".into(),
         ];
 
-        Self { services_dir, supported_services }
+        Self {
+            services_dir,
+            supported_services,
+        }
     }
 
     /// Detect which service handles a URL
@@ -141,15 +178,27 @@ mod tests {
     #[test]
     fn test_detect_youtube() {
         let engine = CobaltEngine::new();
-        assert_eq!(engine.detect_service("https://youtube.com/watch?v=test"), Some("youtube".into()));
-        assert_eq!(engine.detect_service("https://youtu.be/test"), Some("youtube".into()));
+        assert_eq!(
+            engine.detect_service("https://youtube.com/watch?v=test"),
+            Some("youtube".into())
+        );
+        assert_eq!(
+            engine.detect_service("https://youtu.be/test"),
+            Some("youtube".into())
+        );
     }
 
     #[test]
     fn test_detect_twitter() {
         let engine = CobaltEngine::new();
-        assert_eq!(engine.detect_service("https://twitter.com/user/status/123"), Some("twitter".into()));
-        assert_eq!(engine.detect_service("https://x.com/user/123"), Some("twitter".into()));
+        assert_eq!(
+            engine.detect_service("https://twitter.com/user/status/123"),
+            Some("twitter".into())
+        );
+        assert_eq!(
+            engine.detect_service("https://x.com/user/123"),
+            Some("twitter".into())
+        );
     }
 
     #[test]

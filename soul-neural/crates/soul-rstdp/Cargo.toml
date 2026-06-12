@@ -6,7 +6,7 @@ description = "R-STDP optimizer with Dual numbers (neuro-evolutionary)"
 
 [dependencies]
 scirust-autodiff = { workspace = true }
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 
 [dev-dependencies]
 serde_json = "1"

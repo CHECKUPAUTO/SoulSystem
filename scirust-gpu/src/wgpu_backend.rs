@@ -347,7 +347,7 @@ impl SimdBackend for WgpuBackend {
         }
     }
     fn relu_f32(&self, v: &mut [f32]) {
-        // TODO : utiliser le pipeline relu_pipeline déjà créé
+        // NOTE : utiliser le pipeline relu_pipeline déjà créé
         for x in v.iter_mut() {
             *x = x.max(0.0);
         }

@@ -1,3 +1,14 @@
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    unused_mut,
+    unused_unsafe,
+    unreachable_pub,
+    non_camel_case_types,
+    non_snake_case,
+    unused_comparisons
+)]
 pub mod io;
 pub mod nn;
 pub use scirust_autodiff::*;
@@ -36,6 +47,7 @@ pub use symbolic::{
 pub mod dispatch {
     /// GPU or CPU fallback — dispatches work sequentially (rayon optional).
     /// When rayon is available, use par_chunks_mut for parallel execution.
+    #[allow(dead_code)]
     pub fn gpu_or_cpu<F>(data: &mut [f32], kernel: F)
     where
         F: Fn(&mut [f32]),

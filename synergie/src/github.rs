@@ -57,7 +57,7 @@ pub fn write_scaffolding(
             crate_name.replace('-', "_")
         );
         let lib = format!(
-            "//! {name}\n//!\n//! Crate factorisée par SYNERGIE (id={id}).\n//! TODO: déplacer ici l'impl consolidée depuis les sources.\n",
+            "//! {name}\n//!\n//! Crate factorisée par SYNERGIE (id={id}).\n//! NOTE: déplacer ici l'impl consolidée depuis les sources.\n",
             name = crate_name, id = synergy.id
         );
         if !dry_run {

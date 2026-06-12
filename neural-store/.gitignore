@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+wal.log
+data/
+tests/e2e_temp_store/
+test_output.txt
+test_output_full.txt

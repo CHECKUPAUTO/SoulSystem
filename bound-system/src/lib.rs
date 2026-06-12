@@ -139,7 +139,13 @@ impl BoundSystem {
 
         let result = if self.use_sandbox && Self::bwrap_available() {
             self.execute_sandboxed(command).await?
+        } else if self.use_sandbox {
+            anyhow::bail!(
+                "BoundSystem: sandbox requested but bwrap is not available. \
+                 Install bubblewrap or set use_sandbox=false pour exécuter directement."
+            );
         } else {
+            tracing::warn!("BoundSystem: sandbox désactivé, exécution directe sans isolation");
             self.execute_direct(command).await?
         };
 
@@ -429,11 +435,6 @@ impl BoundSystem {
     }
 }
 
-pub fn apply_seccomp_profile() -> anyhow::Result<()> {
-    // Logic to apply syscall whitelist
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,4 +579,13 @@ mod tests {
         }
         assert!(got_end, "Should receive end or error after kill");
     }
+}
+
+pub fn apply_seccomp_profile() -> anyhow::Result<()> {
+    // Application du profil seccomp via seccompiler
+    // Ceci filtre les appels système autorisés (whitelist) pour le sandbox.
+    // Actuellement, seccomp est géré par bwrap directement.
+    // Quand un contrôle plus fin est nécessaire, utiliser seccompiler 0.4.
+    tracing::debug!("seccomp: seccomp géré par bwrap — pas de profil supplémentaire appliqué");
+    Ok(())
 }

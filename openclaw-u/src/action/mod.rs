@@ -248,7 +248,31 @@ fn is_safe_name(name: &str) -> bool {
 }
 
 fn is_safe_shell_command(cmd: &str) -> bool {
-    !cmd.is_empty() && !cmd.contains('\0')
+    if cmd.is_empty() || cmd.contains('\0') {
+        return false;
+    }
+    // Block shell injection metacharacters
+    if cmd.contains(';')
+        || cmd.contains("&&")
+        || cmd.contains("||")
+        || cmd.contains('|')
+        || cmd.contains('`')
+        || cmd.contains("$(")
+        || cmd.contains("${")
+        || cmd.contains('>')
+    {
+        return false;
+    }
+    // Block eval/exec
+    let lower = cmd.to_lowercase();
+    if lower.contains("eval ") || lower.contains("exec ") {
+        return false;
+    }
+    // Block download-and-pipe pattern
+    if (lower.contains("curl ") || lower.contains("wget ")) && lower.contains(" | ") {
+        return false;
+    }
+    true
 }
 
 #[cfg(test)]

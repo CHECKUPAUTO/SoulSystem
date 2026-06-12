@@ -86,7 +86,14 @@ validate_workspace() {
     return 1
   fi
   echo -e "  ${GREEN}✓ cargo test --lib${NC}"
-  
+
+  echo "  cargo clippy -p soulsystem -- -D warnings..."
+  if ! (cd "$dir" && cargo clippy -p soulsystem -- -D warnings 2>&1 | tail -10); then
+    echo -e "  ${RED}✗ cargo clippy FAILED${NC}"
+    return 1
+  fi
+  echo -e "  ${GREEN}✓ cargo clippy${NC}"
+
   return 0
 }
 

@@ -47,7 +47,15 @@ pub fn map_surface(dir_path: &str) -> anyhow::Result<Vec<SurfaceItem>> {
     let eval_re = Regex::new(r"\beval\s*\(")?;
     let shell_exec = Regex::new(r#""/bin/(?:sh|bash)\s*-c"#)?;
 
-    visit_dir(path, &mut items, &unsafe_re, &unwrap_re, &http_re, &eval_re, &shell_exec)?;
+    visit_dir(
+        path,
+        &mut items,
+        &unsafe_re,
+        &unwrap_re,
+        &http_re,
+        &eval_re,
+        &shell_exec,
+    )?;
 
     info!("Surface mapping complete: {} items found", items.len());
     Ok(items)
@@ -79,13 +87,29 @@ fn visit_dir(
                 .to_string_lossy()
                 .to_string();
             if !name.starts_with('.') && name != "node_modules" && name != "target" {
-                visit_dir(&entry_path, items, unsafe_re, unwrap_re, http_re, eval_re, shell_re)?;
+                visit_dir(
+                    &entry_path,
+                    items,
+                    unsafe_re,
+                    unwrap_re,
+                    http_re,
+                    eval_re,
+                    shell_re,
+                )?;
             }
         } else if let Some(ext) = entry_path.extension() {
             let ext = ext.to_string_lossy().to_lowercase();
             match ext.as_str() {
                 "rs" | "py" | "js" | "ts" | "go" | "java" | "c" | "cpp" | "h" => {
-                    scan_file(&entry_path, items, unsafe_re, unwrap_re, http_re, eval_re, shell_re)?;
+                    scan_file(
+                        &entry_path,
+                        items,
+                        unsafe_re,
+                        unwrap_re,
+                        http_re,
+                        eval_re,
+                        shell_re,
+                    )?;
                 }
                 _ => {}
             }
@@ -111,17 +135,16 @@ fn scan_file(
         let line_num = (line_num + 1) as u32;
 
         // Check for unsafe blocks (Rust)
-        if unsafe_re.is_match(line)
-            && unsafe_re.is_match(line) {
-                items.push(SurfaceItem {
-                    file_path: file_path.clone(),
-                    line_number: line_num,
-                    description: "Unsafe block detected".to_string(),
-                    severity: "high".to_string(),
-                    context: line.trim().to_string(),
-                });
-                warn!("[UNSAFE] {}:{} — {}", file_path, line_num, line.trim());
-            }
+        if unsafe_re.is_match(line) && unsafe_re.is_match(line) {
+            items.push(SurfaceItem {
+                file_path: file_path.clone(),
+                line_number: line_num,
+                description: "Unsafe block detected".to_string(),
+                severity: "high".to_string(),
+                context: line.trim().to_string(),
+            });
+            warn!("[UNSAFE] {}:{} — {}", file_path, line_num, line.trim());
+        }
 
         // Check for unwrap() calls
         if unwrap_re.is_match(line) {
@@ -174,7 +197,11 @@ fn scan_file(
 pub fn trace_dataflow(entry_point: &str) -> DataFlow {
     DataFlow {
         entry_point: entry_point.to_string(),
-        nodes: vec!["input".to_string(), "process".to_string(), "output".to_string()],
+        nodes: vec![
+            "input".to_string(),
+            "process".to_string(),
+            "output".to_string(),
+        ],
         edges: vec![
             ("input".to_string(), "process".to_string()),
             ("process".to_string(), "output".to_string()),
@@ -238,7 +265,11 @@ fn visit_dir_inventory(
         let entry_path = entry.path();
 
         if entry_path.is_dir() {
-            let name = entry_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let name = entry_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             if !name.starts_with('.') && name != "node_modules" && name != "target" {
                 visit_dir_inventory(
                     &entry_path,
@@ -284,7 +315,11 @@ mod tests {
         .unwrap();
 
         let items = map_surface(&dir.to_string_lossy()).unwrap();
-        assert!(items.len() >= 3, "Expected at least 3 items, got {}", items.len());
+        assert!(
+            items.len() >= 3,
+            "Expected at least 3 items, got {}",
+            items.len()
+        );
         assert!(items.iter().any(|i| i.description.contains("Unsafe")));
         assert!(items.iter().any(|i| i.description.contains("Unwrap")));
         assert!(items.iter().any(|i| i.description.contains("URL")));

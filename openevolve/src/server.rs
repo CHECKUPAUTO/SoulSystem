@@ -77,7 +77,7 @@ pub async fn run_server(cfg: Config, db: ProgramDatabase, bind: &str) -> Result<
         cost: Arc::new(om::CostTracker::new()),
     };
 
-    let governor_conf = GovernorConfigBuilder::default()
+    let _governor_conf = GovernorConfigBuilder::default()
         .key_extractor(GlobalKeyExtractor)
         .period(Duration::from_secs(10))
         .burst_size(2)

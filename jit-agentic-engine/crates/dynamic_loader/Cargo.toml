@@ -1,0 +1,10 @@
+[package]
+name = "dynamic_loader"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ffi_bridge = { path = "../ffi_bridge" }
+libloading = "0.8"
+anyhow = { workspace = true }
+log = { workspace = true }

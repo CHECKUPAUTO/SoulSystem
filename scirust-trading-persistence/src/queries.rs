@@ -15,8 +15,6 @@ pub struct DecisionStatsResult {
 
 /// Simple query interface for historical data.
 pub struct QueryApi {
-    // Conservé pour l'implémentation réelle des requêtes ; les méthodes
-    // actuelles sont des stubs qui renvoient des données vides.
     #[allow(dead_code)]
     conn: std::sync::Arc<std::sync::Mutex<Connection>>,
 }

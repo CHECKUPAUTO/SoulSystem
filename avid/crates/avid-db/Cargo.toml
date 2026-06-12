@@ -1,9 +1,9 @@
 [package]
 name = "avid-db"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
 description = "Generic SQL database diagnoser (Postgres/MySQL/SQLite) — extracted from avid-core"
 repository.workspace = true
 
@@ -23,7 +23,7 @@ all = ["sqlite", "postgres", "mysql"]
 
 [dependencies]
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "any"] }
-tokio = { version = "1", features = ["time", "macros"] }
+tokio = { workspace = true }
 anyhow = "1"
 tracing = "0.1"
 thiserror = "2"
