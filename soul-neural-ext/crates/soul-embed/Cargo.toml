@@ -1,0 +1,10 @@
+[package]
+name = "soul-embed"
+version.workspace = true
+edition.workspace = true
+description = "Embedding engine using MiniLLM backbone"
+
+[dependencies]
+scirust-core = { path = "../scirust-core" }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"

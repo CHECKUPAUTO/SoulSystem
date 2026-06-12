@@ -1,0 +1,12 @@
+[package]
+name = "soul-snn"
+version.workspace = true
+edition.workspace = true
+description = "Recurrent Spiking Neural Network for spontaneous intuition"
+
+[dependencies]
+soul-core = { path = "../soul-core" }
+ndarray = "0.15"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full", "sync"] }
