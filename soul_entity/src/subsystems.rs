@@ -47,6 +47,7 @@ use neural_metacognition::SystemAuditor;
 use ontological_self_healing as healer;
 use parking_lot::Mutex;
 use soul_evolution::DynamicModuleLoader;
+use soul_evolution::registry::{scan_agents, register_agents};
 use soul_forge::EvolutionaryForge;
 use soul_journal::MmapJournal;
 use soul_orchestrator::SovereignOrchestrator;
@@ -78,7 +79,7 @@ pub struct Subsystems {
 
     // ── Orchestration multi-agents ───────────────────────────
     pub orchestrator: Mutex<SovereignOrchestrator>,
-    pub agents: Mutex<HashMap<String, ()>>,
+    pub agents: Mutex<HashMap<String, u32>>,
 
     // ── Hot-swap evolution ───────────────────────────────────
     pub module_loader: DynamicModuleLoader,
@@ -117,6 +118,25 @@ impl Subsystems {
             None => None,
         };
 
+        let mut orchestrator = SovereignOrchestrator::new();
+
+        // Auto-load agent definitions from disk and register them in the orchestrator.
+        // Uses deterministic FNV-1a hashing so IDs are stable across restarts.
+        let agents_dir = std::path::PathBuf::from("/root/.agents/agents");
+        let scanned = scan_agents(&agents_dir);
+        let registered = register_agents(&mut orchestrator, &scanned);
+
+        let mut agent_map: HashMap<String, u32> = HashMap::new();
+        for (id, entry) in &scanned {
+            agent_map.insert(entry.name.clone(), *id);
+        }
+
+        tracing::info!(
+            scanned = scanned.len(),
+            registered = registered,
+            "Agent ecosystem loaded from disk"
+        );
+
         Ok(Self {
             journal,
             journal_records: Mutex::new(0),
@@ -124,8 +144,8 @@ impl Subsystems {
             forge: Mutex::new(EvolutionaryForge::new()),
             telemetry: Arc::new(TelemetryHub::new(4)),
 
-            orchestrator: Mutex::new(SovereignOrchestrator::new()),
-            agents: Mutex::new(HashMap::new()),
+            orchestrator: Mutex::new(orchestrator),
+            agents: Mutex::new(agent_map),
 
             module_loader: DynamicModuleLoader,
 

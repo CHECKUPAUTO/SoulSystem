@@ -43,9 +43,7 @@ impl Generator {
             match gap.category {
                 GapCategory::MissingLanguageAgent => {
                     let lang = gap.title
-                        .split_whitespace()
-                        .filter(|&w| KNOWN_LANGUAGES.contains(&w))
-                        .next()
+                        .split_whitespace().find(|&w| KNOWN_LANGUAGES.contains(&w))
                         .unwrap_or("language");
 
                     let proposal = Self::propose_language_agent(
@@ -120,7 +118,7 @@ impl Generator {
             }
         }
 
-        proposals.sort_by(|a, b| a.priority.cmp(&b.priority));
+        proposals.sort_by_key(|a| a.priority);
         proposals
     }
 
@@ -146,7 +144,7 @@ impl Generator {
             gap: gap.category.clone(),
             template_type: TemplateType::LanguageReviewer,
             target_name: name.clone(),
-            target_path: Some(config.agents_dir.join(format!("{}.md", &name))),
+            target_path: Some(config.agents_dir.join(format!("{}.md", name))),
             template_content: template,
         })
     }
@@ -172,7 +170,7 @@ impl Generator {
             gap: gap.category.clone(),
             template_type: TemplateType::LanguageBuildResolver,
             target_name: name.clone(),
-            target_path: Some(config.agents_dir.join(format!("{}.md", &name))),
+            target_path: Some(config.agents_dir.join(format!("{}.md", name))),
             template_content: template,
         })
     }
@@ -205,7 +203,7 @@ impl Generator {
             gap: GapCategory::LowQualityAgent,
             template_type: TemplateType::ImprovedVersion,
             target_name: improved_name.clone(),
-            target_path: Some(config.agents_dir.join(format!("{}.md", &improved_name))),
+            target_path: Some(config.agents_dir.join(format!("{}.md", improved_name))),
             template_content: template,
         }
     }
@@ -269,7 +267,7 @@ impl Generator {
             gap: GapCategory::IncompleteAgent,
             template_type: TemplateType::ImprovedVersion,
             target_name: fixed_name.clone(),
-            target_path: Some(config.agents_dir.join(format!("{}.md", &fixed_name))),
+            target_path: Some(config.agents_dir.join(format!("{}.md", fixed_name))),
             template_content: fixed_template,
         }
     }
