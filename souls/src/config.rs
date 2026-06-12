@@ -4,7 +4,7 @@ use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
@@ -115,7 +115,6 @@ enum SettingField {
     MaxTokens,
     EntityName,
     Gateway,
-    Autonomous,
 }
 
 struct ConfigApp {
@@ -337,6 +336,7 @@ fn handle_key(app: &mut ConfigApp, key: KeyEvent) -> bool {
 }
 
 fn handle_settings_key(app: &mut ConfigApp, key: KeyEvent) -> bool {
+    // Handle Ctrl shortcuts first
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
             KeyCode::Char('c') => {
@@ -351,6 +351,7 @@ fn handle_settings_key(app: &mut ConfigApp, key: KeyEvent) -> bool {
         return false;
     }
 
+    // Handle regular keys
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             app.selected = app.selected.saturating_sub(1);
