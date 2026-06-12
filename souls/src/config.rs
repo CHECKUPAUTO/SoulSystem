@@ -1,180 +1,317 @@
-//! # souls_config — Configuration TOML de l'entité
-//!
-//! Format attendu (tous les champs optionnels) :
-//! ```toml
-//! [entity]
-//! name = "soul"
-//! memory_path = "/var/lib/souls/memory.db"
-//! tick_ms = 750
-//! autonomous = true
-//!
-//! [gateway]
-//! address = "127.0.0.1:7878"
-//! auth_token = "secret-abc123"
-//! rate_limit_per_minute = 60
-//! allowed_origins = ["http://localhost:*"]
-//!
-//! [llm]
-//! ollama_url = "http://127.0.0.1:11434"
-//! model = "qwen3:8b"
-//! temperature = 0.7
-//! max_tokens = 2048
-//!
-//! [sandbox]
-//! strict = false
-//! timeout_secs = 30
-//!
-//! [openclaw]
-//! remote_url = "http://127.0.0.1:8080"
-//! ```
+use anyhow::{Context, Result};
+use colored::Colorize;
+use dialoguer::{Input, Password, Select};
+use std::fs;
+use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
-use std::path::Path;
+const CONFIG_DIR: &str = "soulsystem";
+const CONFIG_FILE: &str = "config.toml";
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SoulsConfig {
-    #[serde(default)]
-    pub entity: EntityCfg,
-    #[serde(default)]
-    pub gateway: GatewayCfg,
-    #[serde(default)]
-    pub llm: LlmCfg,
-    #[serde(default)]
-    pub sandbox: SandboxCfg,
-    #[serde(default)]
-    pub openclaw: OpenclawCfg,
+/// Configuration persistante du LLM.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LlmPersistConfig {
+    pub provider: String,
+    pub base_url: String,
+    pub model: String,
+    pub api_key: Option<String>,
+    pub temperature: f32,
+    pub max_tokens: usize,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct EntityCfg {
-    pub name: Option<String>,
-    pub memory_path: Option<String>,
-    pub tick_ms: Option<u64>,
-    pub autonomous: Option<bool>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct GatewayCfg {
-    pub address: Option<String>,
-    pub auth_token: Option<String>,
-    pub rate_limit_per_minute: Option<usize>,
-    pub allowed_origins: Option<Vec<String>>,
-    pub max_body_size: Option<usize>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct LlmCfg {
-    pub ollama_url: Option<String>,
-    pub model: Option<String>,
-    pub temperature: Option<f32>,
-    pub max_tokens: Option<usize>,
-    pub http_timeout_secs: Option<u64>,
-    pub auth_token: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SandboxCfg {
-    pub strict: Option<bool>,
-    pub timeout_secs: Option<u64>,
-    pub whitelist: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct OpenclawCfg {
-    pub remote_url: Option<String>,
-}
-
-impl SoulsConfig {
-    /// Charge depuis un fichier TOML. Si le fichier n'existe pas, renvoie
-    /// une config par défaut.
-    pub fn from_file(path: &Path) -> std::result::Result<Self, String> {
-        if !path.exists() {
-            return Ok(Self::default());
+impl Default for LlmPersistConfig {
+    fn default() -> Self {
+        Self {
+            provider: "ollama".into(),
+            base_url: "http://127.0.0.1:11434".into(),
+            model: "qwen3:8b".into(),
+            api_key: None,
+            temperature: 0.7,
+            max_tokens: 2048,
         }
-        let s = std::fs::read_to_string(path)
-            .map_err(|e| format!("lecture {}: {e}", path.display()))?;
-        toml::from_str(&s).map_err(|e| format!("parse TOML: {e}"))
     }
+}
 
-    /// Charge + valide au démarrage.
-    pub fn load_and_validate(path: &Path) -> std::result::Result<Self, String> {
-        let cfg = Self::from_file(path)?;
-        cfg.validate()?;
-        Ok(cfg)
-    }
+/// Configuration globale persistante.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PersistConfig {
+    pub llm: LlmPersistConfig,
+    pub entity_name: String,
+    pub gateway_addr: String,
+    pub autonomous: bool,
+}
 
-    /// Validation : cohérence des champs.
-    pub fn validate(&self) -> std::result::Result<(), String> {
-        if let Some(t) = self.llm.temperature {
-            if !(0.0..=2.0).contains(&t) {
-                return Err(format!("temperature hors bornes: {t} (attendu 0.0-2.0)"));
-            }
+impl Default for PersistConfig {
+    fn default() -> Self {
+        Self {
+            llm: LlmPersistConfig::default(),
+            entity_name: "soul".into(),
+            gateway_addr: "127.0.0.1:7878".into(),
+            autonomous: false,
         }
-        if let Some(t) = self.llm.http_timeout_secs {
-            if t == 0 {
-                return Err("http_timeout_secs doit être > 0".into());
-            }
-        }
-        if let Some(t) = self.sandbox.timeout_secs {
-            if t == 0 {
-                return Err("sandbox.timeout_secs doit être > 0".into());
-            }
-        }
-        if let Some(r) = self.gateway.rate_limit_per_minute {
-            if r == 0 {
-                return Err("rate_limit_per_minute doit être > 0".into());
-            }
-        }
-        Ok(())
     }
 }
 
-/// Profils prédéfinis (F.3).
-///
-/// Utilisé quand le chargement TOML est activé via `--config`.
-/// Pour l'instant, les valeurs par défaut sont hardcodées dans main.rs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Profile {
-    Dev,
-    Prod,
-    Test,
+/// Chemin du fichier de config.
+fn config_path() -> Result<PathBuf> {
+    let dir = dirs::config_dir()
+        .context("impossible de déterminer le répertoire de config (~/.config)")?
+        .join(CONFIG_DIR);
+    Ok(dir.join(CONFIG_FILE))
 }
 
-impl Profile {
-    pub fn from_env() -> Self {
-        match std::env::var("SOUL_PROFILE").as_deref() {
-            Ok("prod") | Ok("production") => Self::Prod,
-            Ok("test") => Self::Test,
-            _ => Self::Dev,
-        }
+/// Charger la config depuis le fichier, ou créer une config par défaut.
+pub fn load_config() -> PersistConfig {
+    let path = match config_path() {
+        Ok(p) => p,
+        Err(_) => return PersistConfig::default(),
+    };
+    match fs::read_to_string(&path) {
+        Ok(content) => toml::from_str(&content).unwrap_or_default(),
+        Err(_) => PersistConfig::default(),
     }
+}
 
-    pub fn apply(&self, cfg: &mut SoulsConfig) {
-        match self {
-            Self::Dev => {
-                cfg.gateway.rate_limit_per_minute.get_or_insert(120);
-                cfg.gateway.allowed_origins.get_or_insert(vec!["*".into()]);
-                cfg.entity.autonomous.get_or_insert(false);
-            }
-            Self::Prod => {
-                cfg.gateway.rate_limit_per_minute.get_or_insert(60);
-                if cfg.gateway.allowed_origins.is_none() {
-                    cfg.gateway.allowed_origins = Some(vec!["https://console.soul.example".into()]);
+/// Sauvegarder la config sur disque.
+pub fn save_config(cfg: &PersistConfig) -> Result<()> {
+    let path = config_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("impossible de créer {}", parent.display()))?;
+    }
+    let content = toml::to_string_pretty(cfg).context("erreur sérialisation TOML")?;
+    fs::write(&path, content)
+        .with_context(|| format!("impossible d'écrire {}", path.display()))?;
+    Ok(())
+}
+
+/// Menu interactif de configuration.
+pub fn run_config_menu(existing: &PersistConfig) -> Result<PersistConfig> {
+    let mut cfg = existing.clone();
+
+    println!(
+        "\n{}",
+        "╔══════════════════════════════════════════════════╗"
+            .bright_cyan()
+            .bold()
+    );
+    println!(
+        "{}",
+        "║   SoulSystem — Configuration                    ║"
+            .bright_cyan()
+            .bold()
+    );
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝"
+            .bright_cyan()
+            .bold()
+    );
+
+    loop {
+        println!();
+        let items = vec![
+            format!("Provider LLM    : {}", cfg.llm.provider.bright_green()),
+            format!("URL du serveur  : {}", cfg.llm.base_url.bright_green()),
+            format!("Modèle          : {}", cfg.llm.model.bright_green()),
+            format!(
+                "Clé API         : {}",
+                if cfg.llm.api_key.is_some() {
+                    "*** configurée ***".bright_yellow().to_string()
+                } else {
+                    "non définie".bright_red().to_string()
                 }
-                if cfg.gateway.auth_token.is_none() {
-                    tracing::warn!(
-                        "[profile:prod] SOUL_GATEWAY_TOKEN non défini — gateway ouvert !"
-                    );
-                }
+            ),
+            format!("Température     : {:.1}", cfg.llm.temperature),
+            format!("Max tokens      : {}", cfg.llm.max_tokens),
+            "---".to_string(),
+            format!("Nom entité      : {}", cfg.entity_name.bright_green()),
+            format!("Gateway         : {}", cfg.gateway_addr.bright_green()),
+            format!(
+                "Autonome        : {}",
+                if cfg.autonomous { "oui" } else { "non" }
+            ),
+            "---".to_string(),
+            "Sauvegarder et quitter".bright_green().bold().to_string(),
+            "Quitter sans sauvegarder".bright_red().to_string(),
+        ];
+
+        let selection = Select::new()
+            .with_prompt("Que souhaitez-vous configurer ?")
+            .items(&items)
+            .default(0)
+            .interact_opt()?;
+
+        match selection {
+            Some(0) => configure_provider(&mut cfg)?,
+            Some(1) => configure_url(&mut cfg)?,
+            Some(2) => configure_model(&mut cfg)?,
+            Some(3) => configure_api_key(&mut cfg)?,
+            Some(4) => configure_temperature(&mut cfg)?,
+            Some(5) => configure_max_tokens(&mut cfg)?,
+            Some(7) => configure_entity_name(&mut cfg)?,
+            Some(8) => configure_gateway(&mut cfg)?,
+            Some(9) => configure_autonomous(&mut cfg)?,
+            Some(11) => {
+                save_config(&cfg)?;
+                println!(
+                    "\n{} Configuration sauvegardée dans {}",
+                    "✓".bright_green().bold(),
+                    config_path()?.display()
+                );
+                return Ok(cfg);
             }
-            Self::Test => {
-                cfg.gateway.rate_limit_per_minute.get_or_insert(10_000);
-                cfg.gateway.allowed_origins.get_or_insert(vec!["*".into()]);
-                cfg.entity.autonomous.get_or_insert(false);
-                cfg.entity.tick_ms.get_or_insert(50);
+            Some(12) => {
+                println!("\n{}", "Abandonné.".bright_yellow());
+                return Ok(cfg);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn configure_provider(cfg: &mut PersistConfig) -> Result<()> {
+    let providers = ["ollama", "openai", "anthropic"];
+    let idx = Select::new()
+        .with_prompt("Provider LLM")
+        .items(&providers)
+        .default(
+            providers
+                .iter()
+                .position(|p| *p == cfg.llm.provider)
+                .unwrap_or(0),
+        )
+        .interact_opt()?;
+
+    if let Some(i) = idx {
+        cfg.llm.provider = providers[i].to_string();
+
+        // URL par défaut selon le provider
+        cfg.llm.base_url = match providers[i] {
+            "ollama" => "http://127.0.0.1:11434".into(),
+            "openai" => "https://api.openai.com".into(),
+            "anthropic" => "https://api.anthropic.com".into(),
+            _ => cfg.llm.base_url.clone(),
+        };
+
+        // Modèles suggérés
+        let models = match providers[i] {
+            "ollama" => vec!["qwen3:8b", "llama3.1:8b", "mistral:latest", "deepseek-r1:8b"],
+            "openai" => vec!["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o4-mini"],
+            "anthropic" => vec![
+                "claude-sonnet-4-20250514",
+                "claude-haiku-4-20250414",
+                "claude-opus-4-20250514",
+            ],
+            _ => vec![],
+        };
+
+        if !models.is_empty() {
+            let model_idx = Select::new()
+                .with_prompt("Modèle suggéré")
+                .items(&models)
+                .default(0)
+                .interact_opt()?;
+            if let Some(m) = model_idx {
+                cfg.llm.model = models[m].to_string();
             }
         }
     }
+    Ok(())
+}
+
+fn configure_url(cfg: &mut PersistConfig) -> Result<()> {
+    let url: String = Input::new()
+        .with_prompt("URL du serveur LLM")
+        .default(cfg.llm.base_url.clone())
+        .interact_text()?;
+    cfg.llm.base_url = url;
+    Ok(())
+}
+
+fn configure_model(cfg: &mut PersistConfig) -> Result<()> {
+    let model: String = Input::new()
+        .with_prompt("Nom du modèle")
+        .default(cfg.llm.model.clone())
+        .interact_text()?;
+    cfg.llm.model = model;
+    Ok(())
+}
+
+fn configure_api_key(cfg: &mut PersistConfig) -> Result<()> {
+    let key: String = Password::new()
+        .with_prompt("Clé API (vide pour supprimer)")
+        .with_confirmation("Confirmer", "Les clés ne correspondent pas")
+        .allow_empty_password(true)
+        .interact()?;
+
+    cfg.llm.api_key = if key.is_empty() {
+        None
+    } else {
+        Some(key)
+    };
+    Ok(())
+}
+
+fn configure_temperature(cfg: &mut PersistConfig) -> Result<()> {
+    let val: String = Input::new()
+        .with_prompt("Température (0.0 — 2.0)")
+        .default(format!("{:.1}", cfg.llm.temperature))
+        .interact_text()?;
+
+    if let Ok(t) = val.parse::<f32>() {
+        let clamped = t.clamp(0.0, 2.0);
+        cfg.llm.temperature = clamped;
+    } else {
+        println!("{}", "Valeur invalide, conservation de la précédente.".bright_red());
+    }
+    Ok(())
+}
+
+fn configure_max_tokens(cfg: &mut PersistConfig) -> Result<()> {
+    let val: String = Input::new()
+        .with_prompt("Max tokens (1 — 128000)")
+        .default(cfg.llm.max_tokens.to_string())
+        .interact_text()?;
+
+    if let Ok(t) = val.parse::<usize>() {
+        let clamped = t.clamp(1, 128_000);
+        cfg.llm.max_tokens = clamped;
+    } else {
+        println!("{}", "Valeur invalide, conservation de la précédente.".bright_red());
+    }
+    Ok(())
+}
+
+fn configure_entity_name(cfg: &mut PersistConfig) -> Result<()> {
+    let name: String = Input::new()
+        .with_prompt("Nom de l'entité")
+        .default(cfg.entity_name.clone())
+        .interact_text()?;
+    cfg.entity_name = name;
+    Ok(())
+}
+
+fn configure_gateway(cfg: &mut PersistConfig) -> Result<()> {
+    let addr: String = Input::new()
+        .with_prompt("Adresse du gateway (host:port)")
+        .default(cfg.gateway_addr.clone())
+        .interact_text()?;
+    cfg.gateway_addr = addr;
+    Ok(())
+}
+
+fn configure_autonomous(cfg: &mut PersistConfig) -> Result<()> {
+    let options = vec!["Désactivé", "Activé"];
+    let idx = Select::new()
+        .with_prompt("Mode autonome")
+        .items(&options)
+        .default(if cfg.autonomous { 1 } else { 0 })
+        .interact_opt()?;
+
+    if let Some(i) = idx {
+        cfg.autonomous = i == 1;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -182,71 +319,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_minimal_config() {
-        let toml = r#"
-[entity]
-name = "alice"
-
-[gateway]
-address = "0.0.0.0:9000"
-"#;
-        let cfg: SoulsConfig = toml::from_str(toml).unwrap();
-        assert_eq!(cfg.entity.name.as_deref(), Some("alice"));
-        assert_eq!(cfg.gateway.address.as_deref(), Some("0.0.0.0:9000"));
+    fn default_config_is_valid() {
+        let cfg = PersistConfig::default();
+        assert_eq!(cfg.llm.provider, "ollama");
+        assert_eq!(cfg.llm.temperature, 0.7_f32);
+        assert!(!cfg.autonomous);
     }
 
     #[test]
-    fn empty_config_is_default() {
-        let cfg = SoulsConfig::default();
-        assert!(cfg.entity.name.is_none());
-    }
-
-    #[test]
-    fn validation_rejects_bad_temperature() {
-        let mut cfg = SoulsConfig::default();
-        cfg.llm.temperature = Some(3.0);
-        assert!(cfg.validate().is_err());
-    }
-
-    #[test]
-    fn validation_rejects_zero_timeout() {
-        let mut cfg = SoulsConfig::default();
-        cfg.sandbox.timeout_secs = Some(0);
-        assert!(cfg.validate().is_err());
-    }
-
-    #[test]
-    fn validation_rejects_zero_rate_limit() {
-        let mut cfg = SoulsConfig::default();
-        cfg.gateway.rate_limit_per_minute = Some(0);
-        assert!(cfg.validate().is_err());
-    }
-
-    #[test]
-    fn dev_profile_applies_defaults() {
-        let mut cfg = SoulsConfig::default();
-        Profile::Dev.apply(&mut cfg);
-        assert_eq!(cfg.gateway.rate_limit_per_minute, Some(120));
-        assert!(!cfg.entity.autonomous.unwrap_or(true));
-    }
-
-    #[test]
-    fn prod_profile_warns_no_token() {
-        let mut cfg = SoulsConfig::default();
-        Profile::Prod.apply(&mut cfg);
-        assert_eq!(cfg.gateway.rate_limit_per_minute, Some(60));
-    }
-
-    #[test]
-    fn test_profile_high_rate_limit() {
-        let mut cfg = SoulsConfig::default();
-        Profile::Test.apply(&mut cfg);
-        assert_eq!(cfg.gateway.rate_limit_per_minute, Some(10_000));
-    }
-
-    #[test]
-    fn from_nonexistent_file_returns_default() {
-        let cfg = SoulsConfig::from_file(Path::new("/tmp/_nonexistent_souls.toml")).unwrap();
-        assert!(cfg.entity.name.is_none());
+    fn serialize_roundtrip() {
+        let cfg = PersistConfig::default();
+        let toml_str = toml::to_string_pretty(&cfg).unwrap();
+        let parsed: PersistConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.llm.provider, cfg.llm.provider);
+        assert_eq!(parsed.llm.model, cfg.llm.model);
     }
 }
