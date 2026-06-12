@@ -10,7 +10,6 @@ members = [
     "soullink-brain/soullink-orchestrator",
     "soullink-brain/soullink-decision-v13",
     "soullink-brain/soullink-gateway",
-    "soullink-brain/soullink-benches",
     "soullink-brain/soullink-simd",
     "soullink-brain/soullink-vector",
     "soullink-brain/soullink-memory",
@@ -134,6 +133,22 @@ exclude = [
     "soul-neural",
     "soullink-node",
     "turboquant",
+    # External repos merged via subtree — not part of main workspace build
+    "os-agents",
+    "intel-integrations",
+    "openclaw-gateway",
+    "scirust-trading",
+    "openevolve-ext",
+    "avid-ext",
+    "neural-store",
+    "soul-neural-ext",
+    "jit-agentic-engine",
+    "agent-swarm",
+    "soullink-node-ext",
+    "soul-project",
+    "soullink-orchestrator-ext",
+    "synergie-ext",
+    "openclaw-evolution-ext",
 ]
 
 [workspace.package]
@@ -291,6 +306,7 @@ default = ["ed25519"]
 lto = "fat"
 codegen-units = 1
 strip = true
+panic = "abort"
 
 [workspace.lints.rust]
 dead_code = "allow"

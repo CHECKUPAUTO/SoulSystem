@@ -1,7 +1,0 @@
-/target/
-**/*.rs.bk
-*.pdb
-*.pyc
-__pycache__/
-*.log
-.env
