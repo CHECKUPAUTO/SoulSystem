@@ -17,8 +17,6 @@ use std::time::Duration;
 const CONFIG_DIR: &str = "soulsystem";
 const CONFIG_FILE: &str = "config.toml";
 
-// ─── Config Types ──────────────────────────────────────────────────────
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LlmPersistConfig {
     pub provider: String,
@@ -60,8 +58,6 @@ impl Default for PersistConfig {
         }
     }
 }
-
-// ─── Config File I/O ───────────────────────────────────────────────────
 
 fn config_path() -> Result<PathBuf> {
     let dir = dirs::config_dir()
@@ -129,6 +125,7 @@ struct ConfigApp {
     model_items: Vec<String>,
     dirty: bool,
     status_msg: String,
+    should_quit: bool,
 }
 
 impl ConfigApp {
@@ -146,6 +143,7 @@ impl ConfigApp {
             model_items,
             dirty: false,
             status_msg: String::new(),
+            should_quit: false,
         }
     }
 
@@ -153,7 +151,7 @@ impl ConfigApp {
         9
     }
 
-    fn setting_label(&self, idx: usize) -> &str {
+    fn setting_label(idx: usize) -> &'static str {
         match idx {
             0 => "Provider",
             1 => "URL du serveur",
@@ -178,7 +176,14 @@ impl ConfigApp {
             5 => self.cfg.llm.max_tokens.to_string(),
             6 => self.cfg.entity_name.clone(),
             7 => self.cfg.gateway_addr.clone(),
-            8 => if self.cfg.autonomous { "activé" } else { "désactivé" }.into(),
+            8 => {
+                if self.cfg.autonomous {
+                    "activé"
+                } else {
+                    "désactivé"
+                }
+                .into()
+            }
             _ => String::new(),
         }
     }
@@ -300,17 +305,21 @@ pub fn run_config_menu(existing: &PersistConfig) -> Result<PersistConfig> {
 
     let mut app = ConfigApp::new(existing);
 
-    loop {
+    let result = loop {
         terminal.draw(|f| draw_ui(f, &mut app))?;
 
         if event::poll(Duration::from_millis(50))? {
-            if let Ok(Event::Key(key)) = event::read() {
+            if let Event::Key(key) = event::read()? {
                 if handle_key(&mut app, key) {
-                    break;
+                    break app.cfg.clone();
                 }
             }
         }
-    }
+
+        if app.should_quit {
+            break app.cfg.clone();
+        }
+    };
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -319,7 +328,7 @@ pub fn run_config_menu(existing: &PersistConfig) -> Result<PersistConfig> {
     if app.dirty {
         save_config(&app.cfg)?;
     }
-    Ok(app.cfg)
+    Ok(result)
 }
 
 // ─── Event Handling ────────────────────────────────────────────────────
@@ -336,22 +345,16 @@ fn handle_key(app: &mut ConfigApp, key: KeyEvent) -> bool {
 }
 
 fn handle_settings_key(app: &mut ConfigApp, key: KeyEvent) -> bool {
-    // Handle Ctrl shortcuts first
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
-        match key.code {
-            KeyCode::Char('c') => {
-                if app.dirty {
-                    app.focus = Focus::ConfirmQuit;
-                } else {
-                    return true;
-                }
-            }
-            _ => {}
+    // Ctrl+C: quit
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+        if app.dirty {
+            app.focus = Focus::ConfirmQuit;
+        } else {
+            return true;
         }
         return false;
     }
 
-    // Handle regular keys
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             app.selected = app.selected.saturating_sub(1);
@@ -360,7 +363,7 @@ fn handle_settings_key(app: &mut ConfigApp, key: KeyEvent) -> bool {
             let max = ConfigApp::settings_count() - 1;
             app.selected = app.selected.min(max);
         }
-        KeyCode::Enter | KeyCode::Char(' ') => {
+        KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('e') => {
             app.start_edit(app.selected);
         }
         KeyCode::Char('q') => {
@@ -374,9 +377,6 @@ fn handle_settings_key(app: &mut ConfigApp, key: KeyEvent) -> bool {
             if app.dirty {
                 app.focus = Focus::ConfirmSave;
             }
-        }
-        KeyCode::Char('e') => {
-            app.start_edit(app.selected);
         }
         _ => {}
     }
@@ -490,13 +490,12 @@ fn handle_confirm_quit_key(app: &mut ConfigApp, key: KeyEvent) -> bool {
 fn draw_ui(f: &mut Frame, app: &mut ConfigApp) {
     let size = f.area();
 
-    // Main layout: [header | body | status]
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // header
-            Constraint::Min(10),  // body
-            Constraint::Length(3), // status bar
+            Constraint::Length(3),
+            Constraint::Min(10),
+            Constraint::Length(3),
         ])
         .split(size);
 
@@ -504,7 +503,6 @@ fn draw_ui(f: &mut Frame, app: &mut ConfigApp) {
     draw_body(f, vertical[1], app);
     draw_status_bar(f, vertical[2], app);
 
-    // Overlay dialogs
     match app.focus {
         Focus::EditDialog => draw_edit_dialog(f, size, app),
         Focus::ProviderDialog => draw_provider_dialog(f, size, app),
@@ -544,7 +542,11 @@ fn draw_header(f: &mut Frame, area: Rect, app: &ConfigApp) {
         ),
         Span::raw("  │  "),
         Span::styled(
-            if app.dirty { "● non sauvegardé" } else { "○ sauvegardé" },
+            if app.dirty {
+                "● non sauvegardé"
+            } else {
+                "○ sauvegardé"
+            },
             Style::default().fg(if app.dirty {
                 Color::Yellow
             } else {
@@ -553,9 +555,9 @@ fn draw_header(f: &mut Frame, area: Rect, app: &ConfigApp) {
         ),
     ]);
 
-    let paragraph = Paragraph::new(title).block(block).style(
-        Style::default().bg(Color::Black),
-    );
+    let paragraph = Paragraph::new(title)
+        .block(block)
+        .style(Style::default().bg(Color::Black));
     f.render_widget(paragraph, area);
 }
 
@@ -578,7 +580,7 @@ fn draw_settings_list(f: &mut Frame, area: Rect, app: &mut ConfigApp) {
 
     let items: Vec<ListItem> = (0..ConfigApp::settings_count())
         .map(|i| {
-            let label = app.setting_label(i);
+            let label = ConfigApp::setting_label(i);
             let value = app.setting_value(i);
             let style = if i == app.selected {
                 Style::default()
@@ -633,7 +635,6 @@ fn draw_preview(f: &mut Frame, area: Rect, app: &ConfigApp) {
         .lines()
         .map(|line| {
             if line.starts_with('[') {
-                // Section headers
                 Line::from(Span::styled(
                     line,
                     Style::default()
@@ -641,7 +642,6 @@ fn draw_preview(f: &mut Frame, area: Rect, app: &ConfigApp) {
                         .add_modifier(Modifier::BOLD),
                 ))
             } else if line.contains('=') {
-                // Key-value pairs
                 let parts: Vec<&str> = line.splitn(2, '=').collect();
                 if parts.len() == 2 {
                     Line::from(vec![
@@ -685,10 +685,7 @@ fn draw_status_bar(f: &mut Frame, area: Rect, app: &ConfigApp) {
                     .bg(Color::Green)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                &app.status_msg,
-                Style::default().fg(Color::Green),
-            ),
+            Span::styled(&app.status_msg, Style::default().fg(Color::Green)),
         ])
     } else {
         Line::from(vec![
@@ -700,25 +697,13 @@ fn draw_status_bar(f: &mut Frame, area: Rect, app: &ConfigApp) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("éditer  "),
-            Span::styled(
-                "j/k ",
-                Style::default().fg(Color::Cyan),
-            ),
+            Span::styled("j/k ", Style::default().fg(Color::Cyan)),
             Span::raw("naviguer  "),
-            Span::styled(
-                "s ",
-                Style::default().fg(Color::Cyan),
-            ),
+            Span::styled("s ", Style::default().fg(Color::Cyan)),
             Span::raw("sauvegarder  "),
-            Span::styled(
-                "q ",
-                Style::default().fg(Color::Cyan),
-            ),
+            Span::styled("q ", Style::default().fg(Color::Cyan)),
             Span::raw("quitter  "),
-            Span::styled(
-                "Ctrl+C ",
-                Style::default().fg(Color::Cyan),
-            ),
+            Span::styled("Ctrl+C ", Style::default().fg(Color::Cyan)),
             Span::raw("abandonner"),
         ])
     };
@@ -752,7 +737,6 @@ fn draw_edit_dialog(f: &mut Frame, size: Rect, app: &ConfigApp) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    // Show current value with cursor
     let display = if app.edit_buffer.is_empty() {
         Span::styled("│", Style::default().fg(Color::Cyan))
     } else {
@@ -762,13 +746,11 @@ fn draw_edit_dialog(f: &mut Frame, size: Rect, app: &ConfigApp) {
     let paragraph = Paragraph::new(Line::from(display));
     f.render_widget(paragraph, inner);
 
-    // Show cursor
     if !app.edit_buffer.is_empty() || app.focus == Focus::EditDialog {
         let cursor_x = inner.x + app.edit_cursor as u16;
         f.set_cursor_position((cursor_x, inner.y));
     }
 
-    // Hint
     let hint_area = Rect {
         x: inner.x,
         y: inner.y + 2,
@@ -776,15 +758,9 @@ fn draw_edit_dialog(f: &mut Frame, size: Rect, app: &ConfigApp) {
         height: 1,
     };
     let hint = Paragraph::new(Line::from(vec![
-        Span::styled(
-            "Enter ",
-            Style::default().fg(Color::Cyan),
-        ),
+        Span::styled("Enter ", Style::default().fg(Color::Cyan)),
         Span::raw("valider  "),
-        Span::styled(
-            "Esc ",
-            Style::default().fg(Color::Cyan),
-        ),
+        Span::styled("Esc ", Style::default().fg(Color::Cyan)),
         Span::raw("annuler"),
     ]));
     f.render_widget(hint, hint_area);
@@ -821,10 +797,7 @@ fn draw_provider_dialog(f: &mut Frame, size: Rect, app: &mut ConfigApp) {
             };
 
             ListItem::new(vec![
-                Line::from(Span::styled(
-                    format!("  {}", name),
-                    style,
-                )),
+                Line::from(Span::styled(format!("  {}", name), style)),
                 Line::from(Span::styled(
                     format!("    {}", url),
                     Style::default().fg(Color::DarkGray),
