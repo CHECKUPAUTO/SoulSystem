@@ -1,0 +1,13 @@
+Combine these two programs into a superior hybrid.
+
+Program A (score {score_a:.4}):
+```
+{code_a}
+```
+
+Program B (score {score_b:.4}):
+```
+{code_b}
+```
+
+Output ONLY the hybrid code, no explanations or markdown fences.
