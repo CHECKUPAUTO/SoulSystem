@@ -128,24 +128,39 @@ mod tests {
 
     #[test]
     fn detect_known_supported() {
-        assert_eq!(detect_service("https://www.youtube.com/watch?v=abc"), Some("youtube"));
+        assert_eq!(
+            detect_service("https://www.youtube.com/watch?v=abc"),
+            Some("youtube")
+        );
         assert_eq!(detect_service("https://youtu.be/abc"), Some("youtube"));
-        assert_eq!(detect_service("https://x.com/user/status/123"), Some("twitter"));
-        assert_eq!(detect_service("https://twitter.com/user/status/123"), Some("twitter"));
+        assert_eq!(
+            detect_service("https://x.com/user/status/123"),
+            Some("twitter")
+        );
+        assert_eq!(
+            detect_service("https://twitter.com/user/status/123"),
+            Some("twitter")
+        );
     }
 
     #[test]
     fn detect_known_unsupported_returns_none_not_some() {
         // Critical: returning Some("tiktok") would mislead the caller into
         // thinking we support TikTok, then bail later. Return None instead.
-        assert_eq!(detect_service("https://www.tiktok.com/@user/video/123"), None);
+        assert_eq!(
+            detect_service("https://www.tiktok.com/@user/video/123"),
+            None
+        );
         assert_eq!(detect_service("https://instagram.com/p/abc"), None);
         assert_eq!(detect_service("https://reddit.com/r/x/comments/y"), None);
     }
 
     #[test]
     fn is_known_unsupported_flags_them() {
-        assert_eq!(is_known_unsupported("https://www.tiktok.com/foo"), Some("tiktok.com"));
+        assert_eq!(
+            is_known_unsupported("https://www.tiktok.com/foo"),
+            Some("tiktok.com")
+        );
         assert_eq!(is_known_unsupported("https://example.com/foo"), None);
     }
 

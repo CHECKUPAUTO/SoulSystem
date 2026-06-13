@@ -1,4 +1,3 @@
-
 // ─── Tests unitaires pour utils ───
 #[cfg(test)]
 mod utils_tests {
@@ -97,7 +96,10 @@ json_format = true
         let cfg = GomogoConfig::default();
         let toml_str = toml::to_string_pretty(&cfg).expect("Serialize");
         let cfg2: GomogoConfig = toml::from_str(&toml_str).expect("Deserialize");
-        assert_eq!(cfg.scanner.default_concurrency, cfg2.scanner.default_concurrency);
+        assert_eq!(
+            cfg.scanner.default_concurrency,
+            cfg2.scanner.default_concurrency
+        );
         assert_eq!(cfg.captcha.result_ttl_secs, cfg2.captcha.result_ttl_secs);
     }
 }
@@ -126,7 +128,6 @@ mod captcha_model_tests {
 
     #[test]
     fn test_task_priority_tiebreaker() {
-        
         let now = Utc::now();
         let t1 = avid_gomogo::CaptchaTask {
             id: "1".into(),
@@ -150,11 +151,7 @@ mod captcha_model_tests {
 mod proxy_filter_tests {
     use regex::Regex;
 
-    fn is_allowed(
-        whitelist: &[Regex],
-        blacklist: &[Regex],
-        host: &str,
-    ) -> bool {
+    fn is_allowed(whitelist: &[Regex], blacklist: &[Regex], host: &str) -> bool {
         if !blacklist.is_empty() && blacklist.iter().any(|r| r.is_match(host)) {
             return false;
         }

@@ -15,7 +15,7 @@ soul_agent_core = { path = "../soul-agent-core" }
 soul_llm = { path = "../soul_llm" }
 soul_planner = { path = "../soul_planner" }
 soul_tools = { path = "../soul_tools" }
-soul_persist = { path = "../soul-persist" }
+soul-memory = { workspace = true }
 soul_subagents = { path = "../soul-subagents" }
 soul_eventbus = { path = "../soul-eventbus" }
 chrono = { version = "0.4", features = ["serde"] }

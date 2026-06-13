@@ -9,16 +9,9 @@ name = "smoke-bridges"
 path = "src/smoke.rs"
 
 [dependencies]
-# Bridges compilés (sans features lourdes)
-avid-bridge = { path = "../avid-bridge" }
-openevolve-bridge = { path = "../openevolve-bridge" }
+# Bridges unifiés — soul-bridge remplace 9 bridges individuels
+soul-bridge = { path = "../soul-bridge" }
 forge-core = { path = "../forges/forge-core" }
-mesh-bridge = { path = "../mesh-bridge" }
-services-bridge = { path = "../services-bridge" }
-organs-bridge = { path = "../organs-bridge" }
-brain-bridge = { path = "../brain-bridge" }
-soul-neural-bridge = { path = "../soul-neural-bridge" }
-synergie-bridge = { path = "../synergie-bridge" }
 forge-bridge = { path = "../forges/forge-bridge" }
 
 # HTTP

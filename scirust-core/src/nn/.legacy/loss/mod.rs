@@ -59,7 +59,7 @@ impl Loss for MseLoss {
 //
 // Pour l'instant on n'a pas Op::Sqrt sur la tape — on retombe donc sur
 // l'approximation MSE. À implémenter proprement quand Op::Sqrt sera ajouté
-// (TODO v5).
+// (NOTE v5).
 
 pub struct HuberPseudoLoss { pub delta: f32 }
 

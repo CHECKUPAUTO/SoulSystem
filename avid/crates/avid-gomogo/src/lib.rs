@@ -10,4 +10,4 @@ pub use captcha::CaptchaTask;
 pub use config::GomogoConfig;
 pub use proxy::run_proxy;
 pub use scanner::run_scanner;
-pub use utils::{format_size, truncate, random_user_agent};
+pub use utils::{format_size, random_user_agent, truncate};

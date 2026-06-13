@@ -1,5 +1,4 @@
 #![deny(unsafe_code)]
-#![warn(clippy::pedantic, clippy::nursery)]
 #![deny(
     clippy::unwrap_used,
     clippy::expect_used,

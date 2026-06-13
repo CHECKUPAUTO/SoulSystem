@@ -17,23 +17,28 @@ impl Default for YoutubeExtractor {
 
 impl YoutubeExtractor {
     pub fn new() -> Self {
-        Self { client: Client::new() }
+        Self {
+            client: Client::new(),
+        }
     }
 
     /// Extrait les infos de téléchargement d'une vidéo YouTube
     pub async fn extract(&self, video_id: &str) -> Result<YoutubeResult> {
         // Phase 1: Récupérer les infos de la vidéo
         let info = self.fetch_video_info(video_id).await?;
-        
+
         // Phase 2: Extraire les formats disponibles
         let formats = self.extract_formats(&info)?;
-        
+
         // Phase 3: Sélectionner le meilleur format
-        let best = formats.into_iter()
+        let best = formats
+            .into_iter()
             .max_by(|a, b| {
                 let a_score = (a.width * a.height) as f64 / a.filesize as f64;
                 let b_score = (b.width * b.height) as f64 / b.filesize as f64;
-                a_score.partial_cmp(&b_score).unwrap_or(std::cmp::Ordering::Equal)
+                a_score
+                    .partial_cmp(&b_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
             .ok_or_else(|| anyhow!("No suitable format found"))?;
 
@@ -46,19 +51,26 @@ impl YoutubeExtractor {
 
     async fn fetch_video_info(&self, video_id: &str) -> Result<VideoInfo> {
         let url = format!("https://www.youtube.com/watch?v={video_id}");
-        let html = self.client.get(&url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        let html = self
+            .client
+            .get(&url)
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            )
             .send()
             .await?
             .text()
             .await?;
 
         // Extract ytInitialData from the page
-        let json_start = html.find("ytInitialData")
+        let json_start = html
+            .find("ytInitialData")
             .and_then(|i| html[i..].find('{'))
             .map(|i| i + html[..i].rfind("ytInitialData").unwrap_or(0));
-        
-        let json_end = html.rfind("ytInitialData")
+
+        let json_end = html
+            .rfind("ytInitialData")
             .and_then(|i| html[i..].find("};"))
             .map(|i| i + 1);
 
@@ -73,15 +85,21 @@ impl YoutubeExtractor {
             }
         };
 
-        let title = info["videoDetails"]["title"].as_str()
+        let title = info["videoDetails"]["title"]
+            .as_str()
             .unwrap_or("unknown")
             .to_string();
-        let duration = info["videoDetails"]["lengthSeconds"].as_str()
+        let duration = info["videoDetails"]["lengthSeconds"]
+            .as_str()
             .unwrap_or("0")
             .parse::<u64>()
             .unwrap_or(0);
 
-        Ok(VideoInfo { title, duration, raw: info })
+        Ok(VideoInfo {
+            title,
+            duration,
+            raw: info,
+        })
     }
 
     async fn fetch_innertube(&self, video_id: &str) -> Result<Value> {
@@ -96,7 +114,9 @@ impl YoutubeExtractor {
             }
         });
 
-        let resp = self.client.post(url)
+        let resp = self
+            .client
+            .post(url)
             .json(&body)
             .send()
             .await?
@@ -120,7 +140,8 @@ impl YoutubeExtractor {
                         fmt["url"].as_str(),
                         fmt["mimeType"].as_str(),
                     ) {
-                        let content_len = fmt["contentLength"].as_str()
+                        let content_len = fmt["contentLength"]
+                            .as_str()
                             .and_then(|s| s.parse::<u64>().ok())
                             .unwrap_or(0);
                         formats.push(VideoFormat {

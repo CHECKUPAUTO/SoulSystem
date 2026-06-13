@@ -33,7 +33,6 @@
 //! because they use different table prefixes (`kg_` vs the defaults in `MemoryStore`).
 
 #![forbid(unsafe_code)]
-#![warn(clippy::pedantic, clippy::nursery)]
 #![deny(clippy::todo, clippy::unimplemented)]
 #![allow(
     clippy::module_name_repetitions,

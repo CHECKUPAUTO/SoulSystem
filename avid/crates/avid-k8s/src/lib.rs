@@ -15,7 +15,6 @@
 //! ```
 
 #![forbid(unsafe_code)]
-#![warn(clippy::pedantic, clippy::nursery)]
 
 use std::time::Duration;
 

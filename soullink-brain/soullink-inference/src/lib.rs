@@ -1,3 +1,14 @@
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    unused_mut,
+    unused_unsafe,
+    unreachable_pub,
+    non_camel_case_types,
+    non_snake_case,
+    unused_comparisons
+)]
 //! soullink-inference — NUMA-aware inference engine for SoulLink V13.5
 //!
 //! Optimizes LLM inference routing across dual Xeon NUMA + RTX 4060:

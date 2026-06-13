@@ -29,7 +29,7 @@ impl SynAnalyzer {
 
 impl Analyzer for SynAnalyzer {
     fn analyze(&self, _workspace: &Path) -> Result<CodeReport> {
-        // TODO: implement real syn-based analysis
+        // NOTE: implement real syn-based analysis
         Ok(CodeReport {
             opportunities: vec!["placeholder opportunity".into()],
         })

@@ -441,11 +441,11 @@ impl EvolutionEngine {
             }
             println!(
                 "Repair success  : {:.2} %",
-                self.repair.stats().success_rate() * 100.0
+                self.repair.stats().repair_success_rate() * 100.0
             );
             println!(
                 "Prompt avg score: {:.4}",
-                self.prompt_memory.success_rate(&self.language)
+                self.prompt_memory.language_success_rate(&self.language)
             );
             println!(
                 "Sauvegarde dans : {}/best/best_program.rs",

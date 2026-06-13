@@ -2,12 +2,12 @@ use crate::cli::ProxyArgs;
 use crate::config::{GomogoConfig, ModificationRule, RuleScope};
 use crate::utils::truncate;
 use anyhow::Context;
+use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
-use http_body_util::{BodyExt, Full};
 use rcgen::{Certificate, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair};
 use regex::Regex;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -293,7 +293,11 @@ async fn proxy_service(
     }
 
     let (_, body) = req.into_parts();
-    let mut body_bytes = body.collect().await.map(|c| c.to_bytes()).unwrap_or_default();
+    let mut body_bytes = body
+        .collect()
+        .await
+        .map(|c| c.to_bytes())
+        .unwrap_or_default();
 
     // Appliquer les règles de modification (request)
     body_bytes = apply_rules(&ctx.modification_rules, &body_bytes, RuleScope::Request);
@@ -521,8 +525,7 @@ fn load_or_generate_ca(cert_dir: &PathBuf) -> anyhow::Result<CaMaterial> {
         let cert_pem = std::fs::read(&ca_cert_path)?;
         let key_pem = std::fs::read(&ca_key_path)?;
         let certs: Vec<CertificateDer> =
-            rustls_pemfile::certs(&mut cert_pem.as_slice())
-                .collect::<Result<Vec<_>, _>>()?;
+            rustls_pemfile::certs(&mut cert_pem.as_slice()).collect::<Result<Vec<_>, _>>()?;
         let cert = certs.into_iter().next().context("CA cert missing")?;
         let key = rustls_pemfile::private_key(&mut key_pem.as_slice())
             .context("Parsing CA key")?

@@ -1,19 +1,6 @@
-# Telemetry (OpenTelemetry)
+# Telemetry & Metrics
 
-## Configuration
-
-```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
-```
-
-## Visualisation
-
-1. Lancer Jaeger : `docker run -p 16686:16686 -p 4317:4317 jaegertracing/all-in-one`
-2. Ouvrir http://localhost:16686
-
-## Spans instrumentées
-
-- `Clawd::process_message`
-- `SoulLink::tick`
-- `AVID::search`
-- `SciRust::compute`
+- Tracing via tracing-subscriber with env-filter
+- OTLP export configurable via OTEL_EXPORTER_OTLP_ENDPOINT
+- Prometheus metrics at localhost:9100/metrics
+- Metrics crate with metrics-exporter-prometheus

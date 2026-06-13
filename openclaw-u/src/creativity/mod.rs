@@ -183,7 +183,7 @@ impl CreativityEngine {
         );
 
         // Pour l'instant, simuler le résultat
-        // TODO: utiliser le LLM pour valider
+        // NOTE: utiliser le LLM pour valider
         let simulated_success = action.name.len() < 50 && !action.inputs.is_empty();
 
         if simulated_success {

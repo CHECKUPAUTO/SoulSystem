@@ -12,8 +12,9 @@
 git clone https://github.com/CHECKUPAUTO/SoulSystem.git
 cd SoulSystem
 
-# Configurer le token Telegram
-export TELEGRAM_BOT_TOKEN="votre_token_ici"
+# Configurer le token Telegram (depuis un fichier .env ou un gestionnaire de secrets)
+# NE PAS hardcoder le token dans ce fichier
+export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
 
 # Build et lancement
 docker compose up --build

@@ -18,6 +18,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install native dependencies (leptonica/tesseract for avid OCR)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libleptonica-dev libtesseract-dev
       - run: cargo check --workspace --all-targets
 
   test:
@@ -28,6 +32,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install native dependencies (leptonica/tesseract for avid OCR)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libleptonica-dev libtesseract-dev
       - run: cargo test --workspace --lib --tests --exclude soulsystem --exclude openclaw-u
       - run: cargo test -p soulsystem --tests
 
@@ -41,6 +49,10 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Install native dependencies (leptonica/tesseract for avid OCR)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libleptonica-dev libtesseract-dev
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   fmt:

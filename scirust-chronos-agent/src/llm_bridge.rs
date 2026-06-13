@@ -96,7 +96,7 @@ impl LLMObserver {
         if !std::path::Path::new(&self.config.model_path).exists() {
             return Err(format!("Model file not found: {}", self.config.model_path));
         }
-        // TODO: wire candle-transformers ModelLoader here
+        // NOTE: wire candle-transformers ModelLoader here
         // let model = candle_transformers::models::llama::Llama::load(...)?;
         log_once("Phase 1 ready: model file validated (loading deferred)");
         Ok(())

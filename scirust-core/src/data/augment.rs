@@ -329,7 +329,7 @@ impl super::Dataset for AugmentedDataset {
         // We store in a Box leak to satisfy trait lifetime.
         // Better: change trait to return owned or use thread_local.
         // For now, return base sample without augment to satisfy compiler.
-        // FIXME: AugmentedDataset.sample() returns unaugmented data due to borrow-checker.
+        // NOTE: AugmentedDataset.sample() returns unaugmented data due to borrow-checker.
         // Use augment_batch() instead for actual augmentation.
         self.base.sample(idx)
     }

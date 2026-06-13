@@ -20,7 +20,11 @@ pub async fn fetch_cve(cve_id: &str) -> anyhow::Result<CveEntry> {
     let descriptions = cve_data["descriptions"]
         .as_array()
         .and_then(|arr| arr.iter().find(|d| d["lang"] == "en"))
-        .or_else(|| cve_data["descriptions"].as_array().and_then(|arr| arr.first()));
+        .or_else(|| {
+            cve_data["descriptions"]
+                .as_array()
+                .and_then(|arr| arr.first())
+        });
 
     let description = descriptions
         .and_then(|d| d["value"].as_str())
@@ -31,8 +35,16 @@ pub async fn fetch_cve(cve_id: &str) -> anyhow::Result<CveEntry> {
     let cvss_score = metrics["cvssMetricV31"]
         .as_array()
         .and_then(|arr| arr.first())
-        .or_else(|| metrics["cvssMetricV30"].as_array().and_then(|arr| arr.first()))
-        .or_else(|| metrics["cvssMetricV2"].as_array().and_then(|arr| arr.first()))
+        .or_else(|| {
+            metrics["cvssMetricV30"]
+                .as_array()
+                .and_then(|arr| arr.first())
+        })
+        .or_else(|| {
+            metrics["cvssMetricV2"]
+                .as_array()
+                .and_then(|arr| arr.first())
+        })
         .and_then(|m| m["cvssData"]["baseScore"].as_f64());
 
     let severity = cvss_score.map_or_else(
@@ -62,7 +74,10 @@ pub async fn fetch_cve(cve_id: &str) -> anyhow::Result<CveEntry> {
     entry.references = references;
     entry.is_exploitable = cvss_score.is_some_and(|s| s >= 7.0);
 
-    info!("CVE {} fetched: score={:?} severity={}", cve_id, cvss_score, entry.severity);
+    info!(
+        "CVE {} fetched: score={:?} severity={}",
+        cve_id, cvss_score, entry.severity
+    );
     Ok(entry)
 }
 

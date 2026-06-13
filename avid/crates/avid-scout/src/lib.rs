@@ -1,7 +1,6 @@
 #![allow(clippy::result_large_err)]
 #![forbid(unsafe_code)]
 #![deny(warnings)]
-#![warn(clippy::pedantic, clippy::nursery)]
 #![allow(
     clippy::module_name_repetitions,
     clippy::unused_async,

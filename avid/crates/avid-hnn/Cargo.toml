@@ -1,9 +1,9 @@
 [package]
 name = "avid-hnn"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
 description = "Hamiltonian Neural Network — learns energy surfaces via Dual-number autodiff"
 repository = "https://github.com/CHECKUPAUTO/AVID"
 documentation = "https://github.com/CHECKUPAUTO/AVID"
@@ -33,4 +33,4 @@ default = []
 autodiff = ["dep:scirust-autodiff"]
 
 [dependencies]
-scirust-autodiff = { path = "/root/scirust/scirust-autodiff", optional = true }
+scirust-autodiff = { path = "../../../scirust-autodiff", optional = true }

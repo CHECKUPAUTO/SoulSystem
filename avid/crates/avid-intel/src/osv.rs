@@ -44,7 +44,12 @@ impl OsvClient {
         let vulns = body["vulns"].as_array().cloned().unwrap_or_default();
 
         let entries: Vec<CveEntry> = vulns.iter().filter_map(parse_osv_vuln).collect();
-        info!("OSV returned {} vulnerabilities for {} @ {}", entries.len(), package, version);
+        info!(
+            "OSV returned {} vulnerabilities for {} @ {}",
+            entries.len(),
+            package,
+            version
+        );
         Ok(entries)
     }
 
@@ -67,7 +72,11 @@ impl OsvClient {
         let vulns = body["vulns"].as_array().cloned().unwrap_or_default();
 
         let entries: Vec<CveEntry> = vulns.iter().filter_map(parse_osv_vuln).collect();
-        info!("OSV returned {} vulnerabilities for commit {}", entries.len(), commit_hash);
+        info!(
+            "OSV returned {} vulnerabilities for commit {}",
+            entries.len(),
+            commit_hash
+        );
         Ok(entries)
     }
 
@@ -95,14 +104,8 @@ impl Default for OsvClient {
 /// Parse une vulnérabilité du format OSV vers CveEntry
 fn parse_osv_vuln(vuln: &serde_json::Value) -> Option<CveEntry> {
     let id = vuln["id"].as_str()?;
-    let summary = vuln["summary"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
-    let details = vuln["details"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let summary = vuln["summary"].as_str().unwrap_or("").to_string();
+    let details = vuln["details"].as_str().unwrap_or("").to_string();
 
     // Combine summary + details pour la description
     let description = if summary.is_empty() {
@@ -118,10 +121,8 @@ fn parse_osv_vuln(vuln: &serde_json::Value) -> Option<CveEntry> {
     // Extrait le score CVSS s'il existe
     if let Some(severity_list) = vuln["severity"].as_array() {
         for sev in severity_list {
-            if let (Some(sev_type), Some(score_str)) = (
-                sev["type"].as_str(),
-                sev["score"].as_str(),
-            ) {
+            if let (Some(sev_type), Some(score_str)) = (sev["type"].as_str(), sev["score"].as_str())
+            {
                 if sev_type == "CVSS_V3" {
                     if let Ok(score) = score_str.parse::<f64>() {
                         entry.cvss_score = Some(score);

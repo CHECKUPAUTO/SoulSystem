@@ -90,6 +90,14 @@ pub enum DefenseAction {
     DistressSignal { message: String },
     /// Graceful shutdown sequence
     GracefulShutdown { reason: String },
+    /// Restart a systemd service or child process
+    RestartService { name: String },
+    /// Clear a cache directory
+    ClearCache { path: String },
+    /// Rotate logs (archive + truncate)
+    RotateLogs { path: String },
+    /// Prune old data (checkpoints, memory, etc.)
+    PruneOldData { path: String, older_than_secs: u64 },
 }
 
 // ── Preservation Engine ────────────────────────────────────────────────────
@@ -275,6 +283,25 @@ impl Preservation {
         } else {
             None
         }
+    }
+
+    /// Recover from degraded mode — reset state when pressure subsides.
+    pub fn recover(&self) {
+        self.degraded_mode.store(false, Ordering::Relaxed);
+        self.emergency_saved.store(false, Ordering::Relaxed);
+        self.error_count.store(0, Ordering::Relaxed);
+    }
+
+    /// De-escalate danger level if conditions improve.
+    pub async fn deescalate(&self) {
+        let mut current = self.danger_level.write().await;
+        if *current > DangerLevel::Elevated {
+            *current = DangerLevel::Elevated;
+        } else if *current == DangerLevel::Elevated {
+            *current = DangerLevel::Normal;
+            self.recover();
+        }
+        info!("Preservation: de-escalated to {:?}", *current);
     }
 
     /// Get current danger level.

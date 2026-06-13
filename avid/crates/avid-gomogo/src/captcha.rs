@@ -1,11 +1,11 @@
 use crate::config::GomogoConfig;
-use actix_web::{web, App, HttpResponse, HttpRequest, HttpServer, Error};
+use actix_web::{web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{mpsc, Mutex};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -148,7 +148,10 @@ impl AppState {
             if pending.len() < self.max_pending {
                 pending.push(task);
             } else {
-                warn!("File d'attente pleine ({}), tâche rejetée", self.max_pending);
+                warn!(
+                    "File d'attente pleine ({}), tâche rejetée",
+                    self.max_pending
+                );
             }
         }
     }
@@ -381,10 +384,7 @@ document.getElementById("status").textContent="Sent. Waiting...";currentTaskId=n
         .body(html)
 }
 
-async fn solve(
-    req: web::Json<SolveRequest>,
-    state: web::Data<Arc<AppState>>,
-) -> HttpResponse {
+async fn solve(req: web::Json<SolveRequest>, state: web::Data<Arc<AppState>>) -> HttpResponse {
     let task_id = state.submit_task(req.image.clone(), req.priority).await;
     if task_id.is_empty() {
         return HttpResponse::BadRequest().json(serde_json::json!({
@@ -394,10 +394,7 @@ async fn solve(
     HttpResponse::Ok().json(SolveResponse { task_id })
 }
 
-async fn get_result(
-    path: web::Path<String>,
-    state: web::Data<Arc<AppState>>,
-) -> HttpResponse {
+async fn get_result(path: web::Path<String>, state: web::Data<Arc<AppState>>) -> HttpResponse {
     let task_id = path.into_inner();
     match state.get_result(&task_id).await {
         Some(solution) if solution.is_empty() => {
@@ -439,11 +436,7 @@ async fn health(state: web::Data<Arc<AppState>>) -> HttpResponse {
     })
 }
 
-pub async fn run_server(
-    bind: &str,
-    port: u16,
-    config: &GomogoConfig,
-) -> std::io::Result<()> {
+pub async fn run_server(bind: &str, port: u16, config: &GomogoConfig) -> std::io::Result<()> {
     let task_timeout = Duration::from_secs(config.captcha.task_timeout_secs);
     let result_ttl = Duration::from_secs(config.captcha.result_ttl_secs);
     let max_pending = config.captcha.max_pending_tasks;

@@ -31,6 +31,7 @@ struct RingHeader {
 /// A lock-free SPSC ring buffer backed by shared memory.
 pub struct ShmRingBuffer {
     ptr: *mut u8,
+    #[allow(dead_code)]
     len: usize,
 }
 

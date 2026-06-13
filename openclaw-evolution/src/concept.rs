@@ -41,7 +41,7 @@ impl Concept {
     }
 
     /// Taux de succès réel
-    pub fn success_rate(&self) -> f32 {
+    pub fn concept_success_rate(&self) -> f32 {
         if self.usage_count == 0 {
             return 0.5; // prior neutre
         }
@@ -55,7 +55,7 @@ impl Concept {
             self.success_count += 1;
         }
         // Ajuster la stabilité basée sur le taux de succès réel
-        self.stability = self.stability * 0.8 + self.success_rate() * 0.2;
+        self.stability = self.stability * 0.8 + self.concept_success_rate() * 0.2;
     }
 
     /// Similarité sémantique avec un autre concept

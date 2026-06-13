@@ -1,10 +1,6 @@
 use avid_core::models::{TaskRequest, TaskResult};
 use color_eyre::Result;
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::{prelude::*, widgets::*};
 use reqwest::Client;
 use std::io;
@@ -152,20 +148,8 @@ async fn main() -> Result<()> {
     res
 }
 
-fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    Ok(Terminal::new(backend)?)
-}
-
-fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-    Ok(())
-}
+use avid_tui::restore_terminal;
+use avid_tui::setup_terminal;
 
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,

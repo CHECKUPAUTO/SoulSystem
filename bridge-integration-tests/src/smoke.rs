@@ -2,6 +2,10 @@
 //!
 //! Exécute `init()` ou `init() → probe_all()` sur chaque bridge en série
 //! (pour éviter la saturation réseau) et affiche un tableau récapitulatif.
+//!
+//! Tous les bridges individuels (avid-bridge, brain-bridge, etc.) ont été
+//! consolidés dans le crate `soul-bridge`. Les modules sont accessibles via
+//! `soul_bridge::avid`, `soul_bridge::brain`, etc.
 
 use std::time::{Duration, Instant};
 
@@ -9,6 +13,7 @@ use std::time::{Duration, Instant};
 async fn main() -> anyhow::Result<()> {
     println!("╔══════════════════════════════════════════════════════════╗");
     println!("║  SoulSystem Bridges — Smoke Test (PHASE 2)              ║");
+    println!("║  (unified via soul-bridge)                              ║");
     println!("╚══════════════════════════════════════════════════════════╝\n");
 
     let total_start = Instant::now();
@@ -17,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     // 1. AVID bridge — sync init
     {
         let start = Instant::now();
-        let res = tokio::task::spawn_blocking(avid_bridge::init).await;
+        let res = tokio::task::spawn_blocking(soul_bridge::avid::init).await;
         let (msg, ok) = match res {
             Ok(Ok(())) => ("AVID bridge init OK".to_string(), true),
             Ok(Err(e)) => (format!("init error: {e}"), false),
@@ -26,10 +31,10 @@ async fn main() -> anyhow::Result<()> {
         all_results.push(("avid-bridge", msg, start.elapsed(), ok));
     }
 
-    // 2. OpenEvolve bridge — async init → result<OpenEvolveClient>
+    // 2. OpenEvolve bridge — async init
     {
         let start = Instant::now();
-        let res = tokio::time::timeout(Duration::from_secs(8), openevolve_bridge::init()).await;
+        let res = tokio::time::timeout(Duration::from_secs(8), soul_bridge::openevolve::init()).await;
         let (msg, ok) = match res {
             Ok(Ok(_)) => ("openevolve-bridge init OK".to_string(), true),
             Ok(Err(e)) => (format!("init error: {e}"), false),
@@ -41,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     // 3. mesh-bridge — async init → MeshClient → probe_all
     {
         let start = Instant::now();
-        let res = tokio::time::timeout(Duration::from_secs(10), mesh_bridge::init()).await;
+        let res = tokio::time::timeout(Duration::from_secs(10), soul_bridge::mesh::init()).await;
         let (msg, ok) = match res {
             Ok(Ok(client)) => {
                 let probed = client.probe_all().await;
@@ -58,7 +63,7 @@ async fn main() -> anyhow::Result<()> {
     // 4. services-bridge
     {
         let start = Instant::now();
-        let res = tokio::time::timeout(Duration::from_secs(12), services_bridge::init()).await;
+        let res = tokio::time::timeout(Duration::from_secs(12), soul_bridge::services::init()).await;
         let (msg, ok) = match res {
             Ok(Ok(client)) => {
                 let probed = client.probe_all().await;
@@ -78,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
     // 5. organs-bridge
     {
         let start = Instant::now();
-        let res = tokio::time::timeout(Duration::from_secs(10), organs_bridge::init()).await;
+        let res = tokio::time::timeout(Duration::from_secs(10), soul_bridge::organs::init()).await;
         let (msg, ok) = match res {
             Ok(Ok(client)) => {
                 let probed = client.probe_all().await;
@@ -92,10 +97,10 @@ async fn main() -> anyhow::Result<()> {
         all_results.push(("organs-bridge", msg, start.elapsed(), ok));
     }
 
-    // 6. brain-bridge — async init → BrainClient
+    // 6. brain-bridge
     {
         let start = Instant::now();
-        let res = tokio::time::timeout(Duration::from_secs(8), brain_bridge::init()).await;
+        let res = tokio::time::timeout(Duration::from_secs(8), soul_bridge::brain::init()).await;
         let (msg, ok) = match res {
             Ok(Ok(_)) => ("brain-bridge init OK".to_string(), true),
             Ok(Err(e)) => (format!("init error: {e}"), false),
@@ -107,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
     // 7. soul-neural-bridge
     {
         let start = Instant::now();
-        let res = tokio::time::timeout(Duration::from_secs(8), soul_neural_bridge::init()).await;
+        let res = tokio::time::timeout(Duration::from_secs(8), soul_bridge::soul_neural::init()).await;
         let (msg, ok) = match res {
             Ok(Ok(_)) => ("soul-neural-bridge init OK".to_string(), true),
             Ok(Err(e)) => (format!("init error: {e}"), false),
@@ -119,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
     // 8. synergie-bridge
     {
         let start = Instant::now();
-        let res = tokio::time::timeout(Duration::from_secs(8), synergie_bridge::init()).await;
+        let res = tokio::time::timeout(Duration::from_secs(8), soul_bridge::synergie::init()).await;
         let (msg, ok) = match res {
             Ok(Ok(_)) => ("synergie-bridge init OK".to_string(), true),
             Ok(Err(e)) => (format!("init error: {e}"), false),

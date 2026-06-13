@@ -14,9 +14,25 @@ use clap::Parser;
 use soulsystem::bound_system::BoundSystem;
 use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
+// Unified bridge aliases (replaces 9 individual bridge crates)
+#[cfg(feature = "avid")]
+use soul_bridge::avid as avid_bridge;
+#[cfg(feature = "brain_system")]
+use soul_bridge::brain as brain_bridge;
+#[cfg(feature = "mesh")]
+use soul_bridge::mesh as mesh_bridge;
+#[cfg(feature = "openevolve")]
+use soul_bridge::openevolve as openevolve_bridge;
+#[cfg(feature = "organs")]
+use soul_bridge::organs as organs_bridge;
+#[cfg(feature = "services")]
+use soul_bridge::services as services_bridge;
+#[cfg(feature = "soul_neural")]
+use soul_bridge::soul_neural as soul_neural_bridge;
+#[cfg(feature = "synergie")]
+use soul_bridge::synergie as synergie_bridge;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -49,17 +65,21 @@ struct Cli {
     #[arg(long)]
     plan: Option<String>,
 
-    /// Start autonomous loop (observe→plan→act→evaluate→decide)
+    /// Run as background daemon (processes goals autonomously)
     #[arg(long)]
-    autonomous: bool,
+    daemon: bool,
 
-    /// Tick interval in seconds for autonomous loop (default: 30)
-    #[arg(long, default_value = "30")]
-    tick: u64,
+    /// Dashboard port (default: 9090, 0 = disabled)
+    #[arg(long, default_value = "9090")]
+    dashboard_port: u16,
 
-    /// Serve live dashboard on this port (only with --autonomous)
+    /// Add a goal to the daemon
     #[arg(long)]
-    dashboard: Option<u16>,
+    goal: Option<String>,
+
+    /// List daemon goals and exit
+    #[arg(long)]
+    list_goals: bool,
 }
 
 #[tokio::main]
@@ -70,91 +90,6 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    // ── Autonomous modes (lightweight, no full system init) ────────────
-    if cli.repl {
-        info!("▶ Mode REPL autonome activé");
-        // Le REPL est une boucle bloquante (readline + clients HTTP bloquants) :
-        // il doit tourner hors du runtime tokio pour éviter les paniques
-        // "cannot block/drop a runtime from within a runtime".
-        std::thread::spawn(|| {
-            let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
-            soul_repl::run_repl(&mut repl_state);
-        })
-        .join()
-        .ok();
-        return Ok(());
-    }
-
-    if let Some(ref question) = cli.ask {
-        info!("▶ Mode ask: {}", question);
-        let config = soul_llm::LlmConfig::default();
-        let client = soul_llm::OllamaClient::new(config);
-        match client.generate(question).await {
-            Ok(resp) => println!("{}", resp.response),
-            Err(e) => eprintln!("Error: {}", e),
-        }
-        return Ok(());
-    }
-
-    if let Some(ref goal_desc) = cli.plan {
-        info!("▶ Mode plan: {}", goal_desc);
-        let config = soul_llm::LlmConfig::default();
-        let entity_name = hostname::get()
-            .map(|h| h.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "soulsystem".to_string());
-        let autonomous = soulsystem::autonomous::AutonomousEntity::new(config, &entity_name);
-        let goal = autonomous.create_goal(goal_desc);
-        let plan = autonomous.plan(&goal);
-        match serde_json::to_string_pretty(&plan) {
-            Ok(json) => println!("{}", json),
-            Err(e) => eprintln!("Error serializing plan: {}", e),
-        }
-        return Ok(());
-    }
-
-    if cli.autonomous {
-        info!("▶ Mode autonome activé (tick: {}s)", cli.tick);
-
-        let config = soul_llm::LlmConfig::default();
-        let entity_name = hostname::get()
-            .map(|h| h.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "soulsystem".to_string());
-        let mut entity = soulsystem::autonomous::AutonomousEntity::new(config, &entity_name);
-
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let shutdown_clone = shutdown.clone();
-
-        tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.ok();
-            info!("Shutdown signal received");
-            shutdown_clone.store(true, Ordering::Relaxed);
-        });
-
-        #[cfg(unix)]
-        {
-            let shutdown_clone = shutdown.clone();
-            tokio::spawn(async move {
-                let mut sigterm =
-                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                        .unwrap();
-                sigterm.recv().await;
-                info!("SIGTERM received");
-                shutdown_clone.store(true, Ordering::Relaxed);
-            });
-        }
-
-        let loop_config = soulsystem::autonomous_loop::AutonomousLoopConfig {
-            tick_interval_secs: cli.tick,
-            max_consecutive_noops: 10,
-            data_dir: "/var/lib/soulsystem/autonomous".to_string(),
-            dashboard_port: cli.dashboard,
-        };
-
-        soulsystem::autonomous_loop::run_autonomous_loop(&mut entity, loop_config, shutdown).await;
-        return Ok(());
-    }
-
-    // ── Full system initialization ─────────────────────────────────────
     // Chargement de la configuration centralisée
     let settings = soulsystem::config::Settings::new()?;
     info!(
@@ -327,8 +262,8 @@ async fn main() -> Result<()> {
     let health_watchdog = watchdog.clone();
     let health_summarizer = summarizer.clone();
     let bus_health = bus.clone();
-    tokio::spawn(async move {
-        let config = soulsystem::memory_health::HealthConfig {
+    let health = Arc::new(tokio::sync::Mutex::new(
+        soulsystem::memory_health::MemoryHealth::new(soulsystem::memory_health::HealthConfig {
             latency_warn_ms: 500.0,
             max_entries_warn: 1000,
             search_failure_ratio: 0.3,
@@ -338,33 +273,33 @@ async fn main() -> Result<()> {
             context_size_warn_tokens: 500_000,
             max_alpha_sync_variance: 0.4,
             max_error_rate: 0.15,
-        };
-        let mut health = soulsystem::memory_health::MemoryHealth::new(config);
+        }),
+    ));
+    let health_loop = health.clone();
+    tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
         loop {
             interval.tick().await;
 
-            // Alimenter les métriques depuis le watchdog
+            let mut h = health_loop.lock().await;
             let comp_count = *health_watchdog.compaction_count().read().await;
             for _ in 0..comp_count {
-                health.record_compaction();
+                h.record_compaction();
             }
 
-            // Vérifier le taux de messages depuis le résumé
             let msg_count = health_summarizer.summary().read().await.message_count;
             for _ in 0..msg_count.min(10) {
-                health.record_message();
+                h.record_message();
             }
 
-            let report = health.check(&health_hub).await;
+            let report = h.check(&health_hub).await;
 
-            // Émettre une alerte de fatigue sur le bus
             if report.is_fatigued {
                 bus_health.publish(soulsystem::bus::Message::Custom {
                     topic: "memory.fatigue_alert".into(),
                     payload: serde_json::json!({
                         "severity": "warning",
-                        "message": "Fatigue cognitive détectée — pause recommandée",
+                        "message": "Cognitive fatigue detected — pause recommended",
                         "compactions": report.compactions_last_hour,
                         "alpha_variance": report.alpha_sync_variance,
                         "context_tokens": report.estimated_context_tokens,
@@ -828,86 +763,569 @@ async fn main() -> Result<()> {
     });
     info!("Metabolism proxy actif sur :9052");
 
-    // ── Phase 3: Preservation (instinct auto-préservation) ──────────────────
-    let bus_preservation = bus.clone();
-    tokio::spawn(async move {
+    // ── Phase 5: SelfHealer (auto-préservation + réparation) ───────────────
+    {
         use soullink_autonomy::preservation::{Preservation, PreservationConfig};
         let preservation = Preservation::new(PreservationConfig::default());
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-        loop {
-            interval.tick().await;
-            // Monitor error cascades via bus events
-            if let Some(actions) = preservation.record_error().await {
-                for action in &actions {
-                    bus_preservation.publish(soulsystem::bus::Message::Custom {
-                        topic: "preservation.action".into(),
-                        payload: serde_json::json!({"action": format!("{:?}", action)}),
-                    });
+        let healer = Arc::new(soulsystem::self_healer::SelfHealer::new(
+            preservation.clone(),
+            settings.paths.data_dir.clone(),
+        ));
+        // Error cascade monitoring from bus events
+        let bus_heal = bus.clone();
+        let pres = preservation.clone();
+        let healer_events = healer.clone();
+        tokio::spawn(async move {
+            use soulsystem::bus::Message;
+            let mut rx = bus_heal.subscribe();
+            loop {
+                match rx.recv().await {
+                    Ok(Message::Custom { topic, .. }) if topic.starts_with("error.") => {
+                        if let Some(actions) = pres.record_error().await {
+                            for action in &actions {
+                                healer_events.execute(action).await;
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(_) => break,
                 }
             }
-            // Check resources periodically
-            let cpu = read_cpu_usage();
-            let mem = read_mem_usage();
-            if let Some(actions) = preservation.check_resources(cpu, mem, 0.0).await {
-                for action in &actions {
-                    tracing::warn!("Preservation: {:?}", action);
-                    bus_preservation.publish(soulsystem::bus::Message::Custom {
-                        topic: "preservation.critical".into(),
-                        payload: serde_json::json!({"action": format!("{:?}", action), "cpu": cpu, "mem": mem}),
+        });
+        let healer_run = healer.clone();
+        tokio::spawn(async move {
+            healer_run.run().await;
+        });
+        info!("SelfHealer: auto-réparation active (interval: 30s)");
+    }
+
+    // ── Phase 5: BackupManager (sauvegarde signée périodique) ──────────
+    let backup_manager = {
+        let (priv_key, pub_key) = soulsystem::backup::BackupManager::generate_keys();
+        let bm = soulsystem::backup::BackupManager::new(
+            settings.paths.data_dir.clone(),
+            settings.paths.config_dir.clone(),
+        )
+        .with_keys(priv_key, pub_key);
+        // Sauvegarde initiale
+        let backup_path = settings.paths.data_dir.join(format!(
+            "backup-{}.tar.gz",
+            chrono::Utc::now().format("%Y%m%d-%H%M%S")
+        ));
+        match bm.create_backup(
+            backup_path
+                .to_str()
+                .unwrap_or("/tmp/soulsystem-backup.tar.gz"),
+        ) {
+            Ok(()) => info!(
+                "BackupManager: sauvegarde initiale créée ({})",
+                backup_path.display()
+            ),
+            Err(e) => tracing::warn!("BackupManager: sauvegarde initiale échouée: {}", e),
+        }
+        Arc::new(bm)
+    };
+    // Sauvegarde périodique toutes les 6 heures
+    {
+        let bm = backup_manager.clone();
+        let backup_dir = settings.paths.data_dir.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(21600)); // 6h
+            interval.tick().await; // skip first (already done above)
+            loop {
+                interval.tick().await;
+                let backup_path = backup_dir.join(format!(
+                    "backup-{}.tar.gz",
+                    chrono::Utc::now().format("%Y%m%d-%H%M%S")
+                ));
+                match bm.create_backup(
+                    backup_path
+                        .to_str()
+                        .unwrap_or("/tmp/soulsystem-backup.tar.gz"),
+                ) {
+                    Ok(()) => {
+                        info!(
+                            "BackupManager: sauvegarde périodique OK ({})",
+                            backup_path.display()
+                        );
+                        // Prune old backups (keep last 5)
+                        if let Ok(mut entries) = std::fs::read_dir(&backup_dir) {
+                            let mut backups: Vec<_> =
+                                std::iter::from_fn(|| entries.next().map(|e| e.ok()))
+                                    .flatten()
+                                    .filter(|e| {
+                                        e.file_name().to_string_lossy().starts_with("backup-")
+                                    })
+                                    .collect();
+                            backups.sort_by_key(|e| {
+                                e.metadata()
+                                    .and_then(|m| m.modified())
+                                    .unwrap_or(std::time::UNIX_EPOCH)
+                            });
+                            if backups.len() > 5 {
+                                for old in backups.iter().take(backups.len() - 5) {
+                                    let _ = std::fs::remove_file(old.path());
+                                    let _ = std::fs::remove_file(format!(
+                                        "{}.sig",
+                                        old.path().display()
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => tracing::warn!("BackupManager: sauvegarde périodique échouée: {}", e),
+                }
+            }
+        });
+    }
+    info!("BackupManager: sauvegardes actives (interval: 6h, retention: 5)");
+
+    // ── Circuit Breaker Registry ─────────────────────────────────────
+    let cb_registry = Arc::new(soulsystem::circuit_breaker::CircuitBreakerRegistry::new(
+        soulsystem::circuit_breaker::CircuitBreakerConfig::default(),
+    ));
+    // Wrap bridge calls with circuit breakers for fault isolation
+    {
+        let reg = cb_registry.clone();
+        let bus_cb = bus.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                for service in reg.services() {
+                    let breaker = reg.get(&service);
+                    let stats = breaker.stats().await;
+                    if stats.consecutive_failures > 0 {
+                        tracing::warn!(
+                            "CircuitBreaker: {} state={} failures={}/{} calls={} rejected={}",
+                            stats.service,
+                            stats.state,
+                            stats.consecutive_failures,
+                            stats.failure_threshold,
+                            stats.total_calls,
+                            stats.total_rejections,
+                        );
+                        bus_cb.publish(soulsystem::bus::Message::Custom {
+                            topic: "circuit_breaker.metrics".into(),
+                            payload: serde_json::json!({
+                                "service": stats.service,
+                                "state": stats.state.to_string(),
+                                "consecutive_failures": stats.consecutive_failures,
+                                "total_calls": stats.total_calls,
+                                "total_rejections": stats.total_rejections,
+                            }),
+                        });
+                    }
+                }
+            }
+        });
+    }
+    info!("CircuitBreakerRegistry: actif (surveillance: 60s)");
+
+    // ── Wrap LLM client with circuit breaker ──────────────────────────
+    let llm_circuit_breaker = cb_registry.get("llm-ollama");
+    let _cb_guard = llm_circuit_breaker.clone(); // keep alive
+
+    info!("✅ SoulSystem prêt — boucle principale");
+
+    // ── Autonomous entity ──────────────────────────────────────────────
+    let autonomous_config = soul_llm::LlmConfig::default();
+    let entity_name = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "soulsystem".to_string());
+    let mut autonomous =
+        soulsystem::autonomous::AutonomousEntity::new(autonomous_config, &entity_name);
+
+    // ── Persistent store (sled) ───────────────────────────────────────
+    let persist_dir = settings.paths.data_dir.join("agent");
+    let persist_store = match soul_memory::PersistentStore::open(&persist_dir) {
+        Ok(store) => {
+            info!("PersistentStore: actif ({:?})", persist_dir);
+            store
+        }
+        Err(e) => {
+            tracing::warn!("PersistentStore: ouverture échouée (mode dégradé): {}", e);
+            // Fallback to temp dir
+            match tempfile::tempdir() {
+                Ok(tmp) => match soul_memory::PersistentStore::open(tmp.path()) {
+                    Ok(store) => {
+                        info!("PersistentStore: mode dégradé (tmp)");
+                        store
+                    }
+                    Err(e) => {
+                        tracing::error!("PersistentStore: impossible d'ouvrir le fallback: {}", e);
+                        return Err(e.into());
+                    }
+                },
+                Err(e) => {
+                    tracing::error!(
+                        "PersistentStore: impossible de créer le répertoire temp: {}",
+                        e
+                    );
+                    return Err(e.into());
+                }
+            }
+        }
+    };
+
+    // ── Dashboard (Axum + WebSocket) ──────────────────────────────────
+    let dashboard_state = Arc::new(tokio::sync::RwLock::new(
+        soul_dashboard::DashboardState::new(),
+    ));
+    let (event_tx, _) = tokio::sync::broadcast::channel::<soul_dashboard::BusEvent>(1024);
+
+    if cli.dashboard_port > 0 || cli.dev {
+        let port = if cli.dev { 9090 } else { cli.dashboard_port };
+        let ds = dashboard_state.clone();
+        let etx = event_tx.clone();
+        tokio::spawn(async move {
+            if let Err(e) = soul_dashboard::run_server(ds, etx, port, None).await {
+                tracing::error!("Dashboard error: {}", e);
+            }
+        });
+        info!("Dashboard démarré sur 127.0.0.1:{}", port);
+    }
+
+    // ── Event Bus (agent → dashboard real-time) ────────────────────────
+    let event_bus = soul_eventbus::EventBus::new(1024);
+    let _event_bus_handle = event_bus.handle();
+
+    // Forward events to dashboard state + broadcast channel
+    {
+        let ds = dashboard_state.clone();
+        let etx = event_tx.clone();
+        let mut rx = event_bus.subscribe();
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        let mut state = ds.write().await;
+                        // Update agent state from events
+                        match &event {
+                            soul_eventbus::AgentEvent::Thought { turn, content } => {
+                                state.agent.turn = *turn;
+                                state.agent.last_action = Some(content.clone());
+                            }
+                            soul_eventbus::AgentEvent::ToolCall { tool, input, .. } => {
+                                state.agent.last_action = Some(format!("{}: {}", tool, input));
+                                if !state.agent.tools_used.contains(tool) {
+                                    state.agent.tools_used.push(tool.clone());
+                                }
+                            }
+                            soul_eventbus::AgentEvent::ToolResult { output, .. } => {
+                                state.agent.last_result = Some(output.clone());
+                            }
+                            soul_eventbus::AgentEvent::TaskReceived { description, .. } => {
+                                state.agent.goal = description.clone();
+                                state.agent.status = "running".into();
+                            }
+                            soul_eventbus::AgentEvent::TaskCompleted { result, .. } => {
+                                state.agent.status = "idle".into();
+                                state.agent.last_result = Some(result.clone());
+                            }
+                            soul_eventbus::AgentEvent::TaskFailed { error, .. } => {
+                                state.agent.status = format!("error: {}", error);
+                            }
+                            soul_eventbus::AgentEvent::SafetyWarning { message, .. } => {
+                                state.push_turbulence(soul_dashboard::TurbulenceEntry {
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    severity: "warning".into(),
+                                    message: message.clone(),
+                                });
+                            }
+                            _ => {}
+                        }
+                        // Add to event log
+                        let bus_event = soul_dashboard::BusEvent {
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            kind: format!("{:?}", std::mem::discriminant(&event)),
+                            source: "agent".into(),
+                        };
+                        state.push_event(bus_event.clone());
+                        // Also broadcast to WebSocket clients
+                        let _ = etx.send(bus_event);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!("EventBus: lagged {} events", n);
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+    info!("EventBus: actif (capacité: 1024)");
+
+    // ── Daemon mode ───────────────────────────────────────────────────
+    if cli.daemon {
+        info!("▶ Mode daemon activé");
+
+        // List goals
+        if cli.list_goals {
+            let goals = persist_store.load_all_goals().unwrap_or_default();
+            if goals.is_empty() {
+                println!("Aucun goal actif.");
+            } else {
+                println!("Goals:");
+                for g in &goals {
+                    println!(
+                        "  [{}] {} (priority: {}, status: {:?})",
+                        &g.id[..8],
+                        g.description,
+                        g.priority,
+                        g.status
+                    );
+                }
+            }
+            return Ok(());
+        }
+
+        // Add goal
+        if let Some(ref goal_desc) = cli.goal {
+            let daemon =
+                soul_daemon::Daemon::new(soul_daemon::DaemonConfig::default(), persist_store);
+            let goal = daemon.add_goal(goal_desc, 5)?;
+            println!("Goal ajouté: {} ({})", goal.description, &goal.id[..8]);
+            return Ok(());
+        }
+
+        // Run daemon (with or without REPL)
+        let daemon = soul_daemon::Daemon::new(soul_daemon::DaemonConfig::default(), persist_store);
+
+        // Subscribe daemon events to dashboard
+        {
+            let ds = dashboard_state.clone();
+            let etx = event_tx.clone();
+            let mut daemon_rx = daemon.event_bus().subscribe();
+            tokio::spawn(async move {
+                while let Ok(event) = daemon_rx.recv().await {
+                    let mut state = ds.write().await;
+                    match &event {
+                        soul_eventbus::AgentEvent::Thought { turn, content } => {
+                            state.agent.turn = *turn;
+                            state.agent.last_action = Some(content.clone());
+                        }
+                        soul_eventbus::AgentEvent::ToolCall { tool, input, .. } => {
+                            state.agent.last_action = Some(format!("{}: {}", tool, input));
+                            if !state.agent.tools_used.contains(tool) {
+                                state.agent.tools_used.push(tool.clone());
+                            }
+                        }
+                        soul_eventbus::AgentEvent::TaskReceived { description, .. } => {
+                            state.agent.goal = description.clone();
+                            state.agent.status = "running (daemon)".into();
+                        }
+                        soul_eventbus::AgentEvent::TaskCompleted { result, .. } => {
+                            state.agent.status = "idle".into();
+                            state.agent.last_result = Some(result.clone());
+                        }
+                        soul_eventbus::AgentEvent::TaskFailed { error, .. } => {
+                            state.agent.status = format!("error: {}", error);
+                        }
+                        _ => {}
+                    }
+                    let bus_event = soul_dashboard::BusEvent {
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        kind: format!("{:?}", std::mem::discriminant(&event)),
+                        source: "daemon".into(),
+                    };
+                    state.push_event(bus_event.clone());
+                    let _ = etx.send(bus_event);
+                }
+            });
+        }
+
+        // Start daemon in background
+        let _daemon_handle = {
+            let daemon = daemon;
+            tokio::spawn(async move {
+                if let Err(e) = daemon.run().await {
+                    tracing::error!("Daemon error: {}", e);
+                }
+            })
+        };
+
+        // If --repl is also set, start interactive REPL with daemon awareness
+        if cli.repl {
+            info!("▶ REPL + Daemon combiné");
+            // Le REPL est une boucle bloquante (readline + clients HTTP
+            // bloquants) : il doit tourner hors du runtime tokio pour éviter
+            // les paniques "cannot block/drop a runtime within a runtime".
+            let daemon_rx = event_tx.subscribe();
+            std::thread::spawn(move || {
+                let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default())
+                    .with_daemon_events(daemon_rx);
+                soul_repl::run_repl(&mut repl_state);
+            })
+            .join()
+            .ok();
+        } else {
+            // Daemon-only: wait for SIGINT
+            tokio::signal::ctrl_c().await?;
+            info!("Signal reçu, arrêt du daemon...");
+        }
+        return Ok(());
+    }
+
+    if cli.repl {
+        info!("▶ Mode REPL autonome activé");
+        // Boucle bloquante : hors du runtime tokio (voir bloc REPL+Daemon).
+        std::thread::spawn(|| {
+            let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
+            soul_repl::run_repl(&mut repl_state);
+        })
+        .join()
+        .ok();
+        return Ok(());
+    }
+
+    if let Some(ref question) = cli.ask {
+        info!("▶ Mode ask: {}", question);
+        match autonomous.ask(question).await {
+            Ok(answer) => println!("{}", answer),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+        return Ok(());
+    }
+
+    if let Some(ref goal_desc) = cli.plan {
+        info!("▶ Mode plan: {}", goal_desc);
+        let goal = soul_planner::Goal {
+            id: uuid::Uuid::new_v4().to_string(),
+            description: goal_desc.to_string(),
+            priority: 5,
+            created_at: chrono::Utc::now(),
+            status: soul_planner::GoalStatus::Active,
+        };
+        let plan = autonomous
+            .agent
+            .planner
+            .create_plan_llm(&goal, &[], &autonomous.agent.llm)
+            .await;
+        match serde_json::to_string_pretty(&plan) {
+            Ok(json) => println!("{}", json),
+            Err(e) => eprintln!("Error serializing plan: {}", e),
+        }
+        return Ok(());
+    }
+
+    // ── Boucle principale — AutonomousLoop ──────────────────────────────
+    info!("▶ AutonomousLoop: heartbeat + scheduler + consolidation actifs");
+
+    // Heartbeat: tic-tac toutes les secondes, alimente le dashboard
+    let hb_bus = bus.clone();
+    let hb_dash = dashboard_state.clone();
+    let _hb_persist = persist_store;
+    let hb_memory = memory_hub.clone();
+    let hb_health = health.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(tokio::time::Duration::from_secs(1));
+        let mut consolidated = false;
+        let mut last_consolidation = chrono::Utc::now();
+        loop {
+            tick.tick().await;
+
+            // 1. Pulse sur le bus
+            hb_bus.publish(soulsystem::bus::Message::Custom {
+                topic: "heartbeat.tick".into(),
+                payload: serde_json::json!({"ts": chrono::Utc::now().timestamp_millis()}),
+            });
+
+            // 2. Mise à jour dashboard
+            let mut state = hb_dash.write().await;
+            state.agent.uptime_secs += 1;
+
+            // 3. Consolidation mémoire toutes les 10 minutes
+            let elapsed = (chrono::Utc::now() - last_consolidation).num_seconds();
+            if elapsed >= 600 {
+                if !consolidated {
+                    consolidated = true;
+                    tokio::spawn({
+                        let mem = hb_memory.clone();
+                        async move {
+                            mem.decay_and_prune(0.95, 0.1, 2000).await;
+                            info!("AutonomousLoop: memory consolidation done");
+                        }
                     });
+                    last_consolidation = chrono::Utc::now();
+                }
+            } else {
+                consolidated = false;
+            }
+
+            // 4. Check santé mémoire toutes les 60 ticks
+            if state.agent.uptime_secs % 60 == 0 {
+                let h = hb_health.lock().await;
+                let err_rate = h.error_rate();
+                drop(h);
+                if err_rate > 0.15 {
+                    warn!(
+                        "AutonomousLoop: memory health degraded (err rate: {:.2})",
+                        err_rate
+                    );
                 }
             }
         }
     });
-    info!("Preservation instinct: surveillance active (interval: 30s)");
 
-    info!("✅ SoulSystem prêt — boucle principale");
+    // Scheduler: vérifie les tâches planifiées toutes les 60 secondes
+    let scheduler = Arc::new(soul_scheduler::Scheduler::new(|task| {
+        tracing::info!("Scheduler tick: {} — {}", task.name, task.description);
+        Ok(())
+    }));
+    // Default tasks
+    scheduler
+        .add_task(soul_scheduler::ScheduledTask::new(
+            "memory-consolidation",
+            "0 */6 * * *",
+            "Consolidate episodic memory to semantic every 6 hours",
+        ))
+        .await;
+    scheduler
+        .add_task(soul_scheduler::ScheduledTask::new(
+            "health-check",
+            "0 * * * *",
+            "Run system health check every hour",
+        ))
+        .await;
+    scheduler
+        .add_task(soul_scheduler::ScheduledTask::new(
+            "auto-documentation",
+            "0 0 * * *",
+            "Generate daily autonomy report and update LEARNINGS.md",
+        ))
+        .await;
+    let sched = scheduler.clone();
+    tokio::spawn(async move {
+        sched.run().await;
+    });
+    info!("Scheduler: cron tasks active (6h consolidation, hourly health)");
 
-    // ── Default: simple loop ──────────────────────────────────────────────
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-    }
-}
-
-fn read_cpu_usage() -> f64 {
-    std::fs::read_to_string("/proc/loadavg")
-        .ok()
-        .and_then(|c| c.split_whitespace().next()?.parse::<f64>().ok())
-        .map(|v| v * 100.0 / num_cpus())
-        .unwrap_or(0.0)
-}
-
-fn read_mem_usage() -> f64 {
-    let Ok(content) = std::fs::read_to_string("/proc/meminfo") else {
-        return 0.0;
-    };
-    let mut total = 0.0f64;
-    let mut available = 0.0f64;
-    for line in content.lines() {
-        if line.starts_with("MemTotal:") {
-            total = line
-                .split_whitespace()
-                .nth(1)
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(0.0);
+    // Phase 7: Auto-documentation — generate LEARNINGS.md every hour
+    let docs_path = settings.paths.data_dir.join("LEARNINGS.md");
+    let docs_memory = memory_hub.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
+            let ctx = docs_memory
+                .get_context("learnings improvements discoveries", 5)
+                .await;
+            let learnings = format!(
+                "# SoulSystem Learnings — {}\n\n{}\n\n---\n*Auto-generated by AutonomousLoop*\n",
+                timestamp, ctx
+            );
+            if let Err(e) = tokio::fs::write(&docs_path, &learnings).await {
+                tracing::warn!("Auto-documentation: failed to write LEARNINGS.md: {}", e);
+            } else {
+                info!("Auto-documentation: LEARNINGS.md updated");
+            }
         }
-        if line.starts_with("MemAvailable:") {
-            available = line
-                .split_whitespace()
-                .nth(1)
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(0.0);
-        }
-    }
-    if total > 0.0 {
-        ((total - available) / total) * 100.0
-    } else {
-        0.0
-    }
-}
+    });
+    info!("Auto-documentation: LEARNINGS.md auto-generated every hour");
 
-fn num_cpus() -> f64 {
-    std::thread::available_parallelism()
-        .map(|n| n.get() as f64)
-        .unwrap_or(8.0)
+    // Attendre SIGINT
+    tokio::signal::ctrl_c().await?;
+    info!("Signal reçu, arrêt de SoulSystem...");
+    Ok(())
 }

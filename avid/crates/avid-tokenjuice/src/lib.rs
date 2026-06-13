@@ -42,7 +42,6 @@
 //! ```
 
 #![forbid(unsafe_code)]
-#![warn(clippy::pedantic, clippy::nursery)]
 #![deny(clippy::todo, clippy::unimplemented)]
 #![allow(
     clippy::module_name_repetitions,

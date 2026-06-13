@@ -19,7 +19,7 @@ use axum::{
         ws::{Message, WebSocket},
         Query, State, WebSocketUpgrade,
     },
-    http::StatusCode,
+    http::{header, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Json},
     routing::get,
     Router,
@@ -30,6 +30,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
+use tower_http::set_header::SetResponseHeaderLayer;
 
 // ── Data Model ──────────────────────────────────────────────────────────
 
@@ -103,14 +104,22 @@ impl DashboardState {
     }
 
     pub fn push_event(&mut self, event: BusEvent) {
-        self.events.push_back(event);
+        self.events.push_back(BusEvent {
+            kind: escape_html(&event.kind),
+            source: escape_html(&event.source),
+            ..event
+        });
         while self.events.len() > 100 {
             self.events.pop_front();
         }
     }
 
     pub fn push_turbulence(&mut self, entry: TurbulenceEntry) {
-        self.turbulence.push_back(entry);
+        self.turbulence.push_back(TurbulenceEntry {
+            severity: escape_html(&entry.severity),
+            message: escape_html(&entry.message),
+            ..entry
+        });
         while self.turbulence.len() > 50 {
             self.turbulence.pop_front();
         }
@@ -268,7 +277,15 @@ async fn organs_handler(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<OrganHealth>>, StatusCode> {
     let s = state.dashboard.read().await;
-    Ok(Json(s.organs.clone()))
+    let escaped: Vec<OrganHealth> = s
+        .organs
+        .iter()
+        .map(|o| OrganHealth {
+            name: escape_html(&o.name),
+            ..o.clone()
+        })
+        .collect();
+    Ok(Json(escaped))
 }
 
 async fn events_handler(State(state): State<AppState>) -> Result<Json<Vec<BusEvent>>, StatusCode> {
@@ -285,7 +302,14 @@ async fn turbulence_handler(
 
 async fn agent_handler(State(state): State<AppState>) -> Result<Json<AgentState>, StatusCode> {
     let s = state.dashboard.read().await;
-    Ok(Json(s.agent.clone()))
+    let safe = AgentState {
+        goal: escape_html(&s.agent.goal),
+        status: escape_html(&s.agent.status),
+        last_action: s.agent.last_action.as_deref().map(escape_html),
+        last_result: s.agent.last_result.as_deref().map(escape_html),
+        ..s.agent.clone()
+    };
+    Ok(Json(safe))
 }
 
 async fn costs_handler(State(state): State<AppState>) -> Result<Json<CostSummary>, StatusCode> {
@@ -401,9 +425,23 @@ async fn handle_socket(socket: WebSocket, state: AppState, client_ip: String) {
     }
 }
 
+// ── HTML Escaping ─────────────────────────────────────────────────────
+
+/// Escape HTML-special characters to prevent XSS in dynamic content.
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
 // ── Server ──────────────────────────────────────────────────────────────
 
 pub fn app(state: AppState) -> Router {
+    let csp_value = HeaderValue::from_static(
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    );
     Router::new()
         .route("/", get(index))
         .route("/api/health", get(health_handler))
@@ -415,6 +453,18 @@ pub fn app(state: AppState) -> Router {
         .route("/ws", get(ws_handler))
         .with_state(state)
         .layer(tower_http::cors::CorsLayer::permissive())
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            csp_value,
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
 }
 
 pub async fn run_server(

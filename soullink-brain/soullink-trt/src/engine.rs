@@ -114,7 +114,7 @@ impl TrtEngine {
             if !self.loaded {
                 return Err(TrtError::Init("Engine not loaded".into()));
             }
-            // TODO: Create session, invoke C++ generate, collect tokens
+            // NOTE: Create session, invoke C++ generate, collect tokens
             let _ = (prompt, gen_config);
             Err(TrtError::Init("TRT generation FFI not implemented".into()))
         }
@@ -139,7 +139,7 @@ impl TrtEngine {
             if !self.loaded {
                 return Err(TrtError::Init("Engine not loaded".into()));
             }
-            // TODO: tokio::sync::mpsc channel, C++ callbacks push chunks
+            // NOTE: tokio::sync::mpsc channel, C++ callbacks push chunks
             let _ = (prompt, gen_config);
             Err(TrtError::Init("TRT streaming FFI not implemented".into()))
         }

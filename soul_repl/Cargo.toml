@@ -8,23 +8,16 @@ description = "Interactive REPL with autonomous agent, conversation context, and
 soul_llm = { path = "../soul_llm" }
 soul_planner = { path = "../soul_planner" }
 soul_tools = { path = "../soul_tools" }
-soul_bridges = { path = "../soul_bridges" }
-soul_cognitive = { path = "../soul_cognitive" }
-soul_automation = { path = "../soul_automation" }
-soul_security = { path = "../soul_security" }
-soul_monitor = { path = "../soul_monitor" }
 soul_agent_core = { path = "../soul-agent-core" }
-soul_skills = { path = "../soul-skills" }
-soul_subagents = { path = "../soul-subagents" }
 soul_webfetch = { path = "../soul-webfetch" }
-soul_rag = { path = "../soul-rag" }
-soul_mcp = { path = "../soul-mcp" }
-soul_graph_memory = { path = "../soul-graph-memory" }
-soul_persist = { path = "../soul-persist" }
+soul-memory = { workspace = true, features = ["web"] }
+soul_skills = { path = "../soul-skills" }
 soul_designtree = { path = "../soul-designtree" }
 soul_inference = { path = "../soul-inference" }
-soul_conversations = { path = "../soul-conversations" }
 soul_critique = { path = "../soul-critique" }
+soul_compaction = { path = "../soul-compaction" }
+soul_mcp = { path = "../soul-mcp" }
+soul_subagents = { path = "../soul-subagents" }
 soul-dashboard = { path = "../crates/soul-dashboard" }
 rustyline = "14"
 colored = "2"

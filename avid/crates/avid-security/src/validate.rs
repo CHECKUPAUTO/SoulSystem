@@ -37,7 +37,14 @@ impl ValidationEngine {
 
         // Stage A: Surface check — le pattern est-il intrinsèquement dangereux ?
         let stage_a = self.stage_a_surface(finding);
-        info!("Stage A: {}", if stage_a { "dangerous pattern confirmed" } else { "harmless pattern" });
+        info!(
+            "Stage A: {}",
+            if stage_a {
+                "dangerous pattern confirmed"
+            } else {
+                "harmless pattern"
+            }
+        );
 
         if !stage_a {
             return Ok(ValidationResult {
@@ -51,7 +58,14 @@ impl ValidationEngine {
 
         // Stage B: Context check — le pattern est-il accessible/contrôlable ?
         let stage_b = self.stage_b_context(finding);
-        info!("Stage B: {}", if stage_b { "context is exploitable" } else { "context is safe" });
+        info!(
+            "Stage B: {}",
+            if stage_b {
+                "context is exploitable"
+            } else {
+                "context is safe"
+            }
+        );
 
         if !stage_b {
             return Ok(ValidationResult {
@@ -65,7 +79,14 @@ impl ValidationEngine {
 
         // Stage C: Flow analysis — les données attaquant atteignent-elles le pattern ?
         let stage_c = self.stage_c_flow(finding);
-        info!("Stage C: {}", if stage_c { "attacker data reaches sink" } else { "no attacker-controlled path" });
+        info!(
+            "Stage C: {}",
+            if stage_c {
+                "attacker data reaches sink"
+            } else {
+                "no attacker-controlled path"
+            }
+        );
 
         // Stage D: Final verdict
         let (exploitable, confidence) = self.stage_d_verdict(stage_a, stage_b, stage_c);
@@ -78,7 +99,10 @@ impl ValidationEngine {
             "Stages A-D: No exploitable path found".to_string()
         };
 
-        info!("Stage D: verdict={} confidence={:?}", exploitable, confidence);
+        info!(
+            "Stage D: verdict={} confidence={:?}",
+            exploitable, confidence
+        );
 
         // LLM call stub — sera branché sur Ollama
         // let llm_analysis = self.call_llm_for_validation(finding).await?;
@@ -230,8 +254,20 @@ mod tests {
             "gemma4:31b".to_string(),
         );
         let findings = vec![
-            Finding::new("Unsafe".to_string(), Severity::High, "a.rs".to_string(), 1, "".to_string()),
-            Finding::new("Info".to_string(), Severity::Info, "b.rs".to_string(), 2, "".to_string()),
+            Finding::new(
+                "Unsafe".to_string(),
+                Severity::High,
+                "a.rs".to_string(),
+                1,
+                "".to_string(),
+            ),
+            Finding::new(
+                "Info".to_string(),
+                Severity::Info,
+                "b.rs".to_string(),
+                2,
+                "".to_string(),
+            ),
         ];
         let results = engine.validate_batch(&findings).await.unwrap();
         assert_eq!(results.len(), 2);
