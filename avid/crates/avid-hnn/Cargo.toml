@@ -33,4 +33,4 @@ default = []
 autodiff = ["dep:scirust-autodiff"]
 
 [dependencies]
-scirust-autodiff = { path = "/root/scirust/scirust-autodiff", optional = true }
+scirust-autodiff = { path = "../../../scirust-autodiff", optional = true }
