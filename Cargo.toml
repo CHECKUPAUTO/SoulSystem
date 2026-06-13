@@ -85,7 +85,6 @@ members = [
     "soul-agent-core",
     "soul-memory",
     "soul-daemon",
-    "soul-sandbox",
     "soul-browser",
     "soul-subagents",
     "soul-goaltree",
@@ -102,6 +101,7 @@ members = [
     "soul-designtree",
     "soul-inference",
     "soul-critique",
+    "soul-rsi",
     # AVID ecosystem (24 crates)
     "avid/crates/avid-anticlone",
     "avid/crates/avid-cli",
@@ -175,6 +175,18 @@ metrics = "0.23"
 metrics-exporter-prometheus = { version = "0.15", default-features = false, features = ["http-listener"] }
 async-trait = "0.1"
 subtle = "2.5"
+zeroize = "1.8"
+colored = "3"
+crossterm = "0.29"
+cudarc = "0.13"
+dirs = "6"
+half = "2"
+lazy_static = "1"
+log = "0.4"
+ndarray = "0.16"
+prometheus = "0.13"
+ratatui = "0.30"
+scirust-gpu = { path = "scirust-gpu" }
 uuid = { version = "1", features = ["v4", "serde"] }
 rmp-serde = "1.1"
 futures = { version = "0.3", default-features = false, features = ["std"] }
@@ -276,7 +288,7 @@ soul_planner = { path = "soul_planner" }
 soul_tools = { path = "soul_tools" }
 soul_repl = { path = "soul_repl" }
 soul_daemon = { path = "soul-daemon" }
-soul_sandbox = { path = "soul-sandbox" }
+soul_sandbox = { path = "soul_sandbox" }
 soul_browser = { path = "soul-browser" }
 soul_subagents = { path = "soul-subagents" }
 soul_goaltree = { path = "soul-goaltree" }

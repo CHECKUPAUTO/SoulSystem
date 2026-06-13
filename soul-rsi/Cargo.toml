@@ -1,0 +1,21 @@
+[package]
+name = "soul_rsi"
+version = "0.1.0"
+edition = "2021"
+description = "Recursive self-improvement loop — Darwin-Gödel-Machine / STOP-style: propose a code change, evaluate it in an isolated build+test sandbox, keep it only if it provably improves, archive the variant, repeat."
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+thiserror = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+tempfile = "3"
+soul_automodify = { path = "../soul-automodify" }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
