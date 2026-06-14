@@ -139,16 +139,19 @@ impl DaliPipeline {
     }
 
     /// Nombre de threads de prétraitement configurés.
+    #[cfg(feature = "dali")]
     pub fn num_threads(&self) -> u32 {
         self.num_threads
     }
 
     /// Périphérique cible (CPU/GPU) du pipeline.
+    #[cfg(feature = "dali")]
     pub fn device(&self) -> Device {
         self.device.clone()
     }
 
-    /// Vrai si le pipeline a été construit (toujours faux en mode stub).
+    /// Vrai si le pipeline a été construit (jamais en mode stub).
+    #[cfg(feature = "dali")]
     pub fn is_built(&self) -> bool {
         self.built
     }

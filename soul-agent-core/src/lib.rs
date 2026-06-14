@@ -262,7 +262,7 @@ impl AutonomousAgent {
             }
 
             // Inject metacognition self-model (every 10 turns)
-            if self.turn % 10 == 0 {
+            if self.turn.is_multiple_of(10) {
                 let model = self.metacognition.self_model().await;
                 combined_context.push_str(&format!(
                     "\n\nSelf-model: health={:.1}%, load={:.1}%, capabilities={}",
@@ -1001,13 +1001,9 @@ mod tests {
         let llm_config = soul_llm::LlmConfig {
             base_url: "http://localhost:11888".to_string(), // unreachable, but we never call it
             model: "test-model".to_string(),
-            fallback_models: vec![],
             temperature: 0.5,
             max_tokens: 1024,
-            system_prompt: None,
-            timeout_secs: 5,
-            max_retries: 0,
-            retry_base_delay_ms: 0,
+            ..Default::default()
         };
         let llm = OllamaClient::new(llm_config);
         let config = AgentConfig {
@@ -1061,8 +1057,8 @@ mod tests {
         };
         assert_eq!(cfg.name, "MyBot");
         assert_eq!(cfg.max_turns, 100);
-        assert_eq!(cfg.auto_distill, false);
-        assert_eq!(cfg.auto_repair, false);
+        assert!(!cfg.auto_distill);
+        assert!(!cfg.auto_repair);
     }
 
     // ── truncate_output ─────────────────────────────────────────────────
@@ -1143,18 +1139,18 @@ mod tests {
         assert!(!repairs.is_empty(), "repair should trigger at threshold");
         assert_eq!(agent.repair_count, 1);
         assert_eq!(agent.consecutive_failures, 0);
-        // Should have added a repair message
-        assert!(!agent.chat_session.messages.is_empty());
+        // auto_repair preserves the system prompt at [0] and appends a user
+        // message explaining the reset.
         assert_eq!(
             agent.chat_session.messages[0].role,
-            soul_llm::Role::User,
-            "repair should add a user message explaining the reset"
+            soul_llm::Role::System,
+            "repair should keep the system prompt"
         );
         assert!(
-            agent.chat_session.messages[0]
-                .content
-                .contains("Self-repair triggered"),
-            "repair message should explain the reset"
+            agent.chat_session.messages.iter().any(|m| {
+                m.role == soul_llm::Role::User && m.content.contains("Self-repair triggered")
+            }),
+            "repair should add a user message explaining the reset"
         );
     }
 
@@ -1396,7 +1392,7 @@ mod tests {
         assert_eq!(agent.turn, 0);
         assert_eq!(agent.consecutive_failures, 0);
         assert_eq!(agent.repair_count, 0);
-        assert!(agent.tool_schemas.len() > 0, "should have tool schemas");
+        assert!(!agent.tool_schemas.is_empty(), "should have tool schemas");
     }
 
     #[tokio::test]
@@ -1572,10 +1568,10 @@ mod tests {
     #[tokio::test]
     async fn test_agent_chat_session_initialization() {
         let agent = make_test_agent();
-        // chat_session should have empty messages initially
-        assert!(agent.chat_session.messages.is_empty());
-        // system prompt should contain agent name
-        assert!(agent.chat_session.system_prompt.contains("TestAgent"));
+        // The system prompt is seeded as the first message of the session.
+        assert_eq!(agent.chat_session.messages.len(), 1);
+        assert_eq!(agent.chat_session.messages[0].role, soul_llm::Role::System);
+        assert!(agent.chat_session.messages[0].content.contains("TestAgent"));
     }
 
     #[tokio::test]
@@ -1584,11 +1580,12 @@ mod tests {
         agent.chat_session.add_user_message("Message A");
         agent.chat_session.add_assistant_message("Reply A");
         agent.chat_session.add_user_message("Message B");
-        assert_eq!(agent.chat_session.messages.len(), 3);
+        // seeded system prompt + 3 added messages
+        assert_eq!(agent.chat_session.messages.len(), 4);
 
         // Compact under threshold should not change anything
         agent.compact_if_needed();
-        assert_eq!(agent.chat_session.messages.len(), 3);
+        assert_eq!(agent.chat_session.messages.len(), 4);
     }
 
     // ── set_skill_loader ────────────────────────────────────────────────

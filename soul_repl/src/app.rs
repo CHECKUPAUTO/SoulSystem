@@ -4,36 +4,107 @@ use crate::types::*;
 use crate::utils::*;
 use crate::ReplState;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use soul_llm::LlmClient;
 use std::collections::VecDeque;
 use std::fs;
 use std::io::{self};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use soul_llm::LlmClient;
-
 
 impl App {
     pub(crate) fn new(state: &ReplState, llm_tx: mpsc::UnboundedSender<LlmEvent>) -> Self {
         let provider = ProviderOpt::from_kind(&state.llm.config().provider);
         let model_items = vec![state.llm.config().model.clone()];
-        let provider_items = vec![ProviderOpt::Ollama, ProviderOpt::OpenAI, ProviderOpt::Anthropic];
-        let provider_selected = provider_items.iter().position(|p| *p == provider).unwrap_or(0);
+        let provider_items = vec![
+            ProviderOpt::Ollama,
+            ProviderOpt::OpenAI,
+            ProviderOpt::Anthropic,
+        ];
+        let provider_selected = provider_items
+            .iter()
+            .position(|p| *p == provider)
+            .unwrap_or(0);
 
         let command_palette_items = vec![
-            CommandPaletteItem { name: "ask".into(), description: "Poser une question au LLM".into(), shortcut: Some("/ask".into()), action: CommandAction::Ask },
-            CommandPaletteItem { name: "plan".into(), description: "Créer un plan".into(), shortcut: Some("/plan".into()), action: CommandAction::Plan },
-            CommandPaletteItem { name: "run".into(), description: "Exécuter une commande".into(), shortcut: Some("/run".into()), action: CommandAction::Run },
-            CommandPaletteItem { name: "models".into(), description: "Lister les modèles".into(), shortcut: Some("/models".into()), action: CommandAction::Models },
-            CommandPaletteItem { name: "status".into(), description: "État du système".into(), shortcut: Some("/status".into()), action: CommandAction::Status },
-            CommandPaletteItem { name: "clear".into(), description: "Effacer l'historique".into(), shortcut: None, action: CommandAction::Clear },
-            CommandPaletteItem { name: "save-session".into(), description: "Sauvegarder la session".into(), shortcut: Some("Ctrl+S".into()), action: CommandAction::SaveSession },
-            CommandPaletteItem { name: "load-session".into(), description: "Charger une session".into(), shortcut: Some("Ctrl+O".into()), action: CommandAction::LoadSession },
-            CommandPaletteItem { name: "export".into(), description: "Exporter le chat".into(), shortcut: None, action: CommandAction::ExportChat },
-            CommandPaletteItem { name: "copy".into(), description: "Copier la dernière réponse".into(), shortcut: Some("Ctrl+Y".into()), action: CommandAction::CopyLast },
-            CommandPaletteItem { name: "files".into(), description: "Navigateur de fichiers".into(), shortcut: Some("Ctrl+F".into()), action: CommandAction::FileBrowser },
-            CommandPaletteItem { name: "history-search".into(), description: "Rechercher dans l'historique".into(), shortcut: Some("Ctrl+R".into()), action: CommandAction::HistorySearch },
-            CommandPaletteItem { name: "help".into(), description: "Aide".into(), shortcut: Some("Ctrl+H".into()), action: CommandAction::Help },
+            CommandPaletteItem {
+                name: "ask".into(),
+                description: "Poser une question au LLM".into(),
+                shortcut: Some("/ask".into()),
+                action: CommandAction::Ask,
+            },
+            CommandPaletteItem {
+                name: "plan".into(),
+                description: "Créer un plan".into(),
+                shortcut: Some("/plan".into()),
+                action: CommandAction::Plan,
+            },
+            CommandPaletteItem {
+                name: "run".into(),
+                description: "Exécuter une commande".into(),
+                shortcut: Some("/run".into()),
+                action: CommandAction::Run,
+            },
+            CommandPaletteItem {
+                name: "models".into(),
+                description: "Lister les modèles".into(),
+                shortcut: Some("/models".into()),
+                action: CommandAction::Models,
+            },
+            CommandPaletteItem {
+                name: "status".into(),
+                description: "État du système".into(),
+                shortcut: Some("/status".into()),
+                action: CommandAction::Status,
+            },
+            CommandPaletteItem {
+                name: "clear".into(),
+                description: "Effacer l'historique".into(),
+                shortcut: None,
+                action: CommandAction::Clear,
+            },
+            CommandPaletteItem {
+                name: "save-session".into(),
+                description: "Sauvegarder la session".into(),
+                shortcut: Some("Ctrl+S".into()),
+                action: CommandAction::SaveSession,
+            },
+            CommandPaletteItem {
+                name: "load-session".into(),
+                description: "Charger une session".into(),
+                shortcut: Some("Ctrl+O".into()),
+                action: CommandAction::LoadSession,
+            },
+            CommandPaletteItem {
+                name: "export".into(),
+                description: "Exporter le chat".into(),
+                shortcut: None,
+                action: CommandAction::ExportChat,
+            },
+            CommandPaletteItem {
+                name: "copy".into(),
+                description: "Copier la dernière réponse".into(),
+                shortcut: Some("Ctrl+Y".into()),
+                action: CommandAction::CopyLast,
+            },
+            CommandPaletteItem {
+                name: "files".into(),
+                description: "Navigateur de fichiers".into(),
+                shortcut: Some("Ctrl+F".into()),
+                action: CommandAction::FileBrowser,
+            },
+            CommandPaletteItem {
+                name: "history-search".into(),
+                description: "Rechercher dans l'historique".into(),
+                shortcut: Some("Ctrl+R".into()),
+                action: CommandAction::HistorySearch,
+            },
+            CommandPaletteItem {
+                name: "help".into(),
+                description: "Aide".into(),
+                shortcut: Some("Ctrl+H".into()),
+                action: CommandAction::Help,
+            },
         ];
 
         let sessions = Self::load_sessions_from_disk();
@@ -100,7 +171,12 @@ impl App {
             .map(|entries| {
                 entries
                     .filter_map(|e| e.ok())
-                    .filter(|e| e.path().extension().map(|ext| ext == "json").unwrap_or(false))
+                    .filter(|e| {
+                        e.path()
+                            .extension()
+                            .map(|ext| ext == "json")
+                            .unwrap_or(false)
+                    })
                     .filter_map(|e| {
                         let path = e.path();
                         let name = path.file_stem()?.to_str()?.to_string();
@@ -109,8 +185,14 @@ impl App {
                         Some(SessionEntry {
                             name,
                             path,
-                            message_count: data["messages"].as_array().map(|a| a.len()).unwrap_or(0),
-                            created_at: data["created_at"].as_str().unwrap_or("unknown").to_string(),
+                            message_count: data["messages"]
+                                .as_array()
+                                .map(|a| a.len())
+                                .unwrap_or(0),
+                            created_at: data["created_at"]
+                                .as_str()
+                                .unwrap_or("unknown")
+                                .to_string(),
                         })
                     })
                     .collect()
@@ -138,8 +220,11 @@ impl App {
             }).collect::<Vec<_>>(),
         });
 
-        fs::write(&path, serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
 
         Ok(name)
     }
@@ -190,16 +275,29 @@ impl App {
 
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
 
                 if name.starts_with('.') {
                     continue;
                 }
 
                 let is_dir = path.is_dir();
-                let size = if is_dir { 0 } else { fs::metadata(&path).map(|m| m.len()).unwrap_or(0) };
+                let size = if is_dir {
+                    0
+                } else {
+                    fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+                };
 
-                let entry = FileEntry { name, path, is_dir, size };
+                let entry = FileEntry {
+                    name,
+                    path,
+                    is_dir,
+                    size,
+                };
 
                 if is_dir {
                     dirs.push(entry);
@@ -233,7 +331,10 @@ impl App {
                 self.input = path_str.clone();
                 self.input_cursor = self.input.len();
                 self.focus = Focus::Input;
-                self.add_toast(ToastLevel::Info, &format!("Fichier sélectionné: {}", path_str));
+                self.add_toast(
+                    ToastLevel::Info,
+                    &format!("Fichier sélectionné: {}", path_str),
+                );
             }
         }
     }
@@ -285,7 +386,10 @@ impl App {
             }
             CommandAction::SaveSession => {
                 match self.save_session() {
-                    Ok(name) => self.add_toast(ToastLevel::Success, &format!("Session sauvegardée: {}", name)),
+                    Ok(name) => self.add_toast(
+                        ToastLevel::Success,
+                        &format!("Session sauvegardée: {}", name),
+                    ),
                     Err(e) => self.add_toast(ToastLevel::Error, &format!("Erreur: {}", e)),
                 }
                 self.focus = Focus::Input;
@@ -303,7 +407,12 @@ impl App {
                 self.focus = Focus::Input;
             }
             CommandAction::CopyLast => {
-                if let Some(msg) = self.messages.iter().rev().find(|m| m.role == Role::Assistant) {
+                if let Some(msg) = self
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|m| m.role == Role::Assistant)
+                {
                     self.copy_to_clipboard(&msg.text);
                     self.add_toast(ToastLevel::Success, "Copié dans le presse-papier");
                 }
@@ -335,7 +444,11 @@ impl App {
             search.results.clear();
             if !search.query.is_empty() {
                 for (i, msg) in self.messages.iter().enumerate() {
-                    if msg.text.to_lowercase().contains(&search.query.to_lowercase()) {
+                    if msg
+                        .text
+                        .to_lowercase()
+                        .contains(&search.query.to_lowercase())
+                    {
                         search.results.push(i);
                     }
                 }
@@ -365,7 +478,8 @@ impl App {
 
     pub(crate) fn tick(&mut self) {
         // Remove old toasts (3 seconds)
-        self.toasts.retain(|t| t.created_at.elapsed() < Duration::from_secs(3));
+        self.toasts
+            .retain(|t| t.created_at.elapsed() < Duration::from_secs(3));
     }
 
     // ── LLM event handling ──────────────────────────────────────────
@@ -429,7 +543,11 @@ impl App {
                 KeyCode::Char('c') => return true,
                 KeyCode::Char('p') => {
                     self.focus = Focus::ProviderDialog;
-                    self.provider_selected = self.provider_items.iter().position(|p| *p == ProviderOpt::from_kind(&llm.config().provider)).unwrap_or(0);
+                    self.provider_selected = self
+                        .provider_items
+                        .iter()
+                        .position(|p| *p == ProviderOpt::from_kind(&llm.config().provider))
+                        .unwrap_or(0);
                     return false;
                 }
                 KeyCode::Char('m') => {
@@ -457,7 +575,10 @@ impl App {
                 }
                 KeyCode::Char('s') => {
                     match self.save_session() {
-                        Ok(name) => self.add_toast(ToastLevel::Success, &format!("Session sauvegardée: {}", name)),
+                        Ok(name) => self.add_toast(
+                            ToastLevel::Success,
+                            &format!("Session sauvegardée: {}", name),
+                        ),
                         Err(e) => self.add_toast(ToastLevel::Error, &e),
                     }
                     return false;
@@ -469,15 +590,30 @@ impl App {
                     return false;
                 }
                 KeyCode::Char('y') => {
-                    if let Some(msg) = self.messages.iter().rev().find(|m| m.role == Role::Assistant) {
+                    if let Some(msg) = self
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|m| m.role == Role::Assistant)
+                    {
                         self.copy_to_clipboard(&msg.text);
                         self.add_toast(ToastLevel::Success, "Copié dans le presse-papier");
                     }
                     return false;
                 }
-                KeyCode::Char('a') => { self.input_cursor = 0; return false; }
-                KeyCode::Char('e') => { self.input_cursor = self.input.len(); return false; }
-                KeyCode::Char('u') => { self.input.clear(); self.input_cursor = 0; return false; }
+                KeyCode::Char('a') => {
+                    self.input_cursor = 0;
+                    return false;
+                }
+                KeyCode::Char('e') => {
+                    self.input_cursor = self.input.len();
+                    return false;
+                }
+                KeyCode::Char('u') => {
+                    self.input.clear();
+                    self.input_cursor = 0;
+                    return false;
+                }
                 KeyCode::Char('w') => {
                     let before = &self.input[..self.input_cursor];
                     let new_pos = before.rfind(' ').map(|p| p + 1).unwrap_or(0);
@@ -490,7 +626,9 @@ impl App {
         }
 
         // Ctrl+Shift+P for command palette
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.modifiers.contains(KeyModifiers::SHIFT) {
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && key.modifiers.contains(KeyModifiers::SHIFT)
+        {
             if let KeyCode::Char('P') | KeyCode::Char('p') = key.code {
                 self.open_command_palette();
                 return false;
@@ -505,7 +643,9 @@ impl App {
                     self.input_cursor += 1;
                 } else {
                     let input = self.input.trim().to_string();
-                    if input.is_empty() { return false; }
+                    if input.is_empty() {
+                        return false;
+                    }
 
                     // Add to history
                     self.input_history.push_back(input.clone());
@@ -516,7 +656,9 @@ impl App {
 
                     self.input.clear();
                     self.input_cursor = 0;
-                    if input == "exit" || input == "quit" { return true; }
+                    if input == "exit" || input == "quit" {
+                        return true;
+                    }
                     self.add_message(Role::User, &input);
                     self.execute_command(&input, llm).await;
                 }
@@ -528,7 +670,13 @@ impl App {
                     // Navigate history
                     let new_index = match self.history_index {
                         None => Some(self.input_history.len() - 1),
-                        Some(i) => if i > 0 { Some(i - 1) } else { Some(0) },
+                        Some(i) => {
+                            if i > 0 {
+                                Some(i - 1)
+                            } else {
+                                Some(0)
+                            }
+                        }
                     };
                     if let Some(idx) = new_index {
                         if let Some(cmd) = self.input_history.get(idx) {
@@ -559,11 +707,29 @@ impl App {
                 // Autocomplete from file browser or history
                 self.autocomplete();
             }
-            KeyCode::Char(c) => { self.input.insert(self.input_cursor, c); self.input_cursor += 1; }
-            KeyCode::Backspace => { if self.input_cursor > 0 { self.input_cursor -= 1; self.input.remove(self.input_cursor); } }
-            KeyCode::Delete => { if self.input_cursor < self.input.len() { self.input.remove(self.input_cursor); } }
-            KeyCode::Left => { self.input_cursor = self.input_cursor.saturating_sub(1); }
-            KeyCode::Right => { if self.input_cursor < self.input.len() { self.input_cursor += 1; } }
+            KeyCode::Char(c) => {
+                self.input.insert(self.input_cursor, c);
+                self.input_cursor += 1;
+            }
+            KeyCode::Backspace => {
+                if self.input_cursor > 0 {
+                    self.input_cursor -= 1;
+                    self.input.remove(self.input_cursor);
+                }
+            }
+            KeyCode::Delete => {
+                if self.input_cursor < self.input.len() {
+                    self.input.remove(self.input_cursor);
+                }
+            }
+            KeyCode::Left => {
+                self.input_cursor = self.input_cursor.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                if self.input_cursor < self.input.len() {
+                    self.input_cursor += 1;
+                }
+            }
             KeyCode::Home => self.input_cursor = 0,
             KeyCode::End => self.input_cursor = self.input.len(),
             KeyCode::PageUp => self.scroll_offset = self.scroll_offset.saturating_sub(10),
@@ -575,10 +741,15 @@ impl App {
 
     fn autocomplete(&mut self) {
         let input = &self.input[..self.input_cursor];
-        if input.is_empty() { return; }
+        if input.is_empty() {
+            return;
+        }
 
         // Try to autocomplete file paths
-        let last_word = input.rsplit(|c: char| c.is_whitespace()).next().unwrap_or("");
+        let last_word = input
+            .rsplit(|c: char| c.is_whitespace())
+            .next()
+            .unwrap_or("");
         if last_word.contains('/') || last_word.contains('.') {
             let (dir, prefix) = if let Some(pos) = last_word.rfind('/') {
                 let dir = if last_word.starts_with('/') {
@@ -600,11 +771,15 @@ impl App {
 
                 if matches.len() == 1 {
                     let completion = &matches[0];
-                    let new_input = format!("{}{}", &input[..input.len() - last_word.len()], completion);
+                    let new_input =
+                        format!("{}{}", &input[..input.len() - last_word.len()], completion);
                     self.input = new_input;
                     self.input_cursor = self.input.len();
                 } else if matches.len() > 1 {
-                    self.add_toast(ToastLevel::Info, &format!("{} options: {}", matches.len(), matches.join(", ")));
+                    self.add_toast(
+                        ToastLevel::Info,
+                        &format!("{} options: {}", matches.len(), matches.join(", ")),
+                    );
                 }
             }
         }
@@ -621,7 +796,10 @@ impl App {
                 self.command_palette_selected = self.command_palette_selected.saturating_sub(1);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                let max = self.filtered_command_palette_items().len().saturating_sub(1);
+                let max = self
+                    .filtered_command_palette_items()
+                    .len()
+                    .saturating_sub(1);
                 self.command_palette_selected = self.command_palette_selected.min(max);
             }
             KeyCode::Enter => {
@@ -651,8 +829,13 @@ impl App {
             self.command_palette_items
                 .iter()
                 .filter(|item| {
-                    item.name.to_lowercase().contains(&self.command_palette_filter.to_lowercase())
-                        || item.description.to_lowercase().contains(&self.command_palette_filter.to_lowercase())
+                    item.name
+                        .to_lowercase()
+                        .contains(&self.command_palette_filter.to_lowercase())
+                        || item
+                            .description
+                            .to_lowercase()
+                            .contains(&self.command_palette_filter.to_lowercase())
                 })
                 .collect()
         }
@@ -785,7 +968,14 @@ impl App {
                                         tool_call: None,
                                     });
                                 }
-                                self.add_toast(ToastLevel::Success, &format!("Session '{}' chargée ({} messages)", session.name, msgs.len()));
+                                self.add_toast(
+                                    ToastLevel::Success,
+                                    &format!(
+                                        "Session '{}' chargée ({} messages)",
+                                        session.name,
+                                        msgs.len()
+                                    ),
+                                );
                             }
                         }
                     }
@@ -811,12 +1001,22 @@ impl App {
         match key.code {
             KeyCode::Esc => self.focus = Focus::Input,
             KeyCode::Up | KeyCode::Char('k') => {
-                if is_model { self.model_selected = self.model_selected.saturating_sub(1); }
-                else { self.provider_selected = self.provider_selected.saturating_sub(1); }
+                if is_model {
+                    self.model_selected = self.model_selected.saturating_sub(1);
+                } else {
+                    self.provider_selected = self.provider_selected.saturating_sub(1);
+                }
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if is_model { self.model_selected = self.model_selected.min(self.model_items.len().saturating_sub(1)); }
-                else { self.provider_selected = self.provider_selected.min(self.provider_items.len().saturating_sub(1)); }
+                if is_model {
+                    self.model_selected = self
+                        .model_selected
+                        .min(self.model_items.len().saturating_sub(1));
+                } else {
+                    self.provider_selected = self
+                        .provider_selected
+                        .min(self.provider_items.len().saturating_sub(1));
+                }
             }
             KeyCode::Enter => {
                 if is_model {
@@ -825,8 +1025,14 @@ impl App {
                     self.add_toast(ToastLevel::Success, &format!("Modèle: {}", model));
                 } else {
                     let provider = self.provider_items[self.provider_selected].clone();
-                    self.add_message(Role::System, &format!("Provider changé: {}", provider.label()));
-                    self.add_toast(ToastLevel::Success, &format!("Provider: {}", provider.label()));
+                    self.add_message(
+                        Role::System,
+                        &format!("Provider changé: {}", provider.label()),
+                    );
+                    self.add_toast(
+                        ToastLevel::Success,
+                        &format!("Provider: {}", provider.label()),
+                    );
                 }
                 self.focus = Focus::Input;
             }
@@ -844,7 +1050,11 @@ impl App {
             timestamp: Instant::now(),
             tool_call: None,
         });
-        let total_lines: usize = self.messages.iter().map(|m| m.text.lines().count().max(1)).sum();
+        let total_lines: usize = self
+            .messages
+            .iter()
+            .map(|m| m.text.lines().count().max(1))
+            .sum();
         if total_lines > 20 {
             self.scroll_offset = (total_lines - 20) as u16;
         }
@@ -860,24 +1070,29 @@ impl App {
         match cmd {
             "ask" | "/ask" => self.cmd_ask(arg, llm).await,
             "help" | "/help" => self.focus = Focus::HelpDialog,
-            "models" | "/models" => {
-                match llm.list_models().await {
-                    Ok(models) => {
-                        let list = models.iter().map(|m| format!("  {}", m.name)).collect::<Vec<_>>().join("\n");
-                        self.add_message(Role::System, &list);
-                    }
-                    Err(e) => self.add_message(Role::Error, &e.to_string()),
+            "models" | "/models" => match llm.list_models().await {
+                Ok(models) => {
+                    let list = models
+                        .iter()
+                        .map(|m| format!("  {}", m.name))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    self.add_message(Role::System, &list);
                 }
-            }
+                Err(e) => self.add_message(Role::Error, &e.to_string()),
+            },
             "status" | "/status" => {
                 let alive = llm.is_alive().await;
-                self.add_message(Role::System, &format!(
-                    "Provider: {} | LLM: {} | Messages: {} | Commandes: {}",
-                    llm.config().provider,
-                    if alive { "connecté" } else { "déconnecté" },
-                    self.messages.len(),
-                    self.command_count
-                ));
+                self.add_message(
+                    Role::System,
+                    &format!(
+                        "Provider: {} | LLM: {} | Messages: {} | Commandes: {}",
+                        llm.config().provider,
+                        if alive { "connecté" } else { "déconnecté" },
+                        self.messages.len(),
+                        self.command_count
+                    ),
+                );
             }
             "plan" | "/plan" => {
                 if arg.is_empty() {
@@ -904,18 +1119,14 @@ impl App {
                 self.messages.clear();
                 self.add_toast(ToastLevel::Success, "Historique effacé");
             }
-            "save" | "/save" => {
-                match self.save_session() {
-                    Ok(name) => self.add_toast(ToastLevel::Success, &format!("Session: {}", name)),
-                    Err(e) => self.add_toast(ToastLevel::Error, &e),
-                }
-            }
-            "export" | "/export" => {
-                match self.export_chat() {
-                    Ok(path) => self.add_toast(ToastLevel::Success, &format!("Exporté: {}", path)),
-                    Err(e) => self.add_toast(ToastLevel::Error, &e),
-                }
-            }
+            "save" | "/save" => match self.save_session() {
+                Ok(name) => self.add_toast(ToastLevel::Success, &format!("Session: {}", name)),
+                Err(e) => self.add_toast(ToastLevel::Error, &e),
+            },
+            "export" | "/export" => match self.export_chat() {
+                Ok(path) => self.add_toast(ToastLevel::Success, &format!("Exporté: {}", path)),
+                Err(e) => self.add_toast(ToastLevel::Error, &e),
+            },
             "files" | "/files" => {
                 self.open_file_browser();
             }
@@ -949,12 +1160,15 @@ impl App {
 
         tokio::spawn(async move {
             match llm_clone.generate(&prompt).await {
-                Ok(resp) => { let _ = tx.send(LlmEvent::Response(resp.text)); }
-                Err(e) => { let _ = tx.send(LlmEvent::Error(format!("Erreur LLM: {}", e))); }
+                Ok(resp) => {
+                    let _ = tx.send(LlmEvent::Response(resp.text));
+                }
+                Err(e) => {
+                    let _ = tx.send(LlmEvent::Error(format!("Erreur LLM: {}", e)));
+                }
             }
         });
     }
 
     // ── Drawing ─────────────────────────────────────────────────────
 }
-

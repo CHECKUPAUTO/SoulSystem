@@ -96,15 +96,8 @@ impl LlmClient {
     }
 
     /// Génère avec suivi de budget et retourne uniquement le texte.
-    pub async fn generate_text_with_goal(
-        &self,
-        prompt: &str,
-        goal_id: &str,
-    ) -> Result<String> {
-        Ok(self
-            .generate_with_goal(prompt, goal_id)
-            .await?
-            .text)
+    pub async fn generate_text_with_goal(&self, prompt: &str, goal_id: &str) -> Result<String> {
+        Ok(self.generate_with_goal(prompt, goal_id).await?.text)
     }
 
     /// Génération streaming.
@@ -116,10 +109,7 @@ impl LlmClient {
     }
 
     /// Génération streaming (raccourci).
-    pub async fn stream(
-        &self,
-        prompt: &str,
-    ) -> Result<BoxStream<'static, Result<StreamChunk>>> {
+    pub async fn stream(&self, prompt: &str) -> Result<BoxStream<'static, Result<StreamChunk>>> {
         let req = GenerateRequest::new(prompt)
             .with_model(self.config.model.clone())
             .with_temperature(self.config.temperature)

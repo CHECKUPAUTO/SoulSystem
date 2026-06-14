@@ -21,9 +21,9 @@ pub fn create_provider(config: &LlmConfig) -> Result<Arc<dyn LlmProvider>> {
 /// Crée un provider par son nom (pour le CLI).
 pub fn create_provider_by_name(name: &str, config: &LlmConfig) -> Result<Arc<dyn LlmProvider>> {
     let mut cfg = config.clone();
-    cfg.provider = name.parse().map_err(|e: String| {
-        crate::error::LlmError::UnknownProvider(e)
-    })?;
+    cfg.provider = name
+        .parse()
+        .map_err(|e: String| crate::error::LlmError::UnknownProvider(e))?;
     create_provider(&cfg)
 }
 

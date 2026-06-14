@@ -88,9 +88,7 @@ impl AnthropicProvider {
         let api_key = config
             .auth_token
             .clone()
-            .ok_or_else(|| {
-                LlmError::Auth("Anthropic requires an API key (auth_token)".into())
-            })?;
+            .ok_or_else(|| LlmError::Auth("Anthropic requires an API key (auth_token)".into()))?;
 
         let mut builder = reqwest::Client::builder()
             .timeout(config.http_timeout)
@@ -131,7 +129,9 @@ impl AnthropicProvider {
     }
 
     fn model(&self, req: &GenerateRequest) -> String {
-        req.model.clone().unwrap_or_else(|| self.default_model.clone())
+        req.model
+            .clone()
+            .unwrap_or_else(|| self.default_model.clone())
     }
 
     fn temperature(&self, req: &GenerateRequest) -> f32 {
@@ -238,61 +238,57 @@ impl LlmProvider for AnthropicProvider {
 
         let byte_stream = response.bytes_stream();
 
-        let mapped = byte_stream.then(move |chunk| {
-            async move {
-                match chunk {
-                    Ok(bytes) => {
-                        let text = String::from_utf8_lossy(&bytes);
-                        let mut chunks: Vec<Result<StreamChunk>> = Vec::new();
-                        for line in text.lines() {
-                            let line = line.trim();
-                            if line.is_empty() || !line.starts_with("data: ") {
-                                continue;
-                            }
-                            let data = &line[6..];
-                            if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
-                                match event.event_type.as_str() {
-                                    "content_block_delta" => {
-                                        let text = event
-                                            .delta
-                                            .and_then(|d| d.text)
-                                            .unwrap_or_default();
-                                        chunks.push(Ok(StreamChunk {
-                                            text,
-                                            done: false,
-                                            usage: None,
-                                        }));
-                                    }
-                                    "message_stop" => {
+        let mapped = byte_stream.then(move |chunk| async move {
+            match chunk {
+                Ok(bytes) => {
+                    let text = String::from_utf8_lossy(&bytes);
+                    let mut chunks: Vec<Result<StreamChunk>> = Vec::new();
+                    for line in text.lines() {
+                        let line = line.trim();
+                        if line.is_empty() || !line.starts_with("data: ") {
+                            continue;
+                        }
+                        let data = &line[6..];
+                        if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
+                            match event.event_type.as_str() {
+                                "content_block_delta" => {
+                                    let text = event.delta.and_then(|d| d.text).unwrap_or_default();
+                                    chunks.push(Ok(StreamChunk {
+                                        text,
+                                        done: false,
+                                        usage: None,
+                                    }));
+                                }
+                                "message_stop" => {
+                                    chunks.push(Ok(StreamChunk {
+                                        text: String::new(),
+                                        done: true,
+                                        usage: event.usage.map(|u| {
+                                            TokenUsage::new(u.input_tokens, u.output_tokens)
+                                        }),
+                                    }));
+                                }
+                                "message_delta" => {
+                                    if let Some(u) = event.usage {
                                         chunks.push(Ok(StreamChunk {
                                             text: String::new(),
                                             done: true,
-                                            usage: event.usage.map(|u| {
-                                                TokenUsage::new(u.input_tokens, u.output_tokens)
-                                            }),
+                                            usage: Some(TokenUsage::new(
+                                                u.input_tokens,
+                                                u.output_tokens,
+                                            )),
                                         }));
                                     }
-                                    "message_delta" => {
-                                        if let Some(u) = event.usage {
-                                            chunks.push(Ok(StreamChunk {
-                                                text: String::new(),
-                                                done: true,
-                                                usage: Some(TokenUsage::new(
-                                                    u.input_tokens,
-                                                    u.output_tokens,
-                                                )),
-                                            }));
-                                        }
-                                    }
-                                    _ => continue,
                                 }
+                                _ => continue,
                             }
                         }
-                        Box::pin(stream::iter(chunks)) as BoxStream<'_, Result<StreamChunk>>
                     }
-                    Err(e) => Box::pin(stream::once(async move { Err(LlmError::Network(e.to_string())) }))
-                        as BoxStream<'_, Result<StreamChunk>>,
+                    Box::pin(stream::iter(chunks)) as BoxStream<'_, Result<StreamChunk>>
                 }
+                Err(e) => Box::pin(stream::once(async move {
+                    Err(LlmError::Network(e.to_string()))
+                })) as BoxStream<'_, Result<StreamChunk>>,
             }
         });
 
