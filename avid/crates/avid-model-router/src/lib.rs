@@ -42,9 +42,13 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod learned;
 pub mod registry;
 pub mod router;
 
+pub use learned::{
+    CostAwareRouter, DifficultyModel, QueryFeatures, RouterParams, RoutingDecision, RoutingMetrics,
+};
 pub use registry::{ModelRegistry, RegistryError};
 pub use router::{ModelRouter, RouterError};
 

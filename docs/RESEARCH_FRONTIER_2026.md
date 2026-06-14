@@ -56,6 +56,22 @@ equal quality, and predictive routing avoids paying for the strong model first.
 router is a function the system can evolve and validate on LLMRouterBench, which
 no competitor does.
 
+**Implemented (first slice).** `avid-model-router::learned` adds a learned,
+cost-aware router over the existing `ModelProfile` fleet:
+- `DifficultyModel` — a logistic predictor of "needs a strong model" from cheap,
+  deterministic query features; ships sensible prior weights (useful untrained)
+  and a `train()` for RouteLLM-style preference data.
+- `CostAwareRouter` — derives a quality bar from predicted difficulty (lowered by
+  a `cost_aversion` knob) and picks the **cheapest model that clears it**;
+  generalizes RouteLLM's strong/weak deferral to an N-model cascade, with an
+  uncertainty band that flags borderline queries for escalation.
+- `RouterParams` is serializable and `evaluate()` is a deterministic offline
+  score (strong-fraction / avg-cost / accuracy, LLMRouterBench-style), so a
+  `soul-rsi` loop can evolve the router and keep only measured improvements.
+- `calibrate_threshold()` sets the deferral operating point to a target cost.
+26 tests; no new dependencies. Next: wire it into the gateway provider layer and
+train on logged gateway outcomes.
+
 ---
 
 ## 3. Agent memory — to beat Hermes's persistent memory
