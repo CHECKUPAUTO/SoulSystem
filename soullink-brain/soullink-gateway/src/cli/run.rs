@@ -177,7 +177,7 @@ pub async fn run_cmd(opts: RunOpts) -> std::process::ExitCode {
 
     // ── Phase 4: Telegram channel (optional) ───────────────────────────
     let telegram_handle = if let Some(tg_cfg) = cfg.telegram.clone() {
-        let token = match load_bot_token(opts.token) {
+        let token = match load_bot_token(opts.token.clone()) {
             Some(t) => t,
             None => {
                 error!("Telegram section present but token missing");
@@ -218,26 +218,70 @@ pub async fn run_cmd(opts: RunOpts) -> std::process::ExitCode {
     };
 
     // ── Phase 5: HTTP server (health + API + metrics) ──────────────────
-    let http_handle = if opts.port > 0 {
-        let bind_addr = format!("127.0.0.1:{}", opts.port);
+    // OpenClaw-compatible env: `PORT` overrides --port, `GATEWAY_TOKEN`
+    // supplies the operator token when --token is not given.
+    let effective_port = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(opts.port);
+    let gateway_token = opts
+        .token
+        .clone()
+        .or_else(|| std::env::var("GATEWAY_TOKEN").ok());
+    if gateway_token.is_none() {
+        warn!("GATEWAY_TOKEN not set — gateway running without static operator token");
+    }
+
+    // Resolve the bind host: `--bind` (or the `GATEWAY_BIND` env, which wins)
+    // maps loopback/local → 127.0.0.1 and all/any/public/0.0.0.0 → 0.0.0.0
+    // (the latter matches the OpenClaw reference, which binds 0.0.0.0). Any
+    // other value is used verbatim as the host.
+    let bind_spec = std::env::var("GATEWAY_BIND").unwrap_or_else(|_| opts.bind.clone());
+    let bind_host = match bind_spec.trim().to_lowercase().as_str() {
+        "loopback" | "local" | "localhost" | "127.0.0.1" => "127.0.0.1".to_string(),
+        "all" | "any" | "public" | "0.0.0.0" | "*" => "0.0.0.0".to_string(),
+        other => other.to_string(),
+    };
+
+    let http_handle = if effective_port > 0 {
+        let bind_addr = format!("{bind_host}:{effective_port}");
 
         // Build API router with provider registry + WebSocket
         let ws_store = std::sync::Arc::new(crate::ws::session::SessionStore::new());
+        let auth = std::sync::Arc::new(crate::ws::auth::AuthManager::new(gateway_token));
         let api_state = ApiState {
             registry: provider_registry.clone(),
         };
         let api_routes = api::build_router(api_state);
         let ws_store_clone = ws_store.clone();
+        let auth_clone = auth.clone();
         let api_state_clone = ApiState {
             registry: provider_registry.clone(),
         };
 
+        // OpenClaw-compatible `/status` endpoint.
+        let status_store = ws_store.clone();
+        let status_port = effective_port;
         let app = axum::Router::new()
             .route("/health", axum::routing::get(|| async { "OK" }))
+            .route(
+                "/status",
+                axum::routing::get(move || {
+                    let store = status_store.clone();
+                    async move {
+                        axum::response::Json(serde_json::json!({
+                            "version": env!("CARGO_PKG_VERSION"),
+                            "sessions": store.len().await,
+                            "port": status_port,
+                        }))
+                    }
+                }),
+            )
             .route(
                 "/ws",
                 axum::routing::get(move |ws: axum::extract::ws::WebSocketUpgrade| {
                     let store = ws_store_clone.clone();
+                    let auth = auth_clone.clone();
                     let api = std::sync::Arc::new(api_state_clone.clone());
                     async move {
                         ws.on_upgrade(move |socket| {
@@ -245,6 +289,7 @@ pub async fn run_cmd(opts: RunOpts) -> std::process::ExitCode {
                                 socket,
                                 store,
                                 api,
+                                auth,
                                 tokio::sync::broadcast::channel(1).1,
                             )
                         })

@@ -771,7 +771,6 @@ async fn main() -> Result<()> {
         let preservation = Preservation::new(PreservationConfig::default());
         let healer = Arc::new(soulsystem::self_healer::SelfHealer::new(
             preservation.clone(),
-            settings.paths.data_dir.clone(),
         ));
         // Error cascade monitoring from bus events
         let bus_heal = bus.clone();

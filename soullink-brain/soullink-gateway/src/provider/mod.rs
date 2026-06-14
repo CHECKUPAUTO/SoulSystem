@@ -143,7 +143,7 @@ pub trait Provider: Send + Sync {
 }
 
 /// Provider configuration from TOML.
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct ProviderConfig {
     pub provider_type: String,
     pub base_url: String,
@@ -155,8 +155,28 @@ pub struct ProviderConfig {
     pub default_model: Option<String>,
     #[serde(default = "default_provider_timeout")]
     pub timeout_secs: u64,
+
+    // ── Optional cost-aware routing metadata (all default to safe values, so
+    //    existing configs keep working unchanged). Consumed by the learned
+    //    router in `crate::routing`. ──────────────────────────────────────
+    /// Estimated cost per 1k tokens in USD (0.0 for free/local models).
+    #[serde(default)]
+    pub cost_per_1k_tokens: f64,
+    /// Average round-trip latency in milliseconds.
+    #[serde(default)]
+    pub avg_latency_ms: u64,
+    /// Maximum context window in tokens (quality proxy).
+    #[serde(default = "default_routing_max_tokens")]
+    pub max_tokens: u64,
+    /// Capabilities this provider serves (kebab/snake/alias forms accepted).
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 fn default_provider_timeout() -> u64 {
     30
+}
+
+fn default_routing_max_tokens() -> u64 {
+    8192
 }

@@ -1245,6 +1245,7 @@ name = "avid-model-router"
 version = "0.1.0"
 dependencies = [
  "avid-core",
+ "clap",
  "serde",
  "serde_json",
  "tempfile",
@@ -10396,10 +10397,15 @@ dependencies = [
 name = "soul_cognition"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
+ "soul_rsi",
  "soul_tools",
+ "soullink-memory-hierarchy",
+ "tempfile",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
@@ -10906,9 +10912,11 @@ version = "13.5.0"
 dependencies = [
  "async-stream",
  "async-trait",
+ "avid-model-router",
  "axum 0.8.9",
  "clap",
  "colored 2.2.0",
+ "dashmap 6.2.1",
  "futures",
  "libc",
  "metrics",

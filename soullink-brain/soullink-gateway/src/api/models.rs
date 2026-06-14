@@ -111,6 +111,7 @@ mod tests {
             models: vec!["deepseek-v4-flash:cloud".into(), "llama3:70b".into()],
             default_model: Some("deepseek-v4-flash:cloud".into()),
             timeout_secs: 30,
+            ..Default::default()
         };
         registry.register("ollama", cfg).await;
 
