@@ -30,7 +30,7 @@ mod tests {
             hz: 0.0,
             energy_avg: 0.0,
             spikes: 0,
-            N: 0,
+            n: 0,
             attractor: String::new(),
         };
         assert_eq!(status.port, 0);
@@ -41,7 +41,7 @@ mod tests {
         let status = orchestrator::MeshStatus {
             online: 0,
             total_brains: 0,
-            total_N: 0,
+            total_n: 0,
             mesh: HashMap::new(),
         };
         assert_eq!(status.online, 0);

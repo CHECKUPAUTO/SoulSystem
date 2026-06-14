@@ -8,19 +8,15 @@
 //! - Task queue with abort support
 //! - Memory distillation
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolCall, ToolSchema};
-use soul_memory::{Edge, EdgeType, KnowledgeGraph, Node, NodeType};
-use soul_planner::{CognitiveLoop, Goal, GoalStatus, WorkingMemory};
+use chrono::Utc;
+use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolSchema};
+use soul_memory::{KnowledgeGraph, Node, NodeType};
+use soul_planner::{CognitiveLoop, Goal, GoalStatus};
 use soul_skills::SkillLoader;
-use soul_tools::{
-    async_dispatch_tool, discover_system_tools, dispatch_tool, AsyncShellExecutor, ToolRegistry,
-};
+use soul_tools::{async_dispatch_tool, discover_system_tools, AsyncShellExecutor, ToolRegistry};
 use soullink_autonomy::metacognition::MetaCognition;
 use soullink_memory_hierarchy::{
-    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, MemoryLayer,
-    SemanticConfig,
+    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, SemanticConfig,
 };
 use soullink_reasoning::{ThoughtTree, TreeConfig};
 use soullink_trainer::{Trajectory, TrajectoryRecorder};
@@ -888,6 +884,21 @@ impl TaskQueue {
         }
     }
 
+    /// Process the next queued task with the given agent.
+    /// Returns `false` if the queue is empty.
+    pub async fn process_next(&self, agent: &mut AutonomousAgent) -> bool {
+        let req = self.rx.write().await.try_recv().ok();
+        match req {
+            Some(req) => {
+                tracing::info!("processing queued task {}: {}", req.id, req.task);
+                let result = agent.run_task(&req.task).await;
+                let _ = req.response_tx.send(result);
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn submit(&self, task: &str) -> (String, oneshot::Receiver<Result<String, String>>) {
         let id = Uuid::new_v4().to_string();
         let (response_tx, response_rx) = oneshot::channel();
@@ -992,7 +1003,6 @@ impl AutonomousLoop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     // ── Mock helpers ────────────────────────────────────────────────────
 

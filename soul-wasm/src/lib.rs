@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use uuid::Uuid;
 use wasmtime::*;
 
 // ─── Errors ──────────────────────────────────────────────────────────────────

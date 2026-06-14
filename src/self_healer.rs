@@ -1,4 +1,3 @@
-use anyhow::Result;
 use soullink_autonomy::preservation::{DefenseAction, Preservation};
 use std::path::Path;
 use std::sync::Arc;
@@ -6,6 +5,7 @@ use tracing::{info, warn};
 
 pub struct SelfHealer {
     preservation: Arc<Preservation>,
+    #[allow(dead_code)]
     data_dir: std::path::PathBuf,
 }
 
@@ -117,7 +117,7 @@ impl SelfHealer {
             interval.tick().await;
 
             let (cpu, mem, disk) = Self::read_system_stats();
-            let disk_pct = disk as f64;
+            let disk_pct = disk;
 
             if let Some(actions) = self.preservation.check_resources(cpu, mem, disk_pct).await {
                 let level = self.preservation.level().await;

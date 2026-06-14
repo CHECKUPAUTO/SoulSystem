@@ -287,10 +287,11 @@ pub fn spawn_hot_reload(
                 info!("SKILL.md change detected — hot-reloading registry");
                 {
                     let mut reg = registry.write().await;
-                    if let Err(e) = reg.reload(&dir) {
-                        warn!("hot-reload failed: {}", e);
-                    } else {
-                        info!("hot-reload complete — {} skills active", reg.len());
+                    let outcome = reg.reload(&dir);
+                    drop(reg);
+                    match outcome {
+                        Err(e) => warn!("hot-reload failed: {}", e),
+                        Ok(count) => info!("hot-reload complete — {} skills active", count),
                     }
                 }
                 last_snapshot = current.into_iter().map(|s| (s.path, s.mtime)).collect();

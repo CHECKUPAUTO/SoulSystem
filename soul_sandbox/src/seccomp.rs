@@ -61,6 +61,7 @@ const AUDIT_ARCH: u32 = 0xC000_00B7;
 
 /// Construit un programme BPF qui autorise la liste de syscalls donnée
 /// et bloque tout le reste avec `errno`.
+#[allow(clippy::vec_init_then_push)]
 fn build_bpf_filter(syscalls: &[i64], errno: u32) -> Vec<SockFilter> {
     let mut prog = Vec::new();
 
@@ -73,10 +74,7 @@ fn build_bpf_filter(syscalls: &[i64], errno: u32) -> Vec<SockFilter> {
         1, // si arch != AUDIT_ARCH, saute au kill
     ));
     // Si arch invalide → tue le processus (bad arch)
-    prog.push(bpf_stmt(
-        BPF_RET | BPF_K,
-        libc::SECCOMP_RET_KILL_PROCESS as u32,
-    ));
+    prog.push(bpf_stmt(BPF_RET | BPF_K, libc::SECCOMP_RET_KILL_PROCESS));
 
     // 2. Vérifier le numéro de syscall (offset 0)
     prog.push(bpf_stmt(BPF_LD | BPF_W | BPF_ABS, 0));
@@ -127,8 +125,8 @@ fn load_bpf(prog: &[SockFilter]) -> Result<(), std::io::Error> {
 
 pub fn install_filter(profile: &str) -> Result<(), std::io::Error> {
     let syscalls: &[i64] = match profile {
-        "strict" => &STRICT_SYSCALLS,
-        "default" => &DEFAULT_SYSCALLS,
+        "strict" => STRICT_SYSCALLS,
+        "default" => DEFAULT_SYSCALLS,
         "unconfined" => return Ok(()),
         _ => {
             return Err(std::io::Error::new(

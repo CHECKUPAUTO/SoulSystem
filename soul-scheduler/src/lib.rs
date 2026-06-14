@@ -80,9 +80,12 @@ impl ScheduledTask {
     }
 }
 
+/// Callback invoked when a scheduled task fires.
+pub type TickFn = dyn Fn(&ScheduledTask) -> SchedulerResult<()> + Send + Sync;
+
 pub struct Scheduler {
     tasks: Arc<RwLock<HashMap<String, ScheduledTask>>>,
-    on_tick: Arc<dyn Fn(&ScheduledTask) -> SchedulerResult<()> + Send + Sync>,
+    on_tick: Arc<TickFn>,
 }
 
 impl Scheduler {
@@ -206,7 +209,7 @@ pub fn compute_next_run(cron_expr: &str) -> Option<DateTime<Utc>> {
             return Some(candidate);
         }
 
-        candidate = candidate + Duration::minutes(1);
+        candidate += Duration::minutes(1);
     }
 
     None

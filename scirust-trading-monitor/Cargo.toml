@@ -3,6 +3,10 @@ name = "scirust-trading-monitor"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Intentionally-off gate for a heavy HTTP integration test (tests/integration_http.rs).
+disabled = []
+
 [dependencies]
 scirust-trading-core = { path = "../scirust-trading-core" }
 scirust-trading-engine = { path = "../scirust-trading-engine" }

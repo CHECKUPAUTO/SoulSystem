@@ -4,8 +4,7 @@
 
 use chrono::Utc;
 use scirust_trading_core::{
-    Category, CodifiedEvent, EventTiming, Exchange, MarketReaction, MarketState, Polarity,
-    Reliability, Side, Symbol, Target,
+    Category, CodifiedEvent, EventTiming, Exchange, MarketReaction, MarketState, Polarity, Symbol,
 };
 
 fn main() {

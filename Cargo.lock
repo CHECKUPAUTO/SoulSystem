@@ -8904,6 +8904,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-util",
+ "h2 0.4.14",
  "http 1.4.2",
  "http-body 1.0.1",
  "http-body-util",
@@ -10392,6 +10393,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul_cognition"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "soul_tools",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "soul_compaction"
 version = "0.1.0"
 dependencies = [
@@ -10667,6 +10678,9 @@ name = "soul_tools"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

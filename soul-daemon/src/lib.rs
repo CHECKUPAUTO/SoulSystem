@@ -14,9 +14,7 @@ use soul_eventbus::{AgentEvent as BusEvent, EventBus};
 use soul_llm::{LlmConfig, OllamaClient};
 use soul_memory::{GoalStatus, PersistentGoal, PersistentStore};
 use soul_subagents::SubAgentManager;
-use soul_tools::AsyncShellExecutor;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{mpsc, watch};
@@ -124,6 +122,8 @@ impl GoalTracker {
         self.running.contains_key(goal_id)
     }
 
+    /// Number of in-flight goals — exposed for monitoring/backpressure.
+    #[allow(dead_code)]
     fn running_count(&self) -> usize {
         self.running.len()
     }

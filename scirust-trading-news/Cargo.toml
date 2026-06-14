@@ -3,6 +3,10 @@ name = "scirust-trading-news"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Intentionally-off gate for a legacy test module (see src/contextual.rs).
+disabled = []
+
 [dependencies]
 scirust-trading-core = { path = "../scirust-trading-core" }
 tokio = { workspace = true }

@@ -479,24 +479,25 @@ mod tests {
     #[test]
     fn test_realistic_conversation() {
         // Simulate a real coding conversation with tool calls
-        let mut msgs = Vec::new();
-        msgs.push(Message::new(Role::User, "Help me debug this function"));
-        msgs.push(Message::new(Role::Assistant, "I'll look at the code"));
-        msgs.push(Message::new(Role::Tool, "fn broken() { panic!(\"oops\") }"));
-        msgs.push(Message::new(
-            Role::Assistant,
-            "Found the issue! The function panics because...",
-        ));
-        msgs.push(Message::new(Role::User, "Fix it please"));
-        msgs.push(Message::new(
-            Role::Assistant,
-            "I've patched it with proper error handling",
-        ));
-        msgs.push(Message::new(Role::Tool, "src/lib.rs patched successfully"));
-        msgs.push(Message::new(
-            Role::Assistant,
-            "Done. The fix adds Result<(), Error> return type.",
-        ));
+        let msgs = vec![
+            Message::new(Role::User, "Help me debug this function"),
+            Message::new(Role::Assistant, "I'll look at the code"),
+            Message::new(Role::Tool, "fn broken() { panic!(\"oops\") }"),
+            Message::new(
+                Role::Assistant,
+                "Found the issue! The function panics because...",
+            ),
+            Message::new(Role::User, "Fix it please"),
+            Message::new(
+                Role::Assistant,
+                "I've patched it with proper error handling",
+            ),
+            Message::new(Role::Tool, "src/lib.rs patched successfully"),
+            Message::new(
+                Role::Assistant,
+                "Done. The fix adds Result<(), Error> return type.",
+            ),
+        ];
 
         let c = Compactor::new(1000);
         let (result, _) = c.compact(&msgs).unwrap();
