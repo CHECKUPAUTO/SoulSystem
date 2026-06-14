@@ -1,14 +1,17 @@
 //! WebSocket connection handler — manages the per-connection lifecycle.
 //!
-//! Flow: upgrade → receive messages → route → respond → close
+//! Flow (OpenClaw-compatible): upgrade → `req{method:"connect"}` → `res{hello-ok}`
+//! → further `req` frames → `res`/`event` → close.
 
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket};
 use futures::stream::StreamExt;
+use serde_json::Value;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
+use super::auth::AuthManager;
 use super::protocol::*;
 use super::session::SessionStore;
 use crate::api::ApiState;
@@ -27,6 +30,7 @@ pub async fn handle_connection(
     mut ws: WebSocket,
     store: Arc<SessionStore>,
     api: Arc<ApiState>,
+    auth: Arc<AuthManager>,
     _shutdown: broadcast::Receiver<()>,
 ) {
     let mut state = ConnState {
@@ -34,22 +38,13 @@ pub async fn handle_connection(
         authenticated: false,
     };
 
-    // Incoming message loop
     loop {
         tokio::select! {
             msg = ws.recv() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        if let Err(ref e) = handle_message(&mut ws, &mut state, &store, &api, &text).await {
+                        if let Err(ref e) = handle_message(&mut ws, &mut state, &store, &api, &auth, &text).await {
                             warn!(err = %e, "message handler error");
-                            let err_msg = e.to_string();
-                            let _ = ws.send(Message::Text(
-                                serde_json::to_string(&WsMessage::Error {
-                                    code: "HANDLER_ERROR".into(),
-                                    message: err_msg,
-                                    id: None,
-                                }).unwrap().into()
-                            )).await;
                         }
                     }
                     Some(Ok(Message::Ping(data))) => {
@@ -72,106 +67,140 @@ pub async fn handle_connection(
             }
             _ = tokio::signal::ctrl_c() => {
                 info!("shutdown signal — closing ws connection");
-                let _ = ws.send(Message::Text(
-                    serde_json::to_string(&WsMessage::Error {
-                        code: "SHUTDOWN".into(),
-                        message: "server shutting down".into(),
-                        id: None,
-                    }).unwrap().into()
-                )).await;
                 break;
             }
         }
     }
 
-    // Cleanup
     if let Some(ref sid) = state.session_id {
         store.remove(sid).await;
         info!(session = %sid, "session cleaned up on disconnect");
     }
 }
 
-/// Route a single text message to the appropriate handler.
+/// Route a single text message. Only `req` frames are client-originated; on a
+/// malformed frame we mirror the OpenClaw reference and silently ignore it.
 async fn handle_message(
     ws: &mut WebSocket,
     state: &mut ConnState,
     store: &SessionStore,
     api: &ApiState,
+    auth: &AuthManager,
     text: &str,
 ) -> HandlerResult<()> {
-    let msg: WsMessage = serde_json::from_str(text)?;
-
-    match msg {
-        WsMessage::Connect(params) => {
-            // Authenticate
-            let client_name = params.client.name.clone();
-            let session = store.create(params.client.id, client_name).await;
-            state.session_id = Some(session.id.clone());
-            state.authenticated = true;
-
-            let hello = store.hello(&session);
-            let reply = WsMessage::HelloOk(hello);
-            let json = serde_json::to_string(&reply)?;
-            ws.send(Message::Text(json.into())).await?;
-            info!(session = %session.id, "client authenticated");
+    let msg: WsMessage = match serde_json::from_str(text) {
+        Ok(m) => m,
+        Err(e) => {
+            debug!(err = %e, "ignoring unparseable frame");
+            return Ok(());
         }
+    };
 
-        WsMessage::Req(frame) => {
-            if !state.authenticated {
-                send_error(
-                    ws,
-                    "NOT_AUTHENTICATED",
-                    "send Connect first",
-                    Some(&frame.id),
-                )
-                .await?;
-                return Ok(());
-            }
-            handle_rpc(ws, state, api, &frame).await?;
-        }
-
-        WsMessage::Ping => {
-            ws.send(Message::Text(
-                serde_json::to_string(&WsMessage::Pong)?.into(),
-            ))
+    if let WsMessage::Req(frame) = msg {
+        if frame.method == "connect" {
+            handle_connect(ws, state, store, auth, &frame).await?;
+        } else if !state.authenticated {
+            send(
+                ws,
+                error_response(&frame.id, ERR_AUTH_REQUIRED, "send connect first"),
+            )
             .await?;
-        }
-
-        WsMessage::Pong => {
-            // no-op
-        }
-
-        other => {
-            debug!(msg = ?other, "unhandled message type");
+        } else {
+            handle_rpc(ws, api, &frame).await?;
         }
     }
-
+    // `res` / `event` frames are server→client; ignore if received.
     Ok(())
 }
 
-/// Route an RPC request — dispatches to provider registry for chat/completion,
-/// returns metadata for status/providers queries.
-async fn handle_rpc(
+/// Strict OpenClaw `connect` handshake: validate protocol range and token,
+/// create a session, mint a device token, reply with `hello-ok`.
+async fn handle_connect(
     ws: &mut WebSocket,
-    _state: &ConnState,
-    api: &ApiState,
+    state: &mut ConnState,
+    store: &SessionStore,
+    auth: &AuthManager,
     frame: &RequestFrame,
 ) -> HandlerResult<()> {
+    let Ok(req) = serde_json::from_value::<ConnectRequest>(frame.params.clone()) else {
+        send(
+            ws,
+            error_response(&frame.id, ERR_INVALID_PARAMS, "invalid connect params"),
+        )
+        .await?;
+        return Ok(());
+    };
+
+    if PROTOCOL_VERSION < req.min_protocol || PROTOCOL_VERSION > req.max_protocol {
+        send(
+            ws,
+            error_response(&frame.id, ERR_UNSUPPORTED_PROTOCOL, "protocol mismatch"),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    // Token is required whenever a gateway token is configured (operator mode).
+    if auth.requires_token() {
+        let Some(token) = req.auth.token.as_deref() else {
+            send(
+                ws,
+                error_response(&frame.id, ERR_AUTH_REQUIRED, "missing token"),
+            )
+            .await?;
+            return Ok(());
+        };
+        if auth.validate_token(token).is_none() {
+            send(
+                ws,
+                error_response(&frame.id, ERR_AUTH_FAILED, "invalid token"),
+            )
+            .await?;
+            return Ok(());
+        }
+    }
+
+    let session = store
+        .create(req.client.id.clone(), Some(req.client.platform.clone()))
+        .await;
+    state.session_id = Some(session.id.clone());
+    state.authenticated = true;
+
+    let device = auth.generate_device_token(req.role, req.scopes.clone(), req.client.id.clone());
+    let hello = HelloOk {
+        typ: "hello-ok".into(),
+        protocol: PROTOCOL_VERSION,
+        session_id: session.id.clone(),
+        device_token: device.token,
+        policy: PolicyInfo::default(),
+    };
+    send(
+        ws,
+        success_response(&frame.id, serde_json::to_value(hello)?),
+    )
+    .await?;
+    info!(session = %session.id, "client authenticated");
+    Ok(())
+}
+
+/// Route an authenticated RPC request to the provider registry / metadata.
+async fn handle_rpc(ws: &mut WebSocket, api: &ApiState, frame: &RequestFrame) -> HandlerResult<()> {
     let providers = api.registry.list_providers().await;
 
     match frame.method.as_str() {
-        // ── Diagnostic / metadata methods ──────────────────────
         "health" => {
-            let payload = serde_json::json!({"status": "ok", "version": env!("CARGO_PKG_VERSION")});
-            send_ok(ws, &frame.id, payload).await?;
+            send_ok(
+                ws,
+                &frame.id,
+                serde_json::json!({"status": "ok", "version": env!("CARGO_PKG_VERSION")}),
+            )
+            .await?;
         }
         "status" => {
-            let payload = serde_json::json!({"gateway": "soullink-gateway-rs", "version": env!("CARGO_PKG_VERSION"), "providers": providers});
-            send_ok(ws, &frame.id, payload).await?;
+            send_ok(ws, &frame.id, serde_json::json!({"gateway": "soullink-gateway-rs", "version": env!("CARGO_PKG_VERSION"), "providers": providers})).await?;
         }
         "providers.list" => {
-            let payload = serde_json::json!({"providers": providers});
-            send_ok(ws, &frame.id, payload).await?;
+            send_ok(ws, &frame.id, serde_json::json!({"providers": providers})).await?;
         }
         "models.list" => {
             let mut models = Vec::new();
@@ -191,17 +220,15 @@ async fn handle_rpc(
             send_ok(ws, &frame.id, serde_json::json!({"sessions": []})).await?;
         }
         "gateway.identity.get" => {
-            let payload = serde_json::json!({"name": "soullink-gateway", "version": env!("CARGO_PKG_VERSION")});
-            send_ok(ws, &frame.id, payload).await?;
+            send_ok(ws, &frame.id, serde_json::json!({"name": "soullink-gateway", "version": env!("CARGO_PKG_VERSION")})).await?;
         }
 
-        // ── LLM methods — dispatch to provider ────────────────
         "chat" => {
             let (model, messages, stream) = parse_chat_params(&frame.params);
             let provider = match api.registry.resolve(model.as_deref()).await {
                 Ok(p) => p,
                 Err(e) => {
-                    send_error(ws, "PROVIDER_ERROR", &e.to_string(), Some(&frame.id)).await?;
+                    send_error(ws, &frame.id, "PROVIDER_ERROR", &e.to_string()).await?;
                     return Ok(());
                 }
             };
@@ -222,47 +249,59 @@ async fn handle_rpc(
                             match chunk {
                                 Ok(delta) => {
                                     full_content.push_str(&delta.content);
-                                    let delta_payload = serde_json::json!({
-                                        "type": "delta",
-                                        "content": delta.content,
-                                        "finish_reason": delta.finish_reason,
-                                    });
-                                    send_event(ws, "chat.delta", delta_payload).await?;
+                                    send_event(
+                                        ws,
+                                        "chat.delta",
+                                        serde_json::json!({
+                                            "type": "delta",
+                                            "content": delta.content,
+                                            "finish_reason": delta.finish_reason,
+                                        }),
+                                    )
+                                    .await?;
                                     if delta.finish_reason.is_some() {
                                         break;
                                     }
                                 }
                                 Err(e) => {
-                                    send_error(ws, "STREAM_ERROR", &e.to_string(), Some(&frame.id))
+                                    send_error(ws, &frame.id, "STREAM_ERROR", &e.to_string())
                                         .await?;
                                     return Ok(());
                                 }
                             }
                         }
-                        let payload = serde_json::json!({
-                            "content": full_content,
-                            "role": "assistant",
-                            "done": true,
-                        });
-                        send_ok(ws, &frame.id, payload).await?;
+                        send_ok(
+                            ws,
+                            &frame.id,
+                            serde_json::json!({
+                                "content": full_content,
+                                "role": "assistant",
+                                "done": true,
+                            }),
+                        )
+                        .await?;
                     }
                     Err(e) => {
-                        send_error(ws, "PROVIDER_ERROR", &e.to_string(), Some(&frame.id)).await?;
+                        send_error(ws, &frame.id, "PROVIDER_ERROR", &e.to_string()).await?;
                     }
                 }
             } else {
                 match provider.chat(req).await {
                     Ok(resp) => {
-                        let payload = serde_json::json!({
-                            "content": resp.message.content,
-                            "role": resp.message.role,
-                            "model": resp.model,
-                            "usage": resp.usage,
-                        });
-                        send_ok(ws, &frame.id, payload).await?;
+                        send_ok(
+                            ws,
+                            &frame.id,
+                            serde_json::json!({
+                                "content": resp.message.content,
+                                "role": resp.message.role,
+                                "model": resp.model,
+                                "usage": resp.usage,
+                            }),
+                        )
+                        .await?;
                     }
                     Err(e) => {
-                        send_error(ws, "PROVIDER_ERROR", &e.to_string(), Some(&frame.id)).await?;
+                        send_error(ws, &frame.id, "PROVIDER_ERROR", &e.to_string()).await?;
                     }
                 }
             }
@@ -284,7 +323,7 @@ async fn handle_rpc(
             let provider = match api.registry.resolve(model.as_deref()).await {
                 Ok(p) => p,
                 Err(e) => {
-                    send_error(ws, "PROVIDER_ERROR", &e.to_string(), Some(&frame.id)).await?;
+                    send_error(ws, &frame.id, "PROVIDER_ERROR", &e.to_string()).await?;
                     return Ok(());
                 }
             };
@@ -298,21 +337,29 @@ async fn handle_rpc(
 
             match provider.complete(req).await {
                 Ok(resp) => {
-                    let payload = serde_json::json!({
-                        "text": resp.text,
-                        "model": resp.model,
-                        "usage": resp.usage,
-                    });
-                    send_ok(ws, &frame.id, payload).await?;
+                    send_ok(
+                        ws,
+                        &frame.id,
+                        serde_json::json!({
+                            "text": resp.text,
+                            "model": resp.model,
+                            "usage": resp.usage,
+                        }),
+                    )
+                    .await?;
                 }
                 Err(e) => {
-                    send_error(ws, "PROVIDER_ERROR", &e.to_string(), Some(&frame.id)).await?;
+                    send_error(ws, &frame.id, "PROVIDER_ERROR", &e.to_string()).await?;
                 }
             }
         }
 
         _ => {
-            send_error(ws, "METHOD_NOT_FOUND", &frame.method, Some(&frame.id)).await?;
+            send(
+                ws,
+                error_response(&frame.id, ERR_UNKNOWN_METHOD, &frame.method),
+            )
+            .await?;
         }
     }
 
@@ -320,9 +367,7 @@ async fn handle_rpc(
 }
 
 /// Parse chat params from RPC params JSON.
-fn parse_chat_params(
-    params: &serde_json::Value,
-) -> (Option<String>, Vec<crate::provider::ChatMessage>, bool) {
+fn parse_chat_params(params: &Value) -> (Option<String>, Vec<crate::provider::ChatMessage>, bool) {
     let model = params
         .get("model")
         .and_then(|v| v.as_str())
@@ -356,59 +401,20 @@ fn parse_chat_params(
     (model, messages, stream)
 }
 
-/// Send a successful RPC response.
-async fn send_ok(ws: &mut WebSocket, id: &str, payload: serde_json::Value) -> HandlerResult<()> {
-    let reply = WsMessage::Res(ResponseFrame {
-        id: id.to_string(),
-        ok: true,
-        payload: Some(payload),
-        error: None,
-    });
-    ws.send(Message::Text(serde_json::to_string(&reply)?.into()))
-        .await?;
-    Ok(())
-}
-
-/// Send a server-sent event (for streaming chat deltas).
-async fn send_event(
-    ws: &mut WebSocket,
-    event: &str,
-    payload: serde_json::Value,
-) -> HandlerResult<()> {
-    let msg = WsMessage::Event(EventFrame {
-        event: event.to_string(),
-        payload: Some(payload),
-    });
+async fn send(ws: &mut WebSocket, msg: WsMessage) -> HandlerResult<()> {
     ws.send(Message::Text(serde_json::to_string(&msg)?.into()))
         .await?;
     Ok(())
 }
 
-/// Send an error response.
-async fn send_error(
-    ws: &mut WebSocket,
-    code: &str,
-    message: &str,
-    id: Option<&str>,
-) -> HandlerResult<()> {
-    let reply = if let Some(req_id) = id {
-        WsMessage::Res(ResponseFrame {
-            id: req_id.to_string(),
-            ok: false,
-            payload: None,
-            error: Some(ResponseError {
-                code: code.to_string(),
-                message: message.to_string(),
-            }),
-        })
-    } else {
-        WsMessage::Error {
-            code: code.to_string(),
-            message: message.to_string(),
-            id: None,
-        }
-    };
-    let json = serde_json::to_string(&reply)?;
-    ws.send(Message::Text(json.into())).await?;
-    Ok(())
+async fn send_ok(ws: &mut WebSocket, id: &str, payload: Value) -> HandlerResult<()> {
+    send(ws, success_response(id, payload)).await
+}
+
+async fn send_event(ws: &mut WebSocket, name: &str, payload: Value) -> HandlerResult<()> {
+    send(ws, event(name, payload)).await
+}
+
+async fn send_error(ws: &mut WebSocket, id: &str, code: &str, message: &str) -> HandlerResult<()> {
+    send(ws, error_response(id, code, message)).await
 }

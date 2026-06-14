@@ -1,13 +1,15 @@
-//! WebSocket RPC server — bidirectional protocol for gateway clients.
+//! WebSocket RPC server — a strict drop-in for the OpenClaw gateway protocol.
 //!
-//! ## Protocol
+//! ## Protocol (OpenClaw-compatible)
 //!
-//! 1. Client opens WebSocket, sends `Connect` with auth
-//! 2. Server responds with `HelloOk` (session_id, capabilities)
-//! 3. Client sends `Req` frames (RPC calls)
-//! 4. Server responds with `Res` frames
-//! 5. Server can push `Event` frames at any time
+//! 1. Client opens WebSocket, sends a `req` with `method: "connect"` carrying
+//!    `ConnectRequest` (protocol range + auth token).
+//! 2. Server validates the token and replies with a `res` whose payload is a
+//!    `hello-ok` (protocol version, session_id, device_token, policy).
+//! 3. Client sends further `req` frames (RPC calls); server replies with `res`.
+//! 4. Server can push `event` frames at any time (e.g. streaming chat deltas).
 
+pub mod auth;
 pub mod handler;
 pub mod protocol;
 pub mod session;

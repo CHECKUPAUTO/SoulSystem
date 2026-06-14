@@ -23,6 +23,7 @@ clap = { workspace = true }
 colored = "2"
 axum = { workspace = true, features = ["ws"] }
 uuid = { workspace = true }
+dashmap = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 tokio-stream = { workspace = true }

@@ -10,8 +10,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
-use super::protocol::HelloOk;
-
 /// A connected WebSocket session.
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -106,29 +104,6 @@ impl SessionStore {
     pub async fn is_empty(&self) -> bool {
         self.sessions.read().await.is_empty()
     }
-
-    /// Build HelloOk for a session.
-    pub fn hello(&self, session: &Session) -> HelloOk {
-        HelloOk {
-            session_id: session.id.clone(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            methods: vec![
-                "health".into(),
-                "status".into(),
-                "chat".into(),
-                "sessions.list".into(),
-                "sessions.get".into(),
-                "providers.list".into(),
-                "config.get".into(),
-            ],
-            events: vec![
-                "session.message".into(),
-                "presence".into(),
-                "shutdown".into(),
-                "tick".into(),
-            ],
-        }
-    }
 }
 
 #[cfg(test)]
@@ -172,15 +147,5 @@ mod tests {
         std::thread::sleep(Duration::from_millis(5));
         session.touch();
         assert!(session.last_activity > before);
-    }
-
-    #[test]
-    fn test_hello_ok_fields() {
-        let store = SessionStore::new();
-        let session = Session::new("c".into(), None);
-        let hello = store.hello(&session);
-        assert_eq!(hello.session_id, session.id);
-        assert!(!hello.methods.is_empty());
-        assert!(!hello.events.is_empty());
     }
 }
