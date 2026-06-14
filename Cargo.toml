@@ -313,6 +313,15 @@ dev = []
 gpu = []
 ed25519 = ["dep:ed25519-dalek"]
 default = ["ed25519"]
+# Optional bridge integrations (gate `soul_bridge::*` wiring in src/).
+avid = []
+brain_system = []
+mesh = []
+openevolve = []
+organs = []
+services = []
+soul_neural = []
+synergie = []
 
 [profile.release]
 lto = "fat"

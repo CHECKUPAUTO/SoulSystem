@@ -711,7 +711,7 @@ mod tests {
 
     #[test]
     fn timeout_kills_long_command() {
-        let sb = Sandbox::new(SandboxPolicy::default());
+        let _sb = Sandbox::new(SandboxPolicy::default());
         let short_sb = Sandbox::new(SandboxPolicy {
             timeout: std::time::Duration::from_millis(100),
             ..Default::default()

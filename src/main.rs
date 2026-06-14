@@ -14,14 +14,24 @@ use clap::Parser;
 use soulsystem::bound_system::BoundSystem;
 use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
-// Unified bridge aliases (replaces 9 individual bridge crates)
+// Unified bridge aliases (replaces 9 individual bridge crates).
+// Each alias is only referenced inside its matching feature-gated block below,
+// so gate the import too to keep `-D warnings` clean when features are off.
+#[cfg(feature = "avid")]
 use soul_bridge::avid as avid_bridge;
+#[cfg(feature = "brain_system")]
 use soul_bridge::brain as brain_bridge;
+#[cfg(feature = "mesh")]
 use soul_bridge::mesh as mesh_bridge;
+#[cfg(feature = "openevolve")]
 use soul_bridge::openevolve as openevolve_bridge;
+#[cfg(feature = "organs")]
 use soul_bridge::organs as organs_bridge;
+#[cfg(feature = "services")]
 use soul_bridge::services as services_bridge;
+#[cfg(feature = "soul_neural")]
 use soul_bridge::soul_neural as soul_neural_bridge;
+#[cfg(feature = "synergie")]
 use soul_bridge::synergie as synergie_bridge;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -775,7 +785,7 @@ async fn main() -> Result<()> {
                     Ok(Message::Custom { topic, .. }) if topic.starts_with("error.") => {
                         if let Some(actions) = pres.record_error().await {
                             for action in &actions {
-                                healer_events.execute(&action).await;
+                                healer_events.execute(action).await;
                             }
                         }
                     }

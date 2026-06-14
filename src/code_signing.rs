@@ -5,8 +5,9 @@
 //!
 //! Utilise ed25519-dalek pour une signature asymétrique robuste.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(not(feature = "ed25519"))]
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::path::PathBuf;

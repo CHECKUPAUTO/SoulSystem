@@ -261,8 +261,10 @@ mod tests {
     #[test]
     fn test_memory_persistence() {
         let store = test_store();
-        let mut mem = PersistentWorkingMemory::default();
-        mem.key_info = "test task".to_string();
+        let mut mem = PersistentWorkingMemory {
+            key_info: "test task".to_string(),
+            ..Default::default()
+        };
         mem.observations.push("obs1".to_string());
         store.save_memory(&mem).unwrap();
 

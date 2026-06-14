@@ -126,7 +126,7 @@ impl LlmBudget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{LlmConfig, ProviderKind, TokenUsage};
+    use crate::types::{LlmConfig, TokenUsage};
 
     fn test_config() -> LlmConfig {
         LlmConfig {
