@@ -5,16 +5,11 @@ use tracing::{info, warn};
 
 pub struct SelfHealer {
     preservation: Arc<Preservation>,
-    #[allow(dead_code)]
-    data_dir: std::path::PathBuf,
 }
 
 impl SelfHealer {
-    pub fn new(preservation: Arc<Preservation>, data_dir: std::path::PathBuf) -> Self {
-        Self {
-            preservation,
-            data_dir,
-        }
+    pub fn new(preservation: Arc<Preservation>) -> Self {
+        Self { preservation }
     }
 
     pub async fn execute(&self, action: &DefenseAction) {
