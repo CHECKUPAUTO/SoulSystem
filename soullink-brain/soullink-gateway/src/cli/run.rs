@@ -232,8 +232,19 @@ pub async fn run_cmd(opts: RunOpts) -> std::process::ExitCode {
         warn!("GATEWAY_TOKEN not set — gateway running without static operator token");
     }
 
+    // Resolve the bind host: `--bind` (or the `GATEWAY_BIND` env, which wins)
+    // maps loopback/local → 127.0.0.1 and all/any/public/0.0.0.0 → 0.0.0.0
+    // (the latter matches the OpenClaw reference, which binds 0.0.0.0). Any
+    // other value is used verbatim as the host.
+    let bind_spec = std::env::var("GATEWAY_BIND").unwrap_or_else(|_| opts.bind.clone());
+    let bind_host = match bind_spec.trim().to_lowercase().as_str() {
+        "loopback" | "local" | "localhost" | "127.0.0.1" => "127.0.0.1".to_string(),
+        "all" | "any" | "public" | "0.0.0.0" | "*" => "0.0.0.0".to_string(),
+        other => other.to_string(),
+    };
+
     let http_handle = if effective_port > 0 {
-        let bind_addr = format!("127.0.0.1:{}", effective_port);
+        let bind_addr = format!("{bind_host}:{effective_port}");
 
         // Build API router with provider registry + WebSocket
         let ws_store = std::sync::Arc::new(crate::ws::session::SessionStore::new());

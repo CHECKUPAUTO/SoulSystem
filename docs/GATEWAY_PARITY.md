@@ -60,20 +60,23 @@ endpoints now match the reference; a superset of RPC methods remains available.
 
 ## 3. Remaining for full production cutover
 
-These are additive and do not block the protocol drop-in, but are needed for
-100% behavioral parity:
+These are additive and do not block the protocol drop-in:
 
-1. **Channel providers** — the reference exposes `ENABLE_TELEGRAM` /
-   `ENABLE_WHATSAPP` with `TELEGRAM_TOKEN` / `WHATSAPP_SESSION`; the WhatsApp and
-   webhook providers (`openclaw-gateway/src/providers/{whatsapp,webhook}.rs`)
+1. **Channel providers** *(remaining)* — the reference exposes `ENABLE_TELEGRAM`
+   / `ENABLE_WHATSAPP` with `TELEGRAM_TOKEN` / `WHATSAPP_SESSION`; the WhatsApp
+   and webhook providers (`openclaw-gateway/src/providers/{whatsapp,webhook}.rs`)
    need equivalents alongside the existing Telegram long-poll loop.
-2. **Bind host** — reference binds `0.0.0.0`; soullink binds `127.0.0.1`. Expose
-   a bind-host option for parity (currently loopback-only).
-3. **`WORKERS` env** — reference clamps `WORKERS` to 1..=64 for the tokio
-   runtime; wire it to the runtime builder.
-4. **Heartbeat / idle enforcement** — the `policy` values are advertised; the
-   server should also *enforce* idle-timeout and heartbeat per the policy.
+2. **Bind host** — **done.** `--bind` (and the `GATEWAY_BIND` env, which wins)
+   resolves `loopback`/`local` → `127.0.0.1` and `all`/`any`/`public`/`0.0.0.0`
+   → `0.0.0.0` (the reference's bind), any other value used verbatim. Default
+   stays loopback for safety; `--bind all` matches the reference.
+3. **`WORKERS` env** — **done.** `main` builds the tokio runtime manually,
+   honoring `WORKERS` clamped to `1..=64` (default 4) — the reference reads the
+   same env; here it is actually applied to the runtime.
+4. **Heartbeat / idle enforcement** *(remaining)* — the `policy` values are
+   advertised; the server should also *enforce* idle-timeout and heartbeat per
+   the policy.
 
-Once (1)–(4) land, the OpenClaw binary can be retired. The routing upgrades in
-`docs/RESEARCH_FRONTIER_2026.md` §2 then make the Rust gateway *better* than the
-reference, not merely equal.
+Once (1) and (4) land, the OpenClaw binary can be retired. The routing upgrades
+in `docs/RESEARCH_FRONTIER_2026.md` §2 then make the Rust gateway *better* than
+the reference, not merely equal.
