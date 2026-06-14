@@ -171,17 +171,31 @@ It depends on, and does not duplicate: `soul_tools`, `soul_planner`,
 
 ---
 
-## 4. Build order
+## 4. Build order and status
 
-1. `provenance.rs` + `gate.rs` — invariants first; they are the contract.
+1. `provenance.rs` + `gate.rs` — invariants first; they are the contract. **✓ done**
 2. `memory.rs` facade — name all five tiers, back the new two with
-   consolidation + goaltree.
-3. `curiosity.rs` — the one genuinely missing capability.
+   consolidation + goaltree. *(next)*
+3. `curiosity.rs` — the one genuinely missing capability. **✓ done**
 4. `loop.rs` — wire it, reusing `soul-rsi` unchanged as the experiment core.
+   *(next)*
 
 This keeps the proven DGM loop (`soul-rsi`) and the memory hierarchy
 untouched, and confines new, riskier code to curiosity and the gate — the
 two places where correctness actually matters for autonomy safety.
+
+The first slice now lives in the `soul_cognition` crate
+(`soul-cognition/src/{provenance,gate,curiosity}.rs`, 19 unit tests):
+
+- `Provenance{Observed,Deduced,Hypothetical}` + `Tagged<T>` enforce
+  invariants 1–3 — a derivation is *never* `Observed`, and combining inputs
+  takes the weakest link.
+- `PermissionGate` is the single enforcement point for invariant 4: a
+  `Destructive` command cannot be authorized without a `Confirmation` whose
+  `action` matches exactly.
+- `Curiosity` scores candidate probes by novelty (`1 − max cosine
+  similarity` to known semantic-memory embeddings) and emits the most
+  informative as Level-0 suggestions only — it never executes.
 
 ---
 

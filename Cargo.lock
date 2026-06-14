@@ -10393,6 +10393,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul_cognition"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "soul_tools",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "soul_compaction"
 version = "0.1.0"
 dependencies = [

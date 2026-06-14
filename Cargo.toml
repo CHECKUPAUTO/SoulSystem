@@ -102,6 +102,7 @@ members = [
     "soul-inference",
     "soul-critique",
     "soul-rsi",
+    "soul-cognition",
     # AVID ecosystem (24 crates)
     "avid/crates/avid-anticlone",
     "avid/crates/avid-cli",
