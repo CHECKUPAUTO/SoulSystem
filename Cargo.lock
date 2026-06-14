@@ -10396,10 +10396,15 @@ dependencies = [
 name = "soul_cognition"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
+ "soul_rsi",
  "soul_tools",
+ "soullink-memory-hierarchy",
+ "tempfile",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

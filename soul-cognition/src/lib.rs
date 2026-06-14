@@ -16,16 +16,23 @@
 //! supplies the one capability the existing crates lacked: intrinsic
 //! motivation when no external goal is pending.
 //!
-//! This is the first slice (provenance + gate + curiosity). The 5-tier memory
-//! facade and the full perceive→experiment→reflect loop are follow-ups that
-//! build on these primitives.
+//! [`curiosity::Curiosity`] supplies the one capability the existing crates
+//! lacked: intrinsic motivation when no external goal is pending.
+//!
+//! The pieces compose in [`cognitive_loop::CognitiveLoop`], which wires
+//! perception → recall → decide → experiment (`soul_rsi`) → consolidate →
+//! reflect over the five-tier [`memory::CognitiveMemory`], gating every action.
 
+pub mod cognitive_loop;
 pub mod curiosity;
 pub mod gate;
+pub mod memory;
 pub mod provenance;
 
+pub use cognitive_loop::{CognitiveLoop, Focus};
 pub use curiosity::{Curiosity, Probe, ScoredProbe};
 pub use gate::{Confirmation, Decision, GateError, PermissionGate};
+pub use memory::{CognitiveMemory, MemoryError, MemoryTier, Record};
 pub use provenance::{Provenance, Tagged};
 
 #[cfg(test)]
