@@ -297,6 +297,7 @@ mod tests {
             models: vec!["gpt-5".into()],
             default_model: Some("gpt-5".into()),
             timeout_secs: 60,
+            ..Default::default()
         };
         let p = OpenAIProvider::new("openai".into(), cfg);
         assert_eq!(p.resolve_model(Some("openai/gpt-5")), "gpt-5");

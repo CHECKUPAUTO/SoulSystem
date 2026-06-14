@@ -15,6 +15,7 @@ use super::auth::AuthManager;
 use super::protocol::*;
 use super::session::SessionStore;
 use crate::api::ApiState;
+use crate::provider::{Provider, ProviderError};
 
 /// Thread-safe error type for WS handler.
 type HandlerResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -38,17 +39,32 @@ pub async fn handle_connection(
         authenticated: false,
     };
 
+    // Enforce the advertised policy: ping every `heartbeat_interval_ms` and
+    // close the connection once it has been idle past `idle_timeout_ms`.
+    let policy = PolicyInfo::default();
+    let idle_timeout = std::time::Duration::from_millis(policy.idle_timeout_ms);
+    let mut heartbeat = tokio::time::interval(std::time::Duration::from_millis(
+        policy.heartbeat_interval_ms,
+    ));
+    heartbeat.tick().await; // consume the immediate first tick
+    let mut last_activity = std::time::Instant::now();
+
     loop {
         tokio::select! {
             msg = ws.recv() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
+                        last_activity = std::time::Instant::now();
                         if let Err(ref e) = handle_message(&mut ws, &mut state, &store, &api, &auth, &text).await {
                             warn!(err = %e, "message handler error");
                         }
                     }
                     Some(Ok(Message::Ping(data))) => {
+                        last_activity = std::time::Instant::now();
                         let _ = ws.send(Message::Pong(data)).await;
+                    }
+                    Some(Ok(Message::Pong(_))) => {
+                        last_activity = std::time::Instant::now();
                     }
                     Some(Ok(Message::Close(_))) => {
                         info!("client sent close frame");
@@ -62,7 +78,16 @@ pub async fn handle_connection(
                         debug!("websocket stream ended");
                         break;
                     }
-                    _ => {} // Binary, Pong — ignore
+                    _ => {} // Binary — ignore
+                }
+            }
+            _ = heartbeat.tick() => {
+                if last_activity.elapsed() >= idle_timeout {
+                    info!("idle timeout — closing ws connection");
+                    break;
+                }
+                if ws.send(Message::Ping(Vec::new().into())).await.is_err() {
+                    break;
                 }
             }
             _ = tokio::signal::ctrl_c() => {
@@ -223,9 +248,41 @@ async fn handle_rpc(ws: &mut WebSocket, api: &ApiState, frame: &RequestFrame) ->
             send_ok(ws, &frame.id, serde_json::json!({"name": "soullink-gateway", "version": env!("CARGO_PKG_VERSION")})).await?;
         }
 
+        // Cost-aware routing decision for a query, without executing it.
+        "route" => {
+            let query = routing_query(&frame.params);
+            let caps = routing_caps(&frame.params);
+            let configs = api.registry.provider_configs().await;
+            match crate::routing::route(&configs, &query, &caps) {
+                Some(d) => {
+                    send_ok(
+                        ws,
+                        &frame.id,
+                        serde_json::json!({
+                            "provider": d.profile.name,
+                            "type": d.profile.provider,
+                            "difficulty": d.difficulty,
+                            "uncertain": d.uncertain,
+                            "reason": d.reason,
+                        }),
+                    )
+                    .await?;
+                }
+                None => {
+                    send_error(
+                        ws,
+                        &frame.id,
+                        "NO_ROUTE",
+                        "no provider satisfies the requested capabilities",
+                    )
+                    .await?;
+                }
+            }
+        }
+
         "chat" => {
             let (model, messages, stream) = parse_chat_params(&frame.params);
-            let provider = match api.registry.resolve(model.as_deref()).await {
+            let provider = match select_provider(api, &frame.params, &model).await {
                 Ok(p) => p,
                 Err(e) => {
                     send_error(ws, &frame.id, "PROVIDER_ERROR", &e.to_string()).await?;
@@ -320,7 +377,7 @@ async fn handle_rpc(ws: &mut WebSocket, api: &ApiState, frame: &RequestFrame) ->
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
 
-            let provider = match api.registry.resolve(model.as_deref()).await {
+            let provider = match select_provider(api, &frame.params, &model).await {
                 Ok(p) => p,
                 Err(e) => {
                     send_error(ws, &frame.id, "PROVIDER_ERROR", &e.to_string()).await?;
@@ -399,6 +456,59 @@ fn parse_chat_params(params: &Value) -> (Option<String>, Vec<crate::provider::Ch
         .unwrap_or_default();
 
     (model, messages, stream)
+}
+
+/// Derive the text used for cost-aware routing: the `prompt` field, else the
+/// concatenation of message contents.
+fn routing_query(params: &Value) -> String {
+    if let Some(p) = params.get("prompt").and_then(|v| v.as_str()) {
+        return p.to_string();
+    }
+    params
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
+}
+
+/// Parse an optional `capabilities` array from the params.
+fn routing_caps(params: &Value) -> Vec<avid_model_router::Capability> {
+    let raw: Vec<String> = params
+        .get("capabilities")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|c| c.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    crate::routing::parse_caps(&raw)
+}
+
+/// Resolve a provider for a request. With an explicit `model`, defer to the
+/// registry's resolver (provider/model prefix or round-robin). Without one,
+/// try cost-aware routing first, falling back to the round-robin resolver.
+async fn select_provider(
+    api: &ApiState,
+    params: &Value,
+    model: &Option<String>,
+) -> Result<Arc<dyn Provider>, ProviderError> {
+    if model.is_none() {
+        let query = routing_query(params);
+        let caps = routing_caps(params);
+        let configs = api.registry.provider_configs().await;
+        if let Some(decision) = crate::routing::route(&configs, &query, &caps) {
+            if let Some(provider) = api.registry.get(&decision.profile.name).await {
+                return Ok(provider);
+            }
+        }
+    }
+    api.registry.resolve(model.as_deref()).await
 }
 
 async fn send(ws: &mut WebSocket, msg: WsMessage) -> HandlerResult<()> {

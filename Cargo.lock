@@ -10912,6 +10912,7 @@ version = "13.5.0"
 dependencies = [
  "async-stream",
  "async-trait",
+ "avid-model-router",
  "axum 0.8.9",
  "clap",
  "colored 2.2.0",

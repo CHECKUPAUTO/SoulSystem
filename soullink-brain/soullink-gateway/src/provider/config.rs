@@ -101,6 +101,7 @@ pub fn load_provider_configs() -> HashMap<String, provider::ProviderConfig> {
                                 models,
                                 default_model,
                                 timeout_secs,
+                                ..Default::default()
                             },
                         );
                     }

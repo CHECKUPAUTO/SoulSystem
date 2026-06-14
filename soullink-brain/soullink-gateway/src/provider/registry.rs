@@ -173,6 +173,21 @@ impl ProviderRegistry {
             .collect()
     }
 
+    /// Snapshot of `(provider name, config)` for every registered provider, in
+    /// round-robin order. Feeds the cost-aware router (`crate::routing`).
+    pub async fn provider_configs(&self) -> Vec<(String, ProviderConfig)> {
+        let providers = self.providers.read().await;
+        let ordered = self.ordered.read().await;
+        ordered
+            .iter()
+            .filter_map(|name| {
+                providers
+                    .get(name)
+                    .map(|entry| (name.clone(), entry.provider.config().clone()))
+            })
+            .collect()
+    }
+
     /// Number of registered providers.
     pub async fn len(&self) -> usize {
         self.providers.read().await.len()
@@ -205,6 +220,7 @@ mod tests {
             models: vec!["deepseek-v4-flash:cloud".into()],
             default_model: Some("deepseek-v4-flash:cloud".into()),
             timeout_secs: 30,
+            ..Default::default()
         };
         registry.register("ollama", cfg).await;
         assert_eq!(registry.len().await, 1);
@@ -224,6 +240,7 @@ mod tests {
             models: vec![],
             default_model: None,
             timeout_secs: 30,
+            ..Default::default()
         };
         registry.register("ollama", cfg).await;
         let provider = registry
@@ -243,6 +260,7 @@ mod tests {
             models: vec![],
             default_model: None,
             timeout_secs: 30,
+            ..Default::default()
         };
         registry.register("ollama", cfg).await;
 

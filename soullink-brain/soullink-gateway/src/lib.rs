@@ -7,6 +7,7 @@ pub mod mcp;
 pub mod metrics;
 pub mod orchestrator_bridge;
 pub mod provider;
+pub mod routing;
 pub mod rpc;
 pub mod streaming_consumer;
 pub mod telegram;

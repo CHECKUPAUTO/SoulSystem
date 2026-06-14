@@ -161,6 +161,7 @@ pub struct ModelSelection {
 /// # Examples
 ///
 /// ```rust,no_run
+/// # #[cfg(feature = "llm-client")] {
 /// use avid_model_router::{ModelProfile, Capability, create_llm_client};
 ///
 /// let profile = ModelProfile {
@@ -176,7 +177,9 @@ pub struct ModelSelection {
 /// # async {
 /// # let client = create_llm_client(&profile).await.unwrap();
 /// # };
+/// # }
 /// ```
+#[cfg(feature = "llm-client")]
 pub async fn create_llm_client(
     profile: &ModelProfile,
 ) -> Result<avid_core::llm::LlmClient, avid_core::llm::LlmError> {
