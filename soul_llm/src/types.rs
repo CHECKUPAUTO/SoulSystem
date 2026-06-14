@@ -196,9 +196,18 @@ mod tests {
 
     #[test]
     fn provider_kind_from_str() {
-        assert_eq!("openai".parse::<ProviderKind>().unwrap(), ProviderKind::OpenAI);
-        assert_eq!("OpenAI".parse::<ProviderKind>().unwrap(), ProviderKind::OpenAI);
-        assert_eq!("ANTHROPIC".parse::<ProviderKind>().unwrap(), ProviderKind::Anthropic);
+        assert_eq!(
+            "openai".parse::<ProviderKind>().unwrap(),
+            ProviderKind::OpenAI
+        );
+        assert_eq!(
+            "OpenAI".parse::<ProviderKind>().unwrap(),
+            ProviderKind::OpenAI
+        );
+        assert_eq!(
+            "ANTHROPIC".parse::<ProviderKind>().unwrap(),
+            ProviderKind::Anthropic
+        );
         assert!("unknown".parse::<ProviderKind>().is_err());
     }
 

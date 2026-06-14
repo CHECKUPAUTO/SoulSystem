@@ -1136,13 +1136,17 @@ async fn main() -> Result<()> {
             })
         };
 
-        // If --repl is also set, start interactive REPL with daemon awareness
+        // If --repl is also set, start the interactive REPL alongside the daemon.
         if cli.repl {
             info!("▶ REPL + Daemon combiné");
-            let daemon_rx = event_tx.subscribe();
-            let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default())
-                .with_daemon_events(daemon_rx);
-            soul_repl::run_repl(&mut repl_state);
+            match soul_repl::ReplState::new(soul_llm::LlmConfig::default()) {
+                Ok(mut repl_state) => {
+                    if let Err(e) = soul_repl::run_repl(&mut repl_state).await {
+                        warn!("REPL terminé sur erreur: {e}");
+                    }
+                }
+                Err(e) => warn!("Initialisation REPL échouée: {e}"),
+            }
         } else {
             // Daemon-only: wait for SIGINT
             tokio::signal::ctrl_c().await?;
@@ -1153,8 +1157,14 @@ async fn main() -> Result<()> {
 
     if cli.repl {
         info!("▶ Mode REPL autonome activé");
-        let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default());
-        soul_repl::run_repl(&mut repl_state);
+        match soul_repl::ReplState::new(soul_llm::LlmConfig::default()) {
+            Ok(mut repl_state) => {
+                if let Err(e) = soul_repl::run_repl(&mut repl_state).await {
+                    eprintln!("REPL error: {e}");
+                }
+            }
+            Err(e) => eprintln!("REPL init failed: {e}"),
+        }
         return Ok(());
     }
 
@@ -1176,11 +1186,7 @@ async fn main() -> Result<()> {
             created_at: chrono::Utc::now(),
             status: soul_planner::GoalStatus::Active,
         };
-        let plan = autonomous
-            .agent
-            .planner
-            .create_plan_llm(&goal, &[], &autonomous.agent.llm)
-            .await;
+        let plan = autonomous.agent.planner.create_plan(&goal, &[]);
         match serde_json::to_string_pretty(&plan) {
             Ok(json) => println!("{}", json),
             Err(e) => eprintln!("Error serializing plan: {}", e),

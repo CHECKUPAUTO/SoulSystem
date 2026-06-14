@@ -456,10 +456,8 @@ impl KnowledgeGraph {
         let mut parts = Vec::new();
         for node in &matched {
             parts.push(format!(
-                "[{}] {}: {}",
-                format!("{:?}", node.node_type),
-                node.label,
-                node.content
+                "[{:?}] {}: {}",
+                node.node_type, node.label, node.content
             ));
             let rel: Vec<String> = self
                 .edges

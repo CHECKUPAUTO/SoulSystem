@@ -158,7 +158,9 @@ impl OpenAIProvider {
     }
 
     fn model(&self, req: &GenerateRequest) -> String {
-        req.model.clone().unwrap_or_else(|| self.default_model.clone())
+        req.model
+            .clone()
+            .unwrap_or_else(|| self.default_model.clone())
     }
 
     fn temperature(&self, req: &GenerateRequest) -> f32 {
@@ -291,49 +293,48 @@ impl LlmProvider for OpenAIProvider {
 
         let byte_stream = response.bytes_stream();
 
-        let mapped = byte_stream.then(move |chunk| {
-            async move {
-                match chunk {
-                    Ok(bytes) => {
-                        let text = String::from_utf8_lossy(&bytes);
-                        let mut chunks: Vec<Result<StreamChunk>> = Vec::new();
-                        for line in text.lines() {
-                            let line = line.trim();
-                            if line.is_empty() || !line.starts_with("data: ") {
-                                continue;
-                            }
-                            let data = &line[6..];
-                            if data == "[DONE]" {
-                                chunks.push(Ok(StreamChunk {
-                                    text: String::new(),
-                                    done: true,
-                                    usage: None,
-                                }));
-                                continue;
-                            }
-                            if let Ok(resp) = serde_json::from_str::<OpenAIStreamResponse>(data) {
-                                let text = resp
-                                    .choices
-                                    .first()
-                                    .and_then(|c| c.delta.as_ref())
-                                    .and_then(|d| d.content.clone())
-                                    .unwrap_or_default();
-                                let done = resp
-                                    .choices
-                                    .first()
-                                    .map(|c| c.finish_reason.is_some())
-                                    .unwrap_or(false);
-                                let usage = resp.usage.map(|u| {
-                                    TokenUsage::new(u.prompt_tokens, u.completion_tokens)
-                                });
-                                chunks.push(Ok(StreamChunk { text, done, usage }));
-                            }
+        let mapped = byte_stream.then(move |chunk| async move {
+            match chunk {
+                Ok(bytes) => {
+                    let text = String::from_utf8_lossy(&bytes);
+                    let mut chunks: Vec<Result<StreamChunk>> = Vec::new();
+                    for line in text.lines() {
+                        let line = line.trim();
+                        if line.is_empty() || !line.starts_with("data: ") {
+                            continue;
                         }
-                        Box::pin(stream::iter(chunks)) as BoxStream<'_, Result<StreamChunk>>
+                        let data = &line[6..];
+                        if data == "[DONE]" {
+                            chunks.push(Ok(StreamChunk {
+                                text: String::new(),
+                                done: true,
+                                usage: None,
+                            }));
+                            continue;
+                        }
+                        if let Ok(resp) = serde_json::from_str::<OpenAIStreamResponse>(data) {
+                            let text = resp
+                                .choices
+                                .first()
+                                .and_then(|c| c.delta.as_ref())
+                                .and_then(|d| d.content.clone())
+                                .unwrap_or_default();
+                            let done = resp
+                                .choices
+                                .first()
+                                .map(|c| c.finish_reason.is_some())
+                                .unwrap_or(false);
+                            let usage = resp
+                                .usage
+                                .map(|u| TokenUsage::new(u.prompt_tokens, u.completion_tokens));
+                            chunks.push(Ok(StreamChunk { text, done, usage }));
+                        }
                     }
-                    Err(e) => Box::pin(stream::once(async move { Err(LlmError::Network(e.to_string())) }))
-                        as BoxStream<'_, Result<StreamChunk>>,
+                    Box::pin(stream::iter(chunks)) as BoxStream<'_, Result<StreamChunk>>
                 }
+                Err(e) => Box::pin(stream::once(async move {
+                    Err(LlmError::Network(e.to_string()))
+                })) as BoxStream<'_, Result<StreamChunk>>,
             }
         });
 

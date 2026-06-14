@@ -11,10 +11,10 @@
 //! - Copy to clipboard (Ctrl+Y)
 //! - Status bar enrichie
 
+mod app;
+mod render;
 mod types;
 mod utils;
-mod render;
-mod app;
 
 use crate::types::*;
 use crossterm::event::{self, Event};
@@ -78,7 +78,9 @@ pub async fn run_repl(state: &mut ReplState) -> Result<(), String> {
     let mut app = App::new(state, tx);
 
     loop {
-        terminal.draw(|f| app.draw(f)).map_err(|e| format!("terminal draw: {e}"))?;
+        terminal
+            .draw(|f| app.draw(f))
+            .map_err(|e| format!("terminal draw: {e}"))?;
 
         while let Ok(evt) = rx.try_recv() {
             app.handle_llm_event(evt);
@@ -103,7 +105,7 @@ pub async fn run_repl(state: &mut ReplState) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::utils::{centered_rect, format_size, base64_encode};
+    use super::utils::{base64_encode, centered_rect, format_size};
     use ratatui::layout::Rect;
 
     #[test]
@@ -141,9 +143,18 @@ mod tests {
     fn provider_opt_from_kind() {
         use crate::types::ProviderOpt;
         use soul_llm::ProviderKind;
-        assert_eq!(ProviderOpt::from_kind(&ProviderKind::Ollama), ProviderOpt::Ollama);
-        assert_eq!(ProviderOpt::from_kind(&ProviderKind::OpenAI), ProviderOpt::OpenAI);
-        assert_eq!(ProviderOpt::from_kind(&ProviderKind::Anthropic), ProviderOpt::Anthropic);
+        assert_eq!(
+            ProviderOpt::from_kind(&ProviderKind::Ollama),
+            ProviderOpt::Ollama
+        );
+        assert_eq!(
+            ProviderOpt::from_kind(&ProviderKind::OpenAI),
+            ProviderOpt::OpenAI
+        );
+        assert_eq!(
+            ProviderOpt::from_kind(&ProviderKind::Anthropic),
+            ProviderOpt::Anthropic
+        );
     }
 
     #[test]

@@ -27,7 +27,7 @@ impl AutonomousEntity {
         self.agent
             .ask(prompt)
             .await
-            .map_err(soul_llm::LlmError::Stream)
+            .map_err(soul_llm::LlmError::Provider)
     }
 
     pub async fn run_task(&mut self, task: &str) -> Result<String, String> {

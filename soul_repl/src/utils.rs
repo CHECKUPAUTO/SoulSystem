@@ -44,8 +44,16 @@ pub(crate) fn base64_encode(input: &str) -> String {
         let n = (b0 << 16) | (b1 << 8) | b2;
         output.push(chars[(n >> 18 & 63) as usize] as char);
         output.push(chars[(n >> 12 & 63) as usize] as char);
-        output.push(if chunk.len() > 1 { chars[(n >> 6 & 63) as usize] } else { b'=' } as char);
-        output.push(if chunk.len() > 2 { chars[(n & 63) as usize] } else { b'=' } as char);
+        output.push(if chunk.len() > 1 {
+            chars[(n >> 6 & 63) as usize]
+        } else {
+            b'='
+        } as char);
+        output.push(if chunk.len() > 2 {
+            chars[(n & 63) as usize]
+        } else {
+            b'='
+        } as char);
     }
     output
 }
