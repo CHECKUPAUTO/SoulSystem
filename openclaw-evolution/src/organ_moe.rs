@@ -7,11 +7,9 @@
 //! Le routing s'adapte au contexte : un même organe peut répondre
 //! différemment selon le type de stimulus.
 
-use crate::math::attention::softmax;
 use crate::math::moe::{MixtureOfExperts, MoEConfig, MoEOutput};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::info;
 
 // ─────────────────────────────────────────────
 // Organe avec MoE intégré

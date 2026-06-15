@@ -75,7 +75,12 @@ impl KnowledgeGraph {
         id
     }
 
-    pub fn add_relation(&mut self, source_id: &str, target_id: &str, relation_type: &str) -> String {
+    pub fn add_relation(
+        &mut self,
+        source_id: &str,
+        target_id: &str,
+        relation_type: &str,
+    ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         let relation = Relation {
             id: id.clone(),
@@ -249,7 +254,8 @@ impl LearningSystem {
             .filter(|w| w.len() > 2)
             .collect();
 
-        let mut suggestions: Vec<(String, f32)> = self.patterns
+        let mut suggestions: Vec<(String, f32)> = self
+            .patterns
             .iter()
             .map(|(action, score)| {
                 // Boost actions lexically related to the current context.
@@ -330,14 +336,22 @@ impl MultiModelRouter {
             ModelConfig {
                 name: "qwen3.6:35b".to_string(),
                 endpoint: "http://127.0.0.1:11434".to_string(),
-                capabilities: vec!["general".to_string(), "code".to_string(), "reasoning".to_string()],
+                capabilities: vec![
+                    "general".to_string(),
+                    "code".to_string(),
+                    "reasoning".to_string(),
+                ],
                 max_tokens: 4096,
                 cost_per_1k: 0.0,
             },
             ModelConfig {
                 name: "gemma4:31b".to_string(),
                 endpoint: "http://127.0.0.1:11434".to_string(),
-                capabilities: vec!["general".to_string(), "code".to_string(), "vision".to_string()],
+                capabilities: vec![
+                    "general".to_string(),
+                    "code".to_string(),
+                    "vision".to_string(),
+                ],
                 max_tokens: 4096,
                 cost_per_1k: 0.0,
             },
@@ -428,7 +442,11 @@ impl ContextManager {
             if entry.importance > 0.7 {
                 self.long_term.push(entry.clone());
                 if self.long_term.len() > self.max_long_term {
-                    self.long_term.sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap_or(std::cmp::Ordering::Equal));
+                    self.long_term.sort_by(|a, b| {
+                        b.importance
+                            .partial_cmp(&a.importance)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
                     self.long_term.truncate(self.max_long_term);
                 }
             }
@@ -438,18 +456,28 @@ impl ContextManager {
 
     pub fn recall(&mut self, query: &str) -> Vec<&ContextEntry> {
         let query_lower = query.to_lowercase();
-        let mut results: Vec<&ContextEntry> = self.short_term.iter()
+        let mut results: Vec<&ContextEntry> = self
+            .short_term
+            .iter()
             .chain(self.long_term.iter())
             .filter(|e| e.content.to_lowercase().contains(&query_lower))
             .collect();
-        results.sort_by(|a, b| b.importance.partial_cmp(&a.importance).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.importance
+                .partial_cmp(&a.importance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results
     }
 
     pub fn get_context(&self) -> String {
         let mut context = String::new();
         for entry in self.short_term.iter().rev().take(5) {
-            context.push_str(&format!("[{}] {}\n", entry.timestamp.format("%H:%M"), entry.content));
+            context.push_str(&format!(
+                "[{}] {}\n",
+                entry.timestamp.format("%H:%M"),
+                entry.content
+            ));
         }
         context
     }

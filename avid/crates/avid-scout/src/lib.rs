@@ -522,7 +522,7 @@ impl ScoutEngine {
         let is_html = response
             .content_type
             .as_ref()
-            .is_none_or(|ct| ct.starts_with("text/html"));
+            .map_or(true, |ct| ct.starts_with("text/html"));
 
         let headers_vec: Vec<(String, String)> = vec![];
         // Optimization: Parse HTML once and share the DOM across extraction modules.

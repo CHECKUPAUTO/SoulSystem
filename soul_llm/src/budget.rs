@@ -80,7 +80,7 @@ impl LlmBudget {
                 u.completion_tokens += usage.completion_tokens;
                 u.total_tokens += usage.total_tokens;
             })
-        .or_insert_with(|| usage.clone());
+            .or_insert_with(|| usage.clone());
 
         if self.config.tokens_per_minute_budget > 0 {
             let minute_key = self.current_minute_key();
@@ -126,7 +126,7 @@ impl LlmBudget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{LlmConfig, ProviderKind, TokenUsage};
+    use crate::types::{LlmConfig, TokenUsage};
 
     fn test_config() -> LlmConfig {
         LlmConfig {

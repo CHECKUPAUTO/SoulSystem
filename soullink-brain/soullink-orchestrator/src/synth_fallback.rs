@@ -9,10 +9,20 @@
 use crate::mesh_context::MeshContext;
 
 pub fn build(ctx: &MeshContext, reason: Option<&str>) -> String {
-    let note = match reason {
+    let mut note = match reason {
         Some(r) => format!("\n\n(⚠️  Language model unavailable — {r}. Mesh telemetry only.)"),
         None => String::new(),
     };
+    // Surface the verified-orchestration confidence gate: when the brains don't
+    // agree or the concepts don't cover the query, say so rather than implying
+    // a trustworthy answer.
+    let conf = ctx.confidence();
+    if conf.needs_replanning {
+        note.push_str(&format!(
+            "\n\n(⚠️  Low-confidence mesh result — {}.)",
+            conf.reason
+        ));
+    }
 
     if ctx.top_concepts.is_empty() {
         return format!(

@@ -35,7 +35,9 @@ pub struct TurboQuantKVCache {
 
     /// Per-layer PolarQuant rotations
     rotations: Vec<PolarQuant>,
-    /// Shared QJL quantizer
+    /// Shared QJL quantizer — réservé au chemin de quantification par
+    /// projection; le packing actuel passe par les fonctions statiques.
+    #[allow(dead_code)]
     quantizer: QJLQuantizer,
 
     /// Compressed K cache per layer (packed u8, 3 bits per value)
@@ -61,7 +63,7 @@ impl TurboQuantKVCache {
         let quantizer = QJLQuantizer::turbo3();
 
         // 3-bit packing: n_values * 3 / 8 bytes per layer
-        let storage_bytes = (max_seq_len * rot_dim * 3 + 7) / 8;
+        let storage_bytes = (max_seq_len * rot_dim * 3).div_ceil(8);
 
         Self {
             num_layers,

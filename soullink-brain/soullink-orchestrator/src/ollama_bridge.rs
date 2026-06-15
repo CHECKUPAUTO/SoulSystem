@@ -151,12 +151,16 @@ pub fn compose_prompt(ctx: &MeshContext) -> String {
     )
 }
 
+// Chemin "génération enrichie par mémoire" — complet mais pas encore câblé
+// au binaire orchestrator ; conservé pour l'intégration mémoire.
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 struct EmbedReq<'a> {
     model: &'a str,
     prompt: &'a str,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct EmbedResp {
     embedding: Vec<f32>,
@@ -200,9 +204,7 @@ async fn embed_query(cfg: &OllamaConfig, query: &str) -> Result<Vec<f32>, Ollama
 pub async fn generate_with_memory(
     cfg: &OllamaConfig,
     ctx: &MeshContext,
-    memory: Option<Arc<MemoryGraph>>,
-    _system_prompt: String,
-    _user_prompt: String,
+    memory: Option<&Arc<MemoryGraph>>,
     top_k: usize,
 ) -> Result<String, OllamaError> {
     let mut enriched_ctx = ctx.clone();
@@ -215,7 +217,7 @@ pub async fn generate_with_memory(
                     .iter()
                     .filter_map(|r| {
                         mg.get(&r.label)
-                            .map(|_c| format!("{}: {:.2}", r.label, r.score))
+                            .map(|_| format!("{}: {:.2}", r.label, r.score))
                     })
                     .collect();
                 if !memories.is_empty() {
@@ -319,7 +321,7 @@ pub async fn generate_stream_with_memory(
                     .iter()
                     .filter_map(|r| {
                         mg.get(&r.label)
-                            .map(|_c| format!("{}: {:.2}", r.label, r.score))
+                            .map(|_| format!("{}: {:.2}", r.label, r.score))
                     })
                     .collect();
                 if !memories.is_empty() {

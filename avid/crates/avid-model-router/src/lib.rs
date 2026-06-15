@@ -42,9 +42,15 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod learned;
+pub mod outcomes;
 pub mod registry;
 pub mod router;
 
+pub use learned::{
+    CostAwareRouter, DifficultyModel, QueryFeatures, RouterParams, RoutingDecision, RoutingMetrics,
+};
+pub use outcomes::{OutcomeLog, RoutingOutcome};
 pub use registry::{ModelRegistry, RegistryError};
 pub use router::{ModelRouter, RouterError};
 
@@ -85,6 +91,27 @@ impl std::fmt::Display for Capability {
             Self::Creative => f.write_str("creative"),
             Self::FastChat => f.write_str("fast-chat"),
         }
+    }
+}
+
+impl std::str::FromStr for Capability {
+    type Err = String;
+
+    /// Parse a capability from a kebab-case, snake_case, or short alias form
+    /// (e.g. `code-generation`, `code_gen`, `codegen`, `chat`).
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let norm = s.trim().to_lowercase().replace(['_', ' '], "-");
+        let cap = match norm.as_str() {
+            "code-generation" | "code-gen" | "codegen" | "code" | "gen" => Self::CodeGeneration,
+            "code-review" | "review" => Self::CodeReview,
+            "planning" | "plan" => Self::Planning,
+            "analysis" | "analyze" | "analyse" => Self::Analysis,
+            "summarization" | "summary" | "summarize" | "summ" => Self::Summarization,
+            "creative" | "create" => Self::Creative,
+            "fast-chat" | "fastchat" | "chat" | "fast" => Self::FastChat,
+            other => return Err(format!("unknown capability: '{other}'")),
+        };
+        Ok(cap)
     }
 }
 
@@ -136,6 +163,7 @@ pub struct ModelSelection {
 /// # Examples
 ///
 /// ```rust,no_run
+/// # #[cfg(feature = "llm-client")] {
 /// use avid_model_router::{ModelProfile, Capability, create_llm_client};
 ///
 /// let profile = ModelProfile {
@@ -151,7 +179,9 @@ pub struct ModelSelection {
 /// # async {
 /// # let client = create_llm_client(&profile).await.unwrap();
 /// # };
+/// # }
 /// ```
+#[cfg(feature = "llm-client")]
 pub async fn create_llm_client(
     profile: &ModelProfile,
 ) -> Result<avid_core::llm::LlmClient, avid_core::llm::LlmError> {
@@ -175,6 +205,41 @@ mod tests {
         assert_eq!(Capability::CodeGeneration.to_string(), "code-generation");
         assert_eq!(Capability::FastChat.to_string(), "fast-chat");
         assert_eq!(Capability::Creative.to_string(), "creative");
+    }
+
+    #[test]
+    fn capability_from_str_accepts_aliases() {
+        use std::str::FromStr;
+        assert_eq!(
+            Capability::from_str("analysis").unwrap(),
+            Capability::Analysis
+        );
+        assert_eq!(
+            Capability::from_str("analyze").unwrap(),
+            Capability::Analysis
+        );
+        assert_eq!(
+            Capability::from_str("code_gen").unwrap(),
+            Capability::CodeGeneration
+        );
+        assert_eq!(
+            Capability::from_str("CodeGen").unwrap(),
+            Capability::CodeGeneration
+        );
+        assert_eq!(Capability::from_str("chat").unwrap(), Capability::FastChat);
+        // Display round-trips through FromStr.
+        for cap in [
+            Capability::CodeGeneration,
+            Capability::CodeReview,
+            Capability::Planning,
+            Capability::Analysis,
+            Capability::Summarization,
+            Capability::Creative,
+            Capability::FastChat,
+        ] {
+            assert_eq!(Capability::from_str(&cap.to_string()).unwrap(), cap);
+        }
+        assert!(Capability::from_str("nonsense").is_err());
     }
 
     #[test]

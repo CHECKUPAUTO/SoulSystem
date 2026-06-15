@@ -170,6 +170,31 @@ members = [
     "forges/forge-core",
     "forges/forge",
     "forges/forge-bridge",
+    # AVID ecosystem (24 crates)
+    "avid/crates/avid-anticlone",
+    "avid/crates/avid-cli",
+    "avid/crates/avid-cobalt",
+    "avid/crates/avid-core",
+    "avid/crates/avid-cortex",
+    "avid/crates/avid-critic",
+    "avid/crates/avid-db",
+    "avid/crates/avid-forge",
+    "avid/crates/avid-gomogo",
+    "avid/crates/avid-hnn",
+    "avid/crates/avid-intel",
+    "avid/crates/avid-k8s",
+    "avid/crates/avid-knowledge-graph",
+    "avid/crates/avid-mimic",
+    "avid/crates/avid-model-router",
+    "avid/crates/avid-orchestrator",
+    "avid/crates/avid-sandbox",
+    "avid/crates/avid-scout",
+    "avid/crates/avid-security",
+    "avid/crates/avid-server",
+    "avid/crates/avid-skills",
+    "avid/crates/avid-tokenjuice",
+    "avid/crates/avid-tui",
+    "avid/crates/avid-vision",
 ]
 
 exclude = [
@@ -200,7 +225,7 @@ exclude = [
 [workspace.package]
 version = "13.5.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.85"
 authors = ["SoulLink Mesh Team"]
 license = "MIT"
 repository = "internal"
@@ -219,8 +244,23 @@ parking_lot = "0.12"
 ahash = "0.8"
 metrics = "0.23"
 metrics-exporter-prometheus = { version = "0.15", default-features = false, features = ["http-listener"] }
+prometheus = "0.13"
 async-trait = "0.1"
 subtle = "2.5"
+sha2 = "0.10"
+hmac = "0.12"
+ed25519-dalek = "2"
+
+colored = "3"
+crossterm = "0.29"
+cudarc = "0.13"
+dirs = "6"
+half = "2"
+lazy_static = "1"
+log = "0.4"
+ndarray = "0.16"
+ratatui = "0.30"
+scirust-gpu = { path = "scirust-gpu" }
 uuid = { version = "1", features = ["v4", "serde"] }
 rmp-serde = "1.1"
 futures = { version = "0.3", default-features = false, features = ["std"] }
@@ -241,13 +281,6 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 clap = { version = "4", features = ["derive"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 redb = "2"
-prometheus = "0.13"
-lazy_static = "1.4"
-colored = "3"
-crossterm = { version = "0.28", features = ["event-stream"] }
-ratatui = "0.30"
-dirs = "6"
-sha2 = "0.10"
 
 # local workspace crates
 ansi-converter = { path = "ansi-converter" }
@@ -329,6 +362,7 @@ soul_planner = { path = "soul_planner" }
 soul_tools = { path = "soul_tools" }
 soul_repl = { path = "soul_repl" }
 soul_daemon = { path = "soul-daemon" }
+soul_sandbox = { path = "soul_sandbox" }
 soul_browser = { path = "soul-browser" }
 soul_subagents = { path = "soul-subagents" }
 soul_goaltree = { path = "soul-goaltree" }
@@ -346,7 +380,6 @@ soul_critique = { path = "soul-critique" }
 soul_entity = { path = "soul_entity" }
 soul_gateway = { path = "soul_gateway" }
 soul_persistence = { path = "soul_persistence" }
-soul_sandbox = { path = "soul_sandbox" }
 soul_openclaw = { path = "soul_openclaw" }
 soul_orchestrator = { path = "soul_orchestrator" }
 soul_evolution = { path = "soul_evolution" }

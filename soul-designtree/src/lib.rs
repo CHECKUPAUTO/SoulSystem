@@ -361,7 +361,7 @@ mod tests {
         let mut node = DesignNode::new("test", "desc");
         assert!(node.transition(DesignState::Research, None).is_ok());
         assert!(node.transition(DesignState::Decision, None).is_ok());
-        assert!(!node.transition(DesignState::Idea, None).is_ok());
+        assert!(node.transition(DesignState::Idea, None).is_err());
     }
 
     #[test]
@@ -444,6 +444,6 @@ mod tests {
     fn test_abandoned_blocks_further_transitions() {
         let mut node = DesignNode::new("test", "desc");
         node.transition(DesignState::Abandoned, None).unwrap();
-        assert!(!node.transition(DesignState::Research, None).is_ok());
+        assert!(node.transition(DesignState::Research, None).is_err());
     }
 }

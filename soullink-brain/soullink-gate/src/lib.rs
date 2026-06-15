@@ -71,21 +71,12 @@ impl ApprovalRequirement {
 }
 
 /// Persistent permission store.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PermissionStore {
     /// Always-allow (tool, scope) pairs.
     always_allow: HashSet<String>,
     /// Always-deny (tool, scope) pairs.
     always_deny: HashSet<String>,
-}
-
-impl Default for PermissionStore {
-    fn default() -> Self {
-        Self {
-            always_allow: HashSet::new(),
-            always_deny: HashSet::new(),
-        }
-    }
 }
 
 impl PermissionStore {

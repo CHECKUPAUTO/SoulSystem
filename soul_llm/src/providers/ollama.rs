@@ -109,7 +109,9 @@ impl OllamaProvider {
     }
 
     fn model(&self, req: &GenerateRequest) -> String {
-        req.model.clone().unwrap_or_else(|| self.default_model.clone())
+        req.model
+            .clone()
+            .unwrap_or_else(|| self.default_model.clone())
     }
 
     fn temperature(&self, req: &GenerateRequest) -> f32 {
@@ -213,34 +215,35 @@ impl LlmProvider for OllamaProvider {
 
         let byte_stream = response.bytes_stream();
 
-        let mapped = byte_stream.then(move |chunk| {
-            async move {
-                match chunk {
-                    Ok(bytes) => {
-                        let text = String::from_utf8_lossy(&bytes);
-                        let mut chunks: Vec<Result<StreamChunk>> = Vec::new();
-                        for line in text.lines() {
-                            if line.trim().is_empty() {
-                                continue;
-                            }
-                            if let Ok(resp) = serde_json::from_str::<OllamaGenerateResponse>(line) {
-                                let usage = if resp.done && (resp.prompt_eval_count > 0 || resp.eval_count > 0) {
-                                    Some(TokenUsage::new(resp.prompt_eval_count, resp.eval_count))
-                                } else {
-                                    None
-                                };
-                                chunks.push(Ok(StreamChunk {
-                                    text: resp.response,
-                                    done: resp.done,
-                                    usage,
-                                }));
-                            }
+        let mapped = byte_stream.then(move |chunk| async move {
+            match chunk {
+                Ok(bytes) => {
+                    let text = String::from_utf8_lossy(&bytes);
+                    let mut chunks: Vec<Result<StreamChunk>> = Vec::new();
+                    for line in text.lines() {
+                        if line.trim().is_empty() {
+                            continue;
                         }
-                        Box::pin(stream::iter(chunks)) as BoxStream<'_, Result<StreamChunk>>
+                        if let Ok(resp) = serde_json::from_str::<OllamaGenerateResponse>(line) {
+                            let usage = if resp.done
+                                && (resp.prompt_eval_count > 0 || resp.eval_count > 0)
+                            {
+                                Some(TokenUsage::new(resp.prompt_eval_count, resp.eval_count))
+                            } else {
+                                None
+                            };
+                            chunks.push(Ok(StreamChunk {
+                                text: resp.response,
+                                done: resp.done,
+                                usage,
+                            }));
+                        }
                     }
-                    Err(e) => Box::pin(stream::once(async move { Err(LlmError::Network(e.to_string())) }))
-                        as BoxStream<'_, Result<StreamChunk>>,
+                    Box::pin(stream::iter(chunks)) as BoxStream<'_, Result<StreamChunk>>
                 }
+                Err(e) => Box::pin(stream::once(async move {
+                    Err(LlmError::Network(e.to_string()))
+                })) as BoxStream<'_, Result<StreamChunk>>,
             }
         });
 

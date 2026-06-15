@@ -20,6 +20,9 @@ pub enum Priority {
 }
 
 /// Quantization levels for model weights.
+/// Les noms suivent la convention GGUF (Q8_0, Q4_K_M, ...), d'où le
+/// non-respect volontaire du camel case.
+#[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Quantization {
     /// Full float16 — fine-tuning only, ~2 bytes/param.

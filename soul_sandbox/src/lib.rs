@@ -13,13 +13,15 @@
 //!    group entier (pas de zombie sur fork).
 //! 6. **Journalisation** complète.
 
-mod types;
 mod policy;
 #[cfg(unix)]
 mod seccomp;
+mod types;
 
+pub use policy::{
+    SandboxPolicy, BANNED_BINARIES, FORBIDDEN_PATTERNS, SENSITIVE_PATHS, SHELL_BYPASS_TOKENS,
+};
 pub use types::*;
-pub use policy::{SandboxPolicy, BANNED_BINARIES, FORBIDDEN_PATTERNS, SHELL_BYPASS_TOKENS, SENSITIVE_PATHS};
 
 use chrono::Utc;
 use parking_lot::Mutex;
@@ -709,9 +711,7 @@ mod tests {
 
     #[test]
     fn timeout_kills_long_command() {
-        let sb = Sandbox::new(
-            SandboxPolicy::default(),
-        );
+        let _sb = Sandbox::new(SandboxPolicy::default());
         let short_sb = Sandbox::new(SandboxPolicy {
             timeout: std::time::Duration::from_millis(100),
             ..Default::default()

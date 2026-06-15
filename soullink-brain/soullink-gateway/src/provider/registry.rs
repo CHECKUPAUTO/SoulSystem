@@ -7,12 +7,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
+use crate::provider::anthropic::AnthropicProvider;
 use crate::provider::ollama::OllamaProvider;
 use crate::provider::openai::OpenAIProvider;
-use crate::provider::{
-    Provider, ProviderConfig,
-    ProviderError,
-};
+use crate::provider::{Provider, ProviderConfig, ProviderError};
 
 /// Wrapper around a provider with circuit breaker state.
 struct ProviderEntry {
@@ -27,6 +25,12 @@ pub struct ProviderRegistry {
     /// Ordered list of provider names for round-robin iteration.
     ordered: RwLock<Vec<String>>,
     rr_index: RwLock<usize>,
+}
+
+impl Default for ProviderRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProviderRegistry {
@@ -53,6 +57,7 @@ impl ProviderRegistry {
         let provider: Arc<dyn Provider> = match cfg.provider_type.as_str() {
             "ollama" => Arc::new(OllamaProvider::new(name.to_string(), cfg)),
             "openai" => Arc::new(OpenAIProvider::new(name.to_string(), cfg)),
+            "anthropic" => Arc::new(AnthropicProvider::new(name.to_string(), cfg)),
             other => {
                 warn!(provider_type = %other, name = %name, "unknown provider type, defaulting to ollama");
                 let ollama_cfg = ProviderConfig {
@@ -110,7 +115,7 @@ impl ProviderRegistry {
 
         // Round-robin across all non-circuit-broken providers
         let n = ordered.len();
-        let mut idx = self.rr_index.read().await.clone();
+        let mut idx = *self.rr_index.read().await;
         for _ in 0..n {
             let name = &ordered[idx % n];
             idx = (idx + 1) % n;
@@ -170,9 +175,28 @@ impl ProviderRegistry {
             .collect()
     }
 
+    /// Snapshot of `(provider name, config)` for every registered provider, in
+    /// round-robin order. Feeds the cost-aware router (`crate::routing`).
+    pub async fn provider_configs(&self) -> Vec<(String, ProviderConfig)> {
+        let providers = self.providers.read().await;
+        let ordered = self.ordered.read().await;
+        ordered
+            .iter()
+            .filter_map(|name| {
+                providers
+                    .get(name)
+                    .map(|entry| (name.clone(), entry.provider.config().clone()))
+            })
+            .collect()
+    }
+
     /// Number of registered providers.
     pub async fn len(&self) -> usize {
         self.providers.read().await.len()
+    }
+
+    pub async fn is_empty(&self) -> bool {
+        self.providers.read().await.is_empty()
     }
 }
 
@@ -198,6 +222,7 @@ mod tests {
             models: vec!["deepseek-v4-flash:cloud".into()],
             default_model: Some("deepseek-v4-flash:cloud".into()),
             timeout_secs: 30,
+            ..Default::default()
         };
         registry.register("ollama", cfg).await;
         assert_eq!(registry.len().await, 1);
@@ -217,6 +242,7 @@ mod tests {
             models: vec![],
             default_model: None,
             timeout_secs: 30,
+            ..Default::default()
         };
         registry.register("ollama", cfg).await;
         let provider = registry
@@ -236,6 +262,7 @@ mod tests {
             models: vec![],
             default_model: None,
             timeout_secs: 30,
+            ..Default::default()
         };
         registry.register("ollama", cfg).await;
 

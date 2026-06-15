@@ -16,7 +16,7 @@ fn bench_ring_buffer_write_read(c: &mut Criterion) {
     for size in &[64, 256, 1024, 4096] {
         group.bench_function(format!("write_read_{}b", size), |b| {
             let region = ShmRegion::create("bench_ring", 1024 * 1024).unwrap();
-            let ring = unsafe { ShmRingBuffer::create(region.as_mut_ptr(), region.len(), *size) };
+            let ring = ShmRingBuffer::create(region.as_mut_ptr(), region.len(), *size);
             let data = vec![42u8; *size];
 
             b.iter(|| {
@@ -34,7 +34,7 @@ fn bench_ring_buffer_throughput(c: &mut Criterion) {
     group.sample_size(1000);
 
     let region = ShmRegion::create("bench_throughput", 1024 * 1024).unwrap();
-    let ring = unsafe { ShmRingBuffer::create(region.as_mut_ptr(), region.len(), 4096) };
+    let ring = ShmRingBuffer::create(region.as_mut_ptr(), region.len(), 4096);
     let data = vec![0u8; 256];
 
     group.bench_function("push_256b", |b| {

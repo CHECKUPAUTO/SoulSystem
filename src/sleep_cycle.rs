@@ -270,7 +270,6 @@ mod tests {
         };
         let cycle = SleepCycle::new(config);
         let report = cycle.sleep(&hub).await;
-        assert!(report.duration_secs > 0 || report.duration_secs == 0);
         assert!(!report.details.is_empty());
     }
 }

@@ -8,8 +8,29 @@ use soullink_gateway::cli::probe::{probe_cmd, ProbeOpts};
 use soullink_gateway::cli::run::{run_cmd, RunOpts};
 use soullink_gateway::cli::status::{status_cmd, StatusOpts};
 
-#[tokio::main(worker_threads = 4)]
-async fn main() -> std::process::ExitCode {
+fn main() -> std::process::ExitCode {
+    // OpenClaw-compatible: honor the `WORKERS` env (clamped 1..=64) for the
+    // tokio runtime instead of a compile-time fixed thread count.
+    let workers = std::env::var("WORKERS")
+        .ok()
+        .and_then(|w| w.parse::<usize>().ok())
+        .unwrap_or(4)
+        .clamp(1, 64);
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(workers)
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("error: failed to build tokio runtime: {e}");
+            return std::process::ExitCode::from(1);
+        }
+    };
+    runtime.block_on(async_main())
+}
+
+async fn async_main() -> std::process::ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Commands::Run {

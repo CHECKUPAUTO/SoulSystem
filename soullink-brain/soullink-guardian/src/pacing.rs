@@ -154,11 +154,7 @@ impl PiController {
             .round() as u32;
 
         // ── 4. Output deadband ────────────────────────────────────────
-        let delta = if clamped >= self.last_applied_w {
-            clamped - self.last_applied_w
-        } else {
-            self.last_applied_w - clamped
-        };
+        let delta = clamped.abs_diff(self.last_applied_w);
         if delta < self.cfg.output_deadband_w {
             return PacingAction::NoChange;
         }
@@ -226,7 +222,7 @@ mod tests {
         let out = pi.step(80.0, t(t0, 3.0));
         match out {
             PacingAction::Apply(w) => {
-                assert!(w >= 70 && w < 115, "expected reduced power, got {w}");
+                assert!((70..115).contains(&w), "expected reduced power, got {w}");
                 assert!(w <= 100, "expected ≥15W correction applied, got {w}");
             }
             other => panic!("expected Apply, got {other:?}"),

@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 //! # soul_persistence — Mémoire long terme
 //!
 //! KV store redb (remplace sled v0.34 abandonné) avec lineage registry.
@@ -106,8 +107,8 @@ impl LongTermMemory {
     }
 
     pub fn open_temporary() -> Result<Self> {
-        let db = Database::builder()
-            .create_with_backend(redb::backends::InMemoryBackend::default())?;
+        let db =
+            Database::builder().create_with_backend(redb::backends::InMemoryBackend::default())?;
         let mut ltm = Self {
             db,
             index: Mutex::new(BTreeMap::new()),
@@ -145,11 +146,7 @@ impl LongTermMemory {
         }
         txn.commit()?;
 
-        self.index
-            .lock()
-            .entry(kind)
-            .or_default()
-            .push(id.clone());
+        self.index.lock().entry(kind).or_default().push(id.clone());
         Ok(id)
     }
 

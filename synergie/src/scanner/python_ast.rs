@@ -31,10 +31,9 @@ fn parse_file(project: &str, path: &PathBuf) -> Option<Vec<PublicItem>> {
     let mut class_stack: Vec<(usize, String)> = Vec::new(); // (indent, name)
 
     // Mélange : on parcourt ligne à ligne pour gérer l'indentation/classes.
-    let mut line_no = 0usize;
     let mut byte = 0usize;
-    for line in text.lines() {
-        line_no += 1;
+    for (idx, line) in text.lines().enumerate() {
+        let line_no = idx + 1;
         let bytes_in_line = line.len() + 1;
 
         // Sortir des classes finies.
@@ -52,17 +51,12 @@ fn parse_file(project: &str, path: &PathBuf) -> Option<Vec<PublicItem>> {
         // class?
         if let Some(cap) = RE_CLASS.captures(line) {
             let name = cap.name("name").unwrap().as_str().to_string();
-            let in_class = !class_stack.is_empty();
             if !name.starts_with('_') {
                 items.push(PublicItem {
                     project: project.to_string(),
                     file: path.clone(),
                     line: line_no,
-                    kind: if in_class {
-                        ItemKind::PyClass
-                    } else {
-                        ItemKind::PyClass
-                    },
+                    kind: ItemKind::PyClass,
                     name: name.clone(),
                     signature: format!("class {}", name),
                     body_tokens: extract_body_tokens(&text[byte..]),

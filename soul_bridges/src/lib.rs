@@ -73,7 +73,11 @@ pub mod openevolve {
                 name: "OpenEvolve".to_string(),
                 running: self.is_available(),
                 url: Some(self.base_url.clone()),
-                last_seen: if self.is_available() { Some(chrono::Utc::now()) } else { None },
+                last_seen: if self.is_available() {
+                    Some(chrono::Utc::now())
+                } else {
+                    None
+                },
             }
         }
     }
@@ -103,7 +107,12 @@ pub mod docker {
 
     pub fn list_containers() -> Result<Vec<Container>, BridgeError> {
         let output = Command::new("docker")
-            .args(["ps", "-a", "--format", "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}"])
+            .args([
+                "ps",
+                "-a",
+                "--format",
+                "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}",
+            ])
             .output()
             .map_err(|e| BridgeError::Connection(e.to_string()))?;
 
@@ -172,7 +181,11 @@ pub mod docker {
             name: "Docker".to_string(),
             running: is_docker_running(),
             url: None,
-            last_seen: if is_docker_running() { Some(chrono::Utc::now()) } else { None },
+            last_seen: if is_docker_running() {
+                Some(chrono::Utc::now())
+            } else {
+                None
+            },
         }
     }
 }
@@ -210,7 +223,11 @@ pub mod monitor {
 
         SystemMetrics {
             cpu_usage: cpu,
-            memory_usage: if mem_total > 0 { ((mem_total - mem_avail) as f64 / mem_total as f64) * 100.0 } else { 0.0 },
+            memory_usage: if mem_total > 0 {
+                ((mem_total - mem_avail) as f64 / mem_total as f64) * 100.0
+            } else {
+                0.0
+            },
             memory_total: mem_total,
             memory_available: mem_avail,
             load_avg: load,
@@ -222,10 +239,11 @@ pub mod monitor {
     pub fn list_processes() -> Vec<ProcessInfo> {
         let output = match std::process::Command::new("ps")
             .args(["aux", "--sort=-pcpu"])
-            .output() {
-                Ok(o) => o,
-                Err(_) => return Vec::new(),
-            };
+            .output()
+        {
+            Ok(o) => o,
+            Err(_) => return Vec::new(),
+        };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         stdout
@@ -262,10 +280,18 @@ pub mod monitor {
         let mut available = 0u64;
         for line in content.lines() {
             if line.starts_with("MemTotal:") {
-                total = line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+                total = line
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0);
             }
             if line.starts_with("MemAvailable:") {
-                available = line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
+                available = line
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0);
             }
         }
         (total, available)
@@ -275,8 +301,16 @@ pub mod monitor {
         fs::read_to_string("/proc/loadavg")
             .ok()
             .and_then(|c| {
-                let parts: Vec<f64> = c.split_whitespace().take(3).filter_map(|s| s.parse().ok()).collect();
-                if parts.len() == 3 { Some([parts[0], parts[1], parts[2]]) } else { None }
+                let parts: Vec<f64> = c
+                    .split_whitespace()
+                    .take(3)
+                    .filter_map(|s| s.parse().ok())
+                    .collect();
+                if parts.len() == 3 {
+                    Some([parts[0], parts[1], parts[2]])
+                } else {
+                    None
+                }
             })
             .unwrap_or([0.0, 0.0, 0.0])
     }
@@ -293,7 +327,13 @@ pub mod monitor {
             .ok()
             .map(|dir| {
                 dir.filter_map(|e| e.ok())
-                    .filter(|e| e.path().file_name().and_then(|n| n.to_str()).map(|n| n.chars().all(|c| c.is_numeric())).unwrap_or(false))
+                    .filter(|e| {
+                        e.path()
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|n| n.chars().all(|c| c.is_numeric()))
+                            .unwrap_or(false)
+                    })
                     .count()
             })
             .unwrap_or(0)
@@ -412,12 +452,16 @@ pub mod orchestrator {
 
         pub fn status(&self) -> OrchestratorStatus {
             OrchestratorStatus {
-                openevolve: self.openevolve.as_ref().map(|c| c.status()).unwrap_or_else(|| crate::ServiceStatus {
-                    name: "OpenEvolve".to_string(),
-                    running: false,
-                    url: None,
-                    last_seen: None,
-                }),
+                openevolve: self
+                    .openevolve
+                    .as_ref()
+                    .map(|c| c.status())
+                    .unwrap_or_else(|| crate::ServiceStatus {
+                        name: "OpenEvolve".to_string(),
+                        running: false,
+                        url: None,
+                        last_seen: None,
+                    }),
                 docker: docker::status(),
                 system: monitor::get_metrics(),
                 memory_count: self.memory.count(),

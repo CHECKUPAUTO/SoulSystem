@@ -837,7 +837,6 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
 
     #[test]
     fn core_state_birth() {

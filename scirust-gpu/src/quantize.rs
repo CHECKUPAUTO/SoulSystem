@@ -71,7 +71,7 @@ impl QuantizedTensor {
     /// Number of blocks.
     pub fn num_blocks(&self) -> usize {
         let n = self.len();
-        (n + self.block_size - 1) / self.block_size
+        n.div_ceil(self.block_size)
     }
 }
 
@@ -84,20 +84,20 @@ impl QuantizedTensor {
 /// of values follows a normal distribution quantile-based spacing.
 const NF4_TABLE: [f32; 16] = [
     -1.0,
-    -0.6961928009986877,
-    -0.5250730516910553,
-    -0.3949174889960298,
-    -0.28444138169288635,
-    -0.1847734004259119,
-    -0.09105003625154495,
+    -0.696_192_8,
+    -0.525_073_05,
+    -0.394_917_5,
+    -0.284_441_38,
+    -0.184_773_4,
+    -0.091_050_036,
     0.0,
-    0.0795802993774414,
-    0.16093020141124725,
-    0.24611230194568634,
-    0.33791524171829224,
-    0.44070982933044434,
-    0.5626170039176941,
-    0.7229568362236023,
+    0.079_580_3,
+    0.160_930_2,
+    0.246_112_3,
+    0.337_915_24,
+    0.440_709_83,
+    0.562_617,
+    0.722_956_84,
     1.0,
 ];
 
@@ -153,7 +153,7 @@ impl Quantizer {
         }
         let n = tensor.len();
         let block_size = self.block_size;
-        let num_blocks = (n + block_size - 1) / block_size;
+        let num_blocks = n.div_ceil(block_size);
 
         let mut scale = Vec::with_capacity(num_blocks);
         let mut zero = Vec::with_capacity(num_blocks);
@@ -166,14 +166,14 @@ impl Quantizer {
                     scale.push(1.0);
                     zero.push(0.0);
                 }
-                return Ok(QuantizedTensor {
+                Ok(QuantizedTensor {
                     data,
                     scale,
                     zero,
                     shape: (rows, cols),
                     mode: QuantMode::FP32,
                     block_size,
-                });
+                })
             }
             QuantMode::FP16 => {
                 // f32 → f16 via half crate, store as u16 bytes
@@ -188,14 +188,14 @@ impl Quantizer {
                     scale.push(1.0);
                     zero.push(0.0);
                 }
-                return Ok(QuantizedTensor {
+                Ok(QuantizedTensor {
                     data,
                     scale,
                     zero,
                     shape: (rows, cols),
                     mode: QuantMode::FP16,
                     block_size,
-                });
+                })
             }
             QuantMode::INT8 => {
                 let mut data = Vec::with_capacity(n);
@@ -221,18 +221,18 @@ impl Quantizer {
                         data.push(q as u8);
                     }
                 }
-                return Ok(QuantizedTensor {
+                Ok(QuantizedTensor {
                     data,
                     scale,
                     zero,
                     shape: (rows, cols),
                     mode: QuantMode::INT8,
                     block_size,
-                });
+                })
             }
             QuantMode::INT4 => {
                 // Asymmetric: scale = (max - min) / 15, zero = min
-                let mut packed = Vec::with_capacity((n + 1) / 2);
+                let mut packed = Vec::with_capacity(n.div_ceil(2));
                 for b in 0..num_blocks {
                     let start = b * block_size;
                     let end = (start + block_size).min(n);
@@ -273,18 +273,18 @@ impl Quantizer {
                         i += 2;
                     }
                 }
-                return Ok(QuantizedTensor {
+                Ok(QuantizedTensor {
                     data: packed,
                     scale,
                     zero,
                     shape: (rows, cols),
                     mode: QuantMode::INT4,
                     block_size,
-                });
+                })
             }
             QuantMode::NF4 => {
                 // Quantile-based: map to nearest NF4 table entry, pack nibbles
-                let mut packed = Vec::with_capacity((n + 1) / 2);
+                let mut packed = Vec::with_capacity(n.div_ceil(2));
                 for b in 0..num_blocks {
                     let start = b * block_size;
                     let end = (start + block_size).min(n);
@@ -317,14 +317,14 @@ impl Quantizer {
                         i += 2;
                     }
                 }
-                return Ok(QuantizedTensor {
+                Ok(QuantizedTensor {
                     data: packed,
                     scale,
                     zero,
                     shape: (rows, cols),
                     mode: QuantMode::NF4,
                     block_size,
-                });
+                })
             }
         }
     }
@@ -686,7 +686,7 @@ mod tests {
             pos += 8;
 
             let n = rows * cols;
-            let num_blocks = (n + blocksz - 1) / blocksz;
+            let num_blocks = n.div_ceil(blocksz);
 
             let mut scale = Vec::with_capacity(num_blocks);
             let mut zero = Vec::with_capacity(num_blocks);

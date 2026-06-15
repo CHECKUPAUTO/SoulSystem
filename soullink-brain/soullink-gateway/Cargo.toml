@@ -9,6 +9,8 @@ description = "Messaging gateway for SoulLink — routes Telegram/WhatsApp messa
 
 [dependencies]
 soullink-core = { path = "../soullink-core" }
+# Learned cost-aware routing (no default features → no heavy avid-core tree).
+avid-model-router = { path = "../../avid/crates/avid-model-router", default-features = false }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -21,8 +23,9 @@ toml = { workspace = true }
 futures = { workspace = true }
 clap = { workspace = true }
 colored = "2"
-axum = { workspace = true, features = ["ws"] }
+axum = { workspace = true, features = ["ws", "query"] }
 uuid = { workspace = true }
+dashmap = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 tokio-stream = { workspace = true }
@@ -30,6 +33,12 @@ tower-http = { workspace = true }
 async-trait = { workspace = true }
 async-stream = "0.3"
 libc = "0.2"
+# WhatsApp Cloud API webhook signature verification (X-Hub-Signature-256).
+hmac = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+# Discord Interactions request signature verification (Ed25519).
+ed25519-dalek = { workspace = true }
 
 [build-dependencies]
 

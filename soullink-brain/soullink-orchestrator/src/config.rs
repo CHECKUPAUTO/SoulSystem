@@ -12,6 +12,8 @@ use thiserror::Error;
 
 use crate::ollama_bridge::OllamaConfig;
 
+// Consommé par le chemin mémoire pas encore câblé (voir ollama_bridge).
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct MemoryConfig {
     #[allow(dead_code)]
@@ -101,7 +103,8 @@ mod tests {
     #[test]
     fn missing_file_returns_default() {
         let cfg = load_default();
-        assert!(cfg.ollama.is_none() || true); // default-safe
+        // Le défaut ne doit pas embarquer de config Ollama implicite.
+        assert!(cfg.ollama.is_none());
     }
 
     #[test]

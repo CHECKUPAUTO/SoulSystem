@@ -87,6 +87,11 @@ impl ShmRegion {
         self.len
     }
 
+    /// True si la région est de taille nulle.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// Get the raw fd (for passing via UDS SCM_RIGHTS).
     pub fn raw_fd(&self) -> RawFd {
         self._fd.as_raw_fd()

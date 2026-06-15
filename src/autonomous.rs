@@ -20,7 +20,6 @@ impl AutonomousEntity {
     }
 
     pub async fn is_alive(&self) -> bool {
-        // Legacy shim does not expose a health check; assume alive.
         true
     }
 
@@ -37,6 +36,6 @@ impl AutonomousEntity {
     }
 
     pub fn tools(&self) -> Vec<&soul_tools::Tool> {
-        self.agent.registry.list().to_vec()
+        self.agent.registry.list()
     }
 }

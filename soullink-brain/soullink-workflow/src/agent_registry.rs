@@ -289,7 +289,7 @@ impl Agent for RepoCloner {
             .get("repo_url")
             .map(|s| s.as_str())
             .unwrap_or("unknown");
-        let path = format!("/tmp/cloned_{}", url.replace('/', "_").replace(':', "_"));
+        let path = format!("/tmp/cloned_{}", url.replace(['/', ':'], "_"));
         AgentResult {
             success: true,
             outputs: {

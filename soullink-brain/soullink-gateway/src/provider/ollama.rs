@@ -289,6 +289,7 @@ mod tests {
             models: vec!["deepseek-v4-flash:cloud".into()],
             default_model: Some("deepseek-v4-flash:cloud".into()),
             timeout_secs: 30,
+            ..Default::default()
         };
         let p = OllamaProvider::new("ollama".into(), cfg);
         assert_eq!(p.resolve_model(Some("llama3:70b")), "llama3:70b");
@@ -303,6 +304,7 @@ mod tests {
             models: vec![],
             default_model: Some("deepseek-v4-flash:cloud".into()),
             timeout_secs: 30,
+            ..Default::default()
         };
         let p = OllamaProvider::new("ollama".into(), cfg);
         assert_eq!(p.resolve_model(Some("ollama/llama3")), "llama3");
@@ -317,6 +319,7 @@ mod tests {
             models: vec![],
             default_model: Some("llama3:70b".into()),
             timeout_secs: 30,
+            ..Default::default()
         };
         let p = OllamaProvider::new("ollama".into(), cfg);
         assert_eq!(p.resolve_model(None), "llama3:70b");
@@ -331,6 +334,7 @@ mod tests {
             models: vec![],
             default_model: None,
             timeout_secs: 30,
+            ..Default::default()
         };
         let p = OllamaProvider::new("ollama".into(), cfg);
         assert_eq!(p.resolve_model(None), "deepseek-v4-flash:cloud");

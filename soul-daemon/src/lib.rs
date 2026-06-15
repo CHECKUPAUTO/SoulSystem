@@ -122,6 +122,7 @@ impl GoalTracker {
         self.running.contains_key(goal_id)
     }
 
+    /// Number of in-flight goals — exposed for monitoring/backpressure.
     #[allow(dead_code)]
     fn running_count(&self) -> usize {
         self.running.len()

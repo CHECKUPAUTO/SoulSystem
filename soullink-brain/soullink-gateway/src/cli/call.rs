@@ -39,9 +39,7 @@ pub async fn call_cmd(opts: CallOpts) -> ExitCode {
         let registry = Arc::new(ProviderRegistry::new());
         let rpc = RpcRegistry::build_default(registry.clone()).await;
         let state = RpcState {
-            api: ApiState {
-                registry: registry.clone(),
-            },
+            api: ApiState::new(registry.clone()),
             providers: registry,
         };
 

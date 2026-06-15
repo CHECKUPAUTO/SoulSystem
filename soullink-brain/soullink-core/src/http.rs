@@ -67,8 +67,8 @@ pub fn shared_client() -> &'static Client {
 /// Only intended for tests. Attempts in production code must go through
 /// [`shared_client`].
 #[cfg(any(test, feature = "testing"))]
-pub fn set_shared_for_testing(c: Client) -> Result<(), ()> {
-    SHARED.set(c).map_err(|_| ())
+pub fn set_shared_for_testing(c: Client) -> Result<(), Box<Client>> {
+    SHARED.set(c).map_err(Box::new)
 }
 
 #[cfg(test)]

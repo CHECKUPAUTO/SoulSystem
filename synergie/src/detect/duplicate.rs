@@ -174,14 +174,14 @@ fn minhash_signature(tokens: &HashSet<u64>, n_sig: usize) -> Vec<u64> {
     }
     let mut sig = vec![u64::MAX; n_sig];
     for &t in tokens {
-        for k in 0..n_sig {
+        for (k, slot) in sig.iter_mut().enumerate() {
             let mut h = XxHash64::with_seed(
                 (0x9E3779B97F4A7C15u64).wrapping_mul((k as u64).wrapping_add(1)),
             );
             h.write(&t.to_le_bytes());
             let v = h.finish();
-            if v < sig[k] {
-                sig[k] = v;
+            if v < *slot {
+                *slot = v;
             }
         }
     }
@@ -205,7 +205,7 @@ fn lsh_r_for(threshold: f32, n_sig: usize) -> usize {
     let mut best_r = 4;
     let mut best_dist = f32::MAX;
     for r in 2..=16 {
-        if n_sig % r != 0 {
+        if !n_sig.is_multiple_of(r) {
             continue;
         }
         let bb = n_sig / r;

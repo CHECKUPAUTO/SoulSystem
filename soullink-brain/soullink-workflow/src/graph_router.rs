@@ -503,10 +503,9 @@ impl GraphRouter {
                         if link
                             .values()
                             .any(|v| graph_node.inputs.iter().any(|i| i.name == *v))
+                            && !depends_on.contains(&other_node.node)
                         {
-                            if !depends_on.contains(&other_node.node) {
-                                depends_on.push(other_node.node.clone());
-                            }
+                            depends_on.push(other_node.node.clone());
                         }
                     }
                 }

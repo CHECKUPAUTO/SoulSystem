@@ -206,8 +206,8 @@ mod tests {
         let config = FeedbackConfig::default();
         let feedback = FeedbackLoop::new(config);
 
-        let query: Vec<f32> = (0..64).map(|i| (i as f32 * 0.01 + 1.0)).collect();
-        let response: Vec<f32> = (0..64).map(|i| (i as f32 * 0.01 + 1.5)).collect();
+        let query: Vec<f32> = (0..64).map(|i| i as f32 * 0.01 + 1.0).collect();
+        let response: Vec<f32> = (0..64).map(|i| i as f32 * 0.01 + 1.5).collect();
 
         let result = feedback.compute_loss_only(&query, &response);
         assert!(result >= 0.0, "loss should be non-negative");
@@ -240,8 +240,8 @@ mod tests {
         let config = FeedbackConfig::default();
         let feedback = FeedbackLoop::new(config);
 
-        let base: Vec<f32> = (0..64).map(|i| (i as f32 * 0.01 + 1.0)).collect();
-        let mut response: Vec<f32> = (0..64).map(|i| (i as f32 * 0.01 + 5.0)).collect();
+        let base: Vec<f32> = (0..64).map(|i| i as f32 * 0.01 + 1.0).collect();
+        let mut response: Vec<f32> = (0..64).map(|i| i as f32 * 0.01 + 5.0).collect();
 
         // Initial loss
         let initial_loss = feedback.compute_loss_only(&base, &response);

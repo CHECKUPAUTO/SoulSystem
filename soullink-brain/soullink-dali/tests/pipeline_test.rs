@@ -2,7 +2,7 @@ use soullink_dali::{DaliError, DaliPipeline, Device};
 
 #[test]
 fn pipeline_builder_default() {
-    let b = DaliPipeline::builder();
+    let _b = DaliPipeline::builder();
     // builder compiles, that's the test
 }
 

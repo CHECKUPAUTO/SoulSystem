@@ -135,7 +135,7 @@ fn load_from_missing_key() {
 fn load_from_handles_comments_and_quotes() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     writeln!(tmp.as_file(), "# this is a comment").unwrap();
-    writeln!(tmp.as_file(), "").unwrap();
+    writeln!(tmp.as_file()).unwrap();
     writeln!(tmp.as_file(),
              "SOULLINK_INTERNAL_TOKEN=\"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\"").unwrap();
     #[cfg(unix)]

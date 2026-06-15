@@ -204,7 +204,7 @@ impl SystemSnapshot {
         ];
 
         let mut set = tokio::task::JoinSet::new();
-        for svc in services.clone() {
+        for svc in services {
             set.spawn(async move {
                 let status = tokio::process::Command::new("systemctl")
                     .args(["is-active", "--quiet", svc])

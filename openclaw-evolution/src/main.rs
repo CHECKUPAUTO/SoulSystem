@@ -7,7 +7,9 @@
     unreachable_pub,
     non_camel_case_types,
     non_snake_case,
-    unused_comparisons
+    unused_comparisons,
+    // Numerical kernels read more clearly with explicit index loops.
+    clippy::needless_range_loop
 )]
 mod agent;
 mod audit;

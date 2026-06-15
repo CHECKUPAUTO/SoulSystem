@@ -27,7 +27,7 @@ async fn probe_orchestrator(url: &str) -> ProbeResult {
     let start = std::time::Instant::now();
     let client = soullink_core::http::shared_client();
     let resp = client
-        .get(&format!("{}/health", url.trim_end_matches('/')))
+        .get(format!("{}/health", url.trim_end_matches('/')))
         .timeout(std::time::Duration::from_secs(5))
         .send()
         .await;

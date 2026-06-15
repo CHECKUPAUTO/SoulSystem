@@ -19,7 +19,7 @@ use tracing::{error, warn};
 
 use crate::api::ApiState;
 use crate::provider;
-use provider::{ChatRequest, ProviderError};
+use provider::{ChatRequest, ChatResponse, ProviderError};
 
 pub async fn chat_handler(
     State(state): State<ApiState>,
@@ -76,9 +76,16 @@ pub async fn chat_handler(
             }
         }
     } else {
-        // Non-streaming mode
+        // Non-streaming mode. When the caller didn't pin a model, route
+        // cost-awarely and escalate to a stronger provider on a transient
+        // failure; otherwise use the model the caller chose.
         let timer = std::time::Instant::now();
-        match provider.chat(req).await {
+        let result = if req.model.is_none() {
+            routed_chat_with_escalation(&state, req).await
+        } else {
+            provider.chat(req).await
+        };
+        match result {
             Ok(resp) => {
                 metrics::histogram!(crate::metrics::CHAT_LATENCY)
                     .record(timer.elapsed().as_secs_f64());
@@ -88,26 +95,99 @@ pub async fn chat_handler(
             Err(e) => {
                 metrics::counter!(crate::metrics::PROVIDER_ERRORS).increment(1);
                 warn!(err = %e, "chat request failed");
-
-                let (status, msg) = match &e {
-                    ProviderError::NotFound(_) => (StatusCode::NOT_FOUND, e.to_string()),
-                    ProviderError::ModelNotAvailable(_) => (StatusCode::BAD_REQUEST, e.to_string()),
-                    ProviderError::Timeout(_) => (StatusCode::GATEWAY_TIMEOUT, e.to_string()),
-                    ProviderError::CircuitOpen(_) => {
-                        (StatusCode::SERVICE_UNAVAILABLE, e.to_string())
-                    }
-                    ProviderError::Upstream { status: s, body: _ } => {
-                        if *s >= 500 {
-                            (StatusCode::BAD_GATEWAY, e.to_string())
-                        } else {
-                            (StatusCode::BAD_REQUEST, e.to_string())
-                        }
-                    }
-                    _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-                };
+                let (status, msg) = map_provider_error(&e);
                 Err(error_response(status, &msg))
             }
         }
+    }
+}
+
+/// Route the request cost-awarely; on a transient failure of the chosen
+/// provider, retry once with the escalation (stronger) provider. Falls back to
+/// round-robin resolution when no provider is capable.
+async fn routed_chat_with_escalation(
+    state: &ApiState,
+    req: ChatRequest,
+) -> Result<ChatResponse, ProviderError> {
+    let query = last_user_text(&req);
+    let configs = state.registry.provider_configs().await;
+    let params = state
+        .router_params
+        .read()
+        .map(|p| p.clone())
+        .unwrap_or_default();
+
+    let Some((primary, escalation)) =
+        crate::routing::route_with_escalation_with(&configs, &query, &[], params)
+    else {
+        // No routing match → round-robin.
+        let p = state.registry.resolve(req.model.as_deref()).await?;
+        return p.chat(req).await;
+    };
+
+    let primary_provider = state
+        .registry
+        .get(&primary)
+        .await
+        .ok_or_else(|| ProviderError::NotFound(primary.clone()))?;
+
+    match primary_provider.chat(req.clone()).await {
+        Ok(resp) => {
+            // The cheap pick sufficed — a "weak was enough" training signal.
+            state.record_outcome(&query, 0.0);
+            Ok(resp)
+        }
+        Err(e) => {
+            if is_transient(&e) {
+                if let Some(esc_name) = escalation {
+                    if let Some(esc) = state.registry.get(&esc_name).await {
+                        warn!(from = %primary, to = %esc_name, err = %e, "escalating to stronger provider");
+                        metrics::counter!(crate::metrics::PROVIDER_REQUESTS).increment(1);
+                        let escalated = esc.chat(req).await;
+                        if escalated.is_ok() {
+                            // A stronger model was needed — "strong required".
+                            state.record_outcome(&query, 1.0);
+                        }
+                        return escalated;
+                    }
+                }
+            }
+            Err(e)
+        }
+    }
+}
+
+/// The text of the most recent user message — the routing query.
+fn last_user_text(req: &ChatRequest) -> String {
+    req.messages
+        .iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .map(|m| m.content.clone())
+        .unwrap_or_default()
+}
+
+/// Whether a provider error is worth escalating (transient / upstream fault,
+/// not a client error).
+fn is_transient(e: &ProviderError) -> bool {
+    match e {
+        ProviderError::Timeout(_) | ProviderError::CircuitOpen(_) | ProviderError::Http(_) => true,
+        ProviderError::Upstream { status, .. } => *status >= 500,
+        _ => false,
+    }
+}
+
+fn map_provider_error(e: &ProviderError) -> (StatusCode, String) {
+    match e {
+        ProviderError::NotFound(_) => (StatusCode::NOT_FOUND, e.to_string()),
+        ProviderError::ModelNotAvailable(_) => (StatusCode::BAD_REQUEST, e.to_string()),
+        ProviderError::Timeout(_) => (StatusCode::GATEWAY_TIMEOUT, e.to_string()),
+        ProviderError::CircuitOpen(_) => (StatusCode::SERVICE_UNAVAILABLE, e.to_string()),
+        ProviderError::Upstream { status: s, .. } if *s >= 500 => {
+            (StatusCode::BAD_GATEWAY, e.to_string())
+        }
+        ProviderError::Upstream { .. } => (StatusCode::BAD_REQUEST, e.to_string()),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
 

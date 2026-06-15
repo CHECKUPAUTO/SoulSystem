@@ -12,7 +12,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 /// The main inference engine — routes requests, manages warm standby,
 /// and provides a unified async API.
@@ -80,7 +80,7 @@ impl InferenceEngine {
                 self.mark_loaded(&req.model, quant, &target).await;
                 self.call_ollama(&req, &quant).await
             }
-            ExecutionTarget::CpuNuma { node, quant } => {
+            ExecutionTarget::CpuNuma { node: _, quant } => {
                 self.mark_loaded(&req.model, quant, &target).await;
                 // NOTE: NUMA pinning via nix::sched::sched_setaffinity
                 self.call_ollama(&req, &quant).await

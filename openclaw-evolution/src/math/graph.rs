@@ -35,6 +35,12 @@ pub struct ConceptGraph {
     adjacency: Vec<Vec<(usize, f32)>>,
 }
 
+impl Default for ConceptGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConceptGraph {
     pub fn new() -> Self {
         Self {

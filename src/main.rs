@@ -14,13 +14,30 @@ use clap::Parser;
 use soulsystem::bound_system::BoundSystem;
 use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
-// Unified bridge aliases (replaces 9 individual bridge crates)
+// Unified bridge aliases (replaces 9 individual bridge crates).
+// Each alias is only referenced inside its matching feature-gated block below,
+// so gate the import too to keep `-D warnings` clean when features are off.
+#[cfg(feature = "avid")]
+use soul_bridge::avid as avid_bridge;
+#[cfg(feature = "brain_system")]
+use soul_bridge::brain as brain_bridge;
+#[cfg(feature = "mesh")]
+use soul_bridge::mesh as mesh_bridge;
+#[cfg(feature = "openevolve")]
+use soul_bridge::openevolve as openevolve_bridge;
+#[cfg(feature = "organs")]
+use soul_bridge::organs as organs_bridge;
+#[cfg(feature = "services")]
+use soul_bridge::services as services_bridge;
+#[cfg(feature = "soul_neural")]
+use soul_bridge::soul_neural as soul_neural_bridge;
+#[cfg(feature = "synergie")]
+use soul_bridge::synergie as synergie_bridge;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
-use uuid::Uuid;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -768,7 +785,7 @@ async fn main() -> Result<()> {
                     Ok(Message::Custom { topic, .. }) if topic.starts_with("error.") => {
                         if let Some(actions) = pres.record_error().await {
                             for action in &actions {
-                                healer_events.execute(&action).await;
+                                healer_events.execute(action).await;
                             }
                         }
                     }
@@ -1129,15 +1146,17 @@ async fn main() -> Result<()> {
             })
         };
 
-        // If --repl is also set, start interactive REPL with daemon awareness
+        // If --repl is also set, start the interactive REPL alongside the daemon.
         if cli.repl {
             info!("▶ REPL + Daemon combiné");
-            let daemon_rx = event_tx.subscribe();
-            let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default())
-                .map_err(|e| anyhow::anyhow!("REPL init: {e}"))?;
-            let _ = daemon_rx;
-            soul_repl::run_repl(&mut repl_state).await
-                .map_err(|e| anyhow::anyhow!("REPL error: {e}"))?;
+            match soul_repl::ReplState::new(soul_llm::LlmConfig::default()) {
+                Ok(mut repl_state) => {
+                    if let Err(e) = soul_repl::run_repl(&mut repl_state).await {
+                        warn!("REPL terminé sur erreur: {e}");
+                    }
+                }
+                Err(e) => warn!("Initialisation REPL échouée: {e}"),
+            }
         } else {
             // Daemon-only: wait for SIGINT
             tokio::signal::ctrl_c().await?;
@@ -1148,10 +1167,14 @@ async fn main() -> Result<()> {
 
     if cli.repl {
         info!("▶ Mode REPL autonome activé");
-        let mut repl_state = soul_repl::ReplState::new(soul_llm::LlmConfig::default())
-            .map_err(|e| anyhow::anyhow!("REPL init: {e}"))?;
-        soul_repl::run_repl(&mut repl_state).await
-            .map_err(|e| anyhow::anyhow!("REPL error: {e}"))?;
+        match soul_repl::ReplState::new(soul_llm::LlmConfig::default()) {
+            Ok(mut repl_state) => {
+                if let Err(e) = soul_repl::run_repl(&mut repl_state).await {
+                    eprintln!("REPL error: {e}");
+                }
+            }
+            Err(e) => eprintln!("REPL init failed: {e}"),
+        }
         return Ok(());
     }
 
@@ -1167,16 +1190,13 @@ async fn main() -> Result<()> {
     if let Some(ref goal_desc) = cli.plan {
         info!("▶ Mode plan: {}", goal_desc);
         let goal = soul_planner::Goal {
-            id: Uuid::new_v4().to_string(),
+            id: uuid::Uuid::new_v4().to_string(),
             description: goal_desc.to_string(),
             priority: 5,
             created_at: chrono::Utc::now(),
             status: soul_planner::GoalStatus::Active,
         };
-        let plan = autonomous
-            .agent
-            .planner
-            .create_plan(&goal, &[]);
+        let plan = autonomous.agent.planner.create_plan(&goal, &[]);
         match serde_json::to_string_pretty(&plan) {
             Ok(json) => println!("{}", json),
             Err(e) => eprintln!("Error serializing plan: {}", e),
@@ -1252,6 +1272,7 @@ async fn main() -> Result<()> {
         tracing::info!("Scheduler tick: {} — {}", task.name, task.description);
         Ok(())
     }));
+    // Default tasks
     scheduler
         .add_task(soul_scheduler::ScheduledTask::new(
             "memory-consolidation",
@@ -1292,7 +1313,7 @@ async fn main() -> Result<()> {
                 .get_context("learnings improvements discoveries", 5)
                 .await;
             let learnings = format!(
-                "# SoulSystem Learnings - {}\n\n{}\n\n---\n*Auto-generated by AutonomousLoop*\n",
+                "# SoulSystem Learnings — {}\n\n{}\n\n---\n*Auto-generated by AutonomousLoop*\n",
                 timestamp, ctx
             );
             if let Err(e) = tokio::fs::write(&docs_path, &learnings).await {

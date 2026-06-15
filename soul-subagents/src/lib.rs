@@ -11,7 +11,6 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-
 #[derive(Error, Debug)]
 pub enum SubAgentError {
     #[error("Spawn failed: {0}")]

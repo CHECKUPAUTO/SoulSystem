@@ -87,8 +87,7 @@ mod tests {
 
     #[test]
     fn test_bwrap_available() {
-        let avail = bwrap_available();
-        // Just check it doesn't panic
-        assert!(avail || !avail);
+        // Vérifie seulement l'absence de panique ; le résultat dépend de l'hôte.
+        let _avail = bwrap_available();
     }
 }

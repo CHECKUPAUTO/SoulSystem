@@ -189,6 +189,11 @@ unsafe impl Send for NvmlBridge {}
 unsafe impl Sync for NvmlBridge {}
 
 impl NvmlBridge {
+    /// Index NVML du GPU contrôlé par ce bridge.
+    pub fn device_index(&self) -> u32 {
+        self.device_index
+    }
+
     pub fn init(device_index: u32) -> Result<Self, NvmlError> {
         let nvml = Nvml::init().map_err(|e| NvmlError::Init(e.to_string()))?;
         let nvml_arc = Arc::new(nvml);

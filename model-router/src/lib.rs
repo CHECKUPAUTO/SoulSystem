@@ -108,7 +108,16 @@ impl ModelRouter {
     /// Retourne le nom du modele.
     pub fn route(&self, query: &str) -> &str {
         let complexity = self.complexity(query);
-        for model in &self.models {
+        // Plus petit modèle (capacité minimale) capable de traiter la requête :
+        // on évite de gaspiller un gros modèle sur une requête triviale. La
+        // liste de modèles n'est pas supposée triée, d'où le tri explicite.
+        let mut by_capacity: Vec<&ModelSpec> = self.models.iter().collect();
+        by_capacity.sort_by(|a, b| {
+            a.capacity
+                .partial_cmp(&b.capacity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for model in &by_capacity {
             if model.capacity >= complexity {
                 tracing::debug!(
                     "ModelRouter: complexity={:.2} → {} (cap={:.2}, cost={:.2})",
@@ -121,7 +130,7 @@ impl ModelRouter {
             }
         }
         // Fallback: modele le plus capable
-        let best = self.models.last().unwrap();
+        let best = by_capacity.last().unwrap();
         tracing::debug!(
             "ModelRouter: complexity={:.2} → fallback {}",
             complexity,
@@ -140,29 +149,45 @@ impl ModelRouter {
 mod tests {
     use super::*;
 
+    /// Capacité du modèle choisi pour une requête (helper de test).
+    fn routed_capacity(router: &ModelRouter, query: &str) -> f64 {
+        let model = router.route(query);
+        router
+            .models()
+            .iter()
+            .find(|m| m.name == model)
+            .map(|m| m.capacity)
+            .unwrap_or(0.0)
+    }
+
     #[test]
     fn test_simple_query_routes_to_small_model() {
         let router = ModelRouter::default_models();
-        let model = router.route("bonjour");
+        // Une requête triviale doit aller au plus petit modèle suffisant,
+        // pas au plus capable.
+        let smallest = router
+            .models()
+            .iter()
+            .map(|m| m.capacity)
+            .fold(f64::INFINITY, f64::min);
+        let cap = routed_capacity(&router, "bonjour");
         assert!(
-            model == "tinyllama" || model == "llama3.2:1b",
-            "simple query should use small model, got {}",
-            model
+            (cap - smallest).abs() < 1e-9,
+            "simple query should use the smallest model (cap={smallest}), got cap={cap}"
         );
     }
 
     #[test]
     fn test_complex_query_routes_to_large_model() {
         let router = ModelRouter::default_models();
-        let model = router.route(
+        let cap = routed_capacity(
+            &router,
             "explique l'architecture du code et implemente une solution securisee \
              pour le probleme d'authentification avec OAuth2",
         );
-        // Should route to at least mistral-level
         assert!(
-            model != "tinyllama",
-            "complex query should not use tinyllama, got {}",
-            model
+            cap >= 0.9,
+            "complex query should use a high-capacity model, got cap={cap}"
         );
     }
 

@@ -45,16 +45,16 @@ fn step(state: &mut crate::BrainState) {
     // Mettre à jour chaque neurone
     let mut spikes = 0u64;
     for (i, input) in inputs.iter().enumerate() {
-        if i < n {
-            if state.neurons[i].update(*input) {
-                spikes += 1;
-            }
+        if i < n && state.neurons[i].update(*input) {
+            spikes += 1;
         }
     }
     state.total_spikes += spikes;
 }
 
 /// Croissance Hebbian — ajoute de nouveaux neurones
+/// (pas encore déclenchée par la boucle de simulation)
+#[allow(dead_code)]
 pub fn grow(state: &mut crate::BrainState, count: usize) -> Vec<u64> {
     let modules = neuron::default_modules();
     let mut rng = rand::thread_rng();

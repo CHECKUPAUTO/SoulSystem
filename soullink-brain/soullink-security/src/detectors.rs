@@ -51,8 +51,8 @@ pub fn scan_line(line: &str, file: &str, line_num: usize) -> Vec<Finding> {
     // 2. Entropy-based detection (catches unknown secrets)
     for word in line.split_whitespace() {
         let word = word.trim_matches(|c: char| c == '"' || c == '\'' || c == ',' || c == ';');
-        if word.len() >= 20 {
-            if is_base64_secret(word) || is_hex_secret(word) {
+        if word.len() >= 20 && (is_base64_secret(word) || is_hex_secret(word)) {
+            {
                 // Skip if already caught by pattern matching
                 let already_found = findings.iter().any(|f| f.secret == word);
                 if !already_found {

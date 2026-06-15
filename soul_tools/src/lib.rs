@@ -291,3 +291,180 @@ pub fn execute_tool(tool: &Tool, args: &str) -> std::result::Result<String, Stri
     let full_cmd = format!("{} {}", tool.name, args);
     execute_shell(&full_cmd)
 }
+
+// ── File operations backing the tool dispatch ──────────────────────────
+
+fn read_file(path: &str, start: Option<usize>, num: Option<usize>) -> Result<String, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    match (start, num) {
+        (None, None) => Ok(content),
+        (s, n) => {
+            let skip = s.unwrap_or(1).saturating_sub(1);
+            let take = n.unwrap_or(usize::MAX);
+            Ok(content
+                .lines()
+                .skip(skip)
+                .take(take)
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+    }
+}
+
+fn write_file(path: &str, content: &str, append: bool) -> Result<(), String> {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(append)
+        .truncate(!append)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    f.write_all(content.as_bytes()).map_err(|e| e.to_string())
+}
+
+fn patch_file(path: &str, old: &str, new: &str) -> Result<String, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    if !content.contains(old) {
+        return Err(format!("pattern not found in {path}"));
+    }
+    let patched = content.replace(old, new);
+    std::fs::write(path, &patched).map_err(|e| e.to_string())?;
+    Ok(format!("patched {path}"))
+}
+
+fn list_directory(path: &str) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(path).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        out.push(entry.file_name().to_string_lossy().to_string());
+    }
+    out.sort();
+    Ok(out)
+}
+
+fn walk(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>, limit: usize) {
+    if out.len() >= limit {
+        return;
+    }
+    let Ok(rd) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in rd.flatten() {
+        if out.len() >= limit {
+            return;
+        }
+        let p = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name == "target" || name == ".git" || name == "node_modules" {
+            continue;
+        }
+        if p.is_dir() {
+            walk(&p, out, limit);
+        } else {
+            out.push(p);
+        }
+    }
+}
+
+fn search_files(pattern: &str, path: &str) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    walk(std::path::Path::new(path), &mut files, 5000);
+    Ok(files
+        .into_iter()
+        .filter(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().contains(pattern))
+                .unwrap_or(false)
+        })
+        .map(|p| p.display().to_string())
+        .take(200)
+        .collect())
+}
+
+fn grep_content(
+    pattern: &str,
+    path: &str,
+    file_pattern: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    walk(std::path::Path::new(path), &mut files, 5000);
+    let mut hits = Vec::new();
+    for f in files {
+        if let Some(fp) = file_pattern {
+            if !f
+                .file_name()
+                .map(|n| n.to_string_lossy().contains(fp))
+                .unwrap_or(false)
+            {
+                continue;
+            }
+        }
+        if let Ok(content) = std::fs::read_to_string(&f) {
+            for (i, line) in content.lines().enumerate() {
+                if line.contains(pattern) {
+                    hits.push(format!("{}:{}: {}", f.display(), i + 1, line.trim()));
+                    if hits.len() >= 200 {
+                        return Ok(hits);
+                    }
+                }
+            }
+        }
+    }
+    Ok(hits)
+}
+
+#[cfg(test)]
+mod compat_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn permission_classification() {
+        assert_eq!(
+            PermissionLevel::from_command("ls -la"),
+            PermissionLevel::Read
+        );
+        assert_eq!(
+            PermissionLevel::from_command("rm foo.txt"),
+            PermissionLevel::Write
+        );
+        assert_eq!(
+            PermissionLevel::from_command("sudo rm -rf /"),
+            PermissionLevel::Destructive
+        );
+    }
+
+    #[test]
+    fn dispatch_file_ops_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("a.txt");
+        let fp = f.to_str().unwrap();
+        dispatch_tool("write_file", &json!({"path": fp, "content": "hello"})).unwrap();
+        let read = dispatch_tool("read_file", &json!({"path": fp})).unwrap();
+        assert_eq!(read, "hello");
+        dispatch_tool(
+            "patch_file",
+            &json!({"path": fp, "old_text": "hello", "new_text": "world"}),
+        )
+        .unwrap();
+        assert_eq!(
+            dispatch_tool("read_file", &json!({"path": fp})).unwrap(),
+            "world"
+        );
+    }
+
+    #[test]
+    fn unknown_tool_errors() {
+        assert!(dispatch_tool("nope", &json!({})).is_err());
+    }
+
+    #[tokio::test]
+    async fn async_shell_runs() {
+        let out = async_dispatch_tool("execute_shell", json!({"command": "echo hi"}))
+            .await
+            .unwrap();
+        assert!(out.contains("hi"));
+    }
+}

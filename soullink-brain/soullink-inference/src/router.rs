@@ -8,9 +8,7 @@
 //! - VectorSearch (CUTLASS) → GPU if VRAM > 1GB free, else CPU AVX2
 //! - HnnStep (CUTLASS) → GPU always (tiny VRAM footprint)
 
-use crate::hardware::HardwareProbe;
 use crate::types::*;
-use anyhow::Result;
 use std::collections::HashMap;
 use tracing::{info, warn};
 
@@ -31,6 +29,12 @@ const VRAM_HEADROOM_GB: f64 = 1.0; // Safety margin for LLM
 
 pub struct ModelRouter {
     model_sizes: HashMap<String, f64>,
+}
+
+impl Default for ModelRouter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ModelRouter {
@@ -277,9 +281,8 @@ mod tests {
             priority: Priority::Embed,
             quantization: None,
         };
-        match router.route(&req, &snap) {
-            ExecutionTarget::Gpu(q) => assert_eq!(q, Quantization::Q8_0),
-            _ => {}
+        if let ExecutionTarget::Gpu(q) = router.route(&req, &snap) {
+            assert_eq!(q, Quantization::Q8_0)
         }
     }
 

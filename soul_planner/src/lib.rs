@@ -90,56 +90,58 @@ pub struct Decision {
 
 #[derive(Debug, Clone)]
 pub struct WorkingMemory {
-    buffer: Vec<String>,
-    max_size: usize,
+    /// Rolling buffer of recent observations (bounded by `max_size`).
+    pub observations: Vec<String>,
+    /// Distilled "key info": the agent's current objective and salient facts,
+    /// injected back into the prompt to keep the model on task.
     pub key_info: String,
+    max_size: usize,
 }
 
 impl WorkingMemory {
     pub fn new(max_size: usize) -> Self {
         Self {
-            buffer: Vec::with_capacity(max_size),
-            max_size,
+            observations: Vec::with_capacity(max_size),
             key_info: String::new(),
+            max_size,
         }
     }
 
     pub fn observe(&mut self, observation: String) {
-        self.buffer.push(observation);
-        if self.buffer.len() > self.max_size {
-            self.buffer.remove(0);
+        self.observations.push(observation);
+        if self.observations.len() > self.max_size {
+            self.observations.remove(0);
         }
     }
 
     pub fn recent_observations(&self, n: usize) -> Vec<String> {
-        let start = self.buffer.len().saturating_sub(n);
-        self.buffer[start..].to_vec()
+        let start = self.observations.len().saturating_sub(n);
+        self.observations[start..].to_vec()
     }
 
+    /// Set the distilled key-info line.
     pub fn set_key_info(&mut self, info: &str) {
         self.key_info = info.to_string();
     }
 
+    /// Render working memory as a prompt section reminding the model of its
+    /// objective and recent context. Empty when there is nothing to inject.
     pub fn to_prompt_section(&self) -> String {
-        let mut out = String::new();
-        if !self.key_info.is_empty() {
-            out.push_str("Key info: ");
-            out.push_str(&self.key_info);
-            out.push('\n');
+        if self.key_info.is_empty() && self.observations.is_empty() {
+            return String::new();
         }
-        if !self.buffer.is_empty() {
-            out.push_str("Recent observations:\n");
-            for obs in &self.buffer {
-                out.push_str("- ");
-                out.push_str(obs);
-                out.push('\n');
+        let mut s = String::from("## Working Memory\n");
+        if !self.key_info.is_empty() {
+            s.push_str(&format!("Key info: {}\n", self.key_info));
+        }
+        let recent = self.recent_observations(5);
+        if !recent.is_empty() {
+            s.push_str("Recent observations:\n");
+            for o in recent {
+                s.push_str(&format!("- {o}\n"));
             }
         }
-        out
-    }
-
-    pub fn observations(&self) -> &[String] {
-        &self.buffer
+        s
     }
 }
 
@@ -276,7 +278,12 @@ impl CognitiveLoop {
 
         Evaluation {
             score: final_score,
-            feedback: format!("{} | historique: {:.0}%, étapes: {}", signal, historical_rate * 100.0, plan.steps.len()),
+            feedback: format!(
+                "{} | historique: {:.0}%, étapes: {}",
+                signal,
+                historical_rate * 100.0,
+                plan.steps.len()
+            ),
         }
     }
 
@@ -412,7 +419,11 @@ mod tests {
         let goal = make_goal("test");
         let plan = planner.create_plan(&goal, &["step1"]);
         let eval = planner.evaluate_plan(&plan, "success");
-        assert!(eval.score > 0.8, "score should be > 0.8, got {}", eval.score);
+        assert!(
+            eval.score > 0.8,
+            "score should be > 0.8, got {}",
+            eval.score
+        );
     }
 
     #[test]
@@ -421,7 +432,11 @@ mod tests {
         let goal = make_goal("test");
         let plan = planner.create_plan(&goal, &["step1"]);
         let eval = planner.evaluate_plan(&plan, "error: something failed");
-        assert!(eval.score < 0.3, "score should be < 0.3, got {}", eval.score);
+        assert!(
+            eval.score < 0.3,
+            "score should be < 0.3, got {}",
+            eval.score
+        );
     }
 
     #[test]

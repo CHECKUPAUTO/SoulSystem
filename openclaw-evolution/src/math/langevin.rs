@@ -202,7 +202,7 @@ mod tests {
         let mut state = initial_state(vec![5.0, -3.0]);
 
         for _ in 0..5000 {
-            integrator.step_overdamped(&mut state, &energy_fn);
+            integrator.step_overdamped(&mut state, energy_fn);
         }
 
         let dist: f32 = state.q.iter().map(|x| x * x).sum::<f32>().sqrt();

@@ -82,7 +82,7 @@ impl CreativityEngine {
         cycle: u64,
         _system_state: &crate::perception::SystemSnapshot,
     ) -> Option<CreativeAction> {
-        let methods = vec![
+        let methods = [
             InventionMethod::Combine(self.base_actions[0].clone(), self.base_actions[1].clone()),
             InventionMethod::Variate(self.base_actions[2].clone()),
             InventionMethod::PatternInspired("high_cpu".to_string()),

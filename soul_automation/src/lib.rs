@@ -171,7 +171,14 @@ impl AlertSystem {
         }
     }
 
-    pub fn add_rule(&mut self, name: &str, metric: &str, threshold: f64, operator: AlertOperator, severity: AlertSeverity) -> String {
+    pub fn add_rule(
+        &mut self,
+        name: &str,
+        metric: &str,
+        threshold: f64,
+        operator: AlertOperator,
+        severity: AlertSeverity,
+    ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         let rule = AlertRule {
             id: id.clone(),
@@ -202,7 +209,10 @@ impl AlertSystem {
                 let alert = Alert {
                     id: uuid::Uuid::new_v4().to_string(),
                     rule_id: rule.id.clone(),
-                    message: format!("{}: {} is {} (threshold: {})", rule.name, metric, value, rule.threshold),
+                    message: format!(
+                        "{}: {} is {} (threshold: {})",
+                        rule.name, metric, value, rule.threshold
+                    ),
                     severity: rule.severity.clone(),
                     timestamp: chrono::Utc::now(),
                     acknowledged: false,
@@ -276,7 +286,9 @@ pub struct WorkflowEngine {
 
 impl WorkflowEngine {
     pub fn new() -> Self {
-        Self { workflows: Vec::new() }
+        Self {
+            workflows: Vec::new(),
+        }
     }
 
     pub fn create_workflow(&mut self, name: &str) -> String {
@@ -348,7 +360,10 @@ impl WorkflowEngine {
             return None;
         }
         let current_step_id = workflow.current_step.as_ref()?.clone();
-        let current_idx = workflow.steps.iter().position(|s| s.id == current_step_id)?;
+        let current_idx = workflow
+            .steps
+            .iter()
+            .position(|s| s.id == current_step_id)?;
 
         // Check for explicit next_step first
         let current = &workflow.steps[current_idx];
@@ -588,7 +603,13 @@ mod tests {
     #[test]
     fn test_alert_system() {
         let mut alerts = AlertSystem::new();
-        let rule_id = alerts.add_rule("high_cpu", "cpu", 80.0, AlertOperator::GreaterThan, AlertSeverity::Warning);
+        let rule_id = alerts.add_rule(
+            "high_cpu",
+            "cpu",
+            80.0,
+            AlertOperator::GreaterThan,
+            AlertSeverity::Warning,
+        );
         assert!(!rule_id.is_empty());
 
         let triggered = alerts.check("cpu", 90.0);
@@ -601,7 +622,13 @@ mod tests {
     #[test]
     fn test_alert_system_acknowledge() {
         let mut alerts = AlertSystem::new();
-        alerts.add_rule("r", "cpu", 80.0, AlertOperator::GreaterThan, AlertSeverity::Critical);
+        alerts.add_rule(
+            "r",
+            "cpu",
+            80.0,
+            AlertOperator::GreaterThan,
+            AlertSeverity::Critical,
+        );
         let triggered = alerts.check("cpu", 90.0);
         assert_eq!(triggered.len(), 1);
         assert!(alerts.acknowledge(&triggered[0].id));
@@ -750,7 +777,9 @@ mod tests {
     #[test]
     fn test_execute_due_tasks() {
         let mut engine = AutomationEngine::new();
-        let id = engine.scheduler.add_task("test", "* * * * *", "echo executed");
+        let id = engine
+            .scheduler
+            .add_task("test", "* * * * *", "echo executed");
         engine.scheduler.make_due(&id);
         let results = engine.execute_due_tasks();
         assert_eq!(results.len(), 1);

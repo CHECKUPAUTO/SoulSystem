@@ -127,8 +127,7 @@ impl<C: Candidate + Serialize + for<'a> Deserialize<'a>> Checkpoint<C> {
     pub fn save_atomic(&self, path: &Path) -> std::io::Result<()> {
         let tmp_path = path.with_extension("tmp");
         let mut file = File::create(&tmp_path)?;
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         file.write_all(json.as_bytes())?;
         file.sync_all()?;
         fs::rename(tmp_path, path)?;
@@ -138,7 +137,7 @@ impl<C: Candidate + Serialize + for<'a> Deserialize<'a>> Checkpoint<C> {
     #[allow(dead_code)]
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let data = fs::read_to_string(path)?;
-        serde_json::from_str(&data).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        serde_json::from_str(&data).map_err(std::io::Error::other)
     }
 }
 
@@ -388,8 +387,10 @@ fn nsga2_select<C: Candidate>(archive: &mut Vec<Individual<C>>, survivors_limit:
     }
 
     // 1. Découpage en fronts de non-domination.
+    // BTreeSet (et non HashSet) : l'itération en ordre d'index croissant rend
+    // le départage des candidats ex-æquo déterministe entre deux exécutions.
     let mut ranks: Vec<Vec<usize>> = Vec::new();
-    let mut remaining_indices: HashSet<usize> = (0..total_len).collect();
+    let mut remaining_indices: std::collections::BTreeSet<usize> = (0..total_len).collect();
 
     while !remaining_indices.is_empty() {
         let mut current_front = Vec::new();

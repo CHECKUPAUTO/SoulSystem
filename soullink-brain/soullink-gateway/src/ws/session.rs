@@ -10,8 +10,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
-use super::protocol::HelloOk;
-
 /// A connected WebSocket session.
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -51,6 +49,12 @@ pub struct SessionStore {
     idle_timeout: Duration,
 }
 
+impl Default for SessionStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionStore {
     pub fn new() -> Self {
         Self {
@@ -85,31 +89,21 @@ impl SessionStore {
     }
 
     /// Count active sessions.
+    /// Évince les sessions inactives depuis plus que `idle_timeout`.
+    /// Retourne le nombre de sessions supprimées.
+    pub async fn evict_idle(&self) -> usize {
+        let mut sessions = self.sessions.write().await;
+        let before = sessions.len();
+        sessions.retain(|_, s| s.last_activity.elapsed() < self.idle_timeout);
+        before - sessions.len()
+    }
+
     pub async fn len(&self) -> usize {
         self.sessions.read().await.len()
     }
 
-    /// Build HelloOk for a session.
-    pub fn hello(&self, session: &Session) -> HelloOk {
-        HelloOk {
-            session_id: session.id.clone(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            methods: vec![
-                "health".into(),
-                "status".into(),
-                "chat".into(),
-                "sessions.list".into(),
-                "sessions.get".into(),
-                "providers.list".into(),
-                "config.get".into(),
-            ],
-            events: vec![
-                "session.message".into(),
-                "presence".into(),
-                "shutdown".into(),
-                "tick".into(),
-            ],
-        }
+    pub async fn is_empty(&self) -> bool {
+        self.sessions.read().await.is_empty()
     }
 }
 
@@ -154,15 +148,5 @@ mod tests {
         std::thread::sleep(Duration::from_millis(5));
         session.touch();
         assert!(session.last_activity > before);
-    }
-
-    #[test]
-    fn test_hello_ok_fields() {
-        let store = SessionStore::new();
-        let session = Session::new("c".into(), None);
-        let hello = store.hello(&session);
-        assert_eq!(hello.session_id, session.id);
-        assert!(!hello.methods.is_empty());
-        assert!(!hello.events.is_empty());
     }
 }

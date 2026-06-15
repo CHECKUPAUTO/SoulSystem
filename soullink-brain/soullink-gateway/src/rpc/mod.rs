@@ -56,6 +56,12 @@ pub struct RpcRegistry {
     methods: RwLock<HashMap<String, Box<dyn MethodHandler>>>,
 }
 
+impl Default for RpcRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RpcRegistry {
     pub fn new() -> Self {
         Self {
@@ -93,13 +99,7 @@ impl RpcRegistry {
     pub async fn build_default(registry: Arc<ProviderRegistry>) -> Self {
         let rpc = Self::new();
 
-        let api = ApiState {
-            registry: registry.clone(),
-        };
-        let _state = Arc::new(RpcState {
-            api: api.clone(),
-            providers: registry.clone(),
-        });
+        let _ = registry; // l'état RPC est construit par l'appelant au dispatch
 
         // Health / Diagnostics
         rpc.register(Box::new(HealthHandler)).await;
@@ -290,7 +290,6 @@ impl MethodHandler for ModelsListHandler {
 mod tests {
     use super::*;
     use crate::provider::registry::ProviderRegistry;
-    use crate::provider::ProviderConfig;
 
     #[tokio::test]
     async fn test_registry_empty() {
@@ -305,9 +304,7 @@ mod tests {
         let rpc = RpcRegistry::build_default(reg.clone()).await;
 
         let state = RpcState {
-            api: ApiState {
-                registry: reg.clone(),
-            },
+            api: ApiState::new(reg.clone()),
             providers: reg.clone(),
         };
 
@@ -322,9 +319,7 @@ mod tests {
         let reg = Arc::new(ProviderRegistry::new());
         let rpc = RpcRegistry::build_default(reg.clone()).await;
         let state = RpcState {
-            api: ApiState {
-                registry: reg.clone(),
-            },
+            api: ApiState::new(reg.clone()),
             providers: reg.clone(),
         };
 
@@ -350,9 +345,7 @@ mod tests {
         let reg = Arc::new(ProviderRegistry::new());
         let rpc = RpcRegistry::build_default(reg.clone()).await;
         let state = RpcState {
-            api: ApiState {
-                registry: reg.clone(),
-            },
+            api: ApiState::new(reg.clone()),
             providers: reg,
         };
 

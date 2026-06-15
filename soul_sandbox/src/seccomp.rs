@@ -35,7 +35,12 @@ struct SockFprog {
 // ── BPF helpers ─────────────────────────────────────────────
 
 fn bpf_stmt(code: u16, k: u32) -> SockFilter {
-    SockFilter { code, jt: 0, jf: 0, k }
+    SockFilter {
+        code,
+        jt: 0,
+        jf: 0,
+        k,
+    }
 }
 
 fn bpf_jump(code: u16, k: u32, jt: u8, jf: u8) -> SockFilter {
@@ -56,6 +61,7 @@ const AUDIT_ARCH: u32 = 0xC000_00B7;
 
 /// Construit un programme BPF qui autorise la liste de syscalls donnée
 /// et bloque tout le reste avec `errno`.
+#[allow(clippy::vec_init_then_push)]
 fn build_bpf_filter(syscalls: &[i64], errno: u32) -> Vec<SockFilter> {
     let mut prog = Vec::new();
 
@@ -64,11 +70,11 @@ fn build_bpf_filter(syscalls: &[i64], errno: u32) -> Vec<SockFilter> {
     prog.push(bpf_jump(
         BPF_JMP | BPF_K,
         AUDIT_ARCH,
-        0,              // si arch ok, continue (jt=0 saute le kill)
-        1,              // si arch != AUDIT_ARCH, saute au kill
+        0, // si arch ok, continue (jt=0 saute le kill)
+        1, // si arch != AUDIT_ARCH, saute au kill
     ));
     // Si arch invalide → tue le processus (bad arch)
-    prog.push(bpf_stmt(BPF_RET | BPF_K, libc::SECCOMP_RET_KILL_PROCESS as u32));
+    prog.push(bpf_stmt(BPF_RET | BPF_K, libc::SECCOMP_RET_KILL_PROCESS));
 
     // 2. Vérifier le numéro de syscall (offset 0)
     prog.push(bpf_stmt(BPF_LD | BPF_W | BPF_ABS, 0));
@@ -85,7 +91,10 @@ fn build_bpf_filter(syscalls: &[i64], errno: u32) -> Vec<SockFilter> {
     }
 
     // 4. Fallback: tout le reste → ERRNO
-    prog.push(bpf_stmt(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (errno & 0xFFFF)));
+    prog.push(bpf_stmt(
+        BPF_RET | BPF_K,
+        SECCOMP_RET_ERRNO | (errno & 0xFFFF),
+    ));
 
     prog
 }
@@ -116,13 +125,15 @@ fn load_bpf(prog: &[SockFilter]) -> Result<(), std::io::Error> {
 
 pub fn install_filter(profile: &str) -> Result<(), std::io::Error> {
     let syscalls: &[i64] = match profile {
-        "strict" => &STRICT_SYSCALLS,
-        "default" => &DEFAULT_SYSCALLS,
+        "strict" => STRICT_SYSCALLS,
+        "default" => DEFAULT_SYSCALLS,
         "unconfined" => return Ok(()),
-        _ => return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "unknown seccomp profile",
-        )),
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "unknown seccomp profile",
+            ))
+        }
     };
 
     let prog = build_bpf_filter(syscalls, libc::EPERM as u32);

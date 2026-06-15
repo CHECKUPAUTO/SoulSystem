@@ -291,16 +291,20 @@ impl ConversationStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
+    use tempfile::{tempdir, TempDir};
 
-    fn test_store() -> ConversationStore {
+    // Return the `TempDir` alongside the store: if it is dropped here the
+    // directory is unlinked while SQLite still holds the file open, which
+    // makes the next write fail with SQLITE_READONLY_DBMOVED (code 1032).
+    fn test_store() -> (ConversationStore, TempDir) {
         let dir = tempdir().unwrap();
-        ConversationStore::open(&dir.path().join("test.db")).unwrap()
+        let store = ConversationStore::open(&dir.path().join("test.db")).unwrap();
+        (store, dir)
     }
 
     #[test]
     fn test_conversation_store() {
-        let store = test_store();
+        let (store, _dir) = test_store();
         let session_id = store.create_session("Test Chat", Some("qwen3:8b")).unwrap();
         store
             .add_message(AddMessageParams {
@@ -339,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_purge() {
-        let store = test_store();
+        let (store, _dir) = test_store();
         let _s1 = store.create_session("Old", None).unwrap();
         let s2 = store.create_session("New", None).unwrap();
         store

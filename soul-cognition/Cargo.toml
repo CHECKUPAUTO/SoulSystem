@@ -1,0 +1,23 @@
+[package]
+name = "soul_cognition"
+version = "0.1.0"
+edition = "2021"
+description = "Cognitive coordination layer for the autonomous agent: observation provenance (Observed/Deduced/Hypothetical), a single Level-2 confirmation gate, and an artificial-curiosity scorer. Wires the existing memory, planner and soul-rsi experimentation loop together while enforcing the honesty invariants."
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+thiserror = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+tokio = { workspace = true }
+soul_tools = { path = "../soul_tools" }
+soul_rsi = { path = "../soul-rsi" }
+soul_skills = { path = "../soul-skills" }
+soullink-memory-hierarchy = { path = "../soullink-brain/soullink-memory-hierarchy" }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

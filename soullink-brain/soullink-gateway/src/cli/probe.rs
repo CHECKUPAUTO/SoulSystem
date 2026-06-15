@@ -89,12 +89,7 @@ pub async fn probe_cmd(opts: ProbeOpts) -> ExitCode {
             cfg_str,
             if telegram_ok { "on" } else { "off" }
         );
-        println!(
-            "{}  {}  Metrics port={}",
-            style_muted("│"),
-            "",
-            metrics_port
-        );
+        println!("{}     Metrics port={}", style_muted("│"), metrics_port);
         println!("{}", style_muted("│"));
         println!("{}  Endpoint: {}", style_muted("└─"), orch_url);
     } else {

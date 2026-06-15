@@ -36,7 +36,6 @@ pub async fn list_models(State(state): State<ApiState>) -> impl IntoResponse {
     for provider in &providers {
         let provider_name = provider["name"].as_str().unwrap_or("unknown");
         let provider_type = provider["type"].as_str().unwrap_or("unknown");
-        let _base_url = provider["base_url"].as_str().unwrap_or("");
 
         if let Some(provider_models) = provider["models"].as_array() {
             for model in provider_models {
@@ -79,7 +78,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_models_empty_registry() {
         let registry = Arc::new(ProviderRegistry::new());
-        let state = ApiState { registry };
+        let state = ApiState::new(registry);
         let providers = state.registry.list_providers().await;
         let mut models = Vec::new();
 
@@ -112,10 +111,11 @@ mod tests {
             models: vec!["deepseek-v4-flash:cloud".into(), "llama3:70b".into()],
             default_model: Some("deepseek-v4-flash:cloud".into()),
             timeout_secs: 30,
+            ..Default::default()
         };
         registry.register("ollama", cfg).await;
 
-        let state = ApiState { registry };
+        let state = ApiState::new(registry);
         let providers = state.registry.list_providers().await;
 
         let mut models = Vec::new();

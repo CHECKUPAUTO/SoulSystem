@@ -35,6 +35,12 @@ pub struct EntityExtractor {
     location_re: Regex,
 }
 
+impl Default for EntityExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EntityExtractor {
     pub fn new() -> Self {
         Self {

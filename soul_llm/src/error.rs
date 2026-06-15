@@ -10,7 +10,11 @@ pub enum LlmError {
     /// Rate limiting (429)
     RateLimited { retry_after: Option<u64> },
     /// Budget token dépassé
-    BudgetExceeded { goal_id: String, used: usize, budget: usize },
+    BudgetExceeded {
+        goal_id: String,
+        used: usize,
+        budget: usize,
+    },
     /// Provider inconnu
     UnknownProvider(String),
     /// Erreur du provider (5xx, modèle introuvable, etc.)
@@ -35,7 +39,11 @@ impl fmt::Display for LlmError {
                 }
                 Ok(())
             }
-            Self::BudgetExceeded { goal_id, used, budget } => {
+            Self::BudgetExceeded {
+                goal_id,
+                used,
+                budget,
+            } => {
                 write!(f, "budget exceeded for goal {goal_id}: {used} > {budget}")
             }
             Self::UnknownProvider(p) => write!(f, "unknown provider: {p}"),
@@ -85,44 +93,62 @@ mod tests {
 
     #[test]
     fn llm_error_display_network() {
-        assert!(LlmError::Network("timeout".into()).to_string().contains("network"));
+        assert!(LlmError::Network("timeout".into())
+            .to_string()
+            .contains("network"));
     }
 
     #[test]
     fn llm_error_display_auth() {
-        assert!(LlmError::Auth("bad key".into()).to_string().contains("auth"));
+        assert!(LlmError::Auth("bad key".into())
+            .to_string()
+            .contains("auth"));
     }
 
     #[test]
     fn llm_error_display_rate_limited() {
-        let e = LlmError::RateLimited { retry_after: Some(30) };
+        let e = LlmError::RateLimited {
+            retry_after: Some(30),
+        };
         assert!(e.to_string().contains("retry after 30s"));
     }
 
     #[test]
     fn llm_error_display_budget_exceeded() {
-        let e = LlmError::BudgetExceeded { goal_id: "g1".into(), used: 200, budget: 100 };
+        let e = LlmError::BudgetExceeded {
+            goal_id: "g1".into(),
+            used: 200,
+            budget: 100,
+        };
         assert!(e.to_string().contains("g1"));
     }
 
     #[test]
     fn llm_error_display_unknown_provider() {
-        assert!(LlmError::UnknownProvider("foo".into()).to_string().contains("foo"));
+        assert!(LlmError::UnknownProvider("foo".into())
+            .to_string()
+            .contains("foo"));
     }
 
     #[test]
     fn llm_error_display_provider() {
-        assert!(LlmError::Provider("boom".into()).to_string().contains("provider error"));
+        assert!(LlmError::Provider("boom".into())
+            .to_string()
+            .contains("provider error"));
     }
 
     #[test]
     fn llm_error_display_serialization() {
-        assert!(LlmError::Serialization("bad json".into()).to_string().contains("serialization"));
+        assert!(LlmError::Serialization("bad json".into())
+            .to_string()
+            .contains("serialization"));
     }
 
     #[test]
     fn llm_error_display_unsupported() {
-        assert!(LlmError::Unsupported("no embeddings".into()).to_string().contains("unsupported"));
+        assert!(LlmError::Unsupported("no embeddings".into())
+            .to_string()
+            .contains("unsupported"));
     }
 
     #[test]

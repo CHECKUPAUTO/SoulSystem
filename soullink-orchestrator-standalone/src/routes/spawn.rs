@@ -35,7 +35,7 @@ pub async fn route_spawn(State(state): State<AppState>, Json(body): Json<Value>)
 
     let brain_dir = state.brain_dir.clone();
     let domain_c = domain.clone();
-    let _domain_for_config = domain.clone();
+    // TODO: transmettre la speciality au brain lancé (ignorée pour le moment).
     let _speciality = body
         .get("speciality")
         .and_then(|v| v.as_array())

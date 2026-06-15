@@ -14,10 +14,7 @@
 //! Connects the news enrichment engine to the decision engine,
 //! forming a complete pipeline from raw events to trade signals.
 
-use scirust_trading_core::{
-    Category, CodifiedEvent, EnrichmentLevel, EventTiming, MarketReaction, MarketState, Polarity,
-    Reliability, Side, Symbol, Target,
-};
+use scirust_trading_core::{CodifiedEvent, MarketState, Symbol};
 use serde::{Deserialize, Serialize};
 
 // ── Decision Types ──────────────────────────────────────────────────────
@@ -77,16 +74,18 @@ pub struct TradingPipeline {
     processed: std::collections::HashSet<uuid::Uuid>,
 }
 
+impl Default for TradingPipeline {
+    fn default() -> Self {
+        Self::new(PipelineConfig::default())
+    }
+}
+
 impl TradingPipeline {
     pub fn new(config: PipelineConfig) -> Self {
         Self {
             config,
             processed: std::collections::HashSet::new(),
         }
-    }
-
-    pub fn default() -> Self {
-        Self::new(PipelineConfig::default())
     }
 
     /// Process a single enriched event into a decision.
@@ -253,6 +252,7 @@ impl TradingPipeline {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use scirust_trading_core::{Category, EventTiming, Polarity};
 
     fn make_event(score: f64) -> CodifiedEvent {
         let mut event = CodifiedEvent::builder("test", "test event")

@@ -25,7 +25,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use tracing::info;
+use tracing::{info, warn};
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -112,7 +112,6 @@ pub struct Registry {
     services: DashMap<String, ServiceInstance>,
     nodes: DashMap<String, NodeInfo>,
     /// TTL for service entries (default: 60s).
-    #[allow(dead_code)]
     ttl: Duration,
 }
 
@@ -144,6 +143,27 @@ impl Registry {
     }
 
     /// Unregister a service.
+    /// Purge les services dont l'enregistrement a dépassé le TTL.
+    /// Un service reste vivant en se ré-enregistrant périodiquement
+    /// (le `register` agit comme heartbeat). Retourne le nombre purgé.
+    pub fn purge_expired(&self) -> usize {
+        let now = chrono::Utc::now();
+        let ttl = chrono::Duration::from_std(self.ttl).unwrap_or(chrono::Duration::seconds(60));
+        let before = self.services.len();
+        self.services.retain(|_, svc| {
+            match chrono::DateTime::parse_from_rfc3339(&svc.registered_at) {
+                Ok(ts) => now.signed_duration_since(ts.with_timezone(&chrono::Utc)) < ttl,
+                // Timestamp illisible : on conserve plutôt que de purger à tort.
+                Err(_) => true,
+            }
+        });
+        let purged = before - self.services.len();
+        if purged > 0 {
+            warn!("Registry: purged {} expired service(s)", purged);
+        }
+        purged
+    }
+
     pub fn unregister(&self, name: &str, node_id: &str, port: u16) -> Option<ServiceInstance> {
         let key = format!("{}:{}:{}", name, node_id, port);
         self.services.remove(&key).map(|(_, v)| v)

@@ -190,7 +190,7 @@ impl Detector for DepsGraphDetector {
 }
 
 fn evidence_for_dep(ctx: &DetectContext, project: &str, dep: &str) -> Evidence {
-    let mut frag = format!("{}", dep);
+    let mut frag = dep.to_string();
     let mut path = std::path::PathBuf::from("(deps)");
     if let Some(pd) = ctx.deps.get(project) {
         if let Some(d) = pd

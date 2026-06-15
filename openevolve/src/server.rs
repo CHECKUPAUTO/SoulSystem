@@ -77,14 +77,17 @@ pub async fn run_server(cfg: Config, db: ProgramDatabase, bind: &str) -> Result<
         cost: Arc::new(om::CostTracker::new()),
     };
 
-    let _governor_conf = GovernorConfigBuilder::default()
+    let governor_conf = GovernorConfigBuilder::default()
         .key_extractor(GlobalKeyExtractor)
         .period(Duration::from_secs(10))
         .burst_size(2)
         .finish()
         .context("build governor config")?;
 
-    let evolve_router = Router::new().route("/evolve", post(evolve));
+    // Limite l'endpoint coûteux /evolve (burst 2, fenêtre 10 s).
+    let evolve_router = Router::new()
+        .route("/evolve", post(evolve))
+        .layer(tower_governor::GovernorLayer::new(governor_conf));
 
     let v1 = Router::new()
         .route("/health", get(health))

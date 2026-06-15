@@ -4,6 +4,13 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tokio::fs;
 
+pub mod induction;
+pub mod validation;
+pub use induction::{Episode, EpisodeAction, InducerConfig, Induction, SkillInducer};
+pub use validation::{
+    Retention, SkillFitness, SkillValidator, StructuralValidator, ValidatedSkillLibrary,
+};
+
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Error)]
@@ -20,7 +27,7 @@ pub type Result<T> = std::result::Result<T, SkillError>;
 
 // ─── Skill Definition ────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Skill {
     pub name: String,
     pub description: String,

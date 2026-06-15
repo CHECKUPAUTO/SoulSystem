@@ -161,28 +161,28 @@ pub fn run_sync_detectors(ctx: &DetectContext) -> Result<Vec<Synergy>> {
         detectors.push(Box::new(symbolic::SymbolicDetector));
     }
     if ctx.cfg.duplicate {
-        detectors.push(Box::new(duplicate::DuplicateDetector::default()));
+        detectors.push(Box::new(duplicate::DuplicateDetector));
     }
     if ctx.cfg.deps_graph {
-        detectors.push(Box::new(deps_graph::DepsGraphDetector::default()));
+        detectors.push(Box::new(deps_graph::DepsGraphDetector));
     }
     if ctx.cfg.api_surface {
-        detectors.push(Box::new(api_surface::ApiSurfaceDetector::default()));
+        detectors.push(Box::new(api_surface::ApiSurfaceDetector));
     }
     if ctx.cfg.config_drift {
-        detectors.push(Box::new(config_drift::ConfigDriftDetector::default()));
+        detectors.push(Box::new(config_drift::ConfigDriftDetector));
     }
     if ctx.cfg.port_overlap {
-        detectors.push(Box::new(port_overlap::PortOverlapDetector::default()));
+        detectors.push(Box::new(port_overlap::PortOverlapDetector));
     }
     if ctx.cfg.cocommit {
-        detectors.push(Box::new(cocommit::CoCommitDetector::default()));
+        detectors.push(Box::new(cocommit::CoCommitDetector));
     }
     if ctx.cfg.lang_bridge {
-        detectors.push(Box::new(lang_bridge::LangBridgeDetector::default()));
+        detectors.push(Box::new(lang_bridge::LangBridgeDetector));
     }
     if ctx.cfg.doc_xref {
-        detectors.push(Box::new(doc_xref::DocXrefDetector::default()));
+        detectors.push(Box::new(doc_xref::DocXrefDetector));
     }
 
     info!(target: "detect", n = detectors.len(), "détecteurs sync");
@@ -229,7 +229,7 @@ pub fn merge_synergies(all: Vec<Synergy>) -> Vec<Synergy> {
             Some(existing) => {
                 if s.auto_score > existing.auto_score {
                     let mut keep = s;
-                    keep.evidence.extend(existing.evidence.drain(..));
+                    keep.evidence.append(&mut existing.evidence);
                     *existing = keep;
                 } else {
                     let mut seen: std::collections::HashSet<String> = existing

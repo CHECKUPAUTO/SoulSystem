@@ -10,12 +10,12 @@
 //! les embeddings pour aligner la sémantique.
 
 use crate::batch_embed::BatchEmbedder;
-use crate::math::graph::{graph_readout, ConceptGraph, Edge, GNNStack, Node};
+use crate::math::graph::{ConceptGraph, GNNStack};
 use crate::memory::Memory;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{info, warn};
+use tracing::info;
 
 // ─────────────────────────────────────────────
 // Concept node enrichi
@@ -226,7 +226,7 @@ impl LiveConceptGraph {
     }
 
     /// Ingérer une mutation d'agent (code produit)
-    pub fn ingest_mutation(&mut self, agent_id: &str, mutation_desc: &str, embedding: Vec<f32>) {
+    pub fn ingest_mutation(&mut self, agent_id: &str, _mutation_desc: &str, embedding: Vec<f32>) {
         let label = format!("mutation:{}", &agent_id[..8.min(agent_id.len())]);
         let id = self.upsert_concept(&label, embedding, "mutation");
 
@@ -303,7 +303,6 @@ impl LiveConceptGraph {
             return vec![0.0; self.embed_dim];
         }
 
-        let n = self.nodes.len() as f32;
         let mut global = vec![0.0; self.embed_dim];
         for node in &self.nodes {
             let weight = node.relevance;

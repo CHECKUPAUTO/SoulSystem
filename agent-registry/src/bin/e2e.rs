@@ -86,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
                     start.elapsed(),
                     s.online,
                     s.total_brains,
-                    s.total_N
+                    s.total_n
                 );
                 passed += 1;
             }
