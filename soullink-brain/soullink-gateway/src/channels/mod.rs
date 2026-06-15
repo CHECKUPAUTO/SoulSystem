@@ -8,7 +8,10 @@
 //!   subscription handshake, and HMAC signature verification)
 //! - Slack (Web API send + Events API inbound, URL-verification handshake, and
 //!   request-signature verification)
+//! - Discord (REST send + Interactions webhook, Ed25519 signature verification,
+//!   PING/PONG handshake, command parsing)
 
+pub mod discord;
 pub mod signal;
 pub mod slack;
 pub mod whatsapp;
