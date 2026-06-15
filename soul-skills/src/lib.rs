@@ -5,7 +5,11 @@ use thiserror::Error;
 use tokio::fs;
 
 pub mod induction;
+pub mod validation;
 pub use induction::{Episode, EpisodeAction, InducerConfig, Induction, SkillInducer};
+pub use validation::{
+    Retention, SkillFitness, SkillValidator, StructuralValidator, ValidatedSkillLibrary,
+};
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
