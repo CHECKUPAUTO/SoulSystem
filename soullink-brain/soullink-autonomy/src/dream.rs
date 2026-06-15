@@ -123,6 +123,7 @@ mod tests {
         let result = cycle.dream_once().await.unwrap();
         // Result may have 0 steps if concepts aren't in the graph,
         // but the cycle should complete without error
-        assert!(result.steps >= 0);
+        // steps is always >= 0 (usize)
+        let _ = result.steps;
     }
 }

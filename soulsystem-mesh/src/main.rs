@@ -3,19 +3,17 @@
 
 #[cfg(feature = "avid")]
 use avid_bridge as avid;
-#[cfg(feature = "synergie")]
-use synergie_bridge as synergie;
-#[cfg(feature = "openevolve")]
-use openevolve_bridge as openevolve;
 #[cfg(feature = "brain")]
 use brain_bridge as brain;
+#[cfg(feature = "openevolve")]
+use openevolve_bridge as openevolve;
 #[cfg(feature = "soul_neural")]
 use soul_neural_bridge as soul_neural;
+#[cfg(feature = "synergie")]
+use synergie_bridge as synergie;
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     tracing::info!("🧬 SoulSystem Mesh initializing...");
 

@@ -42,13 +42,13 @@ impl Generator {
         for gap in &analysis.gaps {
             match gap.category {
                 GapCategory::MissingLanguageAgent => {
-                    let lang = gap.title
-                        .split_whitespace().find(|&w| KNOWN_LANGUAGES.contains(&w))
+                    let lang = gap
+                        .title
+                        .split_whitespace()
+                        .find(|&w| KNOWN_LANGUAGES.contains(&w))
                         .unwrap_or("language");
 
-                    let proposal = Self::propose_language_agent(
-                        lang, &mut id_counter, gap, config,
-                    );
+                    let proposal = Self::propose_language_agent(lang, &mut id_counter, gap, config);
                     if let Some(p) = proposal {
                         let key = p.target_name.to_lowercase();
                         if !agent_names_lower.contains(&key) && seen_targets.insert(key) {
@@ -60,16 +60,17 @@ impl Generator {
                         let mut resolver_gap = gap.clone();
                         let resolver_name = format!("{}-build-resolver", lang);
                         resolver_gap.title = format!("Missing {} build resolver", lang);
-                        resolver_gap.description = format!(
-                            "No {} build resolver agent exists.",
-                            lang
-                        );
+                        resolver_gap.description =
+                            format!("No {} build resolver agent exists.", lang);
                         resolver_gap.suggestion = format!(
                             "Create agents/{} with build-resolution focus.",
                             resolver_name
                         );
                         if let Some(rp) = Self::propose_build_resolver(
-                            lang, &mut id_counter, &resolver_gap, config,
+                            lang,
+                            &mut id_counter,
+                            &resolver_gap,
+                            config,
                         ) {
                             let key = rp.target_name.to_lowercase();
                             if !agent_names_lower.contains(&key) && seen_targets.insert(key) {
@@ -84,32 +85,30 @@ impl Generator {
                         .strip_prefix("Low quality agent: ")
                         .unwrap_or("unknown");
 
-                    if let Some(existing) = report
-                        .audits
-                        .iter()
-                        .find(|a| a.agent.name == agent_name)
+                    if let Some(existing) =
+                        report.audits.iter().find(|a| a.agent.name == agent_name)
                     {
                         let proposal = Self::propose_improved_version(
-                            &existing.agent, &mut id_counter, gap, config,
+                            &existing.agent,
+                            &mut id_counter,
+                            gap,
+                            config,
                         );
                         proposals.push(proposal);
                     }
                 }
                 GapCategory::IncompleteAgent => {
                     // Extract agent name from description if possible
-                    let agent_name = gap
-                        .description
-                        .split(" has ")
-                        .next()
-                        .unwrap_or("unknown");
+                    let agent_name = gap.description.split(" has ").next().unwrap_or("unknown");
 
-                    if let Some(existing) = report
-                        .audits
-                        .iter()
-                        .find(|a| a.agent.name == agent_name)
+                    if let Some(existing) =
+                        report.audits.iter().find(|a| a.agent.name == agent_name)
                     {
                         let proposal = Self::propose_fix_incomplete_agent(
-                            &existing.agent, &mut id_counter, gap, config,
+                            &existing.agent,
+                            &mut id_counter,
+                            gap,
+                            config,
                         );
                         proposals.push(proposal);
                     }
@@ -478,7 +477,8 @@ You are a specialized AI agent focused on {agent_name} tasks.
         if let Some(parent) = path.parent() {
             if let Ok(canonical_parent) = parent.canonicalize() {
                 let canonical_path = if path.exists() {
-                    path.canonicalize().map_err(|e| format!("Cannot resolve path: {e}"))?
+                    path.canonicalize()
+                        .map_err(|e| format!("Cannot resolve path: {e}"))?
                 } else {
                     // For non-existent files, canonicalize the parent + filename
                     let filename = path.file_name().ok_or("Invalid path: no filename")?;
@@ -513,18 +513,9 @@ You are a specialized AI agent focused on {agent_name} tasks.
         let mut out = String::new();
         use std::fmt::Write;
 
-        let _ = writeln!(
-            out,
-            "╔══════════════════════════════════════════════╗"
-        );
-        let _ = writeln!(
-            out,
-            "║        IMPROVEMENT PROPOSALS                 ║"
-        );
-        let _ = writeln!(
-            out,
-            "╚══════════════════════════════════════════════╝"
-        );
+        let _ = writeln!(out, "╔══════════════════════════════════════════════╗");
+        let _ = writeln!(out, "║        IMPROVEMENT PROPOSALS                 ║");
+        let _ = writeln!(out, "╚══════════════════════════════════════════════╝");
         let _ = writeln!(out);
 
         if proposals.is_empty() {
@@ -553,10 +544,7 @@ You are a specialized AI agent focused on {agent_name} tasks.
         }
 
         let _ = writeln!(out, "── Total: {} proposals ──", proposals.len());
-        let _ = writeln!(
-            out,
-            "────────────────────────────────────────────"
-        );
+        let _ = writeln!(out, "────────────────────────────────────────────");
         out
     }
 }

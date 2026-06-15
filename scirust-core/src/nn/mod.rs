@@ -1,2 +1,2 @@
-pub mod transformer;
 pub mod rng;
+pub mod transformer;

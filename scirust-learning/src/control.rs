@@ -65,7 +65,12 @@ pub struct KalmanFilter1D {
 
 impl KalmanFilter1D {
     pub fn new(initial_x: f64, initial_p: f64, q: f64, r: f64) -> Self {
-        Self { x: initial_x, p: initial_p, q, r }
+        Self {
+            x: initial_x,
+            p: initial_p,
+            q,
+            r,
+        }
     }
 
     /// Prediction step

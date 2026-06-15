@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use soul_scheduler::scheduler::AgentScheduler;
 use soul_scheduler::queue::Task;
+use soul_scheduler::scheduler::AgentScheduler;
 
 extern "C" fn noop_fn(_: *mut u8) {}
 

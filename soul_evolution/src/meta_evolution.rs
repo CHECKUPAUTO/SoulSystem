@@ -67,7 +67,8 @@ impl GodelEngine {
         vec![
             GodelStrategy {
                 name: "generate-missing-language-agents".into(),
-                description: "Detect uncovered languages and generate reviewer + resolver agents".into(),
+                description: "Detect uncovered languages and generate reviewer + resolver agents"
+                    .into(),
                 code: "audit → analyzer → generator → validate → apply".into(),
                 version: 1,
                 utility_history: vec![],
@@ -115,7 +116,9 @@ impl GodelEngine {
             },
             GodelStrategy {
                 name: "archive-diversification".into(),
-                description: "Darwin-style: sample from archive, mutate, add back preserving diversity".into(),
+                description:
+                    "Darwin-style: sample from archive, mutate, add back preserving diversity"
+                        .into(),
                 code: "sample archive entry → novelty-check → mutate → archive → prune".into(),
                 version: 1,
                 utility_history: vec![],
@@ -269,10 +272,7 @@ impl AgentArchive {
         let scores: Vec<f64> = self
             .entries
             .iter()
-            .map(|e| {
-                self.quality_weight * e.quality_score
-                    + self.novelty_weight * e.novelty_score
-            })
+            .map(|e| self.quality_weight * e.quality_score + self.novelty_weight * e.novelty_score)
             .collect();
 
         let total: f64 = scores.iter().sum();
@@ -314,11 +314,7 @@ impl AgentArchive {
         // Nom similaire ?
         if a.name == b.name {
             score += 0.3;
-        } else if a
-            .name
-            .split('-')
-            .any(|p| b.name.contains(p))
-        {
+        } else if a.name.split('-').any(|p| b.name.contains(p)) {
             score += 0.15;
         }
 
@@ -358,10 +354,7 @@ impl AgentArchive {
             .entries
             .iter()
             .enumerate()
-            .filter(|(_, e)| {
-                e.novelty_score < self.diversity_threshold
-                    && e.quality_score < 0.5
-            })
+            .filter(|(_, e)| e.novelty_score < self.diversity_threshold && e.quality_score < 0.5)
             .map(|(i, _)| i)
             .collect();
 
@@ -465,11 +458,7 @@ impl SelfPlayArena {
     }
 
     /// Organise un match entre le champion et un challenger
-    pub fn compete(
-        &mut self,
-        champion: &ArchiveEntry,
-        challenger: &ArchiveEntry,
-    ) -> SelfPlayMatch {
+    pub fn compete(&mut self, champion: &ArchiveEntry, challenger: &ArchiveEntry) -> SelfPlayMatch {
         let match_result = SelfPlayMatch {
             agent_a: champion.agent_def.name.clone(),
             agent_b: challenger.agent_def.name.clone(),
@@ -550,13 +539,7 @@ impl ReflexionMemory {
     }
 
     /// Ajoute un épisode de réflexion (Reflexion: self-reflection through feedback)
-    pub fn record(
-        &mut self,
-        action: &str,
-        outcome: &str,
-        reflection: &str,
-        lessons: Vec<String>,
-    ) {
+    pub fn record(&mut self, action: &str, outcome: &str, reflection: &str, lessons: Vec<String>) {
         let episode = ReflexionEpisode {
             iteration: self.episodes.len() as u64 + 1,
             action: action.to_string(),
@@ -589,10 +572,7 @@ impl ReflexionMemory {
         let mut prompt = String::new();
 
         prompt.push_str("[SELF-REFLECTION]\n");
-        prompt.push_str(&format!(
-            "Total episodes: {}\n",
-            self.episodes.len()
-        ));
+        prompt.push_str(&format!("Total episodes: {}\n", self.episodes.len()));
 
         if !self.success_patterns.is_empty() {
             prompt.push_str("\nWhat worked before:\n");
@@ -627,13 +607,7 @@ impl OptimizationTrajectory {
     }
 
     /// Ajoute un point à la trajectoire
-    pub fn record(
-        &mut self,
-        description: &str,
-        score: f64,
-        change: &str,
-        strategy: &str,
-    ) {
+    pub fn record(&mut self, description: &str, score: f64, change: &str, strategy: &str) {
         let point = TrajectoryPoint {
             iteration: self.attempts.len() + 1,
             description: description.to_string(),
@@ -669,10 +643,7 @@ impl OptimizationTrajectory {
                 "  Step {}: score={:.3}{}\n",
                 attempt.iteration, attempt.score, marker
             ));
-            prompt.push_str(&format!(
-                "    Strategy: {}\n",
-                attempt.strategy_used
-            ));
+            prompt.push_str(&format!("    Strategy: {}\n", attempt.strategy_used));
             prompt.push_str(&format!("    Change: {}\n", attempt.change_description));
         }
 
@@ -694,21 +665,16 @@ pub fn format_explosion_report(metrics: &ExplosionMetrics) -> String {
     let mut out = String::new();
     use std::fmt::Write;
 
-    let _ = writeln!(
-        out,
-        "╔══════════════════════════════════════════════╗"
-    );
-    let _ = writeln!(
-        out,
-        "║     I.J. GOOD INTELLIGENCE EXPLOSION         ║"
-    );
-    let _ = writeln!(
-        out,
-        "╚══════════════════════════════════════════════╝"
-    );
+    let _ = writeln!(out, "╔══════════════════════════════════════════════╗");
+    let _ = writeln!(out, "║     I.J. GOOD INTELLIGENCE EXPLOSION         ║");
+    let _ = writeln!(out, "╚══════════════════════════════════════════════╝");
     let _ = writeln!(out);
 
-    let _ = writeln!(out, "  Health points recorded: {}", metrics.health_history.len());
+    let _ = writeln!(
+        out,
+        "  Health points recorded: {}",
+        metrics.health_history.len()
+    );
     let _ = writeln!(out, "  Trend:                 {}", metrics.trend);
 
     if let Some(&fd) = metrics.first_derivative.last() {
@@ -719,10 +685,7 @@ pub fn format_explosion_report(metrics: &ExplosionMetrics) -> String {
     }
 
     if metrics.is_exploding {
-        let _ = writeln!(
-            out,
-            "  ⚠  INTELLIGENCE EXPLOSION DETECTED"
-        );
+        let _ = writeln!(out, "  ⚠  INTELLIGENCE EXPLOSION DETECTED");
         let _ = writeln!(
             out,
             "  Explosion probability: {:.1}%",
@@ -733,10 +696,7 @@ pub fn format_explosion_report(metrics: &ExplosionMetrics) -> String {
         let _ = writeln!(out, "  No explosion detected. System is stable.");
     }
 
-    let _ = writeln!(
-        out,
-        "────────────────────────────────────────────"
-    );
+    let _ = writeln!(out, "────────────────────────────────────────────");
     out
 }
 
@@ -797,18 +757,13 @@ impl MetaEvolver {
         }
 
         // Phase 3: STOP — auto-améliorer l'improver
-        let new_strategy = self
-            .improver
-            .self_improve(report.ecosystem_health);
+        let new_strategy = self.improver.self_improve(report.ecosystem_health);
         if let Some(strat) = new_strategy {
             result.strategy_mutation = Some(format!("{:?}", strat));
         }
 
         // Phase 4: AlphaZero — self-play
-        if let (Some(champion), Some(challenger)) = (
-            self.archive.sample(),
-            self.archive.sample(),
-        ) {
+        if let (Some(champion), Some(challenger)) = (self.archive.sample(), self.archive.sample()) {
             if champion.id != challenger.id {
                 let match_result = self.arena.compete(champion, challenger);
                 result.self_play_matches += 1;
@@ -842,19 +797,21 @@ impl MetaEvolver {
         );
 
         // Phase 7: I.J. Good — détection d'explosion
-        result.explosion_report =
-            format_explosion_report(&self.godel.explosion);
+        result.explosion_report = format_explosion_report(&self.godel.explosion);
 
         // Phase 8: Gödel — propositions d'auto-modification
         let self_mods = self.godel.propose_self_mods();
         for mod_proposal in self_mods {
             let current_utility = self.godel.utility_fn.evaluate(report, &self.archive);
             let projected_utility = current_utility + mod_proposal.expected_utility_gain;
-            let (beneficial, proof) = self
-                .godel
-                .utility_fn
-                .is_provably_beneficial(current_utility, projected_utility, 0.01);
-            result.self_mod_checks.push((mod_proposal.strategy_name, beneficial, proof));
+            let (beneficial, proof) = self.godel.utility_fn.is_provably_beneficial(
+                current_utility,
+                projected_utility,
+                0.01,
+            );
+            result
+                .self_mod_checks
+                .push((mod_proposal.strategy_name, beneficial, proof));
         }
 
         result
@@ -895,18 +852,9 @@ impl MetaCycleResult {
         let mut out = String::new();
         use std::fmt::Write;
 
-        let _ = writeln!(
-            out,
-            "╔══════════════════════════════════════════════╗"
-        );
-        let _ = writeln!(
-            out,
-            "║        META-EVOLUTION CYCLE REPORT           ║"
-        );
-        let _ = writeln!(
-            out,
-            "╚══════════════════════════════════════════════╝"
-        );
+        let _ = writeln!(out, "╔══════════════════════════════════════════════╗");
+        let _ = writeln!(out, "║        META-EVOLUTION CYCLE REPORT           ║");
+        let _ = writeln!(out, "╚══════════════════════════════════════════════╝");
         let _ = writeln!(out);
         let _ = writeln!(out, "  Archive entries:     {}", self.archive_additions);
         let _ = writeln!(out, "  Self-play matches:   {}", self.self_play_matches);
@@ -921,7 +869,11 @@ impl MetaCycleResult {
             let _ = writeln!(out);
             let _ = writeln!(out, "── Gödel Self-Modification Checks ──");
             for (name, beneficial, proof) in &self.self_mod_checks {
-                let status = if *beneficial { "✓ APPROVED" } else { "✗ REJECTED" };
+                let status = if *beneficial {
+                    "✓ APPROVED"
+                } else {
+                    "✗ REJECTED"
+                };
                 let _ = writeln!(out, "  {} [{}]", name, status);
                 let _ = writeln!(out, "    Proof: {}", proof);
             }
@@ -983,8 +935,18 @@ mod tests {
     #[test]
     fn test_reflexion_memory() {
         let mut mem = ReflexionMemory::new();
-        mem.record("action-1", "success: improved", "good", vec!["use SIMD".into()]);
-        mem.record("action-2", "failed: crashed", "bad", vec!["check bounds".into()]);
+        mem.record(
+            "action-1",
+            "success: improved",
+            "good",
+            vec!["use SIMD".into()],
+        );
+        mem.record(
+            "action-2",
+            "failed: crashed",
+            "bad",
+            vec!["check bounds".into()],
+        );
         assert_eq!(mem.success_patterns.len(), 1);
         assert_eq!(mem.failure_patterns.len(), 1);
         let prompt = mem.generate_reflection_prompt();

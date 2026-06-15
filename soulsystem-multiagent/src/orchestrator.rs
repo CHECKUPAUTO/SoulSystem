@@ -72,7 +72,9 @@ impl Orchestrator {
 
     /// Résultat en cache pour une tâche identique déjà exécutée avec succès.
     pub async fn cached_result(&self, task: &AgentTask) -> Option<TaskResult> {
-        self.cache.get(&format!("{}:{}", task.task_type, task.name)).await
+        self.cache
+            .get(&format!("{}:{}", task.task_type, task.name))
+            .await
     }
 
     /// Submit a task for processing. Returns immediately; the task is queued.

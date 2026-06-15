@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct AgentDef {
@@ -503,12 +503,7 @@ impl UtilityFunction {
         let quality_score = if report.audits.is_empty() {
             0.0
         } else {
-            report
-                .audits
-                .iter()
-                .map(|a| a.quality_score)
-                .sum::<f64>()
-                / report.audits.len() as f64
+            report.audits.iter().map(|a| a.quality_score).sum::<f64>() / report.audits.len() as f64
         };
         let diversity_score = if archive.max_size > 0 {
             (archive.entries.len() as f64 / archive.max_size as f64).min(1.0)
@@ -549,10 +544,7 @@ impl UtilityFunction {
         } else {
             (
                 false,
-                format!(
-                    "Utility change {:.4} is non-positive: REJECTED",
-                    gain
-                ),
+                format!("Utility change {:.4} is non-positive: REJECTED", gain),
             )
         }
     }
@@ -599,8 +591,7 @@ impl ExplosionMetrics {
                     // Check for intelligence explosion
                     if sd > self.acceleration_threshold && fd > 0.0 {
                         self.is_exploding = true;
-                        self.explosion_probability =
-                            (self.explosion_probability + 0.1).min(1.0);
+                        self.explosion_probability = (self.explosion_probability + 0.1).min(1.0);
                         self.trend = "ACCELERATING".to_string();
                     } else if fd > 0.0 {
                         self.trend = "improving".to_string();
@@ -620,17 +611,64 @@ impl ExplosionMetrics {
 }
 
 pub const KNOWN_LANGUAGES: &[&str] = &[
-    "python", "rust", "typescript", "javascript", "go", "java", "kotlin",
-    "cpp", "csharp", "swift", "fsharp", "dart", "php", "ruby", "scala",
-    "elixir", "clojure", "haskell", "lua", "r", "matlab", "julia", "zig",
-    "nim", "crystal", "ocaml", "erlang", "perl", "django", "fastapi",
-    "react", "flutter", "vue", "angular", "svelte", "nextjs", "nuxt",
-    "pytorch", "tensorflow", "jax", "spring", "dotnet", "rails",
+    "python",
+    "rust",
+    "typescript",
+    "javascript",
+    "go",
+    "java",
+    "kotlin",
+    "cpp",
+    "csharp",
+    "swift",
+    "fsharp",
+    "dart",
+    "php",
+    "ruby",
+    "scala",
+    "elixir",
+    "clojure",
+    "haskell",
+    "lua",
+    "r",
+    "matlab",
+    "julia",
+    "zig",
+    "nim",
+    "crystal",
+    "ocaml",
+    "erlang",
+    "perl",
+    "django",
+    "fastapi",
+    "react",
+    "flutter",
+    "vue",
+    "angular",
+    "svelte",
+    "nextjs",
+    "nuxt",
+    "pytorch",
+    "tensorflow",
+    "jax",
+    "spring",
+    "dotnet",
+    "rails",
 ];
 
 pub const KNOWN_MODELS: &[&str] = &["opus", "sonnet", "haiku"];
 
 pub const KNOWN_TOOLS: &[&str] = &[
-    "Read", "Write", "Edit", "Grep", "Glob", "Bash", "WebSearch", "WebFetch",
-    "Skill", "Task", "Question", "Todowrite",
+    "Read",
+    "Write",
+    "Edit",
+    "Grep",
+    "Glob",
+    "Bash",
+    "WebSearch",
+    "WebFetch",
+    "Skill",
+    "Task",
+    "Question",
+    "Todowrite",
 ];

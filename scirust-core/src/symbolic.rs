@@ -524,8 +524,8 @@ mod tests {
 
     #[test]
     fn prove_equal_commutative() {
-        let a = parse("x + y").unwrap();
-        let b = parse("y + x").unwrap();
+        let _a = parse("x + y").unwrap();
+        let _b = parse("y + x").unwrap();
         // Structural equality, not algebraic — so this returns false
         // but simplification doesn't reorder. Test structural equality instead.
         let c = parse("x + 2").unwrap();

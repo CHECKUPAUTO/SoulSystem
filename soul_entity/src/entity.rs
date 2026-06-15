@@ -4,20 +4,23 @@ use parking_lot::Mutex;
 use serde_json::json;
 use soul_gateway::EntityEvent;
 use soul_llm::LlmClient;
-use soul_persistence::{KIND_CODE_ARTIFACT, KIND_DECISION, KIND_GOAL, KIND_OBSERVATION, KIND_PLAN, KIND_TOOL_RESULT, LongTermMemory, StampedEntry};
+use soul_persistence::{
+    LongTermMemory, StampedEntry, KIND_CODE_ARTIFACT, KIND_DECISION, KIND_GOAL, KIND_OBSERVATION,
+    KIND_PLAN, KIND_TOOL_RESULT,
+};
 use soul_planner::{CognitiveLoop, Decision, Evaluation};
 use soul_sandbox::{Sandbox, SandboxVerdict};
-use soul_tools::{ToolRegistry, discover_system_tools};
+use soul_tools::{discover_system_tools, ToolRegistry};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::types::*;
 use crate::event_store::PersistentEventStore;
 use crate::facade::OpenClawFacade;
 use crate::subsystems::Subsystems;
+use crate::types::*;
 
 // ── L'entité ─────────────────────────────────────────────────
 
@@ -41,7 +44,9 @@ pub struct SoulEntity {
 impl SoulEntity {
     /// Construit une nouvelle entité. Si `config.memory_path` est fourni,
     /// la mémoire est persistée sur disque.
-    pub fn new(config: EntityConfig) -> std::result::Result<Self, soul_persistence::PersistenceError> {
+    pub fn new(
+        config: EntityConfig,
+    ) -> std::result::Result<Self, soul_persistence::PersistenceError> {
         let llm = LlmClient::new(config.llm.clone())
             .map_err(|e| soul_persistence::PersistenceError::Other(format!("LLM init: {e}")))?;
 
@@ -59,23 +64,23 @@ impl SoulEntity {
         };
 
         let event_store = if let Some(ref path) = config.event_store_path {
-            PersistentEventStore::new(path, 10, 1000).map_err(|e| {
-                soul_persistence::PersistenceError::Io(e)
-            })?
+            PersistentEventStore::new(path, 10, 1000)
+                .map_err(|e| soul_persistence::PersistenceError::Io(e))?
         } else {
-            PersistentEventStore::new("/tmp/soul_events.log", 1, 100).map_err(|e| {
-                soul_persistence::PersistenceError::Io(e)
-            })?
+            PersistentEventStore::new("/tmp/soul_events.log", 1, 100)
+                .map_err(|e| soul_persistence::PersistenceError::Io(e))?
         };
 
         // Sous-systèmes historiques câblés.
-        let journal_path = config.memory_path.as_ref().and_then(|p| {
-            p.join("journal.bin").to_str().map(|s| s.to_string())
-        });
-        let subsystems = Arc::new(Subsystems::new(journal_path.as_deref()).map_err(|e| {
-            soul_persistence::PersistenceError::Io(e)
-        })?);
-        
+        let journal_path = config
+            .memory_path
+            .as_ref()
+            .and_then(|p| p.join("journal.bin").to_str().map(|s| s.to_string()));
+        let subsystems = Arc::new(
+            Subsystems::new(journal_path.as_deref())
+                .map_err(|e| soul_persistence::PersistenceError::Io(e))?,
+        );
+
         // Démarrer la console clinique en arrière-plan.
         let subs_clone = subsystems.clone();
         let _ = subs_clone.start_clinical_console(8081);
@@ -119,16 +124,22 @@ impl SoulEntity {
         };
 
         if let Ok(v) = serde_json::to_value(&goal) {
-            let _ = self.memory.put(StampedEntry::new(KIND_GOAL, v).with_id(goal.id.clone()));
+            let _ = self
+                .memory
+                .put(StampedEntry::new(KIND_GOAL, v).with_id(goal.id.clone()));
         }
 
         self.goals.lock().insert(goal.id.clone(), goal.clone());
         self.goal_order.lock().push_back(goal.id.clone());
-        
+
         // Enregistrer dans l'orchestrateur (qui gère aussi le linker).
-        self.subsystems.orch_register_goal(stable_hash32(&goal.id), &goal.description);
+        self.subsystems
+            .orch_register_goal(stable_hash32(&goal.id), &goal.description);
         // Journaliser.
-        self.subsystems.journal_log(crate::subsystems::TAG_GOAL, &format!("new goal: {}", goal.id));
+        self.subsystems.journal_log(
+            crate::subsystems::TAG_GOAL,
+            &format!("new goal: {}", goal.id),
+        );
 
         self.events.publish(EntityEvent::GoalCreated {
             id: goal.id.clone(),
@@ -146,7 +157,10 @@ impl SoulEntity {
     pub fn list_goals(&self) -> Vec<PersistentGoal> {
         let order = self.goal_order.lock();
         let goals = self.goals.lock();
-        order.iter().filter_map(|id| goals.get(id).cloned()).collect()
+        order
+            .iter()
+            .filter_map(|id| goals.get(id).cloned())
+            .collect()
     }
 
     // ── Actions de l'entité ────────────────────────────────────
@@ -163,10 +177,13 @@ impl SoulEntity {
             "Exécuter les étapes".into(),
             "Évaluer le résultat".into(),
         ];
-        
+
         // 2. Tri topologique (via neural_graph_compiler).
-        let edges = vec![(0,1), (1,2), (2,3)];
-        let sorted = self.subsystems.graph_compile_plan(4, &edges).map_err(|e| e.to_string())?;
+        let edges = vec![(0, 1), (1, 2), (2, 3)];
+        let sorted = self
+            .subsystems
+            .graph_compile_plan(4, &edges)
+            .map_err(|e| e.to_string())?;
         let sorted_steps: Vec<String> = sorted.into_iter().map(|i| steps[i].clone()).collect();
 
         let plan = PersistentPlan {
@@ -178,11 +195,18 @@ impl SoulEntity {
         goal.status = "planned".into();
 
         if let Ok(v) = serde_json::to_value(&plan) {
-            let _ = self.memory.put(StampedEntry::new(KIND_PLAN, v).with_id(plan.id.clone()).with_parent(goal_id));
+            let _ = self.memory.put(
+                StampedEntry::new(KIND_PLAN, v)
+                    .with_id(plan.id.clone())
+                    .with_parent(goal_id),
+            );
         }
-        
+
         // Journaliser.
-        self.subsystems.journal_log(crate::subsystems::TAG_PLAN, &format!("plan for {}: {} steps", goal_id, plan.steps.len()));
+        self.subsystems.journal_log(
+            crate::subsystems::TAG_PLAN,
+            &format!("plan for {}: {} steps", goal_id, plan.steps.len()),
+        );
 
         self.events.publish(EntityEvent::PlanCreated {
             id: plan.id.clone(),
@@ -208,7 +232,7 @@ impl SoulEntity {
 
         for (i, step) in plan.steps.iter().enumerate() {
             info!("[entity] étape {}: {}", i, step);
-            
+
             let start = std::time::Instant::now();
 
             // Injection de chaos légère.
@@ -225,16 +249,19 @@ impl SoulEntity {
                 ms: start.elapsed().as_millis() as u64,
                 ts: Utc::now(),
             });
-            
+
             // Journaliser chaque étape.
-            self.subsystems.journal_log(crate::subsystems::TAG_STEP, &format!("step {} ok", i));
+            self.subsystems
+                .journal_log(crate::subsystems::TAG_STEP, &format!("step {} ok", i));
         }
 
         let mut goals = self.goals.lock();
-        let goal = goals.get_mut(goal_id).ok_or_else(|| format!("goal {goal_id} introuvable"))?;
+        let goal = goals
+            .get_mut(goal_id)
+            .ok_or_else(|| format!("goal {goal_id} introuvable"))?;
         goal.status = "completed".into();
         self.stats.lock().goals_completed += 1;
-        
+
         // Marquer comme fini dans l'orchestrateur.
         self.subsystems.orch_complete(stable_hash32(goal_id));
 
@@ -243,11 +270,15 @@ impl SoulEntity {
 
     pub fn execute_shell(&self, cmd: &str) -> std::result::Result<String, String> {
         let verdict = self.sandbox.execute(cmd).map_err(|e| format!("{e}"))?;
-        
+
         let out = if verdict.exit_code == Some(0) {
             verdict.stdout.clone()
         } else {
-            format!("ERROR ({}): {}", verdict.exit_code.unwrap_or(-1), verdict.stderr)
+            format!(
+                "ERROR ({}): {}",
+                verdict.exit_code.unwrap_or(-1),
+                verdict.stderr
+            )
         };
 
         if let Ok(v) = serde_json::to_value(&verdict) {
@@ -295,11 +326,11 @@ impl SoulEntity {
         stored.verdict = Some(verdict.clone());
 
         if let Ok(v) = serde_json::to_value(&stored) {
-            let _ = self
-                .memory
-                .put(StampedEntry::new(KIND_CODE_ARTIFACT, v)
+            let _ = self.memory.put(
+                StampedEntry::new(KIND_CODE_ARTIFACT, v)
                     .with_id(artifact.id.clone())
-                    .with_tags(vec![language.into()]));
+                    .with_tags(vec![language.into()]),
+            );
         }
         self.code_artifacts.lock().push(stored.clone());
         self.stats.lock().code_artifacts_generated += 1;
@@ -313,7 +344,10 @@ impl SoulEntity {
     /// Renvoie un JSON décrivant le cycle.
     pub async fn run_cycle(&self) -> std::result::Result<serde_json::Value, String> {
         let cycle_id = Uuid::new_v4().to_string();
-        self.events.publish(EntityEvent::CycleStarted { id: cycle_id.clone(), ts: Utc::now() });
+        self.events.publish(EntityEvent::CycleStarted {
+            id: cycle_id.clone(),
+            ts: Utc::now(),
+        });
         self.stats.lock().cycles_run += 1;
         self.stats.lock().last_cycle_at = Some(Utc::now());
 
@@ -347,13 +381,16 @@ impl SoulEntity {
 
             let goal = match candidate {
                 Some(g) => g,
-                None => {
-                    self.create_goal("Vérifier l'état du système", 3)
-                }
+                None => self.create_goal("Vérifier l'état du système", 3),
             };
 
             // 2. Planifier si pas de plan
-            let has_plan = self.goals.lock().get(&goal.id).and_then(|g| g.plan.clone()).is_some();
+            let has_plan = self
+                .goals
+                .lock()
+                .get(&goal.id)
+                .and_then(|g| g.plan.clone())
+                .is_some();
             if !has_plan {
                 self.plan(&goal.id)?;
             }
@@ -361,10 +398,15 @@ impl SoulEntity {
             // 3. Observer (mémoire de travail)
             let observation = format!("[{}] goal={}", cycle_id, goal.description);
             self.planner.lock().memory.observe(observation.clone());
-            self.events.publish(EntityEvent::Observation { text: observation.clone(), ts: Utc::now() });
-            
+            self.events.publish(EntityEvent::Observation {
+                text: observation.clone(),
+                ts: Utc::now(),
+            });
+
             if let Ok(v) = serde_json::to_value(&observation) {
-                let _ = self.memory.put(StampedEntry::new(KIND_OBSERVATION, v).with_parent(&goal.id));
+                let _ = self
+                    .memory
+                    .put(StampedEntry::new(KIND_OBSERVATION, v).with_parent(&goal.id));
             }
 
             // 4. Agir
@@ -390,13 +432,23 @@ impl SoulEntity {
 
             // 7. Persister la décision
             if let Ok(v) = serde_json::to_value(&decision) {
-                let _ = self.memory.put(StampedEntry::new(KIND_DECISION, v).with_parent(&goal.id));
+                let _ = self
+                    .memory
+                    .put(StampedEntry::new(KIND_DECISION, v).with_parent(&goal.id));
             }
-            
-            // Journaliser la décision.
-            self.subsystems.journal_log(crate::subsystems::TAG_DECISION, &format!("goal {} archived", goal.id));
 
-            Ok(SyncOutcome { goal, exec_result, eval, decision })
+            // Journaliser la décision.
+            self.subsystems.journal_log(
+                crate::subsystems::TAG_DECISION,
+                &format!("goal {} archived", goal.id),
+            );
+
+            Ok(SyncOutcome {
+                goal,
+                exec_result,
+                eval,
+                decision,
+            })
         })();
 
         let outcome = sync?;
@@ -411,7 +463,7 @@ impl SoulEntity {
         } else {
             None
         };
-        
+
         let llm_usage = self.llm_usage(&outcome.goal.id);
 
         let outcome_json = Ok(json!({
@@ -425,7 +477,11 @@ impl SoulEntity {
         }));
 
         self.stats.lock().cycles_succeeded += 1;
-        self.events.publish(EntityEvent::CycleFinished { id: cycle_id.clone(), success: true, ts: Utc::now() });
+        self.events.publish(EntityEvent::CycleFinished {
+            id: cycle_id.clone(),
+            success: true,
+            ts: Utc::now(),
+        });
         outcome_json
     }
 
@@ -433,7 +489,10 @@ impl SoulEntity {
     /// C'est le mode "entité autonome en arrière-plan".
     pub async fn autonomous_loop(&self) {
         self.running.store(true, Ordering::SeqCst);
-        info!("[entity] boucle autonome démarrée ({}ms tick)", self.config.autonomous_tick.as_millis());
+        info!(
+            "[entity] boucle autonome démarrée ({}ms tick)",
+            self.config.autonomous_tick.as_millis()
+        );
         while self.running.load(Ordering::SeqCst) {
             match self.run_cycle().await {
                 Ok(v) => info!("[entity] cycle ok: {}", v),
@@ -448,7 +507,11 @@ impl SoulEntity {
         self.ask_with_goal(prompt, "default").await
     }
 
-    pub async fn ask_with_goal(&self, prompt: &str, goal_id: &str) -> std::result::Result<String, String> {
+    pub async fn ask_with_goal(
+        &self,
+        prompt: &str,
+        goal_id: &str,
+    ) -> std::result::Result<String, String> {
         self.llm
             .generate_with_goal(prompt, goal_id)
             .await
@@ -483,7 +546,10 @@ impl SoulEntity {
         let meta_json = serde_json::Value::Object({
             let mut m = serde_json::Map::new();
             m.insert("timestamp_ns".into(), json!(meta.timestamp_ns));
-            m.insert("throughput_bytes_per_sec".into(), json!(meta.memory_throughput_bytes_per_sec));
+            m.insert(
+                "throughput_bytes_per_sec".into(),
+                json!(meta.memory_throughput_bytes_per_sec),
+            );
             m.insert("synapses".into(), json!(meta.active_synapse_count));
             m.insert("meta_loss".into(), json!(meta.current_meta_loss));
             m
@@ -532,8 +598,14 @@ impl SoulEntity {
         self.subsystems.crdt_snapshot()
     }
 
-    pub fn graph_compile_plan(&self, n: usize, deps: &[(usize, usize)]) -> std::result::Result<Vec<usize>, String> {
-        self.subsystems.graph_compile_plan(n, deps).map_err(|e| e.to_string())
+    pub fn graph_compile_plan(
+        &self,
+        n: usize,
+        deps: &[(usize, usize)],
+    ) -> std::result::Result<Vec<usize>, String> {
+        self.subsystems
+            .graph_compile_plan(n, deps)
+            .map_err(|e| e.to_string())
     }
 
     pub fn heal(&self, state: &mut [f32], min: f32, max: f32) -> usize {
@@ -612,5 +684,9 @@ fn stable_hash32(s: &str) -> u32 {
         h = h.wrapping_mul(0x0100_0193);
     }
     // 0 et 0xFFFFFFFF sont des sentinelles pour BROADCAST.
-    if h == 0 { 1 } else { h }
+    if h == 0 {
+        1
+    } else {
+        h
+    }
 }

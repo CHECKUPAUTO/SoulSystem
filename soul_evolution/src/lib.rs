@@ -1,33 +1,31 @@
-pub mod loader;
-pub mod types;
-pub mod frontmatter;
-pub mod audit;
 pub mod analyzer;
-pub mod generator;
-pub mod validator;
+pub mod audit;
 pub mod evol_loop;
-pub mod optimizer;
+pub mod frontmatter;
+pub mod generator;
+pub mod loader;
 pub mod meta_evolution;
+pub mod optimizer;
 pub mod registry;
+pub mod types;
+pub mod validator;
 
-pub use loader::DynamicModuleLoader;
 pub use evol_loop::{run_evolution_cycle, SelfImprovementLoop};
-pub use types::EvolutionConfig;
-pub use optimizer::{
-    Optimizer, OptimizationState, OptimizationAttempt,
-    CompileResult, TestResult, BenchResult,
-    SYSTEM_PROMPT, CASE_A_COMPILE_FAILURE, CASE_B_LOGIC_FAILURE, CASE_C_SUCCESS,
-};
+pub use loader::DynamicModuleLoader;
 pub use meta_evolution::{
-    GodelEngine, MetaEvolver, MetaCycleResult,
-    SelfPlayArena, ReflexionMemory, format_explosion_report,
+    format_explosion_report, GodelEngine, MetaCycleResult, MetaEvolver, ReflexionMemory,
+    SelfPlayArena,
 };
+pub use optimizer::{
+    BenchResult, CompileResult, OptimizationAttempt, OptimizationState, Optimizer, TestResult,
+    CASE_A_COMPILE_FAILURE, CASE_B_LOGIC_FAILURE, CASE_C_SUCCESS, SYSTEM_PROMPT,
+};
+pub use registry::{
+    agent_name_to_id, load_and_register, register_agents, scan_agents, AgentRegistryEntry,
+};
+pub use types::EvolutionConfig;
 pub use types::{
-    GodelStrategy, SelfModProposal,
-    AgentArchive, ArchiveEntry,
-    Improver, ImproverStrategy,
-    SelfPlayMatch, ReflexionEpisode,
-    OptimizationTrajectory, TrajectoryPoint,
-    ExplosionMetrics, UtilityFunction,
+    AgentArchive, ArchiveEntry, ExplosionMetrics, GodelStrategy, Improver, ImproverStrategy,
+    OptimizationTrajectory, ReflexionEpisode, SelfModProposal, SelfPlayMatch, TrajectoryPoint,
+    UtilityFunction,
 };
-pub use registry::{scan_agents, load_and_register, register_agents, agent_name_to_id, AgentRegistryEntry};

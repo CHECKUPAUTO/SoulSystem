@@ -132,11 +132,7 @@ mod tests {
         // x, y >= 0
         // Optimal solution: x=3, y=12, Value=33 (or something like that)
         let c = vec![3.0, 2.0];
-        let a = vec![
-            vec![2.0, 1.0],
-            vec![2.0, 3.0],
-            vec![3.0, 1.0],
-        ];
+        let a = vec![vec![2.0, 1.0], vec![2.0, 3.0], vec![3.0, 1.0]];
         let b = vec![18.0, 42.0, 24.0];
 
         let sol = simplex(&c, &a, &b).unwrap();

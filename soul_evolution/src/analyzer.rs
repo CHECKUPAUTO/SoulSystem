@@ -21,11 +21,7 @@ impl Analyzer {
             .map(|a| a.agent.description.as_str())
             .collect();
 
-        let covered_languages: HashSet<String> = report
-            .language_coverage
-            .keys()
-            .cloned()
-            .collect();
+        let covered_languages: HashSet<String> = report.language_coverage.keys().cloned().collect();
 
         Self::find_missing_language_agents(
             &agent_names,
@@ -88,16 +84,7 @@ impl Analyzer {
         gaps: &mut Vec<Gap>,
     ) {
         let popular_missing = &[
-            "php",
-            "ruby",
-            "scala",
-            "elixir",
-            "clojure",
-            "haskell",
-            "lua",
-            "r",
-            "julia",
-            "zig",
+            "php", "ruby", "scala", "elixir", "clojure", "haskell", "lua", "r", "julia", "zig",
         ];
 
         for &lang in popular_missing {
@@ -192,11 +179,7 @@ impl Analyzer {
             return;
         }
 
-        let opus_count = report
-            .model_distribution
-            .get("opus")
-            .copied()
-            .unwrap_or(0) as f64;
+        let opus_count = report.model_distribution.get("opus").copied().unwrap_or(0) as f64;
         let sonnet_count = report
             .model_distribution
             .get("sonnet")
@@ -240,26 +223,10 @@ impl Analyzer {
             return;
         }
 
-        let read_count = report
-            .tool_distribution
-            .get("Read")
-            .copied()
-            .unwrap_or(0) as f64;
-        let _grep_count = report
-            .tool_distribution
-            .get("Grep")
-            .copied()
-            .unwrap_or(0) as f64;
-        let _bash_count = report
-            .tool_distribution
-            .get("Bash")
-            .copied()
-            .unwrap_or(0) as f64;
-        let _edit_count = report
-            .tool_distribution
-            .get("Edit")
-            .copied()
-            .unwrap_or(0) as f64;
+        let read_count = report.tool_distribution.get("Read").copied().unwrap_or(0) as f64;
+        let _grep_count = report.tool_distribution.get("Grep").copied().unwrap_or(0) as f64;
+        let _bash_count = report.tool_distribution.get("Bash").copied().unwrap_or(0) as f64;
+        let _edit_count = report.tool_distribution.get("Edit").copied().unwrap_or(0) as f64;
 
         let no_tools: Vec<&str> = report
             .audits
@@ -354,11 +321,7 @@ impl Analyzer {
             });
         }
 
-        let no_model_count = report
-            .audits
-            .iter()
-            .filter(|a| !a.has_model)
-            .count();
+        let no_model_count = report.audits.iter().filter(|a| !a.has_model).count();
         if no_model_count > 0 {
             let ratio = no_model_count as f64 / report.audits.len() as f64;
             if ratio > 0.2 {
@@ -366,7 +329,8 @@ impl Analyzer {
                     area: "Model Configuration".to_string(),
                     impact: format!(
                         "{} agents ({}%) lack model specification. They use default model.",
-                        no_model_count, (ratio * 100.0) as u32
+                        no_model_count,
+                        (ratio * 100.0) as u32
                     ),
                     suggestion: "Add explicit model fields to all agents.".to_string(),
                     severity: Severity::Medium,
@@ -417,10 +381,7 @@ impl Analyzer {
             .iter()
             .filter(|g| g.severity == Severity::Critical)
             .count();
-        let high_count = gaps
-            .iter()
-            .filter(|g| g.severity == Severity::High)
-            .count();
+        let high_count = gaps.iter().filter(|g| g.severity == Severity::High).count();
         let missing_lang_count = gaps
             .iter()
             .filter(|g| g.category == GapCategory::MissingLanguageAgent)
@@ -446,7 +407,10 @@ impl Analyzer {
             ));
         }
         if low_quality_count > 0 {
-            recommendations.push(format!("Improve or replace {} low-quality agents", low_quality_count));
+            recommendations.push(format!(
+                "Improve or replace {} low-quality agents",
+                low_quality_count
+            ));
         }
 
         for bn in bottlenecks {
@@ -467,18 +431,9 @@ impl Analyzer {
         let mut out = String::new();
         use std::fmt::Write;
 
-        let _ = writeln!(
-            out,
-            "╔══════════════════════════════════════════════╗"
-        );
-        let _ = writeln!(
-            out,
-            "║           ECOSYSTEM GAP ANALYSIS             ║"
-        );
-        let _ = writeln!(
-            out,
-            "╚══════════════════════════════════════════════╝"
-        );
+        let _ = writeln!(out, "╔══════════════════════════════════════════════╗");
+        let _ = writeln!(out, "║           ECOSYSTEM GAP ANALYSIS             ║");
+        let _ = writeln!(out, "╚══════════════════════════════════════════════╝");
         let _ = writeln!(out);
 
         let _ = writeln!(out, "── Gaps: {} found ──", result.gaps.len());
@@ -506,11 +461,7 @@ impl Analyzer {
                     Severity::Low => "LOW     ",
                     Severity::Info => "INFO    ",
                 };
-                let _ = writeln!(
-                    out,
-                    "  {}. [{}] {} — {}",
-                    i + 1, sev, bn.area, bn.impact
-                );
+                let _ = writeln!(out, "  {}. [{}] {} — {}", i + 1, sev, bn.area, bn.impact);
                 let _ = writeln!(out, "     → {}", bn.suggestion);
             }
             let _ = writeln!(out);
@@ -525,7 +476,13 @@ impl Analyzer {
         }
 
         let _ = writeln!(out, "── Quality Histogram (0-100%) ──");
-        let max_count = result.quality_histogram.iter().max().copied().unwrap_or(1).max(1);
+        let max_count = result
+            .quality_histogram
+            .iter()
+            .max()
+            .copied()
+            .unwrap_or(1)
+            .max(1);
         for (bucket, &count) in result.quality_histogram.iter().enumerate() {
             let bar_len = (count * 20 / max_count).max(if count > 0 { 1 } else { 0 });
             let bar = "█".repeat(bar_len);
@@ -542,10 +499,7 @@ impl Analyzer {
             );
         }
 
-        let _ = writeln!(
-            out,
-            "────────────────────────────────────────────"
-        );
+        let _ = writeln!(out, "────────────────────────────────────────────");
         out
     }
 }

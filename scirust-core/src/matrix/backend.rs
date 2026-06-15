@@ -436,7 +436,7 @@ impl SimdBackend for PortableSimdBackend {
     }
 
     fn relu_f32(&self, v: &mut [f32]) {
-        use std::simd::{SimdFloat, f32x8};
+        use std::simd::{f32x8, SimdFloat};
         let zero = f32x8::splat(0.0);
         let (pre, mid, suf) = v.as_simd_mut::<8>();
         for x in pre.iter_mut() {
@@ -501,7 +501,7 @@ mod tests {
     fn test_sgemv() {
         // A = [[1,2],[3,4]], x = [1,1], y = [0,0]
         let a_data = vec![1.0f32, 2.0, 3.0, 4.0];
-        let a = MatrixView::from_slice(&a_data, 2, 2);
+        let a = MatrixView::new(&a_data, 2, 2);
         let x = vec![1.0f32, 1.0];
         let mut y = vec![0.0f32; 2];
         backend().sgemv_f32(1.0, a, &x, 0.0, &mut y);
@@ -514,9 +514,9 @@ mod tests {
         let id = vec![1.0f32, 0.0, 0.0, 1.0]; // 2x2 identité
         let a = vec![3.0f32, 4.0, 5.0, 6.0];
         let mut c = vec![0.0f32; 4];
-        let ia = MatrixView::from_slice(&id, 2, 2);
-        let av = MatrixView::from_slice(&a, 2, 2);
-        let cv = MatrixViewMut::from_slice(&mut c, 2, 2);
+        let ia = MatrixView::new(&id, 2, 2);
+        let av = MatrixView::new(&a, 2, 2);
+        let cv = MatrixViewMut::new(&mut c, 2, 2);
         backend().sgemm_f32(1.0, ia, av, 0.0, cv);
         assert!((c[0] - 3.0).abs() < 1e-6);
         assert!((c[3] - 6.0).abs() < 1e-6);

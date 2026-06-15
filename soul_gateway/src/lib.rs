@@ -16,7 +16,6 @@
 //! implémente, ce qui permet de tester le gateway sans dépendre du runtime
 //! complet.
 
-use std::sync::Arc;
 use async_trait::async_trait;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
@@ -31,6 +30,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use thiserror::Error;
 use uuid::Uuid;
@@ -51,19 +51,41 @@ pub enum GatewayError {
 #[serde(tag = "kind")]
 pub enum EntityEvent {
     /// Un nouveau but a été créé.
-    GoalCreated { id: String, description: String, ts: DateTime<Utc> },
+    GoalCreated {
+        id: String,
+        description: String,
+        ts: DateTime<Utc>,
+    },
     /// Un plan a été généré.
-    PlanCreated { id: String, goal_id: String, n_steps: usize, ts: DateTime<Utc> },
+    PlanCreated {
+        id: String,
+        goal_id: String,
+        n_steps: usize,
+        ts: DateTime<Utc>,
+    },
     /// Une étape a été exécutée.
-    StepExecuted { command: String, success: bool, ms: u64, ts: DateTime<Utc> },
+    StepExecuted {
+        command: String,
+        success: bool,
+        ms: u64,
+        ts: DateTime<Utc>,
+    },
     /// Une observation a été ajoutée.
     Observation { text: String, ts: DateTime<Utc> },
     /// Une décision a été prise.
-    Decision { action: String, confidence: f32, ts: DateTime<Utc> },
+    Decision {
+        action: String,
+        confidence: f32,
+        ts: DateTime<Utc>,
+    },
     /// Un cycle a démarré.
     CycleStarted { id: String, ts: DateTime<Utc> },
     /// Un cycle s'est terminé.
-    CycleFinished { id: String, success: bool, ts: DateTime<Utc> },
+    CycleFinished {
+        id: String,
+        success: bool,
+        ts: DateTime<Utc>,
+    },
     /// Erreur système.
     Error { message: String, ts: DateTime<Utc> },
     /// Ping périodique pour keepalive.
@@ -205,12 +227,17 @@ async fn handle_ask(
     if req.prompt.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: "prompt vide".into() }),
+            Json(ErrorResponse {
+                error: "prompt vide".into(),
+            }),
         ));
     }
     match st.entity.ask(&req.prompt).await {
         Ok(resp) => Ok(Json(AskResponse { response: resp })),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )),
     }
 }
 
@@ -221,7 +248,9 @@ async fn handle_create_goal(
     if req.description.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: "description vide".into() }),
+            Json(ErrorResponse {
+                error: "description vide".into(),
+            }),
         ));
     }
     let desc = req.description.clone();
@@ -232,9 +261,15 @@ async fn handle_create_goal(
                 description: desc,
                 ts: Utc::now(),
             });
-            Ok(Json(GoalResponse { id, description: req.description }))
+            Ok(Json(GoalResponse {
+                id,
+                description: req.description,
+            }))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )),
     }
 }
 
@@ -252,7 +287,10 @@ async fn handle_plan(
             });
             Ok(Json(PlanResponse { goal_id, steps }))
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )),
     }
 }
 
@@ -262,7 +300,10 @@ async fn handle_execute_plan(
 ) -> Result<Json<ExecuteResponse>, (StatusCode, Json<ErrorResponse>)> {
     match st.entity.execute_plan(&goal_id).await {
         Ok(result) => Ok(Json(ExecuteResponse { result })),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )),
     }
 }
 
@@ -273,12 +314,17 @@ async fn handle_shell(
     if req.command.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: "commande vide".into() }),
+            Json(ErrorResponse {
+                error: "commande vide".into(),
+            }),
         ));
     }
     match st.entity.execute_shell(&req.command).await {
         Ok(result) => Ok(Json(ExecuteResponse { result })),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )),
     }
 }
 
@@ -286,7 +332,10 @@ async fn handle_cycle(
     State(st): State<GatewayState>,
 ) -> Result<Json<CycleResponse>, (StatusCode, Json<ErrorResponse>)> {
     let cycle_id = Uuid::new_v4().to_string();
-    st.events.publish(EntityEvent::CycleStarted { id: cycle_id.clone(), ts: Utc::now() });
+    st.events.publish(EntityEvent::CycleStarted {
+        id: cycle_id.clone(),
+        ts: Utc::now(),
+    });
     match st.entity.run_cycle().await {
         Ok(cycle) => {
             st.events.publish(EntityEvent::CycleFinished {
@@ -297,13 +346,19 @@ async fn handle_cycle(
             Ok(Json(CycleResponse { cycle }))
         }
         Err(e) => {
-            st.events.publish(EntityEvent::Error { message: e.clone(), ts: Utc::now() });
+            st.events.publish(EntityEvent::Error {
+                message: e.clone(),
+                ts: Utc::now(),
+            });
             st.events.publish(EntityEvent::CycleFinished {
                 id: cycle_id,
                 success: false,
                 ts: Utc::now(),
             });
-            Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            ))
         }
     }
 }
@@ -321,10 +376,7 @@ async fn handle_recent_events(State(st): State<GatewayState>) -> impl IntoRespon
     Json(st.events.recent(50))
 }
 
-async fn handle_ws(
-    State(st): State<GatewayState>,
-    ws: WebSocketUpgrade,
-) -> impl IntoResponse {
+async fn handle_ws(State(st): State<GatewayState>, ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(move |socket| ws_loop(socket, st))
 }
 
@@ -406,46 +458,50 @@ impl TlsConfig {
     ) -> std::io::Result<Self> {
         let cert_file = File::open(&cert_path)?;
         let cert_bytes = certs(&mut BufReader::new(cert_file))?;
-        
+
         let key_file = File::open(&key_path)?;
         let key_bytes = pkcs8_private_keys(&mut BufReader::new(key_file))?;
-        
+
         if cert_bytes.is_empty() || key_bytes.is_empty() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Invalid certificate or key",
             ));
         }
-        
-        Ok(Self { cert_path, key_path, client_ca_path })
+
+        Ok(Self {
+            cert_path,
+            key_path,
+            client_ca_path,
+        })
     }
-    
+
     /// Create a rustls ServerConfig (rustls 0.23 API)
     pub fn make_server_config(&self) -> std::io::Result<Arc<ServerConfig>> {
         let cert_file = File::open(&self.cert_path)?;
         let key_file = File::open(&self.key_path)?;
-        
+
         let cert_bytes = certs(&mut BufReader::new(cert_file))?;
         let mut key_bytes = pkcs8_private_keys(&mut BufReader::new(key_file))?;
-        
+
         if cert_bytes.is_empty() || key_bytes.is_empty() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Invalid certificate or key",
             ));
         }
-        
+
         let certs: Vec<CertificateDer> = cert_bytes.into_iter().map(CertificateDer::from).collect();
         let key = PrivateKeyDer::Pkcs8(key_bytes.remove(0).into());
-        
+
         let config = ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        
+
         Ok(Arc::new(config))
-        }
     }
+}
 
 #[cfg(test)]
 mod tests {
@@ -511,7 +567,7 @@ mod tests {
     #[test]
     fn event_hub_capacity() {
         let hub = EventHub::new(3);
-        for i in 0..5 {
+        for _i in 0..5 {
             hub.publish(EntityEvent::Heartbeat { ts: Utc::now() });
         }
         assert_eq!(hub.len(), 3);
@@ -535,7 +591,11 @@ mod tests {
 
     #[test]
     fn gateway_state_creation() {
-        let entity = Arc::new(MockEntity { ask_calls: AtomicUsize::new(0), goal_calls: AtomicUsize::new(0), plan_calls: AtomicUsize::new(0) });
+        let entity = Arc::new(MockEntity {
+            ask_calls: AtomicUsize::new(0),
+            goal_calls: AtomicUsize::new(0),
+            plan_calls: AtomicUsize::new(0),
+        });
         let state = GatewayState::new(entity);
         assert!(state.events.is_empty());
         assert_eq!(state.events.len(), 0);
@@ -571,7 +631,11 @@ mod tests {
 
     #[tokio::test]
     async fn mock_entity_ask() {
-        let entity = MockEntity { ask_calls: AtomicUsize::new(0), goal_calls: AtomicUsize::new(0), plan_calls: AtomicUsize::new(0) };
+        let entity = MockEntity {
+            ask_calls: AtomicUsize::new(0),
+            goal_calls: AtomicUsize::new(0),
+            plan_calls: AtomicUsize::new(0),
+        };
         let resp = entity.ask("hello").await.unwrap();
         assert_eq!(resp, "echo: hello");
         assert_eq!(entity.ask_calls.load(Ordering::SeqCst), 1);
@@ -579,14 +643,22 @@ mod tests {
 
     #[tokio::test]
     async fn mock_entity_create_goal() {
-        let entity = MockEntity { ask_calls: AtomicUsize::new(0), goal_calls: AtomicUsize::new(0), plan_calls: AtomicUsize::new(0) };
+        let entity = MockEntity {
+            ask_calls: AtomicUsize::new(0),
+            goal_calls: AtomicUsize::new(0),
+            plan_calls: AtomicUsize::new(0),
+        };
         let id = entity.create_goal("learn rust").await.unwrap();
         assert_eq!(id, "goal-learn rust");
     }
 
     #[tokio::test]
     async fn mock_entity_plan() {
-        let entity = MockEntity { ask_calls: AtomicUsize::new(0), goal_calls: AtomicUsize::new(0), plan_calls: AtomicUsize::new(0) };
+        let entity = MockEntity {
+            ask_calls: AtomicUsize::new(0),
+            goal_calls: AtomicUsize::new(0),
+            plan_calls: AtomicUsize::new(0),
+        };
         let steps = entity.plan("g1").await.unwrap();
         assert_eq!(steps.len(), 2);
         assert!(steps[0].contains("g1"));
@@ -594,7 +666,11 @@ mod tests {
 
     #[tokio::test]
     async fn mock_entity_status() {
-        let entity = MockEntity { ask_calls: AtomicUsize::new(0), goal_calls: AtomicUsize::new(0), plan_calls: AtomicUsize::new(0) };
+        let entity = MockEntity {
+            ask_calls: AtomicUsize::new(0),
+            goal_calls: AtomicUsize::new(0),
+            plan_calls: AtomicUsize::new(0),
+        };
         let status = entity.status().await;
         assert_eq!(status["healthy"], true);
     }

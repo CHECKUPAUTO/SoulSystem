@@ -1,8 +1,7 @@
-use prometheus::{
-    Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry,
-    Encoder, TextEncoder,
-};
 use lazy_static::lazy_static;
+use prometheus::{
+    Encoder, Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry, TextEncoder,
+};
 
 lazy_static! {
     static ref REGISTRY: Registry = Registry::new();
@@ -54,10 +53,8 @@ impl PrometheusMetrics {
             "soul_active_workers",
             "Number of currently active worker threads",
         ))?;
-        let queue_depth = IntGauge::with_opts(Opts::new(
-            "soul_queue_depth",
-            "Current task queue depth",
-        ))?;
+        let queue_depth =
+            IntGauge::with_opts(Opts::new("soul_queue_depth", "Current task queue depth"))?;
 
         REGISTRY.register(Box::new(tasks_executed.clone()))?;
         REGISTRY.register(Box::new(tasks_stolen.clone()))?;
@@ -136,15 +133,17 @@ impl PrometheusExporter {
     pub fn update_from_hub(&self, hub: &crate::metrics::TelemetryHub) {
         let (_total_tasks, total_cycles) = hub.aggregate_metrics();
         self.metrics.record_scheduler_cycles(total_cycles);
-        
+
         let temp = hub.current_temp_celsius() as i64;
         self.metrics.set_temperature(temp);
-        
+
         let core_metrics = hub.get_core_metrics();
         for core in core_metrics.iter() {
             self.metrics.tasks_executed.inc_by(core.tasks_executed);
             self.metrics.tasks_stolen.inc_by(core.tasks_stolen);
-            self.metrics.thermal_backoff_events.inc_by(core.thermal_backoff_events as u64);
+            self.metrics
+                .thermal_backoff_events
+                .inc_by(core.thermal_backoff_events as u64);
         }
     }
 
@@ -168,7 +167,7 @@ mod tests {
         metrics.record_scheduler_cycles(1000);
         metrics.set_active_workers(8);
         metrics.set_queue_depth(42);
-        
+
         let output = gather_metrics().expect("Failed to gather metrics");
         assert!(output.contains("soul_tasks_executed_total"));
         assert!(output.contains("soul_tasks_stolen_total"));
