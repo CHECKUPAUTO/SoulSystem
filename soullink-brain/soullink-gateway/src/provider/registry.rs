@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
+use crate::provider::anthropic::AnthropicProvider;
 use crate::provider::ollama::OllamaProvider;
 use crate::provider::openai::OpenAIProvider;
 use crate::provider::{Provider, ProviderConfig, ProviderError};
@@ -56,6 +57,7 @@ impl ProviderRegistry {
         let provider: Arc<dyn Provider> = match cfg.provider_type.as_str() {
             "ollama" => Arc::new(OllamaProvider::new(name.to_string(), cfg)),
             "openai" => Arc::new(OpenAIProvider::new(name.to_string(), cfg)),
+            "anthropic" => Arc::new(AnthropicProvider::new(name.to_string(), cfg)),
             other => {
                 warn!(provider_type = %other, name = %name, "unknown provider type, defaulting to ollama");
                 let ollama_cfg = ProviderConfig {

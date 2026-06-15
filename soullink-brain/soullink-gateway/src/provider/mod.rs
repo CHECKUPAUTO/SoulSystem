@@ -3,6 +3,7 @@
 //! Each provider (Ollama, OpenAI, etc.) implements this trait. The
 //! provider registry discovers configured providers and routes requests.
 
+pub mod anthropic;
 pub mod config;
 pub mod ollama;
 pub mod openai;
