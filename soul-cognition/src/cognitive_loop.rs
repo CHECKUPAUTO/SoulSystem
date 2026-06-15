@@ -13,7 +13,7 @@
 
 use crate::curiosity::{Curiosity, Probe, ScoredProbe};
 use crate::gate::{Confirmation, Decision, GateError, PermissionGate};
-use crate::memory::{CognitiveMemory, MemoryTier, Record};
+use crate::memory::{CognitiveMemory, MemoryError, MemoryTier, Reconciliation, Record};
 use crate::provenance::Tagged;
 use soul_rsi::{Evaluator, Proposer, RsiEngine, StepOutcome};
 
@@ -89,6 +89,27 @@ impl CognitiveLoop {
     /// RECALL relevant context across all five tiers.
     pub async fn recall(&self, query: &str, limit: usize) -> Vec<Record> {
         self.memory.recall(query, limit).await
+    }
+
+    /// RECALL with associative expansion (A-MEM): surfaces memories *linked* to
+    /// the query's matches, not just literal hits.
+    pub async fn recall_related(&self, query: &str, limit: usize, min_link: f64) -> Vec<Record> {
+        self.memory.recall_associative(query, limit, min_link).await
+    }
+
+    /// LEARN a keyed fact, reconciled against what's already known
+    /// (Mem0 ADD/UPDATE/NOOP) rather than blindly appended — the consistent,
+    /// provenance-honest way to record long-lived facts such as operator
+    /// preferences (`User`) or the current strategic focus (`Strategic`).
+    /// Returns what the reconciliation decided.
+    pub fn learn_fact(
+        &self,
+        tier: MemoryTier,
+        key: &str,
+        value: Tagged<String>,
+        importance: f32,
+    ) -> Result<Reconciliation, MemoryError> {
+        self.memory.reconcile_set(tier, key, value, importance)
     }
 
     /// DECIDE this cycle's focus: an external goal takes precedence; otherwise
@@ -214,6 +235,57 @@ mod tests {
         let hits = lp.recall("latency", 5).await;
         assert!(!hits.is_empty());
         assert!(hits.iter().all(|r| r.provenance == Provenance::Observed));
+    }
+
+    #[tokio::test]
+    async fn learn_fact_reconciles_instead_of_duplicating() {
+        let lp = CognitiveLoop::new();
+        assert_eq!(
+            lp.learn_fact(
+                MemoryTier::User,
+                "language",
+                Tagged::observed("French".into()),
+                0.9
+            )
+            .unwrap(),
+            Reconciliation::Added
+        );
+        // Re-learning the same fact is a NoOp, not a duplicate.
+        assert_eq!(
+            lp.learn_fact(
+                MemoryTier::User,
+                "language",
+                Tagged::observed("French".into()),
+                0.9
+            )
+            .unwrap(),
+            Reconciliation::NoOp
+        );
+        assert_eq!(lp.memory().snapshot(MemoryTier::User).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn recall_related_surfaces_associations() {
+        let lp = CognitiveLoop::new();
+        lp.memory()
+            .reconcile_set(
+                MemoryTier::Strategic,
+                "a",
+                Tagged::observed("gateway deadlock root cause".into()),
+                0.6,
+            )
+            .unwrap();
+        lp.memory()
+            .reconcile_set(
+                MemoryTier::Strategic,
+                "b",
+                Tagged::observed("gateway latency tuning plan".into()),
+                0.9,
+            )
+            .unwrap();
+        let related = lp.recall_related("deadlock", 10, 0.1).await;
+        let texts: Vec<&str> = related.iter().map(|r| r.text.as_str()).collect();
+        assert!(texts.contains(&"gateway latency tuning plan"));
     }
 
     // ── experiment (reuses soul-rsi unchanged) ──────────────────────────
