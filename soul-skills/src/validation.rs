@@ -266,6 +266,22 @@ impl<V: SkillValidator> ValidatedSkillLibrary<V> {
             Induction::Skipped(reason) => Retention::Skipped(reason),
         }
     }
+
+    /// Offer an episode and, when a skill is added or reinforced, persist it to
+    /// disk via the loader so the evolved library survives a restart — the
+    /// "persistent skills" property Hermes-Agent has, but here gated on
+    /// validation. Rejected/skipped outcomes write nothing.
+    pub async fn offer_and_persist(
+        &mut self,
+        episode: &Episode,
+        loader: &crate::SkillLoader,
+    ) -> crate::Result<Retention> {
+        let outcome = self.offer(episode);
+        if let Retention::Added(skill) | Retention::Reinforced(skill) = &outcome {
+            loader.save_skill(skill).await?;
+        }
+        Ok(outcome)
+    }
 }
 
 #[cfg(test)]
@@ -422,5 +438,47 @@ mod tests {
             other => panic!("expected Rejected, got {other:?}"),
         }
         assert!(lib.is_empty());
+    }
+
+    #[tokio::test]
+    async fn offer_and_persist_writes_validated_skill_to_disk() {
+        use crate::SkillLoader;
+
+        let dir = tempfile::tempdir().unwrap();
+        let loader = SkillLoader::new(dir.path());
+        let mut lib = ValidatedSkillLibrary::new(vec![]);
+
+        let outcome = lib
+            .offer_and_persist(&good_episode(), &loader)
+            .await
+            .unwrap();
+        assert!(matches!(outcome, Retention::Added(_)));
+
+        // The induced skill was written and round-trips back through the loader.
+        let path = dir.path().join("review-auth-module-security.md");
+        assert!(path.exists(), "skill markdown should be persisted");
+        let reloaded = loader.load_skill_file(&path).await.unwrap();
+        assert_eq!(reloaded.name, "review-auth-module-security");
+        assert!(reloaded.triggers.contains(&"auth".to_string()));
+    }
+
+    #[tokio::test]
+    async fn offer_and_persist_writes_nothing_on_skip() {
+        use crate::SkillLoader;
+
+        let dir = tempfile::tempdir().unwrap();
+        let loader = SkillLoader::new(dir.path());
+        let mut lib = ValidatedSkillLibrary::new(vec![]);
+
+        let mut failed = good_episode();
+        failed.success = false;
+        let outcome = lib.offer_and_persist(&failed, &loader).await.unwrap();
+        assert!(matches!(outcome, Retention::Skipped(_)));
+
+        let mut entries = tokio::fs::read_dir(dir.path()).await.unwrap();
+        assert!(
+            entries.next_entry().await.unwrap().is_none(),
+            "no file written"
+        );
     }
 }
