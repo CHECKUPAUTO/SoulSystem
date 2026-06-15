@@ -102,12 +102,19 @@ pub enum Reconciliation {
     NoOp,
 }
 
+/// Default cap on each in-process tier before importance-based eviction kicks
+/// in. Bounds long-horizon growth (CraniMem-style gating).
+const DEFAULT_TIER_CAPACITY: usize = 256;
+
 /// The unified five-tier memory. Cheap handles; clone freely.
 pub struct CognitiveMemory {
     hierarchy: HierarchicalMemory,
     user: RwLock<Vec<Record>>,
     strategic: RwLock<Vec<Record>>,
     reflexive: RwLock<Vec<Record>>,
+    /// Max records per in-process tier; the lowest-importance (then oldest)
+    /// record is evicted when a tier would exceed it.
+    tier_capacity: usize,
 }
 
 impl Default for CognitiveMemory {
@@ -135,7 +142,24 @@ impl CognitiveMemory {
             user: RwLock::new(Vec::new()),
             strategic: RwLock::new(Vec::new()),
             reflexive: RwLock::new(Vec::new()),
+            tier_capacity: DEFAULT_TIER_CAPACITY,
         }
+    }
+
+    /// Set the per-tier capacity for the in-process tiers (User/Strategic/
+    /// Reflexive). When a tier would exceed it, the lowest-importance record
+    /// (oldest among ties) is evicted — bounded memory for long-horizon runs.
+    pub fn with_tier_capacity(mut self, capacity: usize) -> Self {
+        self.tier_capacity = capacity.max(1);
+        self
+    }
+
+    /// Number of records currently held in an in-process tier (0 for hierarchy
+    /// tiers, which are queried via `recall`).
+    pub fn tier_len(&self, tier: MemoryTier) -> usize {
+        self.keyed_store(tier)
+            .map(|s| s.read().unwrap().len())
+            .unwrap_or(0)
     }
 
     /// Store a tagged value into a tier. Enforces invariant #1 for fact tiers.
@@ -172,9 +196,12 @@ impl CognitiveMemory {
                     .store(self.entry(&record), MemoryLayer::Semantic)
                     .await;
             }
-            MemoryTier::User => self.user.write().unwrap().push(record),
-            MemoryTier::Strategic => self.strategic.write().unwrap().push(record),
-            MemoryTier::Reflexive => self.reflexive.write().unwrap().push(record),
+            MemoryTier::User | MemoryTier::Strategic | MemoryTier::Reflexive => {
+                let store = self.keyed_store(tier).expect("in-process tier");
+                let mut guard = store.write().unwrap();
+                guard.push(record);
+                evict_to_capacity(&mut guard, self.tier_capacity);
+            }
         }
         Ok(())
     }
@@ -300,6 +327,7 @@ impl CognitiveMemory {
                 tier,
                 key: Some(key.to_string()),
             });
+            evict_to_capacity(&mut guard, self.tier_capacity);
             Ok(Reconciliation::Added)
         }
     }
@@ -397,6 +425,31 @@ fn parse_provenance(s: &str) -> Option<Provenance> {
         "deduced" => Some(Provenance::Deduced),
         "hypothetical" => Some(Provenance::Hypothetical),
         _ => None,
+    }
+}
+
+/// Evict the lowest-priority records until `records` fits within `cap`.
+/// Priority is `(importance, recency)`: the lowest-importance record is removed
+/// first, breaking ties by evicting the oldest (`created_at` sorts
+/// chronologically as RFC-3339).
+fn evict_to_capacity(records: &mut Vec<Record>, cap: usize) {
+    while records.len() > cap {
+        let victim = records
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                a.importance
+                    .partial_cmp(&b.importance)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.created_at.cmp(&b.created_at))
+            })
+            .map(|(i, _)| i);
+        match victim {
+            Some(i) => {
+                records.remove(i);
+            }
+            None => break,
+        }
     }
 }
 
@@ -666,6 +719,45 @@ mod tests {
             Reconciliation::NoOp
         );
         assert!(mem.fact(MemoryTier::User, "timezone").is_none());
+    }
+
+    #[tokio::test]
+    async fn tier_capacity_evicts_lowest_importance() {
+        let mem = CognitiveMemory::new().with_tier_capacity(2);
+        for (text, imp) in [("keep-high", 0.9f32), ("drop-low", 0.1), ("keep-mid", 0.5)] {
+            mem.remember(MemoryTier::Strategic, Tagged::observed(text.into()), imp)
+                .await
+                .unwrap();
+        }
+        // Over capacity by one → the lowest-importance record was evicted.
+        assert_eq!(mem.tier_len(MemoryTier::Strategic), 2);
+        let texts: Vec<String> = mem
+            .snapshot(MemoryTier::Strategic)
+            .into_iter()
+            .map(|r| r.text)
+            .collect();
+        assert!(texts.contains(&"keep-high".to_string()));
+        assert!(texts.contains(&"keep-mid".to_string()));
+        assert!(!texts.contains(&"drop-low".to_string()));
+    }
+
+    #[test]
+    fn reconcile_add_respects_capacity() {
+        let mem = CognitiveMemory::new().with_tier_capacity(2);
+        for (key, imp) in [("a", 0.9f32), ("b", 0.1), ("c", 0.5)] {
+            mem.reconcile_set(
+                MemoryTier::Strategic,
+                key,
+                Tagged::observed(format!("val-{key}")),
+                imp,
+            )
+            .unwrap();
+        }
+        assert_eq!(mem.tier_len(MemoryTier::Strategic), 2);
+        // The lowest-importance keyed fact ('b') was evicted.
+        assert!(mem.fact(MemoryTier::Strategic, "b").is_none());
+        assert!(mem.fact(MemoryTier::Strategic, "a").is_some());
+        assert!(mem.fact(MemoryTier::Strategic, "c").is_some());
     }
 
     #[test]
