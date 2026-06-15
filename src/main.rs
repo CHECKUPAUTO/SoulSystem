@@ -771,6 +771,7 @@ async fn main() -> Result<()> {
         let preservation = Preservation::new(PreservationConfig::default());
         let healer = Arc::new(soulsystem::self_healer::SelfHealer::new(
             preservation.clone(),
+            settings.paths.data_dir.clone(),
         ));
         // Error cascade monitoring from bus events
         let bus_heal = bus.clone();
@@ -1262,7 +1263,11 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Scheduler: vérifie les tâches planifiées toutes les 60 secondes
+    // Scheduler: cron tasks disabled — current `soul_scheduler` is a CPU topology
+    // work-stealing scheduler, not a cron scheduler. The cron functionality from
+    // the historical monolith is preserved in `soul-daemon`'s goal loop.
+    info!("Scheduler: cron tasks temporarily disabled (pending cron scheduler crate)");
+    /*
     let scheduler = Arc::new(soul_scheduler::Scheduler::new(|task| {
         tracing::info!("Scheduler tick: {} — {}", task.name, task.description);
         Ok(())
@@ -1271,7 +1276,7 @@ async fn main() -> Result<()> {
     scheduler
         .add_task(soul_scheduler::ScheduledTask::new(
             "memory-consolidation",
-            "0 */6 * * *",
+            "0 6 * * *",
             "Consolidate episodic memory to semantic every 6 hours",
         ))
         .await;
@@ -1294,6 +1299,7 @@ async fn main() -> Result<()> {
         sched.run().await;
     });
     info!("Scheduler: cron tasks active (6h consolidation, hourly health)");
+    */
 
     // Phase 7: Auto-documentation — generate LEARNINGS.md every hour
     let docs_path = settings.paths.data_dir.join("LEARNINGS.md");

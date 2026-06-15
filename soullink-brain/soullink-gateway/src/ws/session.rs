@@ -45,6 +45,7 @@ impl Session {
 /// Thread-safe session store.
 pub struct SessionStore {
     sessions: Arc<RwLock<HashMap<String, Session>>>,
+    #[allow(dead_code)]
     idle_timeout: Duration,
 }
 

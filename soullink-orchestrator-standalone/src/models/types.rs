@@ -17,6 +17,7 @@ pub struct BrainConfig {
 }
 
 impl BrainConfig {
+    #[allow(dead_code)]
     pub fn new(_name: &str, port: u16, speciality: Vec<&str>) -> Self {
         Self {
             port,
@@ -108,6 +109,7 @@ pub struct ReinforceRequest {
     pub brains: Option<Vec<String>>,
 }
 
+#[allow(dead_code)]
 fn default_delta() -> f64 {
     0.05
 }
@@ -120,6 +122,7 @@ pub struct StimulateRequest {
     pub strength: f64,
 }
 
+#[allow(dead_code)]
 fn default_strength() -> f64 {
     0.5
 }
@@ -151,6 +154,7 @@ pub struct ApiResponse<T> {
 }
 
 impl<T: Serialize> ApiResponse<T> {
+    #[allow(dead_code)]
     pub fn success(data: T) -> Self {
         Self {
             ok: true,
@@ -159,6 +163,7 @@ impl<T: Serialize> ApiResponse<T> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn error(msg: impl Into<String>) -> ApiResponse<ErrorData> {
         ApiResponse {
             ok: false,

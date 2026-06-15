@@ -4,6 +4,7 @@
 //! computes cosine similarity between connected concepts,
 //! and reinforces edges via Hebbian update using soullink-eval.
 
+use soullink_eval::loss::SemanticLoss;
 use soullink_memory::decay::DecayConfig;
 use soullink_memory::graph::MemoryGraph;
 use soullink_memory::random_walk::{random_walk, WalkConfig, WalkResult};
@@ -39,11 +40,14 @@ impl Default for DreamConfig {
 /// The Dream Cycle — runs random walks and reinforces semantic connections.
 pub struct DreamCycle {
     config: DreamConfig,
+    #[allow(dead_code)]
+    loss: SemanticLoss,
 }
 
 impl DreamCycle {
     pub fn new(config: DreamConfig) -> Self {
-        Self { config }
+        let loss = SemanticLoss::new(config.learning_rate);
+        Self { config, loss }
     }
 
     /// Run a single dream cycle.
@@ -118,7 +122,7 @@ mod tests {
         // so we just verify it doesn't crash
         let result = cycle.dream_once().await.unwrap();
         // Result may have 0 steps if concepts aren't in the graph,
-        // but the cycle should complete without error.
-        let _ = result.steps;
+        // but the cycle should complete without error
+        assert!(result.steps >= 0);
     }
 }

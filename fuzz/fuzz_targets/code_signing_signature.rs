@@ -2,8 +2,8 @@
 
 use libfuzzer_sys::fuzz_target;
 
-/// Fuzz the code signing verification to ensure it never panics on
-/// arbitrary signature/key/code combinations.
+// Fuzz the code signing verification to ensure it never panics on
+// arbitrary signature/key/code combinations.
 fuzz_target!(|data: &[u8]| {
     use soulsystem::code_signing::{AuthorizedKeys, SignedCode, verify_code};
 

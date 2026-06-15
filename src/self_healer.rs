@@ -5,11 +5,16 @@ use tracing::{info, warn};
 
 pub struct SelfHealer {
     preservation: Arc<Preservation>,
+    #[allow(dead_code)]
+    data_dir: std::path::PathBuf,
 }
 
 impl SelfHealer {
-    pub fn new(preservation: Arc<Preservation>) -> Self {
-        Self { preservation }
+    pub fn new(preservation: Arc<Preservation>, data_dir: std::path::PathBuf) -> Self {
+        Self {
+            preservation,
+            data_dir,
+        }
     }
 
     pub async fn execute(&self, action: &DefenseAction) {
@@ -112,7 +117,7 @@ impl SelfHealer {
             interval.tick().await;
 
             let (cpu, mem, disk) = Self::read_system_stats();
-            let disk_pct = disk;
+            let disk_pct = disk as f64;
 
             if let Some(actions) = self.preservation.check_resources(cpu, mem, disk_pct).await {
                 let level = self.preservation.level().await;

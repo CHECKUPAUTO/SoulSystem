@@ -23,29 +23,29 @@
 //! ```
 
 pub mod budget;
-pub mod chat;
 pub mod client;
 pub mod error;
 pub mod factory;
+pub mod legacy;
 pub mod provider;
 pub mod providers;
 pub mod types;
 
 // Re-exports principaux
-pub use budget::LlmBudget;
 pub use client::LlmClient;
+
+// Legacy API (soul_agent_core / historical monolith)
+pub use legacy::{
+    build_tool_schemas, AssistantMessage, ChatMessage, ChatResponse, ChatSession, OllamaClient,
+    Role, ToolCall, ToolFunction, ToolSchema,
+};
+pub use budget::LlmBudget;
 pub use error::{LlmError, Result as LlmResult};
 pub use factory::{create_provider, create_provider_by_name};
 pub use provider::LlmProvider;
 pub use types::{
     EmbeddingResult, GenerateRequest, GenerateResult, LlmConfig, ModelInfo, ProviderKind,
     StreamChunk, TokenUsage,
-};
-
-// Compat chat + tool-calling layer (used by soul_agent_core's ReAct loop).
-pub use chat::{
-    build_tool_schemas, ChatMessage, ChatResponse, ChatResponseMessage, ChatSession, FunctionCall,
-    FunctionSchema, GenerateResponse, OllamaClient, Role, ToolCall, ToolSchema,
 };
 
 // backward compat

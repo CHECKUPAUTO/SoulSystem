@@ -21,6 +21,11 @@ chrono = { workspace = true }
 soul-bridge = { path = "../soul-bridge" }
 forge-bridge = { path = "../forges/forge-bridge" }
 
+[features]
+default = []
+e2e = []
+
 [[bin]]
 name = "e2e"
 path = "src/bin/e2e.rs"
+required-features = ["e2e"]

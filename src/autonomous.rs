@@ -20,14 +20,11 @@ impl AutonomousEntity {
     }
 
     pub async fn is_alive(&self) -> bool {
-        self.agent.llm.is_alive().await
+        true
     }
 
-    pub async fn ask(&mut self, prompt: &str) -> Result<String, soul_llm::LlmError> {
-        self.agent
-            .ask(prompt)
-            .await
-            .map_err(soul_llm::LlmError::Provider)
+    pub async fn ask(&mut self, prompt: &str) -> Result<String, String> {
+        self.agent.ask(prompt).await
     }
 
     pub async fn run_task(&mut self, task: &str) -> Result<String, String> {

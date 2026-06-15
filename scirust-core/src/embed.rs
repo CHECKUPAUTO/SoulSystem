@@ -1,105 +1,100 @@
-//! Moteur d'embeddings basé sur MiniLLM.
+//! Text embedding engine using random-projection locality-sensitive hashing.
 //!
-//! Remplace l'appel HTTP à Ollama dans synergie en utilisant
-//! les états cachés du transformer local comme vecteurs d'embedding.
+//! Produces fixed-size embeddings (default 128-d) suitable for semantic
+//! similarity via cosine distance. Uses seed-based hashing for deterministic
+//! but pseudo-random projections — no model loading required.
 
-use crate::nn::transformer::mini_llm::{CharTokenizer, MiniLLM, MiniLLMConfig};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
-/// Moteur d'embeddings basé sur MiniLLM.
-/// Utilise les états cachés du transformer comme vecteurs d'embedding.
+/// Lightweight text embedding engine with random-projection LSH.
 pub struct EmbeddingEngine {
-    llm: MiniLLM,
+    dim: usize,
+    /// Fixed projection matrix: [dim × hash_space] (pseudo-random, seeded).
+    proj: Vec<f32>,
+    hash_space: usize,
 }
 
 impl EmbeddingEngine {
-    /// Crée un nouvel engine avec vocab et config par défaut.
-    ///
-    /// La config par défaut produit des embeddings 128-dim (d_model=128).
-    pub fn new(vocab_texts: &[&str]) -> Self {
-        let tokenizer = CharTokenizer::new(vocab_texts);
-        let config = MiniLLMConfig {
-            vocab_size: tokenizer.vocab_size,
-            ..MiniLLMConfig::default()
-        };
-        let llm = MiniLLM::new(config, tokenizer);
-        Self { llm }
+    /// Create a new embedding engine with default dimension 128.
+    pub fn new(_vocab: &[&str]) -> Self {
+        Self::with_dim(128)
     }
 
-    /// Crée un engine avec config personnalisée.
-    pub fn new_with_config(vocab_texts: &[&str], config: MiniLLMConfig) -> Self {
-        let tokenizer = CharTokenizer::new(vocab_texts);
-        let config = MiniLLMConfig {
-            vocab_size: tokenizer.vocab_size,
-            d_model: config.d_model,
-            n_heads: config.n_heads,
-            n_layers: config.n_layers,
-            d_ff: config.d_ff,
-            max_seq_len: config.max_seq_len,
-        };
-        let llm = MiniLLM::new(config, tokenizer);
-        Self { llm }
-    }
-
-    /// Dimension des vecteurs d'embedding produits.
-    pub fn dim(&self) -> usize {
-        self.llm.config.d_model
-    }
-
-    /// Embed un texte en vecteur f32.
-    ///
-    /// Tokenize l'entrée, forward pass dans le MiniLLM,
-    /// récupère les états cachés (d_model), et prend la
-    /// moyenne sur tous les tokens → vecteur 128-dim normalisé L2.
-    pub fn embed(&mut self, text: &str) -> Vec<f32> {
-        let ids = self.llm.tokenizer.encode(text);
-        if ids.is_empty() {
-            // Chaîne vide: retourne un vecteur nul (non-NaN)
-            return vec![0.0f32; self.llm.config.d_model];
+    /// Create with a specific output dimension.
+    pub fn with_dim(dim: usize) -> Self {
+        let hash_space = 1024; // internal feature space
+        let proj = Self::generate_projection(dim, hash_space);
+        Self {
+            dim,
+            proj,
+            hash_space,
         }
-        let hidden = self.llm.forward_hidden(&ids);
-        // hidden shape = (seq_len, d_model), row-major
-        let seq_len = hidden.nrows();
-        let d_model = hidden.ncols();
-        let mut mean = vec![0.0f32; d_model];
-        let len_f = seq_len as f32;
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..seq_len {
-            let base = i * d_model;
-            #[allow(clippy::needless_range_loop)]
-            for j in 0..d_model {
-                let v = hidden.data[base + j];
-                if v.is_finite() {
-                    mean[j] += v / len_f;
-                }
+    }
+
+    /// Embedding dimension.
+    #[inline]
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    /// Generate an embedding vector for the given text.
+    pub fn embed(&self, text: &str) -> Vec<f32> {
+        let hash_vec = Self::text_to_hash_vec(text, self.hash_space);
+        let mut out = vec![0.0f32; self.dim];
+        for i in 0..self.dim {
+            let mut acc = 0.0f32;
+            for j in 0..self.hash_space {
+                acc += hash_vec[j] as f32 * self.proj[i * self.hash_space + j];
+            }
+            out[i] = acc / (self.hash_space as f32).sqrt();
+        }
+        // L2 normalize
+        let norm: f32 = out.iter().map(|v| v * v).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for v in &mut out {
+                *v /= norm;
             }
         }
-        l2_normalize(&mut mean);
-        mean
+        out
     }
 
-    /// Embed un batch de textes.
-    pub fn embed_batch(&mut self, texts: &[String]) -> Vec<Vec<f32>> {
-        texts.iter().map(|t| self.embed(t)).collect()
-    }
-
-    /// Cosine similarity entre deux vecteurs f32.
-    pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-        let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-        let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-        let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-        let denom = norm_a.max(f32::EPSILON) * norm_b.max(f32::EPSILON);
-        dot / denom
-    }
-}
-
-/// Normalisation L2 in-place.
-fn l2_normalize(v: &mut [f32]) {
-    let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if norm > f32::EPSILON {
-        let inv = 1.0 / norm;
-        for x in v.iter_mut() {
-            *x *= inv;
+    /// Generate deterministic pseudo-random projection matrix.
+    fn generate_projection(dim: usize, hash_space: usize) -> Vec<f32> {
+        let mut proj = vec![0.0f32; dim * hash_space];
+        let mut seed = 42u64;
+        for v in proj.iter_mut() {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            *v = if (seed >> 32) as i32 >= 0 { 1.0 } else { -1.0 } / (dim as f32).sqrt();
         }
+        proj
+    }
+
+    /// Hash text into a fixed-size binary feature vector using n-gram hashing.
+    fn text_to_hash_vec(text: &str, size: usize) -> Vec<i8> {
+        let mut vec = vec![0i8; size];
+        let lower = text.to_lowercase();
+        let bytes = lower.as_bytes();
+
+        // Character trigram hashing
+        for i in 0..bytes.len().saturating_sub(2) {
+            let mut h = DefaultHasher::new();
+            bytes[i..i + 3].hash(&mut h);
+            let idx = (h.finish() as usize) % size;
+            vec[idx] = 1i8;
+        }
+
+        // Full-text hash (captures overall structure)
+        if !text.is_empty() {
+            let mut h = DefaultHasher::new();
+            text.hash(&mut h);
+            let idx = (h.finish() as usize) % size;
+            vec[idx] = 1i8;
+        }
+
+        vec
     }
 }
 
@@ -108,91 +103,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_embed_returns_128_dims() {
-        let mut engine = EmbeddingEngine::new(&["hello world test"]);
-        let vec = engine.embed("hello");
-        assert_eq!(
-            vec.len(),
-            128,
-            "embedding dimension should be 128 (default d_model)"
-        );
-        // Vérifie que ce n'est pas NaN
-        for &v in &vec {
-            assert!(!v.is_nan(), "NaN in embedding vector");
-        }
+    fn embed_produces_normalized() {
+        let e = EmbeddingEngine::new(&[]);
+        let v = e.embed("hello world");
+        let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-5);
     }
 
     #[test]
-    fn test_similar_sentences_high_cosine() {
-        let mut engine = EmbeddingEngine::new(&["hello world hi test"]);
-        let v1 = engine.embed("hello world");
-        let v2 = engine.embed("hi world");
-        let sim = EmbeddingEngine::cosine_similarity(&v1, &v2);
+    fn same_text_same_embedding() {
+        let e = EmbeddingEngine::new(&[]);
+        let a = e.embed("test");
+        let b = e.embed("test");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn different_texts_different() {
+        let e = EmbeddingEngine::new(&[]);
+        let a = e.embed("the cat sat on the mat");
+        let b = e.embed("quantum chromodynamics");
+        let sim: f32 = a.iter().zip(&b).map(|(x, y)| x * y).sum();
+        assert!(sim < 0.9); // should not be identical
+    }
+
+    #[test]
+    fn similar_texts_are_closer() {
+        let e = EmbeddingEngine::new(&[]);
+        let a = e.embed("the cat sat on the mat");
+        let b = e.embed("the cat sat on the rug");
+        let c = e.embed("quantum field theory in curved spacetime");
+        let sim_ab: f32 = a.iter().zip(&b).map(|(x, y)| x * y).sum();
+        let sim_ac: f32 = a.iter().zip(&c).map(|(x, y)| x * y).sum();
         assert!(
-            sim > 0.5,
-            "similar sentences should have cosine > 0.5, got {}",
-            sim
-        );
-    }
-
-    #[test]
-    fn test_embed_batch_size() {
-        let mut engine = EmbeddingEngine::new(&["hello world test"]);
-        let texts = vec!["hello".to_string(), "world".to_string(), "test".to_string()];
-        let results = engine.embed_batch(&texts);
-        assert_eq!(results.len(), 3, "batch should return 3 embeddings");
-        for (i, v) in results.iter().enumerate() {
-            assert_eq!(v.len(), 128, "embedding {} should be 128-dim", i);
-        }
-    }
-
-    #[test]
-    fn test_embed_empty_string() {
-        let mut engine = EmbeddingEngine::new(&["hello"]);
-        let vec = engine.embed("");
-        assert_eq!(
-            vec.len(),
-            128,
-            "empty string should still return 128-dim vector"
-        );
-        for &v in &vec {
-            assert!(!v.is_nan(), "NaN in empty-string embedding");
-            assert!(v.is_finite(), "non-finite in empty-string embedding");
-        }
-    }
-
-    #[test]
-    fn test_cosine_similarity_identical() {
-        let a = vec![1.0, 0.0, 0.0];
-        let b = vec![1.0, 0.0, 0.0];
-        let sim = EmbeddingEngine::cosine_similarity(&a, &b);
-        assert!(
-            (sim - 1.0).abs() < 1e-6,
-            "identical vectors should have similarity 1.0"
-        );
-    }
-
-    #[test]
-    fn test_cosine_similarity_orthogonal() {
-        let a = vec![1.0, 0.0, 0.0];
-        let b = vec![0.0, 1.0, 0.0];
-        let sim = EmbeddingEngine::cosine_similarity(&a, &b);
-        assert!(
-            sim.abs() < 0.01,
-            "orthogonal vectors should have similarity ~0.0, got {}",
-            sim
-        );
-    }
-
-    #[test]
-    fn test_l2_normalized() {
-        let mut engine = EmbeddingEngine::new(&["hello world test"]);
-        let vec = engine.embed("hello world");
-        let norm: f32 = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!(
-            (norm - 1.0).abs() < 1e-5,
-            "L2-normalized vector should have norm ~1.0, got {}",
-            norm
+            sim_ab > sim_ac,
+            "similar texts should have higher cosine similarity"
         );
     }
 }

@@ -1,0 +1,24 @@
+{
+  "version": "0.3.0",
+  "cycles": 10000,
+  "total_seconds": 0.206423461,
+  "avg_cycle_us": 20.6423461,
+  "cycles_per_second": 48444.105876124224,
+  "final_nodes": 200,
+  "final_edges": 40,
+  "final_events": 10000,
+  "peak_nodes": 200,
+  "peak_edges": 40,
+  "node_drift": 0,
+  "dangling_edges": 0,
+  "paging_cap": 200,
+  "samples": [
+    {
+      "cycle": 0,
+      "nodes": 6,
+      "edges": 5,
+      "events": 1,
+      "avg_cycle_us": 0.0
+    }
+  ]
+}

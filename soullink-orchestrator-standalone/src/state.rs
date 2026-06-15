@@ -104,6 +104,7 @@ impl AppState {
     }
 
     /// Appelle un cerveau spécifique
+    #[allow(dead_code)]
     pub async fn call_brain(
         &self,
         url: &str,

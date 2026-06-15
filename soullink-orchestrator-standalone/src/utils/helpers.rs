@@ -88,6 +88,7 @@ pub fn format_metrics(queries: u64, spawns: u64, brains: usize) -> String {
 }
 
 /// Trouve le prochain port disponible
+#[allow(dead_code)]
 pub fn find_next_port(used_ports: &[u16], start: u16) -> u16 {
     let mut port = start;
     while used_ports.contains(&port) {
