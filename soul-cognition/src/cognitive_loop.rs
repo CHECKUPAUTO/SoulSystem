@@ -16,6 +16,8 @@ use crate::gate::{Confirmation, Decision, GateError, PermissionGate};
 use crate::memory::{CognitiveMemory, MemoryError, MemoryTier, Reconciliation, Record};
 use crate::provenance::Tagged;
 use soul_rsi::{Evaluator, Proposer, RsiEngine, StepOutcome};
+use soul_skills::{Episode, Retention, Skill, ValidatedSkillLibrary};
+use std::sync::RwLock;
 
 /// What the agent chooses to do this cycle.
 #[derive(Debug, Clone, PartialEq)]
@@ -34,6 +36,11 @@ pub struct CognitiveLoop {
     gate: PermissionGate,
     curiosity: Curiosity,
     memory: CognitiveMemory,
+    /// A self-evolving, *validated* skill library: successful episodes are
+    /// induced into skills and retained only if they clear the gate (the moat
+    /// over Hermes-Agent's ungated skill self-improvement). Interior-mutable so
+    /// the loop keeps its shared-`&self` API.
+    skills: RwLock<ValidatedSkillLibrary>,
 }
 
 impl Default for CognitiveLoop {
@@ -48,6 +55,7 @@ impl CognitiveLoop {
             gate: PermissionGate::new(),
             curiosity: Curiosity::new(),
             memory: CognitiveMemory::new(),
+            skills: RwLock::new(ValidatedSkillLibrary::new(soul_skills::builtin_skills())),
         }
     }
 
@@ -57,6 +65,7 @@ impl CognitiveLoop {
             gate: PermissionGate::new(),
             curiosity,
             memory: CognitiveMemory::new(),
+            skills: RwLock::new(ValidatedSkillLibrary::new(soul_skills::builtin_skills())),
         }
     }
 
@@ -179,6 +188,20 @@ impl CognitiveLoop {
             .remember(MemoryTier::Reflexive, lesson, importance)
             .await;
     }
+
+    /// INDUCE a skill from a completed task: turn the episode into a reusable,
+    /// validated skill (Voyager/SEVerA — kept only if it clears the validation
+    /// gate). This crystallises the loop's successful work into a growing skill
+    /// library, the structural advantage over ungated skill self-improvement.
+    /// Returns what the library decided (added / reinforced / rejected / skipped).
+    pub fn induce_skill(&self, episode: &Episode) -> Retention {
+        self.skills.write().unwrap().offer(episode)
+    }
+
+    /// Snapshot the current validated skill library.
+    pub fn skills(&self) -> Vec<Skill> {
+        self.skills.read().unwrap().skills().to_vec()
+    }
 }
 
 #[cfg(test)]
@@ -262,6 +285,45 @@ mod tests {
             Reconciliation::NoOp
         );
         assert_eq!(lp.memory().snapshot(MemoryTier::User).len(), 1);
+    }
+
+    #[test]
+    fn induce_skill_adds_validated_novel_skill() {
+        use soul_skills::EpisodeAction;
+        let lp = CognitiveLoop::new();
+        let before = lp.skills().len(); // builtins
+        let ep = Episode::new(
+            "summarize the quarterly metrics report",
+            vec![
+                EpisodeAction::new("read_file", "read the metrics report"),
+                EpisodeAction::new("write", "draft the summary"),
+            ],
+            true,
+        );
+        match lp.induce_skill(&ep) {
+            Retention::Added(s) => assert!(s.name.contains("summarize")),
+            other => panic!("expected Added, got {other:?}"),
+        }
+        assert_eq!(lp.skills().len(), before + 1);
+    }
+
+    #[test]
+    fn induce_skill_reinforces_matching_builtin() {
+        use soul_skills::EpisodeAction;
+        let lp = CognitiveLoop::new();
+        let before = lp.skills().len();
+        // "review ..." matches the built-in code-review skill's trigger.
+        let ep = Episode::new(
+            "review the auth module thoroughly",
+            vec![
+                EpisodeAction::new("read_file", "read auth module"),
+                EpisodeAction::new("grep", "scan for issues"),
+            ],
+            true,
+        );
+        assert!(matches!(lp.induce_skill(&ep), Retention::Reinforced(_)));
+        // Reinforced in place — no new skill added.
+        assert_eq!(lp.skills().len(), before);
     }
 
     #[tokio::test]

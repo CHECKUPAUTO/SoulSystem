@@ -10401,6 +10401,7 @@ dependencies = [
  "serde",
  "serde_json",
  "soul_rsi",
+ "soul_skills",
  "soul_tools",
  "soullink-memory-hierarchy",
  "tempfile",

@@ -12,6 +12,7 @@ chrono = { workspace = true, features = ["serde"] }
 tokio = { workspace = true }
 soul_tools = { path = "../soul_tools" }
 soul_rsi = { path = "../soul-rsi" }
+soul_skills = { path = "../soul-skills" }
 soullink-memory-hierarchy = { path = "../soullink-brain/soullink-memory-hierarchy" }
 
 [dev-dependencies]
