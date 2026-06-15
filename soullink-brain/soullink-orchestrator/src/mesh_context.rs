@@ -58,6 +58,24 @@ pub struct ConceptSummary {
     pub source_brain: String,
 }
 
+/// A verified-orchestration confidence gate over the mesh panel
+/// (`docs/RESEARCH_FRONTIER_2026.md` §5, adapted to the brains' telemetry):
+/// how much the brains *agree* and whether the surfaced concepts actually
+/// *cover* the query. Low confidence flags `needs_replanning` so the caller can
+/// escalate or re-query rather than trust a split, off-topic result.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct MeshConfidence {
+    /// Fraction of responding brains sharing the dominant attractor (consensus).
+    pub agreement: f64,
+    /// Fraction of the query's significant terms present in the top concepts.
+    pub coverage: f64,
+    /// Both agreement and coverage cleared the bar (and a brain responded).
+    pub verified: bool,
+    /// No candidate cleared the gate — replan / escalate rather than trust it.
+    pub needs_replanning: bool,
+    pub reason: String,
+}
+
 impl MeshContext {
     /// Build from the raw results map + the already-merged concepts list
     /// (produced by `routing::merge_concepts`).
@@ -117,6 +135,59 @@ impl MeshContext {
         }
     }
 
+    /// Compute the confidence gate over the mesh panel: agreement (attractor
+    /// consensus among the brains that responded) and coverage (how much the
+    /// surfaced concepts address the query). Verified only when both clear 0.5.
+    pub fn confidence(&self) -> MeshConfidence {
+        let ok: Vec<&BrainSummary> = self.brains.iter().filter(|b| !b.errored).collect();
+        if ok.is_empty() {
+            return MeshConfidence {
+                agreement: 0.0,
+                coverage: 0.0,
+                verified: false,
+                needs_replanning: true,
+                reason: "no brains responded".into(),
+            };
+        }
+
+        let agreeing = ok
+            .iter()
+            .filter(|b| b.attractor == self.attractor_dominant)
+            .count();
+        let agreement = agreeing as f64 / ok.len() as f64;
+
+        let kws = query_keywords(&self.query);
+        let coverage = if kws.is_empty() {
+            1.0
+        } else {
+            let blob = self
+                .top_concepts
+                .iter()
+                .map(|c| c.concept.to_lowercase())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let hits = kws.iter().filter(|k| blob.contains(*k)).count();
+            hits as f64 / kws.len() as f64
+        };
+
+        let verified = agreement >= 0.5 && coverage >= 0.5;
+        let reason = if verified {
+            format!("agreement={agreement:.2}, coverage={coverage:.2}")
+        } else {
+            format!(
+                "low confidence (agreement={agreement:.2}, coverage={coverage:.2}); \
+                 consider replanning or escalating"
+            )
+        };
+        MeshConfidence {
+            agreement,
+            coverage,
+            verified,
+            needs_replanning: !verified,
+            reason,
+        }
+    }
+
     /// Format as a natural-language block for inclusion in an LLM prompt.
     /// Intentionally compact — the model doesn't need verbose prose.
     pub fn format_for_prompt(&self) -> String {
@@ -158,12 +229,25 @@ impl MeshContext {
             )
         };
 
+        let conf = self.confidence();
+        let confidence_line = format!(
+            "\n\nMesh confidence: {} (agreement={:.2}, coverage={:.2}).{}",
+            if conf.verified { "verified" } else { "LOW" },
+            conf.agreement,
+            conf.coverage,
+            if conf.needs_replanning {
+                " Treat the answer as tentative; say so and suggest what to clarify."
+            } else {
+                ""
+            },
+        );
+
         format!(
             "Mesh telemetry for the query:\n\
              Consulted {} brain(s). Dominant attractor: {}. \
              Turbulence avg={:.2}, max={:.2}. Total active neurons: {}.\n\n\
              Per-brain readings:\n{}\n\n\
-             Top concepts:\n{}{}",
+             Top concepts:\n{}{}{}",
             self.brains.len(),
             self.attractor_dominant,
             self.turbulence_avg,
@@ -172,8 +256,30 @@ impl MeshContext {
             brains_line,
             concepts_line,
             errored_note,
+            confidence_line,
         )
     }
+}
+
+/// Significant lowercase terms of the query (drops stopwords and short tokens),
+/// for the coverage check.
+fn query_keywords(query: &str) -> Vec<String> {
+    const STOPWORDS: &[&str] = &[
+        "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "for", "with", "at", "by",
+        "is", "are", "was", "were", "be", "how", "what", "why", "when", "do", "does", "did", "can",
+        "should", "would", "i", "you", "we", "it", "this", "that", "explain", "tell", "about",
+    ];
+    let mut out = Vec::new();
+    for raw in query.split(|c: char| !c.is_alphanumeric()) {
+        let w = raw.to_lowercase();
+        if w.len() < 3 || STOPWORDS.contains(&w.as_str()) {
+            continue;
+        }
+        if !out.contains(&w) {
+            out.push(w);
+        }
+    }
+    out
 }
 
 fn summarize_brain(name: &str, v: &Value) -> BrainSummary {
@@ -315,6 +421,60 @@ mod tests {
         let text = ctx.format_for_prompt();
         assert!(text.contains("(no concepts surfaced)"));
         assert!(text.contains("Transient"));
+    }
+
+    #[test]
+    fn confidence_verified_when_brains_agree_and_concepts_cover() {
+        let results = HashMap::from([
+            (
+                "science".to_string(),
+                json!({"attractor": "StableOrbit", "turbulence": 0.1}),
+            ),
+            (
+                "mind".to_string(),
+                json!({"attractor": "StableOrbit", "turbulence": 0.2}),
+            ),
+        ]);
+        let merged = vec![
+            json!({"concept": "entropy", "score": 0.9, "source_brain": "science"}),
+            json!({"concept": "thermodynamics", "score": 0.7, "source_brain": "science"}),
+        ];
+        let ctx = MeshContext::build("explain entropy and thermodynamics", &results, &merged);
+        let c = ctx.confidence();
+        assert!((c.agreement - 1.0).abs() < 1e-9); // both StableOrbit
+        assert!((c.coverage - 1.0).abs() < 1e-9); // both query terms surfaced
+        assert!(c.verified);
+        assert!(!c.needs_replanning);
+    }
+
+    #[test]
+    fn confidence_flags_replanning_on_disagreement_and_no_coverage() {
+        let results = HashMap::from([
+            (
+                "science".to_string(),
+                json!({"attractor": "StableOrbit", "turbulence": 0.1}),
+            ),
+            (
+                "mind".to_string(),
+                json!({"attractor": "Transient", "turbulence": 0.9}),
+            ),
+        ]);
+        // Concepts unrelated to the query → zero coverage.
+        let merged = vec![json!({"concept": "cooking", "score": 0.5, "source_brain": "mind"})];
+        let ctx = MeshContext::build("explain quantum entanglement", &results, &merged);
+        let c = ctx.confidence();
+        assert!(c.agreement < 1.0); // split attractors
+        assert_eq!(c.coverage, 0.0);
+        assert!(c.needs_replanning);
+        assert!(ctx.format_for_prompt().contains("LOW"));
+    }
+
+    #[test]
+    fn confidence_needs_replanning_when_no_brains() {
+        let ctx = MeshContext::build("anything", &HashMap::new(), &[]);
+        let c = ctx.confidence();
+        assert!(c.needs_replanning);
+        assert_eq!(c.reason, "no brains responded");
     }
 
     #[test]
