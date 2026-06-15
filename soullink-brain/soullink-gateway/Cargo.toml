@@ -33,6 +33,10 @@ tower-http = { workspace = true }
 async-trait = { workspace = true }
 async-stream = "0.3"
 libc = "0.2"
+# WhatsApp Cloud API webhook signature verification (X-Hub-Signature-256).
+hmac = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
 
 [build-dependencies]
 
