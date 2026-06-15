@@ -11,7 +11,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::warn;
 
 pub struct EmbedClient {
     cfg: EmbedCfg,
@@ -88,7 +88,7 @@ impl EmbedClient {
             .local
             .as_ref()
             .ok_or_else(|| anyhow!("local engine non initialisé"))?;
-        let mut engine = engine.lock().unwrap();
+        let engine = engine.lock().unwrap();
         let v = engine.embed(text);
         Ok(v)
     }

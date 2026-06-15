@@ -9,8 +9,7 @@
 //! The LLM receives registered agent metadata + the graph design prompt,
 //! and returns a structured JSON DAG that the existing WorkflowEngine executes.
 
-use crate::context::WorkflowContext;
-use crate::node::{AgentNode, Node, NodeResult, NodeType};
+use crate::node::{AgentNode, Node, NodeType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;

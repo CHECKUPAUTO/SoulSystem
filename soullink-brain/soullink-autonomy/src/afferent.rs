@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Current sensor readings.
 #[derive(Debug, Clone, Serialize, Deserialize)]

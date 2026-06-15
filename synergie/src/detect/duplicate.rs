@@ -5,7 +5,7 @@
 
 use crate::analyzer::{auto_score_from, priority_from_score, short_hash, type_floor};
 use crate::detect::{DetectContext, Detector};
-use crate::scanner::{ItemKind, PublicItem};
+use crate::scanner::PublicItem;
 use crate::types::{Evidence, Synergy};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};

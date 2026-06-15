@@ -9,7 +9,6 @@
 //! - Batch normalization for embedding post-processing
 
 use anyhow::Result;
-use std::path::Path;
 
 /// oneDNN engine type.
 #[derive(Debug, Clone, Copy)]

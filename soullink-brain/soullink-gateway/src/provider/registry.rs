@@ -10,7 +10,7 @@ use tracing::{info, warn};
 use crate::provider::ollama::OllamaProvider;
 use crate::provider::openai::OpenAIProvider;
 use crate::provider::{
-    ChatRequest, ChatResponse, CompletionRequest, CompletionResponse, Provider, ProviderConfig,
+    Provider, ProviderConfig,
     ProviderError,
 };
 

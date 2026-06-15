@@ -10,7 +10,7 @@ use soul_memory::SoulMemory;
 use soulsystem_common::embedder::{Embedder, SciRustEmbedder};
 use soulsystem_common::memory_types::MemoryHit;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;

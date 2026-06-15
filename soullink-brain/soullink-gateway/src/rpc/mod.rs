@@ -9,7 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::api::ApiState;
 use crate::provider::registry::ProviderRegistry;
@@ -96,7 +96,7 @@ impl RpcRegistry {
         let api = ApiState {
             registry: registry.clone(),
         };
-        let state = Arc::new(RpcState {
+        let _state = Arc::new(RpcState {
             api: api.clone(),
             providers: registry.clone(),
         });

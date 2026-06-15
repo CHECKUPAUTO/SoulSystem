@@ -4,7 +4,6 @@ use crate::models::types::attractor_score;
 use crate::state::AppState;
 use crate::utils::helpers::now_ts;
 use axum::{extract::State, Json};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 

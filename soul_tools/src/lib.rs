@@ -209,6 +209,7 @@ impl PermissionLevel {
 #[derive(Clone)]
 pub struct AsyncShellExecutor {
     sandbox: Arc<Sandbox>,
+    #[allow(dead_code)]
     timeout: Duration,
 }
 

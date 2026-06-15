@@ -34,6 +34,7 @@ pub enum LockError {
 #[derive(Debug)]
 pub struct GatewayLock {
     pid_file: PathBuf,
+    #[allow(dead_code)]
     pid: u32,
     released: bool,
 }

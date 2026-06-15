@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -235,6 +234,7 @@ impl CritiqueEngine {
 
 pub struct ReflexionLoop {
     engine: CritiqueEngine,
+    #[allow(dead_code)]
     max_rounds: usize,
 }
 

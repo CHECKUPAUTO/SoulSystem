@@ -8,18 +8,17 @@
 //! - Task queue with abort support
 //! - Memory distillation
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolCall, ToolSchema};
-use soul_memory::{Edge, EdgeType, KnowledgeGraph, Node, NodeType};
-use soul_planner::{CognitiveLoop, Goal, GoalStatus, WorkingMemory};
+use chrono::Utc;
+use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolSchema};
+use soul_memory::{KnowledgeGraph, Node, NodeType};
+use soul_planner::{CognitiveLoop, Goal, GoalStatus};
 use soul_skills::SkillLoader;
 use soul_tools::{
-    async_dispatch_tool, discover_system_tools, dispatch_tool, AsyncShellExecutor, ToolRegistry,
+    async_dispatch_tool, discover_system_tools, AsyncShellExecutor, ToolRegistry,
 };
 use soullink_autonomy::metacognition::MetaCognition;
 use soullink_memory_hierarchy::{
-    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, MemoryLayer,
+    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry,
     SemanticConfig,
 };
 use soullink_reasoning::{ThoughtTree, TreeConfig};
@@ -870,12 +869,16 @@ fn truncate_output(s: &str, max_len: usize) -> String {
 
 pub struct TaskQueue {
     tx: mpsc::UnboundedSender<TaskRequest>,
+    #[allow(dead_code)]
     rx: Arc<RwLock<mpsc::UnboundedReceiver<TaskRequest>>>,
 }
 
 struct TaskRequest {
+    #[allow(dead_code)]
     id: String,
+    #[allow(dead_code)]
     task: String,
+    #[allow(dead_code)]
     response_tx: oneshot::Sender<Result<String, String>>,
 }
 

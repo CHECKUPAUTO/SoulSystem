@@ -1,4 +1,3 @@
-use anyhow::Result;
 use soullink_autonomy::preservation::{DefenseAction, Preservation};
 use std::path::Path;
 use std::sync::Arc;
@@ -6,6 +5,7 @@ use tracing::{info, warn};
 
 pub struct SelfHealer {
     preservation: Arc<Preservation>,
+    #[allow(dead_code)]
     data_dir: std::path::PathBuf,
 }
 

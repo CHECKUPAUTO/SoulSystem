@@ -7,8 +7,6 @@
 //! Where V(q) = ½·k·(q - target)² is a quadratic potential well.
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
 
 /// Node identifiers in the HNN mesh.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]

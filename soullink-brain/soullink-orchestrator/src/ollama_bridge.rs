@@ -163,6 +163,7 @@ struct EmbedResp {
 }
 
 /// Fetch an embedding vector from Ollama's `/api/embeddings` endpoint.
+#[allow(dead_code)]
 async fn embed_query(cfg: &OllamaConfig, query: &str) -> Result<Vec<f32>, OllamaError> {
     let url = format!("{}/api/embeddings", cfg.base_url.trim_end_matches('/'));
     let body = EmbedReq {
@@ -195,10 +196,13 @@ async fn embed_query(cfg: &OllamaConfig, query: &str) -> Result<Vec<f32>, Ollama
 /// Generate with optional RAG enrichment from the memory graph.
 /// If memory is provided and an embedding can be obtained, relevant concepts
 /// are prepended to the prompt as `[Memory Context]`.
+#[allow(dead_code)]
 pub async fn generate_with_memory(
     cfg: &OllamaConfig,
     ctx: &MeshContext,
-    memory: Option<&Arc<MemoryGraph>>,
+    memory: Option<Arc<MemoryGraph>>,
+    _system_prompt: String,
+    _user_prompt: String,
     top_k: usize,
 ) -> Result<String, OllamaError> {
     let mut enriched_ctx = ctx.clone();
@@ -211,7 +215,7 @@ pub async fn generate_with_memory(
                     .iter()
                     .filter_map(|r| {
                         mg.get(&r.label)
-                            .map(|c| format!("{}: {:.2}", r.label, r.score))
+                            .map(|_c| format!("{}: {:.2}", r.label, r.score))
                     })
                     .collect();
                 if !memories.is_empty() {
@@ -299,6 +303,7 @@ pub async fn generate(cfg: &OllamaConfig, ctx: &MeshContext) -> Result<String, O
 /// body is tied to the stream's lifetime). The gateway uses this when the
 /// user interrupts or the bucket rate-limiter decides to stop editing.
 /// Stream with optional RAG enrichment from the memory graph.
+#[allow(dead_code)]
 pub async fn generate_stream_with_memory(
     cfg: &OllamaConfig,
     ctx: &MeshContext,
@@ -314,7 +319,7 @@ pub async fn generate_stream_with_memory(
                     .iter()
                     .filter_map(|r| {
                         mg.get(&r.label)
-                            .map(|c| format!("{}: {:.2}", r.label, r.score))
+                            .map(|_c| format!("{}: {:.2}", r.label, r.score))
                     })
                     .collect();
                 if !memories.is_empty() {

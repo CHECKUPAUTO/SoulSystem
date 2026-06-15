@@ -139,7 +139,9 @@ impl CryptoBridge {
     pub async fn screenshot(&self, region: &str) -> Result<Vec<u8>, String> {
         let output = self.run_tv_command(&["screenshot", "-r", region]).await?;
         // Base64 decode the screenshot data
-        base64::decode(&output).map_err(|e| format!("decode screenshot: {e}"))
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD,&output,
+        )
+        .map_err(|e| format!("decode screenshot: {e}"))
     }
 
     /// Stream quotes — returns a channel of market ticks.

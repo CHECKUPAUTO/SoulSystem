@@ -107,8 +107,10 @@ pub struct MiniLLM {
     // Attention: Q projection: [d_model × d_model]
     wq: Vec<f32>,
     // Attention: K projection
+    #[allow(dead_code)]
     wk: Vec<f32>,
     // Attention: V projection
+    #[allow(dead_code)]
     wv: Vec<f32>,
     // Attention: output projection
     wo: Vec<f32>,

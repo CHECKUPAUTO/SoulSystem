@@ -10,6 +10,8 @@
 //!   sync     — push GitHub des proposals
 //!   status   — affiche la config + compteurs DB
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::collections::HashSet;

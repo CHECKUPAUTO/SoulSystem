@@ -5,12 +5,10 @@
 //! and reinforces edges via Hebbian update using soullink-eval.
 
 use soullink_eval::loss::SemanticLoss;
-use soullink_memory::concept::{Concept, ConceptKind};
 use soullink_memory::decay::DecayConfig;
 use soullink_memory::graph::MemoryGraph;
 use soullink_memory::random_walk::{random_walk, WalkConfig, WalkResult};
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::interval;
 use tracing::{info, instrument};
@@ -42,6 +40,7 @@ impl Default for DreamConfig {
 /// The Dream Cycle — runs random walks and reinforces semantic connections.
 pub struct DreamCycle {
     config: DreamConfig,
+    #[allow(dead_code)]
     loss: SemanticLoss,
 }
 

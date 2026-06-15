@@ -1,6 +1,6 @@
 //! Route: Query
 
-use crate::models::types::{attractor_score, QueryRequest};
+use crate::models::types::attractor_score;
 use crate::state::AppState;
 use crate::utils::helpers::{calculate_avg_mastery, merge_concepts, now_ts};
 use axum::{extract::State, Json};

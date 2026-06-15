@@ -36,7 +36,7 @@ pub async fn list_models(State(state): State<ApiState>) -> impl IntoResponse {
     for provider in &providers {
         let provider_name = provider["name"].as_str().unwrap_or("unknown");
         let provider_type = provider["type"].as_str().unwrap_or("unknown");
-        let base_url = provider["base_url"].as_str().unwrap_or("");
+        let _base_url = provider["base_url"].as_str().unwrap_or("");
 
         if let Some(provider_models) = provider["models"].as_array() {
             for model in provider_models {

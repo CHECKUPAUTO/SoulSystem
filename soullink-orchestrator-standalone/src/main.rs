@@ -10,6 +10,8 @@
 //!   - Métriques Prometheus (/metrics)
 //!   - Auto-spawn via Command::new
 
+#![allow(dead_code)]
+
 use axum::{
     routing::{get, post},
     Router,

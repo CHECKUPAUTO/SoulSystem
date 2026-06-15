@@ -4,7 +4,6 @@
 //! message editing, and HTML parse mode.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 /// Top-level envelope for every Bot API response.
 #[derive(Debug, Deserialize)]
@@ -191,6 +190,7 @@ pub struct SendChatAction<'a> {
     pub action: &'a str,
 }
 
+#[allow(dead_code)]
 fn default_true() -> bool {
     true
 }

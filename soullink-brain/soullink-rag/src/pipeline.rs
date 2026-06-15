@@ -4,10 +4,7 @@
 //!
 //! Each step respects VRAM-awareness via ModelRouter thresholds.
 
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// Unique document identifier.

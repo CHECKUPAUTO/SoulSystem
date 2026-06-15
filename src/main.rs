@@ -15,14 +15,6 @@ use soulsystem::bound_system::BoundSystem;
 use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
 // Unified bridge aliases (replaces 9 individual bridge crates)
-use soul_bridge::avid as avid_bridge;
-use soul_bridge::brain as brain_bridge;
-use soul_bridge::mesh as mesh_bridge;
-use soul_bridge::openevolve as openevolve_bridge;
-use soul_bridge::organs as organs_bridge;
-use soul_bridge::services as services_bridge;
-use soul_bridge::soul_neural as soul_neural_bridge;
-use soul_bridge::synergie as synergie_bridge;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;

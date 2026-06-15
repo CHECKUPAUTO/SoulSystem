@@ -14,10 +14,13 @@ use crate::ollama_bridge::OllamaConfig;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct MemoryConfig {
+    #[allow(dead_code)]
     pub db_path: String,
     #[serde(default = "default_sled_cache_mb")]
+    #[allow(dead_code)]
     pub sled_cache_mb: usize,
     #[serde(default = "default_search_top_k")]
+    #[allow(dead_code)]
     pub search_top_k: usize,
 }
 
@@ -31,6 +34,7 @@ fn default_search_top_k() -> usize {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct OrchestratorConfig {
     pub ollama: Option<OllamaConfig>,
+    #[allow(dead_code)]
     pub memory: Option<MemoryConfig>,
 }
 

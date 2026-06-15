@@ -6,3 +6,7 @@ description = "SciRust core — scientific computing engine for SoulLink ecosyst
 
 [dependencies]
 num_cpus = "1"
+
+[features]
+default = []
+gpu = []

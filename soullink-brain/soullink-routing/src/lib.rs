@@ -4,14 +4,10 @@
 //! Routes requests to cheap or primary models based on task complexity,
 //! with pattern overrides for fast-path routing.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 
-use async_trait::async_trait;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
 use soullink_circuit::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 
@@ -121,6 +117,7 @@ pub struct ComplexityScorer {
 struct PatternOverride {
     regex: Regex,
     tier: Tier,
+    #[allow(dead_code)]
     name: String,
 }
 

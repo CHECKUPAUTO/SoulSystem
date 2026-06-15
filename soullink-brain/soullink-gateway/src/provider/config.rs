@@ -19,7 +19,6 @@
 
 use std::collections::HashMap;
 
-use crate::config::load_default;
 use crate::provider;
 
 /// Load provider configurations from the gateway config TOML.

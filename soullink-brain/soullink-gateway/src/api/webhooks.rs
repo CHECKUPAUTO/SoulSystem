@@ -18,7 +18,7 @@ use tracing::{info, warn};
 use crate::api::ApiState;
 
 pub async fn webhook_handler(
-    State(state): State<ApiState>,
+    State(_state): State<ApiState>,
     Path(provider): Path<String>,
     headers: HeaderMap,
     body: Json<Value>,

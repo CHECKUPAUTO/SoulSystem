@@ -1,6 +1,5 @@
 //! Route: Status
 
-use crate::models::types::{attractor_score, MeshStatus};
 use crate::state::AppState;
 use crate::utils::helpers::now_ts;
 use axum::{extract::State, Json};

@@ -5,9 +5,8 @@
 //!
 //! Utilise ed25519-dalek pour une signature asymétrique robuste.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -116,6 +115,7 @@ pub fn verify_code(signed: &SignedCode, authorized: &AuthorizedKeys) -> Result<(
     #[cfg(not(feature = "ed25519"))]
     {
         // Fallback SHA256 + XOR (moins sûr, déprécié)
+        use sha2::{Digest, Sha256};
         #[deprecated(
             since = "0.6.0",
             note = "ed25519 non activé, utiliser --features ed25519"
