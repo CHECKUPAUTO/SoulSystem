@@ -32,7 +32,7 @@ pub mod provenance;
 pub use cognitive_loop::{CognitiveLoop, Focus};
 pub use curiosity::{Curiosity, Probe, ScoredProbe};
 pub use gate::{Confirmation, Decision, GateError, PermissionGate};
-pub use memory::{CognitiveMemory, MemoryError, MemoryTier, Record};
+pub use memory::{CognitiveMemory, MemoryError, MemoryTier, Reconciliation, Record};
 pub use provenance::{Provenance, Tagged};
 
 #[cfg(test)]

@@ -60,6 +60,10 @@ pub struct Record {
     pub importance: f32,
     pub created_at: String,
     pub tier: MemoryTier,
+    /// Reconciliation key (Mem0-style). `None` for free-form records; `Some`
+    /// for keyed facts managed via [`CognitiveMemory::reconcile_set`].
+    #[serde(default)]
+    pub key: Option<String>,
 }
 
 /// Why a memory operation was refused.
@@ -68,6 +72,34 @@ pub enum MemoryError {
     /// Attempted to write a `Hypothetical` value into a long-term fact tier.
     #[error("cannot store hypothetical content in the {0:?} fact tier; verify it first")]
     SpeculativeNotAllowed(MemoryTier),
+    /// A reconciliation would replace a stronger-provenance fact with a
+    /// weaker-provenance value in a fact tier — refused so a guess never
+    /// silently overwrites a known fact.
+    #[error("refusing to overwrite a {existing} fact for '{key}' with a weaker {incoming} value")]
+    WouldDowngrade {
+        key: String,
+        existing: Provenance,
+        incoming: Provenance,
+    },
+    /// Reconciliation is only defined on the keyed in-process tiers
+    /// (`User`, `Strategic`, `Reflexive`), not the consolidating hierarchy
+    /// tiers (`Working`/`Episodic`/`Semantic`).
+    #[error("reconciliation is not supported on the {0:?} tier")]
+    ReconcileUnsupported(MemoryTier),
+}
+
+/// What a Mem0-style reconciliation decided for a keyed fact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reconciliation {
+    /// No fact existed for the key; the value was stored.
+    Added,
+    /// A fact existed and was replaced (value changed, or provenance
+    /// strengthened for the same value). Carries the previous text.
+    Updated { previous: String },
+    /// A fact existed for the key and was removed. Carries the previous text.
+    Deleted { previous: String },
+    /// The incoming value matched what was already stored; nothing changed.
+    NoOp,
 }
 
 /// The unified five-tier memory. Cheap handles; clone freely.
@@ -122,6 +154,7 @@ impl CognitiveMemory {
             importance,
             created_at: Utc::now().to_rfc3339(),
             tier,
+            key: None,
         };
         match tier {
             MemoryTier::Working => {
@@ -193,6 +226,119 @@ impl CognitiveMemory {
         self.hierarchy.consolidate().await.promoted
     }
 
+    /// Mem0-style reconcile of a **keyed** fact: instead of blindly appending,
+    /// decide ADD / UPDATE / NOOP so the tier holds at most one current value
+    /// per key.
+    ///
+    /// Honesty guarantees beyond Mem0:
+    /// - a `Hypothetical` value is refused from a fact tier (invariant #1);
+    /// - in a fact tier, a weaker-provenance value may **not** overwrite a
+    ///   stronger established fact (`WouldDowngrade`) — a guess never silently
+    ///   replaces a known fact;
+    /// - re-asserting the same value with *stronger* provenance is an UPDATE
+    ///   that strengthens the record (an honest "verified" event), not a NOOP.
+    ///
+    /// Only the keyed in-process tiers are supported; hierarchy tiers return
+    /// [`MemoryError::ReconcileUnsupported`].
+    pub fn reconcile_set(
+        &self,
+        tier: MemoryTier,
+        key: &str,
+        value: Tagged<String>,
+        importance: f32,
+    ) -> Result<Reconciliation, MemoryError> {
+        let fact_tier = tier.is_fact_tier();
+        if fact_tier && value.provenance.is_speculative() {
+            return Err(MemoryError::SpeculativeNotAllowed(tier));
+        }
+        let store = self
+            .keyed_store(tier)
+            .ok_or(MemoryError::ReconcileUnsupported(tier))?;
+        let mut guard = store.write().unwrap();
+
+        if let Some(idx) = guard.iter().position(|r| r.key.as_deref() == Some(key)) {
+            let existing_prov = guard[idx].provenance;
+            let same_value = guard[idx].text == value.value;
+
+            if same_value {
+                // Same value: only act if the new provenance is *stronger*
+                // (Observed < Deduced < Hypothetical in the ordering).
+                if value.provenance < existing_prov {
+                    let previous = guard[idx].text.clone();
+                    guard[idx].provenance = value.provenance;
+                    guard[idx].importance = importance;
+                    guard[idx].created_at = Utc::now().to_rfc3339();
+                    return Ok(Reconciliation::Updated { previous });
+                }
+                return Ok(Reconciliation::NoOp);
+            }
+
+            // Different value: in a fact tier, refuse a weaker overwrite.
+            if fact_tier && value.provenance > existing_prov {
+                return Err(MemoryError::WouldDowngrade {
+                    key: key.to_string(),
+                    existing: existing_prov,
+                    incoming: value.provenance,
+                });
+            }
+            let previous = guard[idx].text.clone();
+            guard[idx] = Record {
+                text: value.value,
+                provenance: value.provenance,
+                importance,
+                created_at: Utc::now().to_rfc3339(),
+                tier,
+                key: Some(key.to_string()),
+            };
+            Ok(Reconciliation::Updated { previous })
+        } else {
+            guard.push(Record {
+                text: value.value,
+                provenance: value.provenance,
+                importance,
+                created_at: Utc::now().to_rfc3339(),
+                tier,
+                key: Some(key.to_string()),
+            });
+            Ok(Reconciliation::Added)
+        }
+    }
+
+    /// Remove a keyed fact (Mem0 DELETE). Returns [`Reconciliation::Deleted`]
+    /// with the prior text, or [`Reconciliation::NoOp`] if the key was absent.
+    pub fn forget(&self, tier: MemoryTier, key: &str) -> Result<Reconciliation, MemoryError> {
+        let store = self
+            .keyed_store(tier)
+            .ok_or(MemoryError::ReconcileUnsupported(tier))?;
+        let mut guard = store.write().unwrap();
+        if let Some(idx) = guard.iter().position(|r| r.key.as_deref() == Some(key)) {
+            let previous = guard.remove(idx).text;
+            Ok(Reconciliation::Deleted { previous })
+        } else {
+            Ok(Reconciliation::NoOp)
+        }
+    }
+
+    /// The current value of a keyed fact, if present.
+    pub fn fact(&self, tier: MemoryTier, key: &str) -> Option<Record> {
+        let store = self.keyed_store(tier)?;
+        let guard = store.read().unwrap();
+        guard
+            .iter()
+            .find(|r| r.key.as_deref() == Some(key))
+            .cloned()
+    }
+
+    /// The `RwLock<Vec<Record>>` backing a keyed in-process tier, if any.
+    fn keyed_store(&self, tier: MemoryTier) -> Option<&RwLock<Vec<Record>>> {
+        match tier {
+            MemoryTier::User => Some(&self.user),
+            MemoryTier::Strategic => Some(&self.strategic),
+            MemoryTier::Reflexive => Some(&self.reflexive),
+            _ => None,
+        }
+    }
+
     // ── internal conversions ────────────────────────────────────────────
 
     fn entry(&self, r: &Record) -> MemoryEntry {
@@ -240,6 +386,7 @@ impl CognitiveMemory {
             importance: e.importance,
             created_at: e.created_at,
             tier,
+            key: None,
         }
     }
 }
@@ -379,6 +526,155 @@ mod tests {
         assert_eq!(snap[0].text, "ran 3 steps");
         // Hierarchy tiers are not snapshotted wholesale.
         assert!(mem.snapshot(MemoryTier::Episodic).is_empty());
+    }
+
+    #[test]
+    fn reconcile_add_then_noop_then_update() {
+        let mem = CognitiveMemory::new();
+        // First assertion of a key → Added.
+        assert_eq!(
+            mem.reconcile_set(
+                MemoryTier::User,
+                "timezone",
+                Tagged::observed("Europe/Paris".into()),
+                0.9
+            )
+            .unwrap(),
+            Reconciliation::Added
+        );
+        // Same value, same provenance → NoOp.
+        assert_eq!(
+            mem.reconcile_set(
+                MemoryTier::User,
+                "timezone",
+                Tagged::observed("Europe/Paris".into()),
+                0.9
+            )
+            .unwrap(),
+            Reconciliation::NoOp
+        );
+        // New observed value → Updated, carries the previous.
+        assert_eq!(
+            mem.reconcile_set(
+                MemoryTier::User,
+                "timezone",
+                Tagged::observed("Europe/London".into()),
+                0.9
+            )
+            .unwrap(),
+            Reconciliation::Updated {
+                previous: "Europe/Paris".into()
+            }
+        );
+        // Only one record for the key, the current value.
+        let f = mem.fact(MemoryTier::User, "timezone").unwrap();
+        assert_eq!(f.text, "Europe/London");
+        assert_eq!(mem.snapshot(MemoryTier::User).len(), 1);
+    }
+
+    #[test]
+    fn reconcile_refuses_weaker_overwrite_in_fact_tier() {
+        let mem = CognitiveMemory::new();
+        mem.reconcile_set(
+            MemoryTier::User,
+            "language",
+            Tagged::observed("French".into()),
+            0.9,
+        )
+        .unwrap();
+        // A weaker (Deduced) value cannot overwrite the Observed fact.
+        let err = mem
+            .reconcile_set(
+                MemoryTier::User,
+                "language",
+                Tagged::deduced("German".into(), &[Provenance::Deduced]),
+                0.5,
+            )
+            .unwrap_err();
+        assert!(matches!(err, MemoryError::WouldDowngrade { .. }));
+        // The known fact is untouched.
+        assert_eq!(
+            mem.fact(MemoryTier::User, "language").unwrap().text,
+            "French"
+        );
+    }
+
+    #[test]
+    fn reconcile_strengthens_provenance_on_reassert() {
+        let mem = CognitiveMemory::new();
+        // Strategic is not a fact tier, so a Deduced value is allowed.
+        mem.reconcile_set(
+            MemoryTier::Strategic,
+            "focus",
+            Tagged::deduced("ship gateway".into(), &[Provenance::Deduced]),
+            0.8,
+        )
+        .unwrap();
+        // Re-asserting the SAME value with stronger (Observed) provenance is a
+        // verification → Updated, and the stored provenance strengthens.
+        assert_eq!(
+            mem.reconcile_set(
+                MemoryTier::Strategic,
+                "focus",
+                Tagged::observed("ship gateway".into()),
+                0.9
+            )
+            .unwrap(),
+            Reconciliation::Updated {
+                previous: "ship gateway".into()
+            }
+        );
+        assert_eq!(
+            mem.fact(MemoryTier::Strategic, "focus").unwrap().provenance,
+            Provenance::Observed
+        );
+    }
+
+    #[test]
+    fn reconcile_rejects_hypothetical_in_fact_tier() {
+        let mem = CognitiveMemory::new();
+        let err = mem
+            .reconcile_set(
+                MemoryTier::User,
+                "city",
+                Tagged::hypothetical("maybe Berlin".into()),
+                0.5,
+            )
+            .unwrap_err();
+        assert_eq!(err, MemoryError::SpeculativeNotAllowed(MemoryTier::User));
+    }
+
+    #[test]
+    fn forget_deletes_then_noops() {
+        let mem = CognitiveMemory::new();
+        mem.reconcile_set(
+            MemoryTier::User,
+            "timezone",
+            Tagged::observed("Europe/Paris".into()),
+            0.9,
+        )
+        .unwrap();
+        assert_eq!(
+            mem.forget(MemoryTier::User, "timezone").unwrap(),
+            Reconciliation::Deleted {
+                previous: "Europe/Paris".into()
+            }
+        );
+        // Second forget is a NoOp.
+        assert_eq!(
+            mem.forget(MemoryTier::User, "timezone").unwrap(),
+            Reconciliation::NoOp
+        );
+        assert!(mem.fact(MemoryTier::User, "timezone").is_none());
+    }
+
+    #[test]
+    fn reconcile_unsupported_on_hierarchy_tiers() {
+        let mem = CognitiveMemory::new();
+        let err = mem
+            .reconcile_set(MemoryTier::Semantic, "k", Tagged::observed("v".into()), 0.5)
+            .unwrap_err();
+        assert_eq!(err, MemoryError::ReconcileUnsupported(MemoryTier::Semantic));
     }
 
     #[tokio::test]
