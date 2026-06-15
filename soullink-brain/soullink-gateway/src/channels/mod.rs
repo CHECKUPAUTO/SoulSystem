@@ -12,9 +12,12 @@
 //!   PING/PONG handshake, command parsing)
 
 pub mod discord;
+pub mod registry;
 pub mod signal;
 pub mod slack;
 pub mod whatsapp;
+
+pub use registry::ChannelRegistry;
 
 use async_trait::async_trait;
 

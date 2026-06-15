@@ -14,8 +14,10 @@ use std::sync::{Arc, Mutex, RwLock};
 use avid_model_router::{OutcomeLog, RouterParams};
 use axum::Router;
 
+use crate::channels::ChannelRegistry;
 use crate::provider::registry::ProviderRegistry;
 
+pub mod channels;
 pub mod chat;
 pub mod completion;
 pub mod models;
@@ -32,15 +34,19 @@ pub struct ApiState {
     pub router_params: Arc<RwLock<RouterParams>>,
     /// Logged routing outcomes, the training data for [`ApiState::retrain`].
     pub outcomes: Arc<Mutex<OutcomeLog>>,
+    /// Configured outbound channels for dispatching replies.
+    pub channels: Arc<ChannelRegistry>,
 }
 
 impl ApiState {
-    /// Build state with default router params and an empty outcome log.
+    /// Build state with default router params, an empty outcome log, and the
+    /// outbound channels configured from the environment.
     pub fn new(registry: Arc<ProviderRegistry>) -> Self {
         Self {
             registry,
             router_params: Arc::new(RwLock::new(RouterParams::default())),
             outcomes: Arc::new(Mutex::new(OutcomeLog::default())),
+            channels: Arc::new(ChannelRegistry::from_env()),
         }
     }
 
@@ -99,6 +105,10 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/webhooks/{provider}",
             axum::routing::post(webhooks::webhook_handler).get(webhooks::webhook_verify),
+        )
+        .route(
+            "/api/channels/{provider}/send",
+            axum::routing::post(channels::send_handler),
         )
         .route("/api/mcp", axum::routing::post(crate::mcp::mcp_handler))
         .with_state(state)
