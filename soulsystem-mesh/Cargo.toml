@@ -9,3 +9,13 @@ description = "SoulSystem Mesh — méta-crate liant tous les composants de l'é
 soulsystem = { path = "../" }
 # Ponts d'intégration unifiés (soul-bridge remplace 9 bridges individuels)
 soul-bridge = { path = "../soul-bridge" }
+tracing-subscriber = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+default = []
+avid = []
+synergie = []
+openevolve = []
+brain = []
+soul_neural = []

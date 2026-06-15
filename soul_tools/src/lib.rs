@@ -13,7 +13,10 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
+use soul_sandbox::{Sandbox, SandboxPolicy, SandboxVerdict};
 use std::process::Command;
+use std::sync::Arc;
+use std::time::Duration;
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -132,6 +135,10 @@ impl ToolRegistry {
         self.tools.iter().find(|t| t.name == name)
     }
 
+    pub fn list(&self) -> Vec<&Tool> {
+        self.tools.iter().collect()
+    }
+
     pub fn search(&self, query: &str) -> Vec<&Tool> {
         let q = query.to_lowercase();
         self.tools
@@ -161,9 +168,104 @@ impl Default for ToolRegistry {
     }
 }
 
-// ── Exécution ────────────────────────────────────────────────
+// ── Permission levels ─────────────────────────────────────────
 
-pub fn execute_shell(cmd: &str) -> Result<String, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PermissionLevel {
+    Read,
+    Write,
+    Destructive,
+}
+
+impl PermissionLevel {
+    /// Classify a shell command by permission level.
+    pub fn from_command(cmd: &str) -> Self {
+        let lower = cmd.to_lowercase();
+        let destructive = [
+            "rm -rf", "mkfs", "dd if", "shutdown", "reboot", "poweroff",
+            "kill -9", "pkill -9", "iptables -F", "fdisk", "parted",
+        ];
+        let write = [
+            "rm ", "mv ", "cp ", "mkdir ", "touch ", "chmod ", "chown ",
+            "write_file", "patch_file", "git push", "git reset --hard",
+        ];
+        for d in &destructive {
+            if lower.contains(d) {
+                return PermissionLevel::Destructive;
+            }
+        }
+        for w in &write {
+            if lower.contains(w) {
+                return PermissionLevel::Write;
+            }
+        }
+        PermissionLevel::Read
+    }
+}
+
+// ── Async executor ───────────────────────────────────────────
+
+/// Async shell executor backed by `soul_sandbox`.
+#[derive(Clone)]
+pub struct AsyncShellExecutor {
+    sandbox: Arc<Sandbox>,
+    timeout: Duration,
+}
+
+impl AsyncShellExecutor {
+    pub fn new(timeout_secs: u64) -> Self {
+        Self {
+            sandbox: Arc::new(Sandbox::new(SandboxPolicy::default())),
+            timeout: Duration::from_secs(timeout_secs),
+        }
+    }
+
+    pub async fn execute(&self,
+        cmd: &str,
+    ) -> std::result::Result<SandboxVerdict, String> {
+        let sandbox = self.sandbox.clone();
+        let cmd = cmd.to_string();
+        tokio::task::spawn_blocking(move || sandbox.execute(&cmd).map_err(|e| e.to_string()))
+            .await
+            .map_err(|e| format!("spawn blocking failed: {e}"))?
+    }
+}
+
+// ── Dispatch ───────────────────────────────────────────────────
+
+pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result<String, String> {
+    match name {
+        "execute_shell" => {
+            let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+            execute_shell(cmd)
+        }
+        "read_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            std::fs::read_to_string(path).map_err(|e| e.to_string())
+        }
+        "write_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            std::fs::write(path, content).map_err(|e| e.to_string())?;
+            Ok(format!("written {} bytes", content.len()))
+        }
+        _ => execute_shell(&format!("{} {}", name, args.to_string())),
+    }
+}
+
+pub async fn async_dispatch_tool(
+    name: &str,
+    args: serde_json::Value,
+) -> std::result::Result<String, String> {
+    let name = name.to_string();
+    tokio::task::spawn_blocking(move || dispatch_tool(&name, args))
+        .await
+        .map_err(|e| format!("tool dispatch join error: {e}"))?
+}
+
+// ── Exécution synchronisée (legacy) ───────────────────────────
+
+pub fn execute_shell(cmd: &str) -> std::result::Result<String, String> {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
     if parts.is_empty() {
         return Err("command vide".into());
@@ -184,7 +286,7 @@ pub fn execute_shell(cmd: &str) -> Result<String, String> {
     }
 }
 
-pub fn execute_tool(tool: &Tool, args: &str) -> Result<String, String> {
+pub fn execute_tool(tool: &Tool, args: &str) -> std::result::Result<String, String> {
     let full_cmd = format!("{} {}", tool.name, args);
     execute_shell(&full_cmd)
 }

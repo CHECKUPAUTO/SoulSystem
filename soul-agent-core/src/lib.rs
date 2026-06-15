@@ -605,7 +605,7 @@ Only return the JSON, no explanation."#,
         );
 
         match self.llm.generate(&prompt).await {
-            Ok(resp) => match serde_json::from_str::<serde_json::Value>(&resp.response) {
+            Ok(resp) => match serde_json::from_str::<serde_json::Value>(resp.message.content.as_deref().unwrap_or("")) {
                 Ok(val) => {
                     if let Some(info) = val.get("key_info").and_then(|v| v.as_str()) {
                         self.planner.memory.set_key_info(info);
@@ -692,7 +692,7 @@ Only return the JSON array, no explanation."#,
         );
 
         match self.llm.generate(&prompt).await {
-            Ok(resp) => match serde_json::from_str::<Vec<serde_json::Value>>(&resp.response) {
+            Ok(resp) => match serde_json::from_str::<Vec<serde_json::Value>>(resp.message.content.as_deref().unwrap_or("")) {
                 Ok(skills) => {
                     let mut crystallized = 0;
                     for skill_val in &skills {
@@ -819,7 +819,7 @@ Only return the JSON array, no explanation."#,
             "max_turns": self.config.max_turns,
             "tools": self.registry.list().len(),
             "success_rate": self.planner.history.success_rate(),
-            "observations": self.planner.memory.observations.len(),
+            "observations": self.planner.memory.observations().len(),
             "history": self.history.len(),
             "consecutive_failures": self.consecutive_failures,
             "repair_count": self.repair_count,
@@ -998,16 +998,20 @@ mod tests {
 
     /// Creates a minimal AutonomousAgent for testing logic that doesn't need real LLM calls.
     fn make_test_agent() -> AutonomousAgent {
+        use std::time::Duration;
         let llm_config = soul_llm::LlmConfig {
+            provider: soul_llm::ProviderKind::Ollama,
             base_url: "http://localhost:11888".to_string(), // unreachable, but we never call it
             model: "test-model".to_string(),
-            fallback_models: vec![],
             temperature: 0.5,
             max_tokens: 1024,
-            system_prompt: None,
-            timeout_secs: 5,
-            max_retries: 0,
-            retry_base_delay_ms: 0,
+            http_timeout: Duration::from_secs(5),
+            connect_timeout: Duration::from_secs(1),
+            auth_token: None,
+            goal_token_budget: 1000,
+            tokens_per_minute_budget: 10000,
+            pool_max_idle: 1,
+            pool_idle_timeout: Duration::from_secs(30),
         };
         let llm = OllamaClient::new(llm_config);
         let config = AgentConfig {
@@ -1146,12 +1150,12 @@ mod tests {
         // Should have added a repair message
         assert!(!agent.chat_session.messages.is_empty());
         assert_eq!(
-            agent.chat_session.messages[0].role,
+            agent.chat_session.messages.last().unwrap().role,
             soul_llm::Role::User,
             "repair should add a user message explaining the reset"
         );
         assert!(
-            agent.chat_session.messages[0]
+            agent.chat_session.messages.last().unwrap()
                 .content
                 .contains("Self-repair triggered"),
             "repair message should explain the reset"
@@ -1572,10 +1576,10 @@ mod tests {
     #[tokio::test]
     async fn test_agent_chat_session_initialization() {
         let agent = make_test_agent();
-        // chat_session should have empty messages initially
-        assert!(agent.chat_session.messages.is_empty());
+        // chat_session starts with the system prompt message
+        assert!(!agent.chat_session.messages.is_empty());
         // system prompt should contain agent name
-        assert!(agent.chat_session.system_prompt.contains("TestAgent"));
+        assert!(agent.chat_session.messages[0].content.contains("TestAgent"));
     }
 
     #[tokio::test]
@@ -1584,11 +1588,12 @@ mod tests {
         agent.chat_session.add_user_message("Message A");
         agent.chat_session.add_assistant_message("Reply A");
         agent.chat_session.add_user_message("Message B");
-        assert_eq!(agent.chat_session.messages.len(), 3);
+        // Initial messages: system prompt + 3 user/assistant messages
+        assert_eq!(agent.chat_session.messages.len(), 4);
 
         // Compact under threshold should not change anything
         agent.compact_if_needed();
-        assert_eq!(agent.chat_session.messages.len(), 3);
+        assert_eq!(agent.chat_session.messages.len(), 4);
     }
 
     // ── set_skill_loader ────────────────────────────────────────────────

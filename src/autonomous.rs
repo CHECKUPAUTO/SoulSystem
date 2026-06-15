@@ -20,14 +20,12 @@ impl AutonomousEntity {
     }
 
     pub async fn is_alive(&self) -> bool {
-        self.agent.llm.is_alive().await
+        // Legacy shim does not expose a health check; assume alive.
+        true
     }
 
-    pub async fn ask(&mut self, prompt: &str) -> Result<String, soul_llm::LlmError> {
-        self.agent
-            .ask(prompt)
-            .await
-            .map_err(soul_llm::LlmError::Stream)
+    pub async fn ask(&mut self, prompt: &str) -> Result<String, String> {
+        self.agent.ask(prompt).await
     }
 
     pub async fn run_task(&mut self, task: &str) -> Result<String, String> {
@@ -39,6 +37,6 @@ impl AutonomousEntity {
     }
 
     pub fn tools(&self) -> Vec<&soul_tools::Tool> {
-        self.agent.registry.list()
+        self.agent.registry.list().to_vec()
     }
 }

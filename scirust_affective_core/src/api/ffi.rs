@@ -46,13 +46,22 @@ pub unsafe extern "C" fn affective_core_get_current_state(out_ptr: *mut f32) {
 pub unsafe extern "C" fn affective_core_compute_gate(out_ptr: *mut f32) {
     // Use raw pointer access to avoid creating shared refs to mutable statics
     // SAFETY: We're reading the static through a raw pointer without creating a reference
-    let state_opt: Option<Arc<AffectiveState>> = std::ptr::read_volatile(&raw const GLOBAL_AFFECTIVE_STATE);
-    let reg_opt: Option<Arc<Mutex<DriveRegistry>>> = std::ptr::read_volatile(&raw const GLOBAL_DRIVE_REGISTRY);
+    let state_opt: Option<Arc<AffectiveState>> =
+        std::ptr::read_volatile(&raw const GLOBAL_AFFECTIVE_STATE);
+    let reg_opt: Option<Arc<Mutex<DriveRegistry>>> =
+        std::ptr::read_volatile(&raw const GLOBAL_DRIVE_REGISTRY);
     let hook_opt: Option<EmotionalAutogradHook> = std::ptr::read_volatile(&raw const GLOBAL_HOOK);
 
-    let state_ptr: *const AffectiveState = state_opt.map(|x| x.as_ref() as *const _).unwrap_or(std::ptr::null());
-    let reg_ptr: *const Mutex<DriveRegistry> = reg_opt.map(|x| x.as_ref() as *const _).unwrap_or(std::ptr::null());
-    let hook_ptr: *const EmotionalAutogradHook = hook_opt.as_ref().map(|x| x as *const _).unwrap_or(std::ptr::null());
+    let state_ptr: *const AffectiveState = state_opt
+        .map(|x| x.as_ref() as *const _)
+        .unwrap_or(std::ptr::null());
+    let reg_ptr: *const Mutex<DriveRegistry> = reg_opt
+        .map(|x| x.as_ref() as *const _)
+        .unwrap_or(std::ptr::null());
+    let hook_ptr: *const EmotionalAutogradHook = hook_opt
+        .as_ref()
+        .map(|x| x as *const _)
+        .unwrap_or(std::ptr::null());
 
     if !state_ptr.is_null() && !reg_ptr.is_null() && !hook_ptr.is_null() {
         let state = &*state_ptr;

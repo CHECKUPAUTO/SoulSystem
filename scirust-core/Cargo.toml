@@ -1,0 +1,8 @@
+[package]
+name = "scirust-core"
+version = "0.1.0"
+edition = "2021"
+description = "SciRust core — scientific computing engine for SoulLink ecosystem"
+
+[dependencies]
+num_cpus = "1"

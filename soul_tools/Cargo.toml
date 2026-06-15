@@ -10,3 +10,10 @@ categories = ["os", "embedded", "development-tools", "security"]
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = "0.1"
+soul_sandbox = { path = "../soul_sandbox" }
+
+[dev-dependencies]
+tokio = { workspace = true }

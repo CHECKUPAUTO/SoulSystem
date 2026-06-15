@@ -1,18 +1,38 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/soulsystem-common",
-    "soulsystem-multiagent",
-    "openclaw-u",
-    "soullink-brain/soullink-core",
+    # ── CCOS (Causal Context Operating System) ─────────────────────────
+    "ccos",
+
+    # ── SciRust core (local, replaces /root/scirust subtree) ─────────────
+    "scirust-core",
+    "scirust-gpu",
+    "scirust-simd",
+    "scirust-autodiff",
+    "scirust-simd-macros",
+    "scirust-gpu-macros",
+    "scirust-macros",
+    "scirust-symbolic",
+    "scirust-learning",
+    "scirust-reasoning",
+    "scirust-trading-core",
+    "scirust_affective_core",
+
+    # ── SoulLink brain (inference + memory + reasoning) ──────────────────
+    "soullink-brain/soullink-inference",
     "soullink-brain/soullink-nvml",
-    "soullink-brain/soullink-guardian",
+    "soullink-brain/soullink-memory-hierarchy",
+    "soullink-brain/soullink-memory",
+    "soullink-brain/soullink-autonomy",
+    "soullink-brain/soullink-reasoning",
+    "soullink-brain/soullink-trainer",
+    "soullink-brain/soullink-circuit",
+    "soullink-brain/soullink-core",
     "soullink-brain/soullink-orchestrator",
     "soullink-brain/soullink-decision-v13",
     "soullink-brain/soullink-gateway",
     "soullink-brain/soullink-simd",
     "soullink-brain/soullink-vector",
-    "soullink-brain/soullink-memory",
     "soullink-brain/soullink-workflow",
     "soullink-brain/soullink-crypto-bridge",
     "soullink-brain/soullink-portfolio",
@@ -21,12 +41,8 @@ members = [
     "soullink-brain/soullink-bus",
     "soullink-brain/soullink-actions",
     "soullink-brain/soullink-senate",
-    "soullink-brain/soullink-reasoning",
     "soullink-brain/soullink-vision",
-    "soullink-brain/soullink-autonomy",
-    "soullink-brain/soullink-inference",
     "soullink-brain/soullink-proxy",
-    "soullink-brain/soullink-trt",
     "soullink-brain/soullink-rag",
     "soullink-brain/soullink-dali",
     "soullink-brain/soullink-cutlass",
@@ -37,120 +53,130 @@ members = [
     "soullink-brain/soullink-hooks",
     "soullink-brain/soullink-allowlist",
     "soullink-brain/soullink-gate",
-    "soullink-brain/soullink-circuit",
     "soullink-brain/soullink-routing",
     "soullink-brain/soullink-wasm-organ",
     "soullink-brain/soullink-gbrain",
     "soullink-brain/soullink-shm",
     "soullink-brain/soullink-vram",
     "soullink-brain/soullink-registry",
-    "soullink-brain/soullink-trainer",
-    "soullink-brain/soullink-memory-hierarchy",
     "soullink-brain/soullink-moe",
+
+    # ── Legacy monolith (src/main.rs) ────────────────────────────────────
+    # kept as the `soulsystem` package below
+
+    # ── New autonomous entity crates ─────────────────────────────────────
+    "souls",
+    "soul_entity",
+    "soul-agent-core",
+    "soul_llm",
+    "soul_planner",
+    "soul_tools",
+    "soul_sandbox",
+    "soul-daemon",
+    "soul-memory",
+    "soul_persistence",
+    "soul_openclaw",
+    "soul_gateway",
+    "soul_repl",
+    "soul-subagents",
+    "soul-eventbus",
+    "soul-skills",
+    "soul-compaction",
+    "soul-critique",
+    "soul-goaltree",
+    "soul-automodify",
+    "soul-protocol",
+    "soul-mcp",
+    "soul-browser",
+    "soul-webfetch",
+
+    # ── Neural / semantic cognitive crates ───────────────────────────────
+    "neural_metacognition",
+    "neural_chaos_monkey",
+    "neural_cluster_sync",
+    "neural_graph_compiler",
+    "neural_clinical_console",
+    "ontological_self_healing",
+    "ecosystem_synapse_linker",
+    "semantic_firewall",
+    "semantic_neuromodulator",
+
+    # ── Legacy OS/runtime infrastructure ─────────────────────────────────
+    "soul_ipc",
+    "soul_scheduler",
+    "soul_storage",
+    "soul_matrix_engine",
+    "soul_telemetry",
+    "soul_journal",
+    "soul_forge",
+    "soul_evolution",
+    "soul_guard",
+    "soul_orchestrator",
+    "soul_cluster",
+    "soul_perception",
+    "soul_cortex",
+    "soul_scout",
+    "soul_surgery",
+    "soul_agent_runtime",
+    "soul_security",
+    "soul_monitor",
+    "soul_api",
+    "soul_attention",
+    "soul_automation",
+    "soul_bridges",
+    "soul_cognitive",
+    "soul_acoustic",
+    "soul-designtree",
+    "soul-inference",
+    "soul-graph-memory",
+    "soul-conversations",
+    "soul-persist",
+    "soul-rag",
+
+    # ── Shared support crates ────────────────────────────────────────────
+    "crates/soulsystem-common",
     "crates/soul-top",
     "crates/soul-chaos",
     "crates/soul-shell",
     "crates/soul-dashboard",
-    "soullink-organs",
-    "avid-soullink",
-    "avid-rstdp",
-    "avid-anticlone-service",
-    "scirust-trading-core",
-    "scirust-trading-engine",
-    "scirust-trading-observer",
-    "scirust-trading-persistence",
-    "scirust-trading-news",
-    "scirust-trading-monitor",
-    "scirust-trading-pipeline",
-    "scirust-simd",
-    "scirust-gpu",
-    "soullink-metabolism",
-    "bound-system",
-    "brain-system-rs",
-    "openclaw-evolution",
-    "synergie",
-    "soullink-orchestrator-standalone",
-    "openevolve",
-    # Unified bridge (replaces 9 individual bridges)
+
+    # ── Bridges / integration ────────────────────────────────────────────
     "soul-bridge",
+    "bus",
+    "bound-system",
+    "clawd",
+    "local-skills",
+    "model-router",
+    "ansi-converter",
+    "terminal-stream",
+    "pty-terminal",
+    "spinner",
+
+    # ── Standalone agents / forges ──────────────────────────────────────
+    "synergie",
+    "openclaw-u",
+    "soullink-metabolism",
+    "soullink-organs",
+    "soullink-orchestrator-standalone",
+    "soulsystem-mesh",
+    "soulsystem-multiagent",
+    "brain-system-rs",
+    "agent-registry",
+    "bridge-integration-tests",
+    "fuzz",
+    "test_telemetry",
+
+    # ── Forges ───────────────────────────────────────────────────────────
     "forges/forge-core",
     "forges/forge",
     "forges/forge-bridge",
-    # forge-bridge (now in forges/forge-bridge)
-    # Autonomous entity crates
-    "soul_llm",
-    "soul_planner",
-    "soul_gateway",
-    "soul_openclaw",
-    "soul_journal",
-    "soul_storage",
-    "soul_ipc",
-    "soul_forge",
-    "soul_evolution",
-    "soul_agent_runtime",
-    "neural_metacognition",
-    "neural_clinical_console",
-    "neural_chaos_monkey",
-    "neural_cluster_sync",
-    "neural_graph_compiler",
-    "ontological_self_healing",
-    "semantic_firewall",
-    "semantic_neuromodulator",
-    "ecosystem_synapse_linker",
-    "scirust_affective_core",
-    "test_telemetry",
-    "soul_tools",
-    "soul_repl",
-    "soul-agent-core",
-    "soul-memory",
-    "soul-daemon",
-    "soul-browser",
-    "soul-subagents",
-    "soul-goaltree",
-    "soul-automodify",
-    "soul-eventbus",
-    "soul-webfetch",
-    # Quality improvement crates
-    "soul-mcp",
-    "soul-skills",
-    "soul-compaction",
-    "soul-protocol",
-    "soul-wasm",
-    "soul-designtree",
-    "soul-inference",
-    "soul-critique",
-    # AVID ecosystem (24 crates)
-    "avid/crates/avid-anticlone",
-    "avid/crates/avid-cli",
-    "avid/crates/avid-cobalt",
-    "avid/crates/avid-core",
-    "avid/crates/avid-cortex",
-    "avid/crates/avid-critic",
-    "avid/crates/avid-db",
-    "avid/crates/avid-forge",
-    "avid/crates/avid-gomogo",
-    "avid/crates/avid-hnn",
-    "avid/crates/avid-intel",
-    "avid/crates/avid-k8s",
-    "avid/crates/avid-knowledge-graph",
-    "avid/crates/avid-mimic",
-    "avid/crates/avid-model-router",
-    "avid/crates/avid-orchestrator",
-    "avid/crates/avid-sandbox",
-    "avid/crates/avid-scout",
-    "avid/crates/avid-security",
-    "avid/crates/avid-server",
-    "avid/crates/avid-skills",
-    "avid/crates/avid-tokenjuice",
-    "avid/crates/avid-tui",
-    "avid/crates/avid-vision",
 ]
 
 exclude = [
+    # Heavy CUDA / external subtrees — kept in repo, built on demand
     "soul-neural",
     "soullink-node",
     "turboquant",
-    # External repos merged via subtree — not part of main workspace build
     "os-agents",
     "intel-integrations",
     "openclaw-gateway",
@@ -160,12 +186,15 @@ exclude = [
     "neural-store",
     "soul-neural-ext",
     "jit-agentic-engine",
-    "agent-swarm",
-    "soullink-node-ext",
     "soul-project",
     "soullink-orchestrator-ext",
     "synergie-ext",
     "openclaw-evolution-ext",
+    "avid",
+    "avid-anticlone-service",
+    "avid-soullink",
+    "avid-rstdp",
+    "turbovec",
 ]
 
 [workspace.package]
@@ -218,6 +247,8 @@ colored = "3"
 crossterm = { version = "0.28", features = ["event-stream"] }
 ratatui = "0.30"
 dirs = "6"
+sha2 = "0.10"
+
 # local workspace crates
 ansi-converter = { path = "ansi-converter" }
 bus = { path = "bus" }
@@ -231,8 +262,7 @@ soul-bridge = { path = "soul-bridge" }
 spinner = { path = "spinner" }
 terminal-stream = { path = "terminal-stream" }
 soulsystem-common = { path = "crates/soulsystem-common" }
-
-# external crates referenced as workspace deps
+ccos = { path = "ccos" }
 
 [package]
 name = "soulsystem"
@@ -261,14 +291,15 @@ toml = { workspace = true }
 sled = "0.34"
 seahash = "4.1"
 chrono = { workspace = true }
-sha2 = "0.10"
+sha2 = { workspace = true }
 hostname = "0.4"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 regex = { workspace = true }
-rand = "0.8"
+rand = { workspace = true }
+uuid = { workspace = true }
 ed25519-dalek = { version = "2", optional = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
 which = "8"
@@ -284,8 +315,7 @@ soullink-rag = { path = "soullink-brain/soullink-rag" }
 soullink-autonomy = { path = "soullink-brain/soullink-autonomy" }
 soullink-circuit = { path = "soullink-brain/soullink-circuit" }
 
-# Ponts d'intégration (unified)
-
+# Bridges
 portable-pty = "0.8"
 libc = "0.2"
 tempfile = { workspace = true }
@@ -313,14 +343,52 @@ soul_wasm = { path = "soul-wasm" }
 soul_designtree = { path = "soul-designtree" }
 soul_inference = { path = "soul-inference" }
 soul_critique = { path = "soul-critique" }
-uuid = { version = "1", features = ["v4"] }
-rustyline = "14"
-colored = "2"
+soul_entity = { path = "soul_entity" }
+soul_gateway = { path = "soul_gateway" }
+soul_persistence = { path = "soul_persistence" }
+soul_sandbox = { path = "soul_sandbox" }
+soul_openclaw = { path = "soul_openclaw" }
+soul_orchestrator = { path = "soul_orchestrator" }
+soul_evolution = { path = "soul_evolution" }
+soul_forge = { path = "soul_forge" }
+soul_journal = { path = "soul_journal" }
+soul_telemetry = { path = "soul_telemetry" }
+soul_ipc = { path = "soul_ipc" }
+soul_storage = { path = "soul_storage" }
+soul_matrix_engine = { path = "soul_matrix_engine" }
+soul_scheduler = { path = "soul_scheduler" }
+soul_agent_runtime = { path = "soul_agent_runtime" }
+neural_cluster_sync = { path = "neural_cluster_sync" }
+neural_chaos_monkey = { path = "neural_chaos_monkey" }
+neural_graph_compiler = { path = "neural_graph_compiler" }
+neural_metacognition = { path = "neural_metacognition" }
+neural_clinical_console = { path = "neural_clinical_console" }
+ontological_self_healing = { path = "ontological_self_healing" }
+semantic_firewall = { path = "semantic_firewall" }
+semantic_neuromodulator = { path = "semantic_neuromodulator" }
+soul_guard = { path = "soul_guard" }
+soul_cortex = { path = "soul_cortex" }
+soul_cluster = { path = "soul_cluster" }
+soul_perception = { path = "soul_perception" }
+soul_scout = { path = "soul_scout" }
+soul_surgery = { path = "soul_surgery" }
+soul_security = { path = "soul_security" }
+
+souls = { path = "souls" }
+ccos = { workspace = true }
 
 [features]
 dev = []
 gpu = []
 ed25519 = ["dep:ed25519-dalek"]
+avid = []
+brain_system = []
+soul_neural = []
+organs = []
+mesh = []
+services = []
+openevolve = []
+synergie = []
 default = ["ed25519"]
 
 [profile.release]

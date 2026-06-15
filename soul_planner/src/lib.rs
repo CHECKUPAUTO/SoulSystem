@@ -92,6 +92,7 @@ pub struct Decision {
 pub struct WorkingMemory {
     buffer: Vec<String>,
     max_size: usize,
+    pub key_info: String,
 }
 
 impl WorkingMemory {
@@ -99,6 +100,7 @@ impl WorkingMemory {
         Self {
             buffer: Vec::with_capacity(max_size),
             max_size,
+            key_info: String::new(),
         }
     }
 
@@ -112,6 +114,32 @@ impl WorkingMemory {
     pub fn recent_observations(&self, n: usize) -> Vec<String> {
         let start = self.buffer.len().saturating_sub(n);
         self.buffer[start..].to_vec()
+    }
+
+    pub fn set_key_info(&mut self, info: &str) {
+        self.key_info = info.to_string();
+    }
+
+    pub fn to_prompt_section(&self) -> String {
+        let mut out = String::new();
+        if !self.key_info.is_empty() {
+            out.push_str("Key info: ");
+            out.push_str(&self.key_info);
+            out.push('\n');
+        }
+        if !self.buffer.is_empty() {
+            out.push_str("Recent observations:\n");
+            for obs in &self.buffer {
+                out.push_str("- ");
+                out.push_str(obs);
+                out.push('\n');
+            }
+        }
+        out
+    }
+
+    pub fn observations(&self) -> &[String] {
+        &self.buffer
     }
 }
 
