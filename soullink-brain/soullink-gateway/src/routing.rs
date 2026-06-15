@@ -61,6 +61,28 @@ pub fn route(
     build_router(providers).route(query, capabilities)
 }
 
+/// Route a query to a primary provider plus an optional escalation provider —
+/// the cheapest strictly-stronger provider to retry with when the primary's
+/// answer fails or proves unsatisfactory. `None` when no provider is capable
+/// (caller should fall back to round-robin). The escalation is `None` when the
+/// primary is already the strongest capable provider.
+pub fn route_with_escalation(
+    providers: &[(String, ProviderConfig)],
+    query: &str,
+    capabilities: &[Capability],
+) -> Option<(String, Option<String>)> {
+    if providers.is_empty() {
+        return None;
+    }
+    let router = build_router(providers);
+    let decision = router.route(query, capabilities)?;
+    let primary = decision.profile.name.clone();
+    let escalation = router
+        .escalation_target(&decision, capabilities)
+        .map(|p| p.name);
+    Some((primary, escalation))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,5 +154,38 @@ mod tests {
     #[test]
     fn empty_fleet_returns_none() {
         assert!(route(&[], "anything", &[]).is_none());
+    }
+
+    #[test]
+    fn route_with_escalation_offers_stronger_provider() {
+        let providers = vec![
+            ("tiny".into(), cfg(0.0, 200, 8192, &["fast-chat"])),
+            (
+                "frontier".into(),
+                cfg(3.0, 4000, 200000, &["fast-chat", "analysis", "planning"]),
+            ),
+        ];
+        let (primary, escalation) =
+            route_with_escalation(&providers, "hi there", &parse_caps(&["fast-chat".into()]))
+                .unwrap();
+        // Contract: the escalation is the stronger provider when the cheap one
+        // is chosen, and absent when the strongest is already chosen.
+        match primary.as_str() {
+            "tiny" => assert_eq!(escalation.as_deref(), Some("frontier")),
+            "frontier" => assert!(escalation.is_none()),
+            other => panic!("unexpected primary {other}"),
+        }
+    }
+
+    #[test]
+    fn route_with_escalation_none_when_strongest_chosen() {
+        let providers = vec![(
+            "frontier".into(),
+            cfg(3.0, 4000, 200000, &["fast-chat", "analysis"]),
+        )];
+        let (primary, escalation) =
+            route_with_escalation(&providers, "hi", &parse_caps(&["fast-chat".into()])).unwrap();
+        assert_eq!(primary, "frontier");
+        assert!(escalation.is_none());
     }
 }
