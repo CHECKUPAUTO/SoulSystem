@@ -84,6 +84,26 @@ impl Channel for signal::SignalChannel {
     }
 }
 
+#[async_trait]
+impl Channel for crate::telegram::client::TelegramClient {
+    fn name(&self) -> &str {
+        "telegram"
+    }
+    fn enabled(&self) -> bool {
+        // A constructed client always has a token and can send.
+        true
+    }
+    async fn send(&self, target: &str, text: &str) -> Result<(), String> {
+        let chat_id = target
+            .parse::<i64>()
+            .map_err(|_| format!("invalid telegram chat_id '{target}'"))?;
+        self.send_message(chat_id, text, None)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +123,15 @@ mod tests {
             assert!(!c.enabled());
             assert!(c.send("target", "hi").await.is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn telegram_implements_channel() {
+        let tg = crate::telegram::client::TelegramClient::new("http://localhost:0", "token");
+        let boxed: Box<dyn Channel> = Box::new(tg);
+        assert_eq!(boxed.name(), "telegram");
+        assert!(boxed.enabled());
+        // A non-numeric chat id is rejected before any network call.
+        assert!(boxed.send("not-a-number", "hi").await.is_err());
     }
 }
