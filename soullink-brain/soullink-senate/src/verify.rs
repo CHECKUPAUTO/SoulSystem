@@ -132,6 +132,91 @@ impl Verifier for CoverageVerifier {
     }
 }
 
+/// One criterion of a rubric: a named requirement satisfied when the answer
+/// contains any of the listed phrases (case-insensitive substring).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RubricCriterion {
+    pub name: String,
+    pub any_of: Vec<String>,
+}
+
+impl RubricCriterion {
+    pub fn new(
+        name: impl Into<String>,
+        any_of: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            any_of: any_of.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    fn satisfied_by(&self, answer_lower: &str) -> bool {
+        self.any_of
+            .iter()
+            .any(|p| answer_lower.contains(&p.to_lowercase()))
+    }
+}
+
+/// Scores a candidate against an explicit rubric — rubric-guided verification
+/// (arXiv:2601.15808). Useful when a good answer is known to require specific
+/// content; can act as a gate or a vote.
+#[derive(Debug, Clone)]
+pub struct RubricVerifier {
+    pub criteria: Vec<RubricCriterion>,
+    /// Fraction of criteria that must be satisfied to approve.
+    pub min_satisfied: f64,
+    /// Whether this verifier is a mandatory gate.
+    pub gate: bool,
+}
+
+impl RubricVerifier {
+    /// A rubric that requires every criterion, as a gate.
+    pub fn require_all(criteria: Vec<RubricCriterion>) -> Self {
+        Self {
+            criteria,
+            min_satisfied: 1.0,
+            gate: true,
+        }
+    }
+}
+
+impl Verifier for RubricVerifier {
+    fn name(&self) -> &str {
+        "rubric"
+    }
+
+    fn is_gate(&self) -> bool {
+        self.gate
+    }
+
+    fn verify(&self, _query: &str, candidate: &ExpertResponse) -> Verdict {
+        if self.criteria.is_empty() {
+            return Verdict {
+                verifier: self.name().to_string(),
+                approved: true,
+                score: 1.0,
+                reason: "empty rubric".into(),
+            };
+        }
+        let answer = candidate.response.to_lowercase();
+        let met: Vec<&str> = self
+            .criteria
+            .iter()
+            .filter(|c| c.satisfied_by(&answer))
+            .map(|c| c.name.as_str())
+            .collect();
+        let score = met.len() as f64 / self.criteria.len() as f64;
+        let approved = score >= self.min_satisfied;
+        Verdict {
+            verifier: self.name().to_string(),
+            approved,
+            score,
+            reason: format!("{}/{} criteria met", met.len(), self.criteria.len()),
+        }
+    }
+}
+
 /// Per-candidate result of running every verifier.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CandidateAssessment {
@@ -435,6 +520,50 @@ mod tests {
         let result = agg.assess("anything", &[]);
         assert!(result.needs_replanning);
         assert!(result.candidates.is_empty());
+    }
+
+    #[test]
+    fn rubric_verifier_scores_criteria() {
+        let rubric = RubricVerifier::require_all(vec![
+            RubricCriterion::new("mentions-owner", ["owner", "owns"]),
+            RubricCriterion::new("mentions-borrow", ["borrow", "reference"]),
+        ]);
+        let good = rubric.verify(
+            "q",
+            &resp("each value has one owner; you borrow it via a reference"),
+        );
+        assert!(good.approved);
+        assert!((good.score - 1.0).abs() < 1e-9);
+
+        let partial = rubric.verify("q", &resp("each value has one owner"));
+        assert!(!partial.approved); // require_all, only 1/2 met
+        assert!((partial.score - 0.5).abs() < 1e-9);
+        assert!(rubric.is_gate());
+    }
+
+    #[test]
+    fn empty_rubric_approves() {
+        let rubric = RubricVerifier {
+            criteria: vec![],
+            min_satisfied: 1.0,
+            gate: true,
+        };
+        assert!(rubric.verify("q", &resp("anything")).approved);
+    }
+
+    #[test]
+    fn rubric_as_gate_in_panel_blocks_incomplete_answer() {
+        let agg = VerifiedAggregator::new()
+            .with_verifier(Box::new(RubricVerifier::require_all(vec![
+                RubricCriterion::new("has-code", ["fn ", "try_lock"]),
+            ])))
+            .with_verifier(Box::new(NonEmptyVerifier::default()));
+        // On-topic prose but missing the required code → rubric gate fails.
+        let r = agg.assess(
+            "how to avoid deadlock",
+            &[resp("just be careful with locks")],
+        );
+        assert!(r.needs_replanning);
     }
 
     #[test]

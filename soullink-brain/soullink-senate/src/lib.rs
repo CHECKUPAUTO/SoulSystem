@@ -24,6 +24,6 @@ pub use aggregator::{AggregatedResult, AggregationStrategy};
 pub use agreement::{AgreementAnalyzer, AgreementReport};
 pub use senate::Senate;
 pub use verify::{
-    CandidateAssessment, CoverageVerifier, NonEmptyVerifier, Verdict, VerifiedAggregator,
-    VerifiedResult, Verifier,
+    CandidateAssessment, CoverageVerifier, NonEmptyVerifier, RubricCriterion, RubricVerifier,
+    Verdict, VerifiedAggregator, VerifiedResult, Verifier,
 };
