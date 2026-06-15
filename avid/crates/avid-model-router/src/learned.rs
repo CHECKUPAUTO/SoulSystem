@@ -390,6 +390,27 @@ impl CostAwareRouter {
         })
     }
 
+    /// The model to escalate to when a decision is uncertain (or the cheap
+    /// model's answer proves unsatisfactory): the cheapest candidate strictly
+    /// stronger than the chosen one. Returns `None` when the chosen model is
+    /// already the strongest available — the concrete "defer to a stronger
+    /// model" target of uncertainty-based routing.
+    pub fn escalation_target(
+        &self,
+        decision: &RoutingDecision,
+        capabilities: &[Capability],
+    ) -> Option<ModelProfile> {
+        let chosen_q = model_quality(&decision.profile);
+        self.candidates(capabilities)
+            .into_iter()
+            .filter(|p| model_quality(p) > chosen_q + 1e-9)
+            .min_by(|a, b| {
+                cost_key(a)
+                    .partial_cmp(&cost_key(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    }
+
     /// Calibrate `threshold` so that roughly `target_fraction` of the given
     /// queries are classified "hard" (difficulty ≥ threshold). This is the knob
     /// that trades total cost against quality (the deferral-curve operating
@@ -685,5 +706,45 @@ mod tests {
         let s = serde_json::to_string(&p).unwrap();
         let back: RouterParams = serde_json::from_str(&s).unwrap();
         assert_eq!(p, back);
+    }
+
+    #[test]
+    fn escalation_target_picks_cheapest_stronger_model() {
+        let router = CostAwareRouter::new(fleet(), RouterParams::default());
+        let cands = router.candidates(&[]);
+        let tiny = cands
+            .iter()
+            .find(|p| p.name == "tiny:local")
+            .unwrap()
+            .clone();
+        let decision = RoutingDecision {
+            profile: tiny,
+            difficulty: 0.5,
+            target_quality: 0.0,
+            uncertain: true,
+            reason: String::new(),
+        };
+        // tiny (q≈3.08) < mid (q≈3.64) < frontier (q=6.0); mid is the cheapest
+        // strictly-stronger model.
+        let esc = router.escalation_target(&decision, &[]).unwrap();
+        assert_eq!(esc.name, "mid:cloud");
+    }
+
+    #[test]
+    fn escalation_target_none_for_strongest() {
+        let router = CostAwareRouter::new(fleet(), RouterParams::default());
+        let frontier = router
+            .candidates(&[])
+            .into_iter()
+            .find(|p| p.name == "frontier:cloud")
+            .unwrap();
+        let decision = RoutingDecision {
+            profile: frontier,
+            difficulty: 0.9,
+            target_quality: 0.0,
+            uncertain: false,
+            reason: String::new(),
+        };
+        assert!(router.escalation_target(&decision, &[]).is_none());
     }
 }
