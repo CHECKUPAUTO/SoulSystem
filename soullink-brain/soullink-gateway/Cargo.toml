@@ -23,7 +23,7 @@ toml = { workspace = true }
 futures = { workspace = true }
 clap = { workspace = true }
 colored = "2"
-axum = { workspace = true, features = ["ws"] }
+axum = { workspace = true, features = ["ws", "query"] }
 uuid = { workspace = true }
 dashmap = { workspace = true }
 metrics = { workspace = true }

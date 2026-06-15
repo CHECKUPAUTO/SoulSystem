@@ -7,15 +7,59 @@
 //! have a different payload format.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
 use serde_json::Value;
+use std::collections::HashMap;
 use tracing::{info, warn};
 
 use crate::api::ApiState;
+use crate::channels::whatsapp::WhatsAppChannel;
+
+/// GET handler for the webhook subscription handshake.
+///
+/// WhatsApp (and other Meta products) register a webhook by issuing a GET with
+/// `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge`; the endpoint
+/// must echo the challenge when the token matches. The expected token is read
+/// from `WHATSAPP_VERIFY_TOKEN`.
+pub async fn webhook_verify(
+    Path(provider): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    if provider != "whatsapp" {
+        return (
+            StatusCode::NOT_FOUND,
+            format!("no subscription handshake for provider '{provider}'"),
+        );
+    }
+    let channel = WhatsAppChannel {
+        verify_token: std::env::var("WHATSAPP_VERIFY_TOKEN").ok(),
+        ..WhatsAppChannel::new()
+    };
+    let mode = params.get("hub.mode").map(String::as_str).unwrap_or("");
+    let token = params
+        .get("hub.verify_token")
+        .map(String::as_str)
+        .unwrap_or("");
+    let challenge = params
+        .get("hub.challenge")
+        .map(String::as_str)
+        .unwrap_or("");
+
+    match channel.verify_subscription(mode, token, challenge) {
+        Some(echo) => {
+            info!("WhatsApp webhook subscription verified");
+            (StatusCode::OK, echo)
+        }
+        None => {
+            warn!("WhatsApp webhook subscription verification failed");
+            (StatusCode::FORBIDDEN, "verification failed".to_string())
+        }
+    }
+}
 
 pub async fn webhook_handler(
     State(_state): State<ApiState>,
@@ -82,6 +126,27 @@ fn serialize_headers(headers: &HeaderMap) -> Vec<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn webhook_verify_rejects_unknown_provider() {
+        let resp = webhook_verify(Path("telegram".into()), Query(HashMap::new()))
+            .await
+            .into_response();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn webhook_verify_forbidden_when_token_mismatch() {
+        // With no configured verify token (env unset), any handshake fails.
+        let mut params = HashMap::new();
+        params.insert("hub.mode".to_string(), "subscribe".to_string());
+        params.insert("hub.verify_token".to_string(), "whatever".to_string());
+        params.insert("hub.challenge".to_string(), "1234".to_string());
+        let resp = webhook_verify(Path("whatsapp".into()), Query(params))
+            .await
+            .into_response();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
 
     #[test]
     fn test_serialize_headers_filters_sensitive() {

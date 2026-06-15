@@ -47,7 +47,7 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route(
             "/api/webhooks/{provider}",
-            axum::routing::post(webhooks::webhook_handler),
+            axum::routing::post(webhooks::webhook_handler).get(webhooks::webhook_verify),
         )
         .route("/api/mcp", axum::routing::post(crate::mcp::mcp_handler))
         .with_state(state)
