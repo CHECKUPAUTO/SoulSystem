@@ -10,7 +10,6 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    Json,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -65,9 +64,26 @@ pub async fn webhook_handler(
     State(_state): State<ApiState>,
     Path(provider): Path<String>,
     headers: HeaderMap,
-    body: Json<Value>,
+    body: axum::body::Bytes,
 ) -> impl IntoResponse {
     info!(provider = %provider, "webhook received");
+
+    // WhatsApp deliveries are HMAC-signed; verify against the *raw* body before
+    // trusting the payload. Lenient when no app secret is configured (matching
+    // the channel's posture), strict otherwise.
+    if provider == "whatsapp" {
+        let sig = headers
+            .get("x-hub-signature-256")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let app_secret = std::env::var("WHATSAPP_APP_SECRET").ok();
+        if !signature_ok(app_secret.as_deref(), &body, sig) {
+            warn!("WhatsApp webhook signature verification failed");
+            return (StatusCode::UNAUTHORIZED, "invalid signature".to_string());
+        }
+    }
+
+    let payload: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
 
     // Forward to orchestrator
     let orch_url = "http://127.0.0.1:9020".to_string();
@@ -80,7 +96,7 @@ pub async fn webhook_handler(
         .json(&serde_json::json!({
             "provider": provider,
             "headers": serialize_headers(&headers),
-            "body": body.0,
+            "body": payload,
         }));
 
     // Forward signature headers if present
@@ -105,6 +121,16 @@ pub async fn webhook_handler(
             )
         }
     }
+}
+
+/// Verify a WhatsApp `X-Hub-Signature-256` against the raw body with the given
+/// app secret. Lenient (`true`) when `app_secret` is `None`.
+fn signature_ok(app_secret: Option<&str>, raw: &[u8], sig_header: &str) -> bool {
+    let channel = WhatsAppChannel {
+        app_secret: app_secret.map(String::from),
+        ..WhatsAppChannel::new()
+    };
+    channel.verify_signature(raw, sig_header)
 }
 
 fn serialize_headers(headers: &HeaderMap) -> Vec<serde_json::Value> {
@@ -146,6 +172,39 @@ mod tests {
             .await
             .into_response();
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn signature_ok_is_lenient_without_secret() {
+        // No configured app secret → accept (matches existing ingress posture).
+        assert!(signature_ok(None, b"{}", "sha256=anything"));
+    }
+
+    #[test]
+    fn signature_ok_validates_hmac_when_secret_set() {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        let body = br#"{"object":"whatsapp_business_account"}"#;
+        let mut mac = Hmac::<Sha256>::new_from_slice(b"top-secret").unwrap();
+        mac.update(body);
+        let hex: String = mac
+            .finalize()
+            .into_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+
+        assert!(signature_ok(
+            Some("top-secret"),
+            body,
+            &format!("sha256={hex}")
+        ));
+        assert!(!signature_ok(Some("top-secret"), body, "sha256=deadbeef"));
+        assert!(!signature_ok(
+            Some("top-secret"),
+            b"tampered",
+            &format!("sha256={hex}")
+        ));
     }
 
     #[test]
