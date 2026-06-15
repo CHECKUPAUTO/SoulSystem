@@ -236,6 +236,57 @@ impl CognitiveMemory {
         out
     }
 
+    /// Associative recall (A-MEM): recall the direct query matches, then expand
+    /// the result with in-process records that are *linked* to those matches —
+    /// records sharing enough significant terms (Jaccard ≥ `min_link`) even if
+    /// they don't contain the query themselves. This surfaces related memories a
+    /// literal search would miss, without storing explicit link edges.
+    ///
+    /// Provenance is preserved end to end (linked records keep their own tags).
+    pub async fn recall_associative(
+        &self,
+        query: &str,
+        limit: usize,
+        min_link: f64,
+    ) -> Vec<Record> {
+        let direct = self.recall(query, limit).await;
+        if direct.is_empty() {
+            return direct;
+        }
+
+        let seed_tokens: Vec<std::collections::HashSet<String>> =
+            direct.iter().map(|r| token_set(&r.text)).collect();
+
+        let mut pool = direct.clone();
+        for cand in self.all_in_process() {
+            if pool.iter().any(|r| r.text == cand.text) {
+                continue;
+            }
+            let ct = token_set(&cand.text);
+            let linked = seed_tokens.iter().any(|s| jaccard(s, &ct) >= min_link);
+            if linked {
+                pool.push(cand);
+            }
+        }
+
+        pool.sort_by(|a, b| {
+            b.importance
+                .partial_cmp(&a.importance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        pool.truncate(limit);
+        pool
+    }
+
+    /// All records held in the in-process tiers (User/Strategic/Reflexive).
+    fn all_in_process(&self) -> Vec<Record> {
+        let mut out = Vec::new();
+        for store in [&self.user, &self.strategic, &self.reflexive] {
+            out.extend(store.read().unwrap().iter().cloned());
+        }
+        out
+    }
+
     /// Snapshot a single in-process tier (user/strategic/reflexive).
     pub fn snapshot(&self, tier: MemoryTier) -> Vec<Record> {
         match tier {
@@ -450,6 +501,25 @@ fn evict_to_capacity(records: &mut Vec<Record>, cap: usize) {
             }
             None => break,
         }
+    }
+}
+
+/// Lowercase significant-token set of a text (drops 1–2 char tokens), used for
+/// associative linking.
+fn token_set(text: &str) -> std::collections::HashSet<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|s| s.len() >= 3)
+        .map(|s| s.to_lowercase())
+        .collect()
+}
+
+/// Jaccard similarity of two token sets: `|A∩B| / |A∪B|` (0 for two empties).
+fn jaccard(a: &std::collections::HashSet<String>, b: &std::collections::HashSet<String>) -> f64 {
+    let union = a.union(b).count();
+    if union == 0 {
+        0.0
+    } else {
+        a.intersection(b).count() as f64 / union as f64
     }
 }
 
@@ -719,6 +789,48 @@ mod tests {
             Reconciliation::NoOp
         );
         assert!(mem.fact(MemoryTier::User, "timezone").is_none());
+    }
+
+    #[tokio::test]
+    async fn associative_recall_surfaces_linked_records() {
+        let mem = CognitiveMemory::new();
+        // A directly matches "deadlock"; B shares "gateway" with A but has no
+        // "deadlock"; C is unrelated.
+        mem.remember(
+            MemoryTier::Strategic,
+            Tagged::observed("gateway deadlock root cause".into()),
+            0.6,
+        )
+        .await
+        .unwrap();
+        mem.remember(
+            MemoryTier::Strategic,
+            Tagged::observed("gateway latency tuning plan".into()),
+            0.9,
+        )
+        .await
+        .unwrap();
+        mem.remember(
+            MemoryTier::Strategic,
+            Tagged::observed("unrelated cooking recipe".into()),
+            0.5,
+        )
+        .await
+        .unwrap();
+
+        // Plain recall finds only the direct "deadlock" match.
+        let direct = mem.recall("deadlock", 10).await;
+        assert_eq!(direct.len(), 1);
+
+        // Associative recall also surfaces the linked "gateway" record
+        // (shares 1 of 7 union tokens with the seed ≈ 0.14 Jaccard).
+        let linked = mem.recall_associative("deadlock", 10, 0.1).await;
+        let texts: Vec<&str> = linked.iter().map(|r| r.text.as_str()).collect();
+        assert!(texts.contains(&"gateway deadlock root cause"));
+        assert!(texts.contains(&"gateway latency tuning plan"));
+        assert!(!texts.contains(&"unrelated cooking recipe"));
+        // Provenance preserved on the linked record.
+        assert!(linked.iter().all(|r| r.provenance == Provenance::Observed));
     }
 
     #[tokio::test]
