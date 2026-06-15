@@ -17,6 +17,11 @@
 
 pub mod aggregator;
 pub mod senate;
+pub mod verify;
 
 pub use aggregator::{AggregatedResult, AggregationStrategy};
 pub use senate::Senate;
+pub use verify::{
+    CandidateAssessment, CoverageVerifier, NonEmptyVerifier, Verdict, VerifiedAggregator,
+    VerifiedResult, Verifier,
+};

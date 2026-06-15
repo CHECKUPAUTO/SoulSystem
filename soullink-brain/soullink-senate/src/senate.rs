@@ -1,6 +1,7 @@
 //! Senate — orchestrates parallel expert calls to Ollama.
 
 use crate::aggregator::{AggregatedResult, AggregationStrategy};
+use crate::verify::{VerifiedAggregator, VerifiedResult};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument};
@@ -32,7 +33,7 @@ impl Expert {
 }
 
 /// A single expert's response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExpertResponse {
     pub model: String,
     pub role: String,
@@ -167,6 +168,21 @@ impl Senate {
 
         // Aggregate
         self.strategy.aggregate(&responses, prompt)
+    }
+
+    /// Deliberate, then **verify**: run the experts in parallel and pass their
+    /// answers through an independent verifier panel, gating the result on
+    /// coverage. When no answer clears the panel the result is flagged
+    /// `needs_replanning` rather than returning an unverified guess — the
+    /// reliability path the plain aggregation strategies don't provide.
+    #[instrument(skip(self, prompt, aggregator), fields(n_experts = self.experts.len()))]
+    pub async fn deliberate_verified(
+        &self,
+        prompt: &str,
+        aggregator: &VerifiedAggregator,
+    ) -> Result<VerifiedResult> {
+        let aggregated = self.deliberate(prompt).await?;
+        Ok(aggregator.assess(prompt, &aggregated.responses))
     }
 }
 
