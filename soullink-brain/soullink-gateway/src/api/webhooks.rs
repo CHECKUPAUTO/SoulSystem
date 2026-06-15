@@ -16,6 +16,8 @@ use std::collections::HashMap;
 use tracing::{info, warn};
 
 use crate::api::ApiState;
+use crate::channels::discord::DiscordChannel;
+use crate::channels::slack::SlackChannel;
 use crate::channels::whatsapp::WhatsAppChannel;
 
 /// GET handler for the webhook subscription handshake.
@@ -68,19 +70,36 @@ pub async fn webhook_handler(
 ) -> impl IntoResponse {
     info!(provider = %provider, "webhook received");
 
-    // WhatsApp deliveries are HMAC-signed; verify against the *raw* body before
-    // trusting the payload. Lenient when no app secret is configured (matching
-    // the channel's posture), strict otherwise.
-    if provider == "whatsapp" {
-        let sig = headers
-            .get("x-hub-signature-256")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        let app_secret = std::env::var("WHATSAPP_APP_SECRET").ok();
-        if !signature_ok(app_secret.as_deref(), &body, sig) {
-            warn!("WhatsApp webhook signature verification failed");
-            return (StatusCode::UNAUTHORIZED, "invalid signature".to_string());
+    // Per-provider verification + handshake handling (signatures, URL/PING
+    // challenges) against the *raw* body, before trusting/forwarding anything.
+    match provider.as_str() {
+        "whatsapp" => {
+            let sig = header(&headers, "x-hub-signature-256");
+            let app_secret = std::env::var("WHATSAPP_APP_SECRET").ok();
+            if !signature_ok(app_secret.as_deref(), &body, sig) {
+                warn!("WhatsApp webhook signature verification failed");
+                return (StatusCode::UNAUTHORIZED, "invalid signature".to_string());
+            }
         }
+        "slack" => {
+            if let Prelude::Respond(status, text) = slack_prelude(
+                std::env::var("SLACK_SIGNING_SECRET").ok().as_deref(),
+                &headers,
+                &body,
+            ) {
+                return (status, text);
+            }
+        }
+        "discord" => {
+            if let Prelude::Respond(status, text) = discord_prelude(
+                std::env::var("DISCORD_PUBLIC_KEY").ok().as_deref(),
+                &headers,
+                &body,
+            ) {
+                return (status, text);
+            }
+        }
+        _ => {}
     }
 
     let payload: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
@@ -131,6 +150,63 @@ fn signature_ok(app_secret: Option<&str>, raw: &[u8], sig_header: &str) -> bool 
         ..WhatsAppChannel::new()
     };
     channel.verify_signature(raw, sig_header)
+}
+
+/// The outcome of a provider's pre-forward handling.
+#[derive(Debug, PartialEq, Eq)]
+enum Prelude {
+    /// Return this response immediately (a challenge, a PONG, or a 401).
+    Respond(StatusCode, String),
+    /// Verified (or no verification configured) — proceed to forward.
+    Proceed,
+}
+
+/// A header value as a `&str` (empty when absent or non-ASCII).
+fn header<'a>(headers: &'a HeaderMap, name: &str) -> &'a str {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+}
+
+/// Slack: verify the request signature, then answer the URL-verification
+/// handshake. `signing_secret == None` is lenient.
+fn slack_prelude(signing_secret: Option<&str>, headers: &HeaderMap, body: &[u8]) -> Prelude {
+    let ch = SlackChannel {
+        signing_secret: signing_secret.map(String::from),
+        ..SlackChannel::new()
+    };
+    let ts = header(headers, "x-slack-request-timestamp");
+    let sig = header(headers, "x-slack-signature");
+    if !ch.verify_signature(ts, body, sig) {
+        warn!("Slack webhook signature verification failed");
+        return Prelude::Respond(StatusCode::UNAUTHORIZED, "invalid signature".into());
+    }
+    let payload: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    if let Some(challenge) = SlackChannel::url_verification(&payload) {
+        return Prelude::Respond(StatusCode::OK, challenge);
+    }
+    Prelude::Proceed
+}
+
+/// Discord: verify the Ed25519 signature, then answer the PING handshake.
+/// `public_key == None` is lenient.
+fn discord_prelude(public_key: Option<&str>, headers: &HeaderMap, body: &[u8]) -> Prelude {
+    let ch = DiscordChannel {
+        public_key: public_key.map(String::from),
+        ..DiscordChannel::new()
+    };
+    let ts = header(headers, "x-signature-timestamp");
+    let sig = header(headers, "x-signature-ed25519");
+    if !ch.verify_signature(ts, body, sig) {
+        warn!("Discord webhook signature verification failed");
+        return Prelude::Respond(StatusCode::UNAUTHORIZED, "invalid signature".into());
+    }
+    let payload: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    if DiscordChannel::is_ping(&payload) {
+        return Prelude::Respond(StatusCode::OK, DiscordChannel::pong().to_string());
+    }
+    Prelude::Proceed
 }
 
 fn serialize_headers(headers: &HeaderMap) -> Vec<serde_json::Value> {
@@ -205,6 +281,65 @@ mod tests {
             b"tampered",
             &format!("sha256={hex}")
         ));
+    }
+
+    #[test]
+    fn slack_prelude_echoes_url_verification() {
+        let headers = HeaderMap::new();
+        let body = br#"{"type":"url_verification","challenge":"xyz"}"#;
+        // No signing secret → lenient, challenge echoed.
+        assert_eq!(
+            slack_prelude(None, &headers, body),
+            Prelude::Respond(StatusCode::OK, "xyz".to_string())
+        );
+    }
+
+    #[test]
+    fn slack_prelude_proceeds_on_event() {
+        let headers = HeaderMap::new();
+        let body = br#"{"type":"event_callback","event":{"type":"message"}}"#;
+        assert_eq!(slack_prelude(None, &headers, body), Prelude::Proceed);
+    }
+
+    #[test]
+    fn slack_prelude_rejects_bad_signature() {
+        let headers = HeaderMap::new(); // no signature headers
+        let body = br#"{"type":"event_callback"}"#;
+        // With a secret configured but no/!matching signature → 401.
+        match slack_prelude(Some("secret"), &headers, body) {
+            Prelude::Respond(status, _) => assert_eq!(status, StatusCode::UNAUTHORIZED),
+            Prelude::Proceed => panic!("expected 401"),
+        }
+    }
+
+    #[test]
+    fn discord_prelude_answers_ping() {
+        let headers = HeaderMap::new();
+        let body = br#"{"type":1}"#;
+        match discord_prelude(None, &headers, body) {
+            Prelude::Respond(status, text) => {
+                assert_eq!(status, StatusCode::OK);
+                assert!(text.contains("\"type\":1"));
+            }
+            Prelude::Proceed => panic!("expected PONG"),
+        }
+    }
+
+    #[test]
+    fn discord_prelude_proceeds_on_command() {
+        let headers = HeaderMap::new();
+        let body = br#"{"type":2,"data":{"name":"ask"}}"#;
+        assert_eq!(discord_prelude(None, &headers, body), Prelude::Proceed);
+    }
+
+    #[test]
+    fn discord_prelude_rejects_bad_signature() {
+        let headers = HeaderMap::new(); // no signature headers
+        let body = br#"{"type":1}"#;
+        match discord_prelude(Some("abcdef"), &headers, body) {
+            Prelude::Respond(status, _) => assert_eq!(status, StatusCode::UNAUTHORIZED),
+            Prelude::Proceed => panic!("expected 401"),
+        }
     }
 
     #[test]
