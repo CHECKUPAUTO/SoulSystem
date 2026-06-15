@@ -249,15 +249,11 @@ pub async fn run_cmd(opts: RunOpts) -> std::process::ExitCode {
         // Build API router with provider registry + WebSocket
         let ws_store = std::sync::Arc::new(crate::ws::session::SessionStore::new());
         let auth = std::sync::Arc::new(crate::ws::auth::AuthManager::new(gateway_token));
-        let api_state = ApiState {
-            registry: provider_registry.clone(),
-        };
+        let api_state = ApiState::new(provider_registry.clone());
         let api_routes = api::build_router(api_state);
         let ws_store_clone = ws_store.clone();
         let auth_clone = auth.clone();
-        let api_state_clone = ApiState {
-            registry: provider_registry.clone(),
-        };
+        let api_state_clone = ApiState::new(provider_registry.clone());
 
         // OpenClaw-compatible `/status` endpoint.
         let status_store = ws_store.clone();

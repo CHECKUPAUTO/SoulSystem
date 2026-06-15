@@ -38,14 +38,23 @@ pub fn parse_caps(raw: &[String]) -> Vec<Capability> {
         .collect()
 }
 
-/// Construct a cost-aware router over `(provider name, config)` entries.
-pub fn build_router(providers: &[(String, ProviderConfig)]) -> CostAwareRouter {
+/// Construct a cost-aware router over `(provider name, config)` entries with
+/// explicit (possibly trained) parameters.
+pub fn build_router_with(
+    providers: &[(String, ProviderConfig)],
+    params: RouterParams,
+) -> CostAwareRouter {
     let mut registry = ModelRegistry::new();
     for (name, cfg) in providers {
         // Duplicate names can't occur (registry keys are unique); ignore errors.
         let _ = registry.register(profile_from(name, cfg));
     }
-    CostAwareRouter::new(registry, RouterParams::default())
+    CostAwareRouter::new(registry, params)
+}
+
+/// Construct a cost-aware router with default parameters.
+pub fn build_router(providers: &[(String, ProviderConfig)]) -> CostAwareRouter {
+    build_router_with(providers, RouterParams::default())
 }
 
 /// Route a query to a provider name. `None` means no provider satisfied the
@@ -71,10 +80,21 @@ pub fn route_with_escalation(
     query: &str,
     capabilities: &[Capability],
 ) -> Option<(String, Option<String>)> {
+    route_with_escalation_with(providers, query, capabilities, RouterParams::default())
+}
+
+/// As [`route_with_escalation`], but with explicit (possibly trained) router
+/// parameters so the gateway can route with a learned difficulty model.
+pub fn route_with_escalation_with(
+    providers: &[(String, ProviderConfig)],
+    query: &str,
+    capabilities: &[Capability],
+    params: RouterParams,
+) -> Option<(String, Option<String>)> {
     if providers.is_empty() {
         return None;
     }
-    let router = build_router(providers);
+    let router = build_router_with(providers, params);
     let decision = router.route(query, capabilities)?;
     let primary = decision.profile.name.clone();
     let escalation = router

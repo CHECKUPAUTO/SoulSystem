@@ -304,9 +304,7 @@ mod tests {
         let rpc = RpcRegistry::build_default(reg.clone()).await;
 
         let state = RpcState {
-            api: ApiState {
-                registry: reg.clone(),
-            },
+            api: ApiState::new(reg.clone()),
             providers: reg.clone(),
         };
 
@@ -321,9 +319,7 @@ mod tests {
         let reg = Arc::new(ProviderRegistry::new());
         let rpc = RpcRegistry::build_default(reg.clone()).await;
         let state = RpcState {
-            api: ApiState {
-                registry: reg.clone(),
-            },
+            api: ApiState::new(reg.clone()),
             providers: reg.clone(),
         };
 
@@ -349,9 +345,7 @@ mod tests {
         let reg = Arc::new(ProviderRegistry::new());
         let rpc = RpcRegistry::build_default(reg.clone()).await;
         let state = RpcState {
-            api: ApiState {
-                registry: reg.clone(),
-            },
+            api: ApiState::new(reg.clone()),
             providers: reg,
         };
 

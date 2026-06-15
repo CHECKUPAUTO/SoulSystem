@@ -411,6 +411,22 @@ impl CostAwareRouter {
             })
     }
 
+    /// Retrain the difficulty predictor on logged routing outcomes
+    /// (RouteLLM-style learning from what actually happened). Returns the final
+    /// log-loss; a no-op returning `0.0` when the log is empty.
+    pub fn train_on_outcomes(
+        &mut self,
+        log: &crate::outcomes::OutcomeLog,
+        epochs: usize,
+        lr: f64,
+    ) -> f64 {
+        let data = log.training_data();
+        if data.is_empty() {
+            return 0.0;
+        }
+        self.params.model.train(&data, epochs, lr)
+    }
+
     /// Calibrate `threshold` so that roughly `target_fraction` of the given
     /// queries are classified "hard" (difficulty ≥ threshold). This is the knob
     /// that trades total cost against quality (the deferral-curve operating
@@ -706,6 +722,38 @@ mod tests {
         let s = serde_json::to_string(&p).unwrap();
         let back: RouterParams = serde_json::from_str(&s).unwrap();
         assert_eq!(p, back);
+    }
+
+    #[test]
+    fn train_on_outcomes_reduces_loss() {
+        use crate::outcomes::{OutcomeLog, RoutingOutcome};
+        let mut router = CostAwareRouter::new(fleet(), RouterParams::default());
+        let mut log = OutcomeLog::new();
+        // A separable set: trivial queries needed only the cheap model (0.0);
+        // long analytical ones needed a strong model (1.0).
+        for _ in 0..6 {
+            log.record(RoutingOutcome::new("hi", vec![], 0.0));
+            log.record(RoutingOutcome::new(
+                "Prove the distributed deadlock root cause step by step and design \
+                 a consistent, partition-tolerant fix with trade-off analysis",
+                vec![],
+                1.0,
+            ));
+        }
+        let data = log.training_data();
+        let before = router.params().model.log_loss(&data);
+        let after = router.train_on_outcomes(&log, 300, 0.3);
+        assert!(
+            after <= before,
+            "training should not increase loss: {after} vs {before}"
+        );
+    }
+
+    #[test]
+    fn train_on_empty_log_is_noop() {
+        use crate::outcomes::OutcomeLog;
+        let mut router = CostAwareRouter::new(fleet(), RouterParams::default());
+        assert!(router.train_on_outcomes(&OutcomeLog::new(), 10, 0.1).abs() < 1e-9);
     }
 
     #[test]

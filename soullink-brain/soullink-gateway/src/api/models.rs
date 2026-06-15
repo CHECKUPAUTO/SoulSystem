@@ -78,7 +78,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_models_empty_registry() {
         let registry = Arc::new(ProviderRegistry::new());
-        let state = ApiState { registry };
+        let state = ApiState::new(registry);
         let providers = state.registry.list_providers().await;
         let mut models = Vec::new();
 
@@ -115,7 +115,7 @@ mod tests {
         };
         registry.register("ollama", cfg).await;
 
-        let state = ApiState { registry };
+        let state = ApiState::new(registry);
         let providers = state.registry.list_providers().await;
 
         let mut models = Vec::new();

@@ -111,8 +111,14 @@ async fn routed_chat_with_escalation(
 ) -> Result<ChatResponse, ProviderError> {
     let query = last_user_text(&req);
     let configs = state.registry.provider_configs().await;
+    let params = state
+        .router_params
+        .read()
+        .map(|p| p.clone())
+        .unwrap_or_default();
 
-    let Some((primary, escalation)) = crate::routing::route_with_escalation(&configs, &query, &[])
+    let Some((primary, escalation)) =
+        crate::routing::route_with_escalation_with(&configs, &query, &[], params)
     else {
         // No routing match → round-robin.
         let p = state.registry.resolve(req.model.as_deref()).await?;
@@ -126,14 +132,23 @@ async fn routed_chat_with_escalation(
         .ok_or_else(|| ProviderError::NotFound(primary.clone()))?;
 
     match primary_provider.chat(req.clone()).await {
-        Ok(resp) => Ok(resp),
+        Ok(resp) => {
+            // The cheap pick sufficed — a "weak was enough" training signal.
+            state.record_outcome(&query, 0.0);
+            Ok(resp)
+        }
         Err(e) => {
             if is_transient(&e) {
                 if let Some(esc_name) = escalation {
                     if let Some(esc) = state.registry.get(&esc_name).await {
                         warn!(from = %primary, to = %esc_name, err = %e, "escalating to stronger provider");
                         metrics::counter!(crate::metrics::PROVIDER_REQUESTS).increment(1);
-                        return esc.chat(req).await;
+                        let escalated = esc.chat(req).await;
+                        if escalated.is_ok() {
+                            // A stronger model was needed — "strong required".
+                            state.record_outcome(&query, 1.0);
+                        }
+                        return escalated;
                     }
                 }
             }
