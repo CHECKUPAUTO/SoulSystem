@@ -16,10 +16,12 @@
 //! their responses into a final consensus.
 
 pub mod aggregator;
+pub mod agreement;
 pub mod senate;
 pub mod verify;
 
 pub use aggregator::{AggregatedResult, AggregationStrategy};
+pub use agreement::{AgreementAnalyzer, AgreementReport};
 pub use senate::Senate;
 pub use verify::{
     CandidateAssessment, CoverageVerifier, NonEmptyVerifier, Verdict, VerifiedAggregator,
