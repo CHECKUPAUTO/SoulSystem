@@ -16,6 +16,8 @@
 //! implémente, ce qui permet de tester le gateway sans dépendre du runtime
 //! complet.
 
+pub mod providers;
+
 use async_trait::async_trait;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
@@ -380,6 +382,15 @@ async fn handle_ws(State(st): State<GatewayState>, ws: WebSocketUpgrade) -> impl
     ws.on_upgrade(move |socket| ws_loop(socket, st))
 }
 
+async fn handle_discord_webhook(
+    State(st): State<GatewayState>,
+    Json(payload): Json<providers::discord::DiscordWebhookBody>,
+) -> impl IntoResponse {
+    let response =
+        providers::discord::handle_webhook(&st.entity, &Some(st.events.clone()), payload).await;
+    Json(response)
+}
+
 async fn ws_loop(mut socket: WebSocket, state: GatewayState) {
     let mut last_idx = 0usize;
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
@@ -419,12 +430,21 @@ pub fn router(state: GatewayState) -> Router {
         .route("/v1/goals", get(handle_list_goals))
         .route("/v1/events", get(handle_recent_events))
         .route("/v1/stream", get(handle_ws))
+        .route("/providers/discord/webhook", post(handle_discord_webhook))
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state)
 }
 
-/// Lance le serveur sur l'adresse donnée. Bloque jusqu'à arrêt.
+/// Lance le serveur sur l'adresse donnée et démarre les channel providers
+/// configurés. Bloque jusqu'à arrêt.
 pub async fn serve(state: GatewayState, addr: SocketAddr) -> std::io::Result<()> {
+    // Start messaging providers (Telegram, etc.) if configured.
+    providers::start_all(providers::ChannelConfig {
+        entity: state.entity.clone(),
+        event_bus: Some(state.events.clone()),
+    })
+    .await;
+
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("soul_gateway listening on {}", addr);

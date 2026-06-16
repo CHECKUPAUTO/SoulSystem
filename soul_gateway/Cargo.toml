@@ -22,3 +22,5 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 rustls = "0.23"
 rustls-pemfile = "1.0"
+teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
+reqwest = { workspace = true }

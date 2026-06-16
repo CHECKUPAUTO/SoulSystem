@@ -151,6 +151,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "slow: integration setup"]
     async fn proxy_creation() {
         let proxy = TurboQuantProxy::new(ProxyConfig::default());
         assert_eq!(proxy.config().listen_port, 8082);

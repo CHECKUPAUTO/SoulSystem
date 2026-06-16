@@ -202,7 +202,7 @@ exclude = [
     "soul-neural",
     "soullink-node",
     "turboquant",
-    "os-agents",
+    # "os-agents",  # excluded: duplicate crate subtree with its own workspace
     "intel-integrations",
     "openclaw-gateway",
     "scirust-trading",
@@ -357,6 +357,7 @@ futures-util = "0.3.32"
 
 # Autonomous entity crates
 soul_llm = { path = "soul_llm" }
+souls = { path = "souls" }
 soul_agent_core = { path = "soul-agent-core" }
 soul_planner = { path = "soul_planner" }
 soul_tools = { path = "soul_tools" }
@@ -407,7 +408,6 @@ soul_scout = { path = "soul_scout" }
 soul_surgery = { path = "soul_surgery" }
 soul_security = { path = "soul_security" }
 
-souls = { path = "souls" }
 ccos = { workspace = true }
 
 [features]

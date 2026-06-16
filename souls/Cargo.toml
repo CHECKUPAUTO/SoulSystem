@@ -8,9 +8,13 @@ repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
 keywords = ["soulsystem", "autonomous", "entity", "gateway", "repl", "clinical", "opencawl", "cli"]
 categories = ["machine-learning", "embedded", "command-line-utilities"]
 
+[lib]
+name = "souls"
+path = "src/lib.rs"
+
 [[bin]]
 name = "souls"
-path = "src/main.rs"
+path = "src/runner.rs"
 
 [dependencies]
 soul_entity = { path = "../soul_entity" }
