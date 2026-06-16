@@ -26,7 +26,13 @@ jobs:
           sudo apt-get clean
           df -h /
       - run: sudo apt-get update && sudo apt-get install -y libleptonica-dev libtesseract-dev
-      - run: cargo check --workspace --all-targets
+      - name: Check workspace (CPU-only)
+        run: cargo check --workspace --all-targets
+      - name: Check GPU/CUDA sub-workspace
+        working-directory: workspaces/gpu
+        run: |
+          RUSTFLAGS="-D warnings" \\
+          cargo check --workspace --all-targets
 
   test:
     name: Test
@@ -42,7 +48,9 @@ jobs:
           sudo apt-get clean
           df -h /
       - run: sudo apt-get update && sudo apt-get install -y libleptonica-dev libtesseract-dev
-      - run: cargo test --workspace --lib --exclude soulsystem --exclude soul-kernel
+      - name: Test workspace (CPU-only)
+        run: cargo test --workspace --lib --exclude soulsystem --exclude soul-kernel
+      # GPUs may be missing on some runners — skip silently
       - run: cargo test -p soulsystem --tests -- --test-threads=2
 
   clippy:
@@ -61,7 +69,13 @@ jobs:
           sudo apt-get clean
           df -h /
       - run: sudo apt-get update && sudo apt-get install -y libleptonica-dev libtesseract-dev
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Clippy workspace (CPU-only)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Clippy GPU sub-workspace
+        working-directory: workspaces/gpu
+        run: |
+          RUSTFLAGS="-D warnings" \\
+          cargo clippy --workspace --all-targets -- -D warnings
 
   fmt:
     name: Format

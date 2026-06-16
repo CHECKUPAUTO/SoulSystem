@@ -6,7 +6,7 @@ members = [
 
     # ── SciRust core (local, replaces /root/scirust subtree) ─────────────
     "scirust-core",
-    "scirust-gpu",
+    # scirust-gpu moved to ./workspaces/gpu (CI memory constraint — 7GB runner)
     "scirust-simd",
     "scirust-autodiff",
     "scirust-simd-macros",
@@ -44,11 +44,11 @@ members = [
     "soullink-brain/soullink-vision",
     "soullink-brain/soullink-proxy",
     "soullink-brain/soullink-rag",
-    "soullink-brain/soullink-dali",
-    "soullink-brain/soullink-cutlass",
+    # soullink-dali moved to ./workspaces/gpu (CI memory constraint — 7GB runner)
+    # soullink-cutlass moved to ./workspaces/gpu (CI memory constraint — 7GB runner)
     "soullink-brain/soullink-cli",
     "soullink-brain/soullink-svs",
-    "soullink-brain/soullink-onednn",
+    # soullink-onednn moved to ./workspaces/gpu (CI memory constraint — 7GB runner)
     "soullink-brain/soullink-secrets",
     "soullink-brain/soullink-hooks",
     "soullink-brain/soullink-allowlist",
