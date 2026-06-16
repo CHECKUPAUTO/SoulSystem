@@ -105,7 +105,7 @@ graph TB
 | M2 | **soul_tools bloquant** — `std::process::Command` au lieu de `tokio::process` | `soul_tools/src/lib.rs` | MAJEUR |
 | M3 | **Pas de persistence mémoire** — working memory = Vec en RAM | `soul_planner/src/lib.rs` | MAJEUR |
 | M4 | **Pas de goal management** — pas de file d'objectifs persistants | N/A | MAJEUR |
-| M5 | **Pas de self-modification** — openclaw-u a selfmod mais pas connecté | `openclaw-u/src/selfmod/` | MAJEUR |
+| M5 | **Pas de self-modification** — soul-kernela selfmod mais pas connecté | `soul-kernelsrc/selfmod/` | MAJEUR |
 | M6 | **soul_llm sans retry** — pas de logique de retry en cas d'erreur | `soul_llm/src/lib.rs` | MAJEUR |
 
 ### MINEURS
