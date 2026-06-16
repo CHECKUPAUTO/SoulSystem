@@ -3,6 +3,8 @@
 //! # Modules
 //! - **autodiff** — reverse-mode (Tensor, Tape) and forward-mode (Dual) automatic differentiation
 //! - **matrix** — SIMD backend trait, matrix views with zero-copy slicing
+
+#![allow(unused_variables)]
 //! - **embed** — text embedding engine (random-projection LSH)
 //! - **symbolic** — expression parsing, simplification, evaluation, proving
 //! - **learning** — polynomial fitting, pattern discovery
