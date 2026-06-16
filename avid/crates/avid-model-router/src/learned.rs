@@ -222,6 +222,11 @@ pub struct RouterParams {
     /// flagged `uncertain` (caller may escalate / sample — the uncertainty-based
     /// routing idea).
     pub uncertainty_margin: f64,
+    /// Optional isotonic calibrator (UCCI-style): when present, the model's raw
+    /// difficulty is mapped to a calibrated probability before the quality bar
+    /// and uncertainty band are derived. `None` = use the raw score.
+    #[serde(default)]
+    pub calibrator: Option<crate::calibration::IsotonicCalibrator>,
 }
 
 impl Default for RouterParams {
@@ -231,6 +236,7 @@ impl Default for RouterParams {
             threshold: 0.5,
             cost_aversion: 0.25,
             uncertainty_margin: 0.1,
+            calibrator: None,
         }
     }
 }
@@ -330,7 +336,14 @@ impl CostAwareRouter {
         }
 
         let features = QueryFeatures::extract(query, capabilities);
-        let difficulty = self.params.model.predict(&features);
+        let raw = self.params.model.predict(&features);
+        // UCCI-style: map the raw score to a calibrated probability if a
+        // calibrator has been fitted, so the threshold reflects a real budget.
+        let difficulty = self
+            .params
+            .calibrator
+            .as_ref()
+            .map_or(raw, |c| c.calibrate(raw));
 
         let q_min = candidates
             .iter()
@@ -409,6 +422,25 @@ impl CostAwareRouter {
                     .partial_cmp(&cost_key(b))
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
+    }
+
+    /// Fit an isotonic calibrator (UCCI-style) from logged outcomes: map each
+    /// query's raw difficulty score to the empirical "needed strong" rate, so
+    /// subsequent routing uses calibrated probabilities. Returns the mean
+    /// absolute calibration error after fitting (0.0 when the log is empty).
+    pub fn calibrate_from_outcomes(&mut self, log: &crate::outcomes::OutcomeLog) -> f64 {
+        let points: Vec<(f64, f64)> = log
+            .samples()
+            .iter()
+            .map(|o| (self.params.model.predict(&o.features()), o.needed_strong))
+            .collect();
+        if points.is_empty() {
+            return 0.0;
+        }
+        let calibrator = crate::calibration::IsotonicCalibrator::fit(&points);
+        let error = calibrator.mean_abs_error(&points);
+        self.params.calibrator = Some(calibrator);
+        error
     }
 
     /// Retrain the difficulty predictor on logged routing outcomes
@@ -754,6 +786,40 @@ mod tests {
         use crate::outcomes::OutcomeLog;
         let mut router = CostAwareRouter::new(fleet(), RouterParams::default());
         assert!(router.train_on_outcomes(&OutcomeLog::new(), 10, 0.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn calibrate_from_outcomes_fits_and_routing_works() {
+        use crate::outcomes::{OutcomeLog, RoutingOutcome};
+        let mut router = CostAwareRouter::new(fleet(), RouterParams::default());
+        assert!(router.params().calibrator.is_none());
+
+        let mut log = OutcomeLog::new();
+        for _ in 0..6 {
+            log.record(RoutingOutcome::new("hi", vec![], 0.0));
+            log.record(RoutingOutcome::new(
+                "Prove the distributed deadlock root cause step by step and design a fix",
+                vec![],
+                1.0,
+            ));
+        }
+        let err = router.calibrate_from_outcomes(&log);
+        assert!(err.is_finite() && err >= 0.0);
+        assert!(router
+            .params()
+            .calibrator
+            .as_ref()
+            .is_some_and(crate::calibration::IsotonicCalibrator::is_fitted));
+        // Routing still yields a decision with the calibrator active.
+        assert!(router.route("hi", &[]).is_some());
+    }
+
+    #[test]
+    fn calibrate_on_empty_log_is_noop() {
+        use crate::outcomes::OutcomeLog;
+        let mut router = CostAwareRouter::new(fleet(), RouterParams::default());
+        assert!(router.calibrate_from_outcomes(&OutcomeLog::new()).abs() < 1e-9);
+        assert!(router.params().calibrator.is_none());
     }
 
     #[test]

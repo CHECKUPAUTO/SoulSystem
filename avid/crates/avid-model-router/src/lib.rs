@@ -42,11 +42,13 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod calibration;
 pub mod learned;
 pub mod outcomes;
 pub mod registry;
 pub mod router;
 
+pub use calibration::IsotonicCalibrator;
 pub use learned::{
     CostAwareRouter, DifficultyModel, QueryFeatures, RouterParams, RoutingDecision, RoutingMetrics,
 };

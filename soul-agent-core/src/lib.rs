@@ -13,10 +13,13 @@ use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolSchema};
 use soul_memory::{KnowledgeGraph, Node, NodeType};
 use soul_planner::{CognitiveLoop, Goal, GoalStatus};
 use soul_skills::SkillLoader;
-use soul_tools::{async_dispatch_tool, discover_system_tools, AsyncShellExecutor, ToolRegistry};
+use soul_tools::{
+    async_dispatch_tool, discover_system_tools, AsyncShellExecutor, ToolRegistry,
+};
 use soullink_autonomy::metacognition::MetaCognition;
 use soullink_memory_hierarchy::{
-    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, SemanticConfig,
+    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry,
+    SemanticConfig,
 };
 use soullink_reasoning::{ThoughtTree, TreeConfig};
 use soullink_trainer::{Trajectory, TrajectoryRecorder};
@@ -601,9 +604,7 @@ Only return the JSON, no explanation."#,
         );
 
         match self.llm.generate(&prompt).await {
-            Ok(resp) => match serde_json::from_str::<serde_json::Value>(
-                resp.message.content.as_deref().unwrap_or(""),
-            ) {
+            Ok(resp) => match serde_json::from_str::<serde_json::Value>(resp.message.content.as_deref().unwrap_or("")) {
                 Ok(val) => {
                     if let Some(info) = val.get("key_info").and_then(|v| v.as_str()) {
                         self.planner.memory.set_key_info(info);
@@ -690,9 +691,7 @@ Only return the JSON array, no explanation."#,
         );
 
         match self.llm.generate(&prompt).await {
-            Ok(resp) => match serde_json::from_str::<Vec<serde_json::Value>>(
-                resp.message.content.as_deref().unwrap_or(""),
-            ) {
+            Ok(resp) => match serde_json::from_str::<Vec<serde_json::Value>>(resp.message.content.as_deref().unwrap_or("")) {
                 Ok(skills) => {
                     let mut crystallized = 0;
                     for skill_val in &skills {
@@ -996,6 +995,7 @@ impl AutonomousLoop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     // ── Mock helpers ────────────────────────────────────────────────────
 
@@ -1158,11 +1158,7 @@ mod tests {
             "repair should add a user message explaining the reset"
         );
         assert!(
-            agent
-                .chat_session
-                .messages
-                .last()
-                .unwrap()
+            agent.chat_session.messages.last().unwrap()
                 .content
                 .contains("Self-repair triggered"),
             "repair message should explain the reset"

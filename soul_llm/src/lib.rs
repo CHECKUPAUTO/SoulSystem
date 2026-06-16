@@ -35,6 +35,10 @@ pub mod types;
 pub use client::LlmClient;
 
 // Legacy API (soul_agent_core / historical monolith)
+pub use legacy::{
+    build_tool_schemas, AssistantMessage, ChatMessage, ChatResponse, ChatSession, OllamaClient,
+    Role, ToolCall, ToolFunction, ToolSchema,
+};
 pub use budget::LlmBudget;
 pub use error::{LlmError, Result as LlmResult};
 pub use factory::{create_provider, create_provider_by_name};

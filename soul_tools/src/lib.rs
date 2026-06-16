@@ -182,30 +182,12 @@ impl PermissionLevel {
     pub fn from_command(cmd: &str) -> Self {
         let lower = cmd.to_lowercase();
         let destructive = [
-            "rm -rf",
-            "mkfs",
-            "dd if",
-            "shutdown",
-            "reboot",
-            "poweroff",
-            "kill -9",
-            "pkill -9",
-            "iptables -F",
-            "fdisk",
-            "parted",
+            "rm -rf", "mkfs", "dd if", "shutdown", "reboot", "poweroff",
+            "kill -9", "pkill -9", "iptables -F", "fdisk", "parted",
         ];
         let write = [
-            "rm ",
-            "mv ",
-            "cp ",
-            "mkdir ",
-            "touch ",
-            "chmod ",
-            "chown ",
-            "write_file",
-            "patch_file",
-            "git push",
-            "git reset --hard",
+            "rm ", "mv ", "cp ", "mkdir ", "touch ", "chmod ", "chown ",
+            "write_file", "patch_file", "git push", "git reset --hard",
         ];
         for d in &destructive {
             if lower.contains(d) {
@@ -239,7 +221,9 @@ impl AsyncShellExecutor {
         }
     }
 
-    pub async fn execute(&self, cmd: &str) -> std::result::Result<SandboxVerdict, String> {
+    pub async fn execute(&self,
+        cmd: &str,
+    ) -> std::result::Result<SandboxVerdict, String> {
         let sandbox = self.sandbox.clone();
         let cmd = cmd.to_string();
         tokio::task::spawn_blocking(move || sandbox.execute(&cmd).map_err(|e| e.to_string()))
@@ -307,6 +291,84 @@ pub fn execute_tool(tool: &Tool, args: &str) -> std::result::Result<String, Stri
     let full_cmd = format!("{} {}", tool.name, args);
     execute_shell(&full_cmd)
 }
+
+// ── File operations backing the tool dispatch ──────────────────────────
+
+fn read_file(path: &str, start: Option<usize>, num: Option<usize>) -> Result<String, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    match (start, num) {
+        (None, None) => Ok(content),
+        (s, n) => {
+            let skip = s.unwrap_or(1).saturating_sub(1);
+            let take = n.unwrap_or(usize::MAX);
+            Ok(content
+                .lines()
+                .skip(skip)
+                .take(take)
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+    }
+}
+
+fn write_file(path: &str, content: &str, append: bool) -> Result<(), String> {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(append)
+        .truncate(!append)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    f.write_all(content.as_bytes()).map_err(|e| e.to_string())
+}
+
+fn patch_file(path: &str, old: &str, new: &str) -> Result<String, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    if !content.contains(old) {
+        return Err(format!("pattern not found in {path}"));
+    }
+}
+
+// ── Dispatch ───────────────────────────────────────────────────
+
+pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result<String, String> {
+    match name {
+        "execute_shell" => {
+            let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+            execute_shell(cmd)
+        }
+        "read_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            std::fs::read_to_string(path).map_err(|e| e.to_string())
+        }
+        "write_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            std::fs::write(path, content).map_err(|e| e.to_string())?;
+            Ok(format!("written {} bytes", content.len()))
+        }
+        _ => execute_shell(&format!("{} {}", name, args.to_string())),
+    }
+}
+
+pub async fn async_dispatch_tool(
+    name: &str,
+    args: serde_json::Value,
+) -> std::result::Result<String, String> {
+    let name = name.to_string();
+    tokio::task::spawn_blocking(move || dispatch_tool(&name, args))
+        .await
+        .map_err(|e| format!("tool dispatch join error: {e}"))?
+}
+
+// ── Exécution synchronisée (legacy) ───────────────────────────
+
+pub fn execute_shell(cmd: &str) -> std::result::Result<String, String> {
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    if parts.is_empty() {
+        return Err("command vide".into());
+    }
 
 #[cfg(test)]
 mod compat_tests {
