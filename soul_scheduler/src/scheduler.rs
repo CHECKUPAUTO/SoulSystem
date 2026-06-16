@@ -1,52 +1,57 @@
 use crate::queue::{LockFreeTaskDeque, Task};
 use crate::topology::{CpuTopology, HardwareManifest, MemoryTopology};
+use lazy_static::lazy_static;
+use prometheus::{Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use prometheus::{IntCounter, IntGauge, Histogram, HistogramOpts, Opts, Registry};
-use lazy_static::lazy_static;
 
 lazy_static! {
     static ref SCHEDULER_REGISTRY: Registry = Registry::new();
-    
     static ref TASKS_SUBMITTED: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_tasks_submitted_total",
         "Total tasks submitted to scheduler"
-    )).expect("nom de métrique invalide");
-    
+    ))
+    .expect("nom de métrique invalide");
     static ref TASKS_COMPLETED: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_tasks_completed_total",
         "Total tasks completed by workers"
-    )).expect("nom de métrique invalide");
-    
+    ))
+    .expect("nom de métrique invalide");
     static ref STEAL_ATTEMPTS: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_steal_attempts_total",
         "Total work-stealing attempts"
-    )).expect("nom de métrique invalide");
-    
+    ))
+    .expect("nom de métrique invalide");
     static ref STEAL_SUCCESSES: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_steal_successes_total",
         "Successful work-stealing attempts"
-    )).expect("nom de métrique invalide");
-    
-    static ref TASK_EXECUTION_TIME: Histogram = Histogram::with_opts(HistogramOpts::new(
-        "soul_scheduler_task_execution_seconds",
-        "Task execution time in seconds"
-    ).buckets(vec![0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1])).expect("nom de métrique invalide");
-    
+    ))
+    .expect("nom de métrique invalide");
+    static ref TASK_EXECUTION_TIME: Histogram = Histogram::with_opts(
+        HistogramOpts::new(
+            "soul_scheduler_task_execution_seconds",
+            "Task execution time in seconds"
+        )
+        .buckets(vec![
+            0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1
+        ])
+    )
+    .expect("nom de métrique invalide");
     static ref QUEUE_DEPTH_TOTAL: IntGauge = IntGauge::with_opts(Opts::new(
         "soul_scheduler_queue_depth_total",
         "Total queue depth across all cores"
-    )).expect("nom de métrique invalide");
-    
+    ))
+    .expect("nom de métrique invalide");
     static ref WORKER_IDLE_CYCLES: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_worker_idle_cycles_total",
         "Total worker idle cycles (spin loops)"
-    )).expect("nom de métrique invalide");
-    
+    ))
+    .expect("nom de métrique invalide");
     static ref THERMAL_THROTTLE_EVENTS: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_scheduler_thermal_throttle_total",
         "Total thermal throttle events"
-    )).expect("nom de métrique invalide");
+    ))
+    .expect("nom de métrique invalide");
 }
 
 fn register_scheduler_metrics() {
@@ -195,7 +200,11 @@ impl AgentScheduler {
 
                             TASKS_COMPLETED.inc();
                             TASK_EXECUTION_TIME.observe(elapsed.as_secs_f64());
-                            telemetry_ref.record_execution(local_worker.core_id, elapsed.as_nanos() as u64, false);
+                            telemetry_ref.record_execution(
+                                local_worker.core_id,
+                                elapsed.as_nanos() as u64,
+                                false,
+                            );
                             spin_counter = 0;
                             continue;
                         }
@@ -212,7 +221,11 @@ impl AgentScheduler {
                                 TASKS_COMPLETED.inc();
                                 STEAL_SUCCESSES.inc();
                                 TASK_EXECUTION_TIME.observe(elapsed.as_secs_f64());
-                                telemetry_ref.record_execution(local_worker.core_id, elapsed.as_nanos() as u64, true);
+                                telemetry_ref.record_execution(
+                                    local_worker.core_id,
+                                    elapsed.as_nanos() as u64,
+                                    true,
+                                );
                                 stolen = true;
                                 break;
                             }
@@ -274,9 +287,7 @@ impl AgentScheduler {
     }
 
     pub fn update_queue_depth_metric(&self) {
-        let total_depth: i64 = self.workers.iter()
-            .map(|w| w.queue.len() as i64)
-            .sum();
+        let total_depth: i64 = self.workers.iter().map(|w| w.queue.len() as i64).sum();
         QUEUE_DEPTH_TOTAL.set(total_depth);
     }
 }

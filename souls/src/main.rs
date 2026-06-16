@@ -40,7 +40,12 @@ struct Cli {
     command: Option<Command>,
 
     /// Adresse du gateway HTTP/WS.
-    #[arg(long, env = "SOUL_GATEWAY_ADDR", default_value = "127.0.0.1:7878", global = true)]
+    #[arg(
+        long,
+        env = "SOUL_GATEWAY_ADDR",
+        default_value = "127.0.0.1:7878",
+        global = true
+    )]
     gateway: String,
 
     /// Chemin de la mémoire persistante (Sled). Si omis, mémoire en RAM.
@@ -48,7 +53,12 @@ struct Cli {
     memory: Option<PathBuf>,
 
     /// URL du serveur LLM (Ollama, OpenAI, etc.).
-    #[arg(long, env = "SOUL_LLM_URL", default_value = "http://127.0.0.1:11434", global = true)]
+    #[arg(
+        long,
+        env = "SOUL_LLM_URL",
+        default_value = "http://127.0.0.1:11434",
+        global = true
+    )]
     llm_url: String,
 
     /// Modèle LLM à utiliser.
@@ -56,7 +66,12 @@ struct Cli {
     model: String,
 
     /// Provider LLM (ollama, openai, anthropic).
-    #[arg(long, env = "SOUL_LLM_PROVIDER", default_value = "ollama", global = true)]
+    #[arg(
+        long,
+        env = "SOUL_LLM_PROVIDER",
+        default_value = "ollama",
+        global = true
+    )]
     provider: ProviderKind,
 
     /// Clé API du provider (OpenAI, Anthropic, etc.).
@@ -84,7 +99,12 @@ struct Cli {
     name: String,
 
     /// Adresse du serveur métriques Prometheus.
-    #[arg(long, env = "SOUL_METRICS_ADDR", default_value = "127.0.0.1:9090", global = true)]
+    #[arg(
+        long,
+        env = "SOUL_METRICS_ADDR",
+        default_value = "127.0.0.1:9090",
+        global = true
+    )]
     metrics: String,
 }
 
@@ -116,16 +136,9 @@ async fn main() -> anyhow::Result<()> {
         Some(Command::Config { show }) => {
             if *show {
                 let cfg = config::load_config();
-                println!(
-                    "\n{}",
-                    "Configuration actuelle :".bright_cyan().bold()
-                );
+                println!("\n{}", "Configuration actuelle :".bright_cyan().bold());
                 println!("{}", toml::to_string_pretty(&cfg)?);
-                println!(
-                    "\n{} {}",
-                    "Fichier :".bright_blue(),
-                    config_path_display()
-                );
+                println!("\n{} {}", "Fichier :".bright_blue(), config_path_display());
                 return Ok(());
             }
 
@@ -171,10 +184,11 @@ async fn main() -> anyhow::Result<()> {
                 pool_max_idle: 10,
                 pool_idle_timeout: Duration::from_secs(30),
             };
-            let mut repl_state = soul_repl::ReplState::new(llm_cfg)
-                .map_err(|e| anyhow::anyhow!(e))?;
+            let mut repl_state =
+                soul_repl::ReplState::new(llm_cfg).map_err(|e| anyhow::anyhow!(e))?;
             repl_state.entity_name = cli.name.clone();
-            soul_repl::run_repl(&mut repl_state).await
+            soul_repl::run_repl(&mut repl_state)
+                .await
                 .map_err(|e| anyhow::anyhow!(e))?;
             return Ok(());
         }
@@ -189,7 +203,15 @@ async fn main() -> anyhow::Result<()> {
     let api_key = cli.api_key.clone();
     let name = cli.name.clone();
 
-    print_banner(&provider, &llm_url, &model, &name, &cli.gateway, &cli.metrics, cli.autonomous);
+    print_banner(
+        &provider,
+        &llm_url,
+        &model,
+        &name,
+        &cli.gateway,
+        &cli.metrics,
+        cli.autonomous,
+    );
 
     let telemetry_hub = Arc::new(soul_telemetry::TelemetryHub::new(num_cpus::get()));
     info!("telemetry hub initialisé pour {} cœurs", num_cpus::get());
@@ -352,10 +374,10 @@ async fn main() -> anyhow::Result<()> {
             pool_max_idle: 10,
             pool_idle_timeout: Duration::from_secs(30),
         };
-        let mut repl_state = soul_repl::ReplState::new(llm_cfg)
-            .map_err(|e| anyhow::anyhow!(e))?;
+        let mut repl_state = soul_repl::ReplState::new(llm_cfg).map_err(|e| anyhow::anyhow!(e))?;
         repl_state.entity_name = name.clone();
-        soul_repl::run_repl(&mut repl_state).await
+        soul_repl::run_repl(&mut repl_state)
+            .await
             .map_err(|e| anyhow::anyhow!(e))?;
     }
 
@@ -374,18 +396,23 @@ async fn main() -> anyhow::Result<()> {
         h.abort();
     }
 
-    println!(
-        "\n{}",
-        "SoulSystem arrêté proprement.".bright_cyan().bold()
-    );
+    println!("\n{}", "SoulSystem arrêté proprement.".bright_cyan().bold());
     let final_status = entity_for_status.status();
-    println!("{}", serde_json::to_string_pretty(&final_status).unwrap_or_default());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&final_status).unwrap_or_default()
+    );
     Ok(())
 }
 
 fn config_path_display() -> String {
     dirs::config_dir()
-        .map(|d| d.join("soulsystem").join("config.toml").display().to_string())
+        .map(|d| {
+            d.join("soulsystem")
+                .join("config.toml")
+                .display()
+                .to_string()
+        })
         .unwrap_or_else(|| "~/.config/soulsystem/config.toml".into())
 }
 

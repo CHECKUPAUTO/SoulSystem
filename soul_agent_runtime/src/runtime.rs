@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use soul_ipc::AgentMessage;
 use soul_matrix_engine::engine::{MatrixDescriptor, MatrixEngine};
 use soul_orchestrator::SovereignOrchestrator;
@@ -6,6 +5,7 @@ use soul_scheduler::queue::Task;
 use soul_scheduler::scheduler::AgentScheduler;
 use soul_storage::index::{SearchResult, VectorStore};
 use soul_telemetry::TelemetryHub;
+use std::sync::Arc;
 
 const SIGNAL_ENCODING_DIM: usize = 32;
 const SEARCH_BUFFER_SIZE: usize = 5;

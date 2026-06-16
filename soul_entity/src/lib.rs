@@ -4,25 +4,28 @@
 //! L'entité expose un **EntityHandle** pour être pilotable par le
 //! `soul_gateway` (HTTP/WS) et une **boucle cognitive autonome**.
 
-pub mod types;
+pub mod entity;
 pub mod event_store;
 pub mod facade;
-pub mod entity;
 pub mod subsystems;
+pub mod types;
 
 // Re-exports
 pub use entity::SoulEntity;
 pub use event_store::PersistentEventStore;
 pub use facade::OpenClawFacade;
+pub use subsystems::{
+    Subsystems, TAG_DECISION, TAG_ERROR, TAG_EVOLVE, TAG_FORGE, TAG_GOAL, TAG_HEAL, TAG_PLAN,
+    TAG_STEP,
+};
 pub use types::*;
-pub use subsystems::{Subsystems, TAG_DECISION, TAG_ERROR, TAG_EVOLVE, TAG_FORGE, TAG_GOAL, TAG_HEAL, TAG_PLAN, TAG_STEP};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use soul_llm::LlmConfig;
-    use soul_sandbox::SandboxPolicy;
     use soul_openclaw::AgentLoopConfig;
+    use soul_sandbox::SandboxPolicy;
     use std::time::Duration;
 
     fn test_entity() -> SoulEntity {
@@ -111,7 +114,11 @@ mod tests {
         let src = "print('hi from soul')";
         let (artifact, verdict) = e.generate_and_run("python", src).unwrap();
         assert_eq!(artifact.language, "python");
-        assert!(verdict.exit_code == Some(0) || !verdict.stdout.is_empty() || !verdict.stderr.is_empty());
+        assert!(
+            verdict.exit_code == Some(0)
+                || !verdict.stdout.is_empty()
+                || !verdict.stderr.is_empty()
+        );
     }
 
     #[tokio::test]

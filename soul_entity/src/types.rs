@@ -42,9 +42,9 @@ pub struct PersistentGoal {
     pub id: String,
     pub description: String,
     pub priority: u8,
-    pub importance: f32,          // 0.0-1.0 importance weight
-    pub deadline: Option<DateTime<Utc>>,  // Optional deadline
-    pub depends_on: Vec<String>,  // Goal IDs this depends on
+    pub importance: f32,                 // 0.0-1.0 importance weight
+    pub deadline: Option<DateTime<Utc>>, // Optional deadline
+    pub depends_on: Vec<String>,         // Goal IDs this depends on
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub plan: Option<PersistentPlan>,
@@ -105,8 +105,13 @@ impl PersistentGoal {
     }
 
     /// Vérifie si les dépendances sont satisfaites
-    pub fn dependencies_satisfied(&self, completed_goals: &std::collections::HashSet<String>) -> bool {
-        self.depends_on.iter().all(|dep| completed_goals.contains(dep))
+    pub fn dependencies_satisfied(
+        &self,
+        completed_goals: &std::collections::HashSet<String>,
+    ) -> bool {
+        self.depends_on
+            .iter()
+            .all(|dep| completed_goals.contains(dep))
     }
 }
 

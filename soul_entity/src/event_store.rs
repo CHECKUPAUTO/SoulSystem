@@ -1,7 +1,7 @@
-use soul_journal::RotatingJournal;
 use soul_gateway::EntityEvent;
-use std::sync::{Arc, Mutex};
+use soul_journal::RotatingJournal;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 /// Persistent event store using soul_journal (mmap + rotation)
 pub struct PersistentEventStore {
@@ -11,7 +11,11 @@ pub struct PersistentEventStore {
 }
 
 impl PersistentEventStore {
-    pub fn new<P: AsRef<Path>>(path: P, segment_size_mb: usize, cache_capacity: usize) -> std::io::Result<Self> {
+    pub fn new<P: AsRef<Path>>(
+        path: P,
+        segment_size_mb: usize,
+        cache_capacity: usize,
+    ) -> std::io::Result<Self> {
         let path_str = path.as_ref().to_str().ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "chemin non UTF-8")
         })?;
@@ -26,10 +30,10 @@ impl PersistentEventStore {
     pub fn publish(&self, event: EntityEvent) {
         let json = serde_json::to_vec(&event).unwrap_or_default();
         let tag = event_tag(&event);
-        
+
         let journal = self.journal.lock().unwrap_or_else(|e| e.into_inner());
         journal.append_log(tag, &json);
-        
+
         let mut cache = self.recent_cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.push(event);
         let len = cache.len();

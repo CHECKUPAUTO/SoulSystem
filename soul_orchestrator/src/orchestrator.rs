@@ -15,54 +15,54 @@
 //! lui-meme (les consommateurs d'un broadcast ne liberent jamais : sinon
 //! double-free). Le broadcast vise des signaux, pas un transfert de propriete.
 
+use lazy_static::lazy_static;
+use prometheus::{IntCounter, IntGauge, Opts, Registry};
 use soul_ipc::{AgentMessage, InterAgentBus};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
-use prometheus::{IntCounter, IntGauge, Opts, Registry};
-use lazy_static::lazy_static;
 
 lazy_static! {
     static ref ORCHESTRATOR_REGISTRY: Registry = Registry::new();
-    
     static ref DISPATCH_TOTAL: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_orchestrator_dispatch_total",
         "Total number of message dispatches"
-    )).unwrap();
-    
+    ))
+    .unwrap();
     static ref DISPATCH_DELIVERED: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_orchestrator_dispatch_delivered_total",
         "Total delivered messages"
-    )).unwrap();
-    
+    ))
+    .unwrap();
     static ref DISPATCH_BROADCAST: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_orchestrator_dispatch_broadcast_total",
         "Total broadcast messages"
-    )).unwrap();
-    
+    ))
+    .unwrap();
     static ref AGENTS_REGISTERED: IntGauge = IntGauge::with_opts(Opts::new(
         "soul_orchestrator_agents_registered",
         "Number of registered agents"
-    )).unwrap();
-    
+    ))
+    .unwrap();
     static ref AGENTS_ACTIVE: IntGauge = IntGauge::with_opts(Opts::new(
         "soul_orchestrator_agents_active",
         "Number of active agents"
-    )).unwrap();
-    
+    ))
+    .unwrap();
     static ref MAILBOX_FULL: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_orchestrator_mailbox_full_total",
         "Total mailbox full events (back-pressure)"
-    )).unwrap();
-    
+    ))
+    .unwrap();
     static ref WAKE_TOTAL: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_orchestrator_wake_total",
         "Total agent wake events"
-    )).unwrap();
-    
+    ))
+    .unwrap();
     static ref TRANSITION_TOTAL: IntCounter = IntCounter::with_opts(Opts::new(
         "soul_orchestrator_transition_total",
         "Total state transitions"
-    )).unwrap();
+    ))
+    .unwrap();
 }
 
 fn register_metrics() {
@@ -111,7 +111,9 @@ impl AgentState {
 /// Resultat d'un `dispatch`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DispatchOutcome {
-    Delivered { woke: bool },
+    Delivered {
+        woke: bool,
+    },
     Broadcast {
         delivered: usize,
         full: usize,
@@ -126,10 +128,7 @@ pub enum DispatchOutcome {
 pub enum OrchestratorError {
     UnknownAgent,
     NoOpTransition,
-    IllegalTransition {
-        from: AgentState,
-        to: AgentState,
-    },
+    IllegalTransition { from: AgentState, to: AgentState },
 }
 
 /// Poignee interne : etat atomique + mailbox dediee.
@@ -191,7 +190,7 @@ impl SovereignOrchestrator {
 
     pub fn dispatch(&self, msg: AgentMessage) -> DispatchOutcome {
         DISPATCH_TOTAL.inc();
-        
+
         if msg.target_agent_id == BROADCAST {
             return self.broadcast(msg);
         }
@@ -283,9 +282,11 @@ impl SovereignOrchestrator {
             }
         }
     }
-    
+
     pub fn update_active_agents_metric(&self) {
-        let active = self.registry.values()
+        let active = self
+            .registry
+            .values()
             .filter(|h| {
                 let state = AgentState::from_u8(h.state.load(Ordering::Acquire));
                 matches!(state, AgentState::Active | AgentState::HyperFocus)

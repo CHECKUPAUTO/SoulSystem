@@ -42,6 +42,10 @@ pub use legacy::{
 pub use budget::LlmBudget;
 pub use error::{LlmError, Result as LlmResult};
 pub use factory::{create_provider, create_provider_by_name};
+pub use legacy::{
+    build_tool_schemas, AssistantMessage, ChatMessage, ChatResponse, ChatSession, OllamaClient,
+    Role, ToolCall, ToolFunction, ToolSchema,
+};
 pub use provider::LlmProvider;
 pub use types::{
     EmbeddingResult, GenerateRequest, GenerateResult, LlmConfig, ModelInfo, ProviderKind,

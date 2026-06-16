@@ -36,7 +36,8 @@ impl SelfImprovementLoop {
             meta_strategies: vec![
                 MetaStrategy {
                     name: "generate-missing-language-agents".to_string(),
-                    description: "Detect uncovered languages and generate reviewer agents".to_string(),
+                    description: "Detect uncovered languages and generate reviewer agents"
+                        .to_string(),
                     used_count: 0,
                     success_count: 0,
                     effectiveness: 0.0,
@@ -177,7 +178,9 @@ impl SelfImprovementLoop {
 
         // PHASES 7-14: 7-PILLAR META-EVOLUTION (Godel, Darwin, STOP, Self-Play, Reflexion, OPRO, Explosion)
         tracing::info!("Phases 7-14: Running meta-evolution cycle (7 pillars)...");
-        let meta_cycle_result = self.meta_evolver.cycle(&report, &agent_audits, &self.config);
+        let meta_cycle_result = self
+            .meta_evolver
+            .cycle(&report, &agent_audits, &self.config);
         if self.config.verbose {
             println!("{}", meta_cycle_result.format());
         }
@@ -375,7 +378,8 @@ impl SelfImprovementLoop {
             let mut strategies_report = String::from("Strategy effectiveness: ");
             for s in &effective_strategies {
                 let eff = format!("{:.0}%", s.effectiveness * 100.0);
-                strategies_report.push_str(&format!("{}={} (used {}x), ", s.name, eff, s.used_count));
+                strategies_report
+                    .push_str(&format!("{}={} (used {}x), ", s.name, eff, s.used_count));
             }
             insights.push(strategies_report);
         }
@@ -450,38 +454,29 @@ impl SelfImprovementLoop {
         let mut out = String::new();
         use std::fmt::Write;
 
-        let _ = writeln!(
-            out,
-            "╔══════════════════════════════════════════════╗"
-        );
-        let _ = writeln!(
-            out,
-            "║     RECURSIVE SELF-IMPROVEMENT LOOP          ║"
-        );
-        let _ = writeln!(
-            out,
-            "╚══════════════════════════════════════════════╝"
-        );
+        let _ = writeln!(out, "╔══════════════════════════════════════════════╗");
+        let _ = writeln!(out, "║     RECURSIVE SELF-IMPROVEMENT LOOP          ║");
+        let _ = writeln!(out, "╚══════════════════════════════════════════════╝");
         let _ = writeln!(out);
         let _ = writeln!(out, "  Iterations:         {}", self.iteration);
         let _ = writeln!(
             out,
             "  Current health:     {:.1}%",
-            self.health_trajectory
-                .last()
-                .copied()
-                .unwrap_or(0.0)
-                * 100.0
+            self.health_trajectory.last().copied().unwrap_or(0.0) * 100.0
         );
         if let Some(trend) = self.compute_health_trend() {
-            let direction = if trend > 0.0 { "↑ improving" } else { "↓ declining" };
-            let _ = writeln!(out, "  Trend:              {} ({:+.4}/iter)", direction, trend);
+            let direction = if trend > 0.0 {
+                "↑ improving"
+            } else {
+                "↓ declining"
+            };
+            let _ = writeln!(
+                out,
+                "  Trend:              {} ({:+.4}/iter)",
+                direction, trend
+            );
         }
-        let _ = writeln!(
-            out,
-            "  History records:    {}",
-            self.history.len()
-        );
+        let _ = writeln!(out, "  History records:    {}", self.history.len());
         let _ = writeln!(out);
 
         if !self.meta_strategies.is_empty() {
@@ -499,19 +494,12 @@ impl SelfImprovementLoop {
                         s.used_count
                     );
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "  {:<35} │ (unused)",
-                        s.name
-                    );
+                    let _ = writeln!(out, "  {:<35} │ (unused)", s.name);
                 }
             }
         }
 
-        let _ = writeln!(
-            out,
-            "────────────────────────────────────────────"
-        );
+        let _ = writeln!(out, "────────────────────────────────────────────");
         out
     }
 
@@ -520,7 +508,10 @@ impl SelfImprovementLoop {
     }
 
     /// Save the latest iteration record to disk for cross-session persistence
-    fn persist_record(record: &IterationRecord, output_dir: &std::path::Path) -> Result<(), String> {
+    fn persist_record(
+        record: &IterationRecord,
+        output_dir: &std::path::Path,
+    ) -> Result<(), String> {
         let _ = std::fs::create_dir_all(output_dir);
         let path = output_dir.join("evolution-state.txt");
 

@@ -328,92 +328,47 @@ fn patch_file(path: &str, old: &str, new: &str) -> Result<String, String> {
     if !content.contains(old) {
         return Err(format!("pattern not found in {path}"));
     }
-    let patched = content.replace(old, new);
-    std::fs::write(path, &patched).map_err(|e| e.to_string())?;
-    Ok(format!("patched {path}"))
 }
 
-fn list_directory(path: &str) -> Result<Vec<String>, String> {
-    let mut out = Vec::new();
-    for entry in std::fs::read_dir(path).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        out.push(entry.file_name().to_string_lossy().to_string());
-    }
-    out.sort();
-    Ok(out)
-}
+// ── Dispatch ───────────────────────────────────────────────────
 
-fn walk(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>, limit: usize) {
-    if out.len() >= limit {
-        return;
-    }
-    let Ok(rd) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in rd.flatten() {
-        if out.len() >= limit {
-            return;
+pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result<String, String> {
+    match name {
+        "execute_shell" => {
+            let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+            execute_shell(cmd)
         }
-        let p = entry.path();
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name == "target" || name == ".git" || name == "node_modules" {
-            continue;
+        "read_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            std::fs::read_to_string(path).map_err(|e| e.to_string())
         }
-        if p.is_dir() {
-            walk(&p, out, limit);
-        } else {
-            out.push(p);
+        "write_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            std::fs::write(path, content).map_err(|e| e.to_string())?;
+            Ok(format!("written {} bytes", content.len()))
         }
+        _ => execute_shell(&format!("{} {}", name, args.to_string())),
     }
 }
 
-fn search_files(pattern: &str, path: &str) -> Result<Vec<String>, String> {
-    let mut files = Vec::new();
-    walk(std::path::Path::new(path), &mut files, 5000);
-    Ok(files
-        .into_iter()
-        .filter(|p| {
-            p.file_name()
-                .map(|n| n.to_string_lossy().contains(pattern))
-                .unwrap_or(false)
-        })
-        .map(|p| p.display().to_string())
-        .take(200)
-        .collect())
+pub async fn async_dispatch_tool(
+    name: &str,
+    args: serde_json::Value,
+) -> std::result::Result<String, String> {
+    let name = name.to_string();
+    tokio::task::spawn_blocking(move || dispatch_tool(&name, args))
+        .await
+        .map_err(|e| format!("tool dispatch join error: {e}"))?
 }
 
-fn grep_content(
-    pattern: &str,
-    path: &str,
-    file_pattern: Option<&str>,
-) -> Result<Vec<String>, String> {
-    let mut files = Vec::new();
-    walk(std::path::Path::new(path), &mut files, 5000);
-    let mut hits = Vec::new();
-    for f in files {
-        if let Some(fp) = file_pattern {
-            if !f
-                .file_name()
-                .map(|n| n.to_string_lossy().contains(fp))
-                .unwrap_or(false)
-            {
-                continue;
-            }
-        }
-        if let Ok(content) = std::fs::read_to_string(&f) {
-            for (i, line) in content.lines().enumerate() {
-                if line.contains(pattern) {
-                    hits.push(format!("{}:{}: {}", f.display(), i + 1, line.trim()));
-                    if hits.len() >= 200 {
-                        return Ok(hits);
-                    }
-                }
-            }
-        }
+// ── Exécution synchronisée (legacy) ───────────────────────────
+
+pub fn execute_shell(cmd: &str) -> std::result::Result<String, String> {
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    if parts.is_empty() {
+        return Err("command vide".into());
     }
-    Ok(hits)
-}
 
 #[cfg(test)]
 mod compat_tests {
@@ -441,23 +396,23 @@ mod compat_tests {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("a.txt");
         let fp = f.to_str().unwrap();
-        dispatch_tool("write_file", &json!({"path": fp, "content": "hello"})).unwrap();
-        let read = dispatch_tool("read_file", &json!({"path": fp})).unwrap();
+        dispatch_tool("write_file", json!({"path": fp, "content": "hello"})).unwrap();
+        let read = dispatch_tool("read_file", json!({"path": fp})).unwrap();
         assert_eq!(read, "hello");
         dispatch_tool(
             "patch_file",
-            &json!({"path": fp, "old_text": "hello", "new_text": "world"}),
+            json!({"path": fp, "old_text": "hello", "new_text": "world"}),
         )
         .unwrap();
         assert_eq!(
-            dispatch_tool("read_file", &json!({"path": fp})).unwrap(),
+            dispatch_tool("read_file", json!({"path": fp})).unwrap(),
             "world"
         );
     }
 
     #[test]
     fn unknown_tool_errors() {
-        assert!(dispatch_tool("nope", &json!({})).is_err());
+        assert!(dispatch_tool("nope", json!({})).is_err());
     }
 
     #[tokio::test]
