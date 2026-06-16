@@ -53,7 +53,7 @@ Le cœur autonome fonctionnel est constitué d'une dizaine de crates fortement i
 4. `soul_gateway` : ajout du module `providers` avec implémentations Telegram (long-poll bot), Discord, Slack et WhatsApp (webhook-based).
 5. `soulsystem` : ajout du wizard interactif `--setup` (CLI) et `--setup-tui` (TUI ratatui) pour configurer LLM, entité et gateway.
 6. `soul_entity` tests : robustesse au scan automatique d'agents.
-7. `openclaw-u` tests : correction d'un test `unwrap_err()` trop strict.
+7. `soul-kernel` tests : correction d'un test `unwrap_err()` trop strict.
 8. `soulsystem` : ajout du mode `--entity` qui lance `SoulEntity` + gateway + REPL/boucle autonome.
 
 ## Build & test

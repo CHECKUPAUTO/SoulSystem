@@ -6,6 +6,10 @@ description = "SciRust core — scientific computing engine for SoulLink ecosyst
 
 [dependencies]
 num_cpus = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+scirust-symbolic = { path = "../scirust-symbolic" }
 scirust-autodiff = { path = "../scirust-autodiff" }
 scirust-macros = { path = "../scirust-macros" }
 scirust-simd = { path = "../scirust-simd" }

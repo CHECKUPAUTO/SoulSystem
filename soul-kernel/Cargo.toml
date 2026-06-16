@@ -1,0 +1,32 @@
+[package]
+name = "soul-kernel"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["SoulSystem"]
+description = "Soul Kernel — Autonomous Agent Kernel"
+
+[dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+regex = { workspace = true }
+axum = { workspace = true }
+rusqlite = { version = "0.32", features = ["bundled", "chrono", "serde_json"] }
+soullink-security = { path = "../soullink-brain/soullink-security" }
+soulsystem-common = { workspace = true }
+
+[lib]
+name = "soul_kernel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "soul-kernel"
+path = "src/main.rs"

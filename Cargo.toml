@@ -154,7 +154,7 @@ members = [
 
     # ── Standalone agents / forges ──────────────────────────────────────
     "synergie",
-    "openclaw-u",
+    "soul-kernel",
     "soullink-metabolism",
     "soullink-organs",
     "soullink-orchestrator-standalone",
