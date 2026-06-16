@@ -316,6 +316,7 @@ pub fn execute_tool(tool: &Tool, args: &str) -> std::result::Result<String, Stri
 
 // ── File operations backing the tool dispatch ──────────────────────────
 
+#[allow(dead_code)]
 fn read_file(path: &str, start: Option<usize>, num: Option<usize>) -> Result<String, String> {
     let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     match (start, num) {
@@ -333,6 +334,7 @@ fn read_file(path: &str, start: Option<usize>, num: Option<usize>) -> Result<Str
     }
 }
 
+#[allow(dead_code)]
 fn write_file(path: &str, content: &str, append: bool) -> Result<(), String> {
     use std::io::Write;
     let mut f = std::fs::OpenOptions::new()
