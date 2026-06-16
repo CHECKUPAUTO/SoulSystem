@@ -17,6 +17,7 @@ soul_persistence = { path = "../soul_persistence" }
 soul_openclaw = { path = "../soul_openclaw" }
 soul_gateway = { path = "../soul_gateway" }
 soul_agent_core = { path = "../soul-agent-core" }
+soul_subagents = { path = "../soul-subagents" }
 soul_journal = { path = "../soul_journal" }
 soul_scheduler = { path = "../soul_scheduler" }
 soul_skills = { path = "../soul-skills" }
@@ -40,5 +41,6 @@ chrono = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v4"] }
 parking_lot = { workspace = true }
 async-trait = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "sync", "fs"] }

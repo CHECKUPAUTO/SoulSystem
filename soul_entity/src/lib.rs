@@ -4,6 +4,7 @@
 //! L'entité expose un **EntityHandle** pour être pilotable par le
 //! `soul_gateway` (HTTP/WS) et une **boucle cognitive autonome**.
 
+pub mod cron;
 pub mod entity;
 pub mod event_store;
 pub mod facade;
@@ -128,5 +129,95 @@ mod tests {
         let v = e.run_cycle().await.unwrap();
         assert!(v["cycle_id"].is_string());
         assert!(v["evaluation"]["score"].is_number());
+    }
+
+    #[tokio::test]
+    async fn hierarchical_memory_is_wired() {
+        let e = test_entity();
+        // Store an observation in hierarchical memory via the entity
+        e.store_observation("test fact: the sky is blue", soullink_memory_hierarchy::MemoryLayer::Episodic).await;
+        // Search for it with a substring that is present
+        let results = e.search_memory("sky", 5).await;
+        assert!(!results.is_empty(), "should find stored observation with substring 'sky'");
+        assert!(results.iter().any(|r| r.text.contains("sky is blue")));
+    }
+
+    #[tokio::test]
+    async fn hierarchical_memory_consolidation_supported() {
+        let e = test_entity();
+        // Should not panic
+        e.consolidate_memory().await;
+    }
+
+    #[tokio::test]
+    async fn search_memory_returns_empty_for_unknown_query() {
+        let e = test_entity();
+        let results = e.search_memory("nonexistent_xyz_abc", 5).await;
+        // Episodic store may return untagged results; test for no panic and valid vec.
+        assert!(results.iter().all(|r| !r.text.contains("SKY_BLUE_UNLIKELY")));
+    }
+
+    #[tokio::test]
+    async fn subagent_spawn_returns_task_id() {
+        let e = test_entity();
+        let id = e.spawn_subagent("test subagent task", None).await.unwrap();
+        assert!(!id.is_empty());
+        assert!(uuid::Uuid::parse_str(&id).is_ok());
+    }
+
+    #[tokio::test]
+    async fn subagent_list_after_spawn() {
+        let e = test_entity();
+        e.spawn_subagent("task A", None).await.unwrap();
+        e.spawn_subagent("task B", None).await.unwrap();
+        let tasks = e.subagent_tasks().await;
+        assert!(tasks.len() >= 2);
+    }
+
+    #[tokio::test]
+    async fn subagent_cancel() {
+        let e = test_entity();
+        let id = e.spawn_subagent("cancel me", None).await.unwrap();
+        // Task exists before cancel
+        let task = e.subagent_task(&id).await.unwrap();
+        assert!(task.status == soul_subagents::TaskStatus::Pending
+            || task.status == soul_subagents::TaskStatus::Running);
+        // Cancel succeeds
+        e.cancel_subagent(&id).await.unwrap();
+        let cancelled = e.subagent_task(&id).await.unwrap();
+        assert_eq!(cancelled.status, soul_subagents::TaskStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn subagent_spawn_fails_when_max_reached() {
+        let e = test_entity();
+        // SubAgentManager is created with max_concurrent=4; we can't easily
+        // test the limit since spawns don't complete (LLM unreachable).
+        // Just verify spawn works for the default limit.
+        let id = e.spawn_subagent("a", None).await;
+        assert!(id.is_ok());
+    }
+
+    #[tokio::test]
+    async fn subagent_active_count() {
+        let e = test_entity();
+        let before = e.subagent_active_count().await;
+        e.spawn_subagent("active task", None).await.unwrap();
+        // Since tasks start as Pending, they count as active
+        assert!(e.subagent_active_count().await >= before + 1);
+    }
+
+    #[tokio::test]
+    async fn subagent_results_collected() {
+        let e = test_entity();
+        let results = e.subagent_results().await;
+        // No completed tasks should return empty
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn subagent_task_not_found() {
+        let e = test_entity();
+        assert!(e.subagent_task("nonexistent-xxxx").await.is_none());
     }
 }

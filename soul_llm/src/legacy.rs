@@ -6,6 +6,10 @@
 //! This module preserves that API by wrapping `LlmClient`.
 
 use crate::client::LlmClient;
+use crate::provider::{
+    ChatMessage as ProviderChatMessage, ChatRole as ProviderChatRole, ToolCall as ProviderToolCall,
+    ToolCallFunction as ProviderToolCallFunction, ToolSchema as ProviderToolSchema,
+};
 use crate::types::LlmConfig;
 use serde::{Deserialize, Serialize};
 
@@ -176,19 +180,73 @@ impl OllamaClient {
     pub async fn chat(
         &self,
         messages: &[ChatMessage],
-        _tools: Option<&[ToolSchema]>,
+        tools: Option<&[ToolSchema]>,
     ) -> std::result::Result<ChatResponse, String> {
-        // Convert tool-style messages to a plain prompt; the new provider API
-        // is generate-only. We serialize the conversation into the prompt.
-        let prompt = messages_to_prompt(messages);
+        let provider_msgs: Vec<ProviderChatMessage> = messages
+            .iter()
+            .map(|m| {
+                let role = match m.role {
+                    Role::System => ProviderChatRole::System,
+                    Role::User => ProviderChatRole::User,
+                    Role::Assistant => ProviderChatRole::Assistant,
+                    Role::Tool => ProviderChatRole::Tool,
+                };
+                let tool_calls: Option<Vec<ProviderToolCall>> =
+                    m.tool_calls.as_ref().map(|tcs| {
+                        tcs.iter()
+                            .map(|tc| ProviderToolCall {
+                                id: tc.id.clone(),
+                                function: ProviderToolCallFunction {
+                                    name: tc.function.name.clone(),
+                                    arguments: tc.function.arguments.clone(),
+                                },
+                            })
+                            .collect()
+                    });
+                ProviderChatMessage {
+                    role,
+                    content: m.content.clone(),
+                    tool_calls,
+                    tool_call_id: m.tool_call_id.clone(),
+                }
+            })
+            .collect();
 
-        match self.client.generate_text(&prompt).await {
-            Ok(result) => Ok(ChatResponse {
-                message: AssistantMessage {
-                    content: Some(result),
-                    tool_calls: None,
-                },
-            }),
+        let provider_tools: Option<Vec<ProviderToolSchema>> = tools.map(|ts| {
+            ts.iter()
+                .map(|t| ProviderToolSchema {
+                    name: t.name.clone(),
+                    description: t.description.clone(),
+                    parameters: t.parameters.clone(),
+                })
+                .collect()
+        });
+
+        let tools_ref = provider_tools
+            .as_ref()
+            .map(|v| v.as_slice());
+
+        match self.client.chat(&provider_msgs, tools_ref).await {
+            Ok(resp) => {
+                let tool_calls: Option<Vec<ToolCall>> =
+                    resp.message.tool_calls.map(|tcs| {
+                        tcs.into_iter()
+                            .map(|tc| ToolCall {
+                                id: tc.id,
+                                function: ToolFunction {
+                                    name: tc.function.name,
+                                    arguments: tc.function.arguments,
+                                },
+                            })
+                            .collect()
+                    });
+                Ok(ChatResponse {
+                    message: AssistantMessage {
+                        content: resp.message.content,
+                        tool_calls,
+                    },
+                })
+            }
             Err(e) => Err(e.to_string()),
         }
     }
@@ -204,29 +262,6 @@ impl OllamaClient {
             Err(e) => Err(e.to_string()),
         }
     }
-}
-
-fn messages_to_prompt(messages: &[ChatMessage]) -> String {
-    let mut out = String::new();
-    for m in messages {
-        match m.role {
-            Role::System => out.push_str("System: "),
-            Role::User => out.push_str("User: "),
-            Role::Assistant => out.push_str("Assistant: "),
-            Role::Tool => out.push_str("Tool result: "),
-        }
-        out.push_str(&m.content);
-        if let Some(tools) = &m.tool_calls {
-            for tc in tools {
-                out.push_str(&format!(
-                    "\n[tool call {}({})]",
-                    tc.function.name, tc.function.arguments
-                ));
-            }
-        }
-        out.push('\n');
-    }
-    out
 }
 
 // ── Tool schema builder ──────────────────────────────────────

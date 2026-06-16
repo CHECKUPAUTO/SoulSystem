@@ -1,5 +1,5 @@
 use crate::error::{LlmError, Result};
-use crate::provider::LlmProvider;
+use crate::provider::{ChatMessage, ChatResponse, ChatResponseMessage, ChatRole, LlmProvider, ToolCall, ToolCallFunction, ToolSchema};
 use crate::types::{
     EmbeddingResult, GenerateRequest, GenerateResult, ModelInfo, StreamChunk, TokenUsage,
 };
@@ -250,6 +250,150 @@ impl LlmProvider for OllamaProvider {
         Ok(Box::pin(mapped.flatten()))
     }
 
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[ToolSchema]>,
+    ) -> Result<ChatResponse> {
+        #[derive(Serialize)]
+        struct OllamaMessage<'a> {
+            role: String,
+            content: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            tool_calls: Option<Vec<ToolCallOllama<'a>>>,
+        }
+
+        #[derive(Serialize)]
+        struct ToolCallOllama<'a> {
+            function: ToolCallFunctionOllama<'a>,
+        }
+
+        #[derive(Serialize)]
+        struct ToolCallFunctionOllama<'a> {
+            name: &'a str,
+            arguments: &'a String,
+        }
+
+        #[derive(Serialize)]
+        struct OllamaTool {
+            #[serde(rename = "type")]
+            tool_type: String,
+            function: OllamaFunction,
+        }
+
+        #[derive(Serialize)]
+        struct OllamaFunction {
+            name: String,
+            description: String,
+            parameters: serde_json::Value,
+        }
+
+        #[derive(Serialize)]
+        struct OllamaChatRequest<'a> {
+            model: String,
+            messages: Vec<OllamaMessage<'a>>,
+            stream: bool,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            tools: Option<Vec<OllamaTool>>,
+        }
+
+        #[derive(Deserialize)]
+        struct OllamaChatResponse {
+            message: OllamaChatMessage,
+        }
+
+        #[derive(Deserialize)]
+        struct OllamaChatMessage {
+            #[serde(default)]
+            content: Option<String>,
+            #[serde(default)]
+            tool_calls: Option<Vec<OllamaToolCallResp>>,
+        }
+
+        #[derive(Deserialize)]
+        struct OllamaToolCallResp {
+            function: OllamaToolFuncResp,
+        }
+
+        #[derive(Deserialize)]
+        struct OllamaToolFuncResp {
+            name: String,
+            #[serde(default)]
+            arguments: serde_json::Value,
+        }
+
+        let ollama_msgs: Vec<OllamaMessage> = messages.iter().map(|m| {
+            let role = match m.role {
+                ChatRole::System => "system",
+                ChatRole::User => "user",
+                ChatRole::Assistant => "assistant",
+                ChatRole::Tool => "tool",
+            };
+            let tool_calls: Option<Vec<ToolCallOllama>> = m.tool_calls.as_ref().map(|tcs| {
+                tcs.iter().map(|tc| ToolCallOllama {
+                    function: ToolCallFunctionOllama {
+                        name: &tc.function.name,
+                        arguments: &tc.function.arguments,
+                    },
+                }).collect()
+            });
+            OllamaMessage {
+                role: role.to_string(),
+                content: m.content.clone(),
+                tool_calls,
+            }
+        }).collect();
+
+        let ollama_tools: Option<Vec<OllamaTool>> = tools.map(|ts| {
+            ts.iter().map(|t| OllamaTool {
+                tool_type: "function".to_string(),
+                function: OllamaFunction {
+                    name: t.name.clone(),
+                    description: t.description.clone(),
+                    parameters: t.parameters.clone(),
+                },
+            }).collect()
+        });
+
+        let body = OllamaChatRequest {
+            model: self.default_model.clone(),
+            messages: ollama_msgs,
+            stream: false,
+            tools: ollama_tools,
+        };
+
+        let resp: OllamaChatResponse = self
+            .http
+            .post(format!("{}/api/chat", self.base_url))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::Provider(format!("ollama chat: {e}")))?
+            .json()
+            .await
+            .map_err(|e| LlmError::Provider(format!("ollama chat deserialize: {e}")))?;
+
+        let tool_calls: Option<Vec<ToolCall>> = resp.message.tool_calls.map(|tcs| {
+            tcs.into_iter().map(|tc| ToolCall {
+                id: uuid_like(),
+                function: ToolCallFunction {
+                    name: tc.function.name,
+                    arguments: match tc.function.arguments {
+                        serde_json::Value::String(s) => s,
+                        other => other.to_string(),
+                    },
+                },
+            }).collect()
+        });
+
+        Ok(ChatResponse {
+            message: ChatResponseMessage {
+                content: resp.message.content,
+                tool_calls,
+            },
+        })
+    }
+
     async fn embed(&self, text: &str, model: Option<&str>) -> Result<EmbeddingResult> {
         let model = model.unwrap_or(&self.default_model);
         let req = OllamaEmbedRequest {
@@ -309,4 +453,14 @@ impl LlmProvider for OllamaProvider {
             })
             .collect())
     }
+}
+
+fn uuid_like() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let rand: u64 = (nanos as u64).wrapping_mul(0x9E6C63D0676A9A99);
+    format!("call_{:016x}", rand)
 }

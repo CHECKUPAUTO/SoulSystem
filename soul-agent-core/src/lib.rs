@@ -179,6 +179,44 @@ impl AutonomousAgent {
         }
     }
 
+    /// Construct an agent sharing an external `HierarchicalMemory`.
+    pub fn with_memory(llm: OllamaClient, config: AgentConfig, memory: Arc<HierarchicalMemory>) -> Self {
+        let system_prompt = build_system_prompt(&config.name);
+        let chat_session = ChatSession::with_max_context(&system_prompt, 40000);
+
+        let tools = discover_system_tools();
+        let mut registry = ToolRegistry::new();
+        for tool in tools {
+            registry.register(tool);
+        }
+
+        let tool_schemas = build_tool_schemas();
+        let metacognition = MetaCognition::new();
+        let reasoning = ThoughtTree::new(TreeConfig::default());
+
+        Self {
+            config: config.clone(),
+            llm,
+            chat_session,
+            planner: CognitiveLoop::new(),
+            registry,
+            executor: AsyncShellExecutor::new(config.shell_timeout_secs),
+            tool_schemas,
+            history: Vec::new(),
+            turn: 0,
+            consecutive_failures: 0,
+            repair_count: 0,
+            running: Arc::new(RwLock::new(false)),
+            memory,
+            metacognition,
+            reasoning,
+            trajectory_recorder: None,
+            knowledge_graph: KnowledgeGraph::new(),
+            skill_loader: None,
+            event_tx: None,
+        }
+    }
+
     pub fn set_event_sender(&mut self, tx: mpsc::UnboundedSender<AgentEvent>) {
         self.event_tx = Some(tx);
     }

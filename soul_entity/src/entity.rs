@@ -8,8 +8,12 @@ use soul_persistence::{
     LongTermMemory, StampedEntry, KIND_CODE_ARTIFACT, KIND_DECISION, KIND_GOAL, KIND_OBSERVATION,
     KIND_PLAN, KIND_TOOL_RESULT,
 };
+use soullink_memory_hierarchy::{
+    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, MemoryLayer, SemanticConfig,
+};
 use soul_planner::{CognitiveLoop, Decision, Evaluation};
 use soul_sandbox::{Sandbox, SandboxVerdict};
+use soul_subagents::{SubAgentManager, SubAgentTask};
 use soul_tools::{discover_system_tools, ToolRegistry};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,6 +21,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::cron::{CronScheduler, CronTask};
 use crate::event_store::PersistentEventStore;
 use crate::facade::OpenClawFacade;
 use crate::subsystems::Subsystems;
@@ -31,8 +36,11 @@ pub struct SoulEntity {
     pub tools: ToolRegistry,
     pub sandbox: Arc<Sandbox>,
     pub memory: Arc<LongTermMemory>,
+    pub hierarchical_memory: Arc<HierarchicalMemory>,
     pub openclaw: Arc<OpenClawFacade>,
     pub events: PersistentEventStore,
+    pub sub_agents: Arc<SubAgentManager>,
+    pub cron: Arc<Mutex<CronScheduler>>,
     pub goals: Mutex<HashMap<String, PersistentGoal>>,
     pub goal_order: Mutex<VecDeque<String>>,
     pub code_artifacts: Mutex<Vec<CodeArtifact>>,
@@ -63,6 +71,16 @@ impl SoulEntity {
             Arc::new(LongTermMemory::open_temporary()?)
         };
 
+        let hierarchical_memory = Arc::new(HierarchicalMemory::new(
+            50,
+            EpisodicConfig::default(),
+            SemanticConfig::default(),
+            ConsolidationConfig::default(),
+        ));
+
+        let sub_agents = Arc::new(SubAgentManager::new(config.llm.clone(), 4));
+        let cron = Arc::new(Mutex::new(CronScheduler::new()));
+
         let event_store = if let Some(ref path) = config.event_store_path {
             PersistentEventStore::new(path, 10, 1000)
                 .map_err(|e| soul_persistence::PersistenceError::Io(e))?
@@ -92,8 +110,11 @@ impl SoulEntity {
             tools: registry,
             sandbox,
             memory,
+            hierarchical_memory,
             openclaw: Arc::new(OpenClawFacade::new()),
             events: event_store,
+            sub_agents,
+            cron,
             goals: Mutex::new(HashMap::new()),
             goal_order: Mutex::new(VecDeque::new()),
             code_artifacts: Mutex::new(Vec::new()),
@@ -403,6 +424,26 @@ impl SoulEntity {
                 ts: Utc::now(),
             });
 
+            // Store in hierarchical memory asynchronously
+            let hier_mem = self.hierarchical_memory.clone();
+            let obs_clone = observation.clone();
+            tokio::spawn(async move {
+                let entry = MemoryEntry {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    text: obs_clone,
+                    created_at: Utc::now().to_rfc3339(),
+                    last_accessed: Utc::now().to_rfc3339(),
+                    access_count: 1,
+                    importance: 0.6,
+                    layer: MemoryLayer::Working,
+                    tags: vec!["goal".to_string(), "cycle".to_string()],
+                    embedding: None,
+                    associations: vec![],
+                    metadata: std::collections::HashMap::new(),
+                };
+                hier_mem.store(entry, MemoryLayer::Working).await;
+            });
+
             if let Ok(v) = serde_json::to_value(&observation) {
                 let _ = self
                     .memory
@@ -562,6 +603,9 @@ impl SoulEntity {
             "goals_total": self.goals.lock().len(),
             "goals_active": self.list_goals().iter().filter(|g| g.status == "active" || g.status == "planned").count(),
             "memory_entries": self.memory.len(),
+            "hierarchical_memory_working": self.hierarchical_memory.working.try_read().map(|w| w.len()).unwrap_or(0),
+            "hierarchical_memory_episodic": self.hierarchical_memory.episodic.len(),
+            "hierarchical_memory_semantic": self.hierarchical_memory.semantic.len(),
             "code_artifacts": self.code_artifacts.lock().len(),
             "sandbox_history": self.sandbox.history_len(),
             "stats": *self.stats.lock(),
@@ -581,6 +625,103 @@ impl SoulEntity {
     }
 
     // ── Accès direct aux subsystems pour le REPL/CLI ────────
+
+    /// Search hierarchical memory across all layers (working + episodic + semantic).
+    pub async fn search_memory(&self, query: &str, limit: usize) -> Vec<MemoryEntry> {
+        self.hierarchical_memory.search(query, limit).await
+    }
+
+    /// Store an observation in both memory systems.
+    pub async fn store_observation(&self, observation: &str, layer: MemoryLayer) {
+        let entry = MemoryEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            text: observation.to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            last_accessed: Utc::now().to_rfc3339(),
+            access_count: 1,
+            importance: 0.5,
+            layer,
+            tags: vec!["observation".to_string()],
+            embedding: None,
+            associations: vec![],
+            metadata: std::collections::HashMap::new(),
+        };
+        self.hierarchical_memory.store(entry, layer).await;
+    }
+
+    /// Run a consolidation cycle on the hierarchical memory.
+    pub async fn consolidate_memory(&self) {
+        self.hierarchical_memory.consolidate().await;
+    }
+
+    /// Spawn a sub-agent for a task description. Returns its task id.
+    pub async fn spawn_subagent(&self, description: &str, parent_id: Option<&str>) -> std::result::Result<String, String> {
+        self.sub_agents
+            .spawn(description, parent_id)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// Get the status of a sub-agent task.
+    pub async fn subagent_task(&self, task_id: &str) -> Option<SubAgentTask> {
+        self.sub_agents.get_task(task_id).await.ok()
+    }
+
+    /// List all sub-agent tasks.
+    pub async fn subagent_tasks(&self) -> Vec<SubAgentTask> {
+        self.sub_agents.list_tasks().await
+    }
+
+    /// Cancel a sub-agent task.
+    pub async fn cancel_subagent(&self, task_id: &str) -> std::result::Result<(), String> {
+        self.sub_agents.cancel(task_id).await.map_err(|e| e.to_string())
+    }
+
+    /// Collect results from all completed sub-agent tasks.
+    pub async fn subagent_results(&self) -> Vec<(String, String)> {
+        self.sub_agents.collect_results().await
+    }
+
+    /// Number of currently active (running + pending) sub-agent tasks.
+    pub async fn subagent_active_count(&self) -> usize {
+        self.sub_agents.active_tasks().await.len()
+    }
+
+    /// Register a cron task for periodic goal creation.
+    pub fn register_cron(&self, task: CronTask) {
+        self.cron.lock().register(task);
+    }
+
+    /// Tick the cron scheduler and return any tasks that are due.
+    pub fn cron_tick(&self, now: &chrono::DateTime<Utc>) -> Vec<CronTask> {
+        self.cron.lock().tick(now).into_iter().cloned().collect()
+    }
+
+    /// Number of registered cron tasks.
+    pub fn cron_task_count(&self) -> usize {
+        self.cron.lock().task_count()
+    }
+
+    /// Register default periodic goals (hourly health check, daily documentation, 6h memory consolidation).
+    pub fn register_default_cron_tasks(&self) {
+        let mut c = self.cron.lock();
+        // Hourly health check
+        if let Ok(t) = CronTask::new("health-check", "0 * * * *", "Run system health check", 4) {
+            c.register(t);
+        }
+        // Daily LEARNINGS.md generation at 06:00
+        if let Ok(t) = CronTask::new("auto-documentation", "0 6 * * *", "Generate daily autonomy report and update LEARNINGS.md", 3) {
+            c.register(t);
+        }
+        // Six-hourly memory consolidation
+        if let Ok(t) = CronTask::new("memory-consolidation", "0 */6 * * *", "Consolidate episodic memory to semantic every 6 hours", 3) {
+            c.register(t);
+        }
+        // Every 15 min: system state check
+        if let Ok(t) = CronTask::new("system-state", "*/15 * * * *", "Verify system state: disk, memory, process health", 2) {
+            c.register(t);
+        }
+    }
 
     pub fn journal_dump(&self) -> Vec<(u32, String)> {
         self.subsystems.journal_dump()
