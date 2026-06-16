@@ -142,6 +142,7 @@ mod tests {
     use crate::types::Severity;
 
     #[tokio::test]
+    #[ignore = "slow: calls local LLM (gemma4:31b)"]
     async fn test_generate_patch_with_exploit() {
         let engine = PatchEngine::new(
             "http://localhost:11434".to_string(),
@@ -163,6 +164,7 @@ mod tests {
         assert!(finding.exploit_code.is_some());
     }
 
+    #[ignore = "slow: calls local LLM (gemma4:31b)"]
     #[tokio::test]
     async fn test_generate_patch_low_severity() {
         let engine = PatchEngine::new(

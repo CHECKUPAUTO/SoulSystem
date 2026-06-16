@@ -182,12 +182,30 @@ impl PermissionLevel {
     pub fn from_command(cmd: &str) -> Self {
         let lower = cmd.to_lowercase();
         let destructive = [
-            "rm -rf", "mkfs", "dd if", "shutdown", "reboot", "poweroff",
-            "kill -9", "pkill -9", "iptables -F", "fdisk", "parted",
+            "rm -rf",
+            "mkfs",
+            "dd if",
+            "shutdown",
+            "reboot",
+            "poweroff",
+            "kill -9",
+            "pkill -9",
+            "iptables -F",
+            "fdisk",
+            "parted",
         ];
         let write = [
-            "rm ", "mv ", "cp ", "mkdir ", "touch ", "chmod ", "chown ",
-            "write_file", "patch_file", "git push", "git reset --hard",
+            "rm ",
+            "mv ",
+            "cp ",
+            "mkdir ",
+            "touch ",
+            "chmod ",
+            "chown ",
+            "write_file",
+            "patch_file",
+            "git push",
+            "git reset --hard",
         ];
         for d in &destructive {
             if lower.contains(d) {
@@ -221,9 +239,7 @@ impl AsyncShellExecutor {
         }
     }
 
-    pub async fn execute(&self,
-        cmd: &str,
-    ) -> std::result::Result<SandboxVerdict, String> {
+    pub async fn execute(&self, cmd: &str) -> std::result::Result<SandboxVerdict, String> {
         let sandbox = self.sandbox.clone();
         let cmd = cmd.to_string();
         tokio::task::spawn_blocking(move || sandbox.execute(&cmd).map_err(|e| e.to_string()))
@@ -249,6 +265,12 @@ pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result
             let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
             std::fs::write(path, content).map_err(|e| e.to_string())?;
             Ok(format!("written {} bytes", content.len()))
+        }
+        "patch_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let old_text = args.get("old_text").and_then(|v| v.as_str()).unwrap_or("");
+            let new_text = args.get("new_text").and_then(|v| v.as_str()).unwrap_or("");
+            patch_file(path, old_text, new_text)
         }
         _ => execute_shell(&format!("{} {}", name, args.to_string())),
     }
@@ -328,47 +350,10 @@ fn patch_file(path: &str, old: &str, new: &str) -> Result<String, String> {
     if !content.contains(old) {
         return Err(format!("pattern not found in {path}"));
     }
+    let updated = content.replacen(old, new, 1);
+    std::fs::write(path, updated).map_err(|e| e.to_string())?;
+    Ok(format!("patched {path}"))
 }
-
-// ── Dispatch ───────────────────────────────────────────────────
-
-pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result<String, String> {
-    match name {
-        "execute_shell" => {
-            let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
-            execute_shell(cmd)
-        }
-        "read_file" => {
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            std::fs::read_to_string(path).map_err(|e| e.to_string())
-        }
-        "write_file" => {
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            std::fs::write(path, content).map_err(|e| e.to_string())?;
-            Ok(format!("written {} bytes", content.len()))
-        }
-        _ => execute_shell(&format!("{} {}", name, args.to_string())),
-    }
-}
-
-pub async fn async_dispatch_tool(
-    name: &str,
-    args: serde_json::Value,
-) -> std::result::Result<String, String> {
-    let name = name.to_string();
-    tokio::task::spawn_blocking(move || dispatch_tool(&name, args))
-        .await
-        .map_err(|e| format!("tool dispatch join error: {e}"))?
-}
-
-// ── Exécution synchronisée (legacy) ───────────────────────────
-
-pub fn execute_shell(cmd: &str) -> std::result::Result<String, String> {
-    let parts: Vec<&str> = cmd.split_whitespace().collect();
-    if parts.is_empty() {
-        return Err("command vide".into());
-    }
 
 #[cfg(test)]
 mod compat_tests {

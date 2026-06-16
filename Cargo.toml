@@ -337,11 +337,13 @@ ed25519-dalek = { version = "2", optional = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
 which = "8"
 sysinfo = "0.31"
+crossterm = { workspace = true }
 clap = { workspace = true }
 tar = "0.4"
 flate2 = "1"
 reqwest = { workspace = true }
 teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
+tokio-stream = { workspace = true }
 axum = { workspace = true }
 soullink-memory = { path = "soullink-brain/soullink-memory" }
 soullink-rag = { path = "soullink-brain/soullink-rag" }
@@ -357,6 +359,7 @@ futures-util = "0.3.32"
 
 # Autonomous entity crates
 soul_llm = { path = "soul_llm" }
+souls = { path = "souls" }
 soul_agent_core = { path = "soul-agent-core" }
 soul_planner = { path = "soul_planner" }
 soul_tools = { path = "soul_tools" }
@@ -370,6 +373,7 @@ soul_automodify = { path = "soul-automodify" }
 soul_eventbus = { path = "soul-eventbus" }
 soul-dashboard = { path = "crates/soul-dashboard" }
 soul_mcp = { path = "soul-mcp" }
+ratatui = { workspace = true }
 soul_skills = { path = "soul-skills" }
 soul_compaction = { path = "soul-compaction" }
 soul_protocol = { path = "soul-protocol" }
@@ -407,7 +411,6 @@ soul_scout = { path = "soul_scout" }
 soul_surgery = { path = "soul_surgery" }
 soul_security = { path = "soul_security" }
 
-souls = { path = "souls" }
 ccos = { workspace = true }
 
 [features]

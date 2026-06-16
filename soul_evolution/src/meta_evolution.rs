@@ -977,7 +977,7 @@ mod tests {
         metrics.record(0.80);
         metrics.record(0.95);
 
-        assert!(metrics.is_exploding || metrics.second_derivative.len() > 0);
+        assert!(metrics.is_exploding || !metrics.second_derivative.is_empty());
     }
 
     #[test]

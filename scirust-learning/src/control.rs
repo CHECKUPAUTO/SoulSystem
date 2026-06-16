@@ -76,14 +76,14 @@ impl KalmanFilter1D {
     /// Prediction step
     pub fn predict(&mut self) {
         // x = x (constant model for 1D)
-        self.p = self.p + self.q;
+        self.p += self.q;
     }
 
     /// Update step with a new measurement
     pub fn update(&mut self, z: f64) {
         let k = self.p / (self.p + self.r);
-        self.x = self.x + k * (z - self.x);
-        self.p = (1.0 - k) * self.p;
+        self.x += k * (z - self.x);
+        self.p *= 1.0 - k;
     }
 
     pub fn state(&self) -> f64 {
@@ -126,33 +126,33 @@ impl KalmanFilter {
         // x = F * x
         let n = self.x.len();
         let mut new_x = vec![0.0; n];
-        for i in 0..n {
-            for j in 0..n {
-                new_x[i] += self.f[i][j] * self.x[j];
+        for (i, new_xi) in new_x.iter_mut().enumerate() {
+            for (j, xj) in self.x.iter().enumerate() {
+                *new_xi += self.f[i][j] * *xj;
             }
         }
         self.x = new_x;
 
         // P = F * P * F^T + Q
         let mut fp = vec![vec![0.0; n]; n];
-        for i in 0..n {
-            for j in 0..n {
+        for (i, row) in fp.iter_mut().enumerate() {
+            for (j, fpij) in row.iter_mut().enumerate() {
                 for k in 0..n {
-                    fp[i][j] += self.f[i][k] * self.p[k][j];
+                    *fpij += self.f[i][k] * self.p[k][j];
                 }
             }
         }
         let mut fpf_t = vec![vec![0.0; n]; n];
-        for i in 0..n {
-            for j in 0..n {
-                for k in 0..n {
-                    fpf_t[i][j] += fp[i][k] * self.f[j][k]; // F^T means f[j][k] instead of f[k][j]
+        for (i, row) in fpf_t.iter_mut().enumerate() {
+            for (j, fpf_tij) in row.iter_mut().enumerate() {
+                for (k, fpik) in fp[i].iter().enumerate().take(n) {
+                    *fpf_tij += *fpik * self.f[j][k]; // F^T means f[j][k] instead of f[k][j]
                 }
             }
         }
-        for i in 0..n {
-            for j in 0..n {
-                self.p[i][j] = fpf_t[i][j] + self.q[i][j];
+        for (i, row) in self.p.iter_mut().enumerate() {
+            for (j, pij) in row.iter_mut().enumerate() {
+                *pij = fpf_t[i][j] + self.q[i][j];
             }
         }
     }
@@ -164,30 +164,30 @@ impl KalmanFilter {
 
         // y = z - H * x (innovation)
         let mut y = vec![0.0; m];
-        for i in 0..m {
+        for (i, yi) in y.iter_mut().enumerate() {
             let mut hx = 0.0;
-            for j in 0..n {
-                hx += self.h[i][j] * self.x[j];
+            for (j, xj) in self.x.iter().enumerate() {
+                hx += self.h[i][j] * *xj;
             }
-            y[i] = z[i] - hx;
+            *yi = z[i] - hx;
         }
 
         // S = H * P * H^T + R
         let mut hp = vec![vec![0.0; n]; m];
-        for i in 0..m {
-            for j in 0..n {
+        for (i, row) in hp.iter_mut().enumerate() {
+            for (j, hpij) in row.iter_mut().enumerate() {
                 for k in 0..n {
-                    hp[i][j] += self.h[i][k] * self.p[k][j];
+                    *hpij += self.h[i][k] * self.p[k][j];
                 }
             }
         }
         let mut s = vec![vec![0.0; m]; m];
-        for i in 0..m {
-            for j in 0..m {
-                for k in 0..n {
-                    s[i][j] += hp[i][k] * self.h[j][k];
+        for (i, row) in s.iter_mut().enumerate() {
+            for (j, sij) in row.iter_mut().enumerate() {
+                for (k, hpik) in hp[i].iter().enumerate().take(n) {
+                    *sij += *hpik * self.h[j][k];
                 }
-                s[i][j] += self.r[i][j];
+                *sij += self.r[i][j];
             }
         }
 
@@ -196,34 +196,34 @@ impl KalmanFilter {
         if m == 1 {
             let s_inv = 1.0 / s[0][0];
             let mut k = vec![0.0; n];
-            for i in 0..n {
+            for (i, ki) in k.iter_mut().enumerate() {
                 let mut ph_t = 0.0;
-                for j in 0..n {
-                    ph_t += self.p[i][j] * self.h[0][j];
+                for (j, pj) in self.p[i].iter().enumerate() {
+                    ph_t += *pj * self.h[0][j];
                 }
-                k[i] = ph_t * s_inv;
+                *ki = ph_t * s_inv;
             }
 
             // x = x + K * y
-            for i in 0..n {
-                self.x[i] += k[i] * y[0];
+            for (i, xi) in self.x.iter_mut().enumerate() {
+                *xi += k[i] * y[0];
             }
 
             // P = (I - K * H) * P
             let mut kh = vec![vec![0.0; n]; n];
-            for i in 0..n {
-                for j in 0..n {
-                    kh[i][j] = k[i] * self.h[0][j];
+            for (i, row) in kh.iter_mut().enumerate() {
+                for (j, khij) in row.iter_mut().enumerate() {
+                    *khij = k[i] * self.h[0][j];
                 }
             }
             let mut new_p = vec![vec![0.0; n]; n];
-            for i in 0..n {
-                for j in 0..n {
+            for (i, row) in new_p.iter_mut().enumerate() {
+                for (j, new_pij) in row.iter_mut().enumerate() {
                     let mut khp = 0.0;
-                    for k_idx in 0..n {
-                        khp += kh[i][k_idx] * self.p[k_idx][j];
+                    for (k_idx, khik) in kh[i].iter().enumerate().take(n) {
+                        khp += *khik * self.p[k_idx][j];
                     }
-                    new_p[i][j] = self.p[i][j] - khp;
+                    *new_pij = self.p[i][j] - khp;
                 }
             }
             self.p = new_p;

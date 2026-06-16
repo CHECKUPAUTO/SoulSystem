@@ -13,7 +13,7 @@
 //! souls run --provider openai --model gpt-4o
 //! ```
 
-mod config;
+pub mod config;
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
@@ -35,7 +35,7 @@ use tracing::info;
     about = "SoulSystem — entité numérique autonome",
     long_about = "SoulSystem est un framework d'entités numériques autonomes avec support multi-fournisseurs LLM."
 )]
-struct Cli {
+pub struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
 
@@ -109,7 +109,7 @@ struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
-enum Command {
+pub enum Command {
     /// Lance l'entité avec le gateway et la boucle autonome.
     Run,
     /// Ouvre le TUI interactif (terminal riche).
@@ -122,8 +122,12 @@ enum Command {
     },
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+pub fn main_inner(cli: Cli) -> anyhow::Result<()> {
+    let runtime = tokio::runtime::Runtime::new()?;
+    runtime.block_on(async move { run(cli).await })
+}
+
+async fn run(_cli: Cli) -> anyhow::Result<()> {
     let log_filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info,souls=debug".into());
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::new(log_filter))
@@ -250,7 +254,7 @@ async fn main() -> anyhow::Result<()> {
         event_store_path: Some(std::path::PathBuf::from("/tmp/soul_events")),
     };
 
-    let entity = Arc::new(SoulEntity::new(entity_config)?);
+    let entity = Arc::new(SoulEntity::new(entity_config).map_err(|e| anyhow::anyhow!("{e}"))?);
     info!("entité {} initialisée", name);
 
     entity.openclaw.skills.install(Skill::new(
@@ -403,6 +407,15 @@ async fn main() -> anyhow::Result<()> {
         serde_json::to_string_pretty(&final_status).unwrap_or_default()
     );
     Ok(())
+}
+
+#[allow(dead_code)]
+#[tokio::main]
+async fn main() {
+    if let Err(e) = main_inner(Cli::parse()) {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    }
 }
 
 fn config_path_display() -> String {
