@@ -113,8 +113,7 @@ pub trait LlmProvider: Send + Sync {
         tools: Option<&[ToolSchema]>,
     ) -> Result<ChatResponse> {
         let prompt = messages_to_prompt(messages, tools);
-        let req = GenerateRequest::new(&prompt)
-            .with_stream(false);
+        let req = GenerateRequest::new(&prompt).with_stream(false);
         let result = self.generate(&req).await?;
         Ok(ChatResponse {
             message: ChatResponseMessage {
@@ -137,7 +136,10 @@ fn messages_to_prompt(messages: &[ChatMessage], _tools: Option<&[ToolSchema]>) -
         out.push_str(&format!("{role}: {}\n", m.content));
         if let Some(tool_calls) = &m.tool_calls {
             for tc in tool_calls {
-                out.push_str(&format!("[tool call {}({})]\n", tc.function.name, tc.function.arguments));
+                out.push_str(&format!(
+                    "[tool call {}({})]\n",
+                    tc.function.name, tc.function.arguments
+                ));
             }
         }
     }

@@ -8,13 +8,14 @@ use soul_persistence::{
     LongTermMemory, StampedEntry, KIND_CODE_ARTIFACT, KIND_DECISION, KIND_GOAL, KIND_OBSERVATION,
     KIND_PLAN, KIND_TOOL_RESULT,
 };
-use soullink_memory_hierarchy::{
-    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, MemoryLayer, SemanticConfig,
-};
 use soul_planner::{CognitiveLoop, Decision, Evaluation};
 use soul_sandbox::{Sandbox, SandboxVerdict};
 use soul_subagents::{SubAgentManager, SubAgentTask};
 use soul_tools::{discover_system_tools, ToolRegistry};
+use soullink_memory_hierarchy::{
+    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, MemoryLayer,
+    SemanticConfig,
+};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -655,7 +656,11 @@ impl SoulEntity {
     }
 
     /// Spawn a sub-agent for a task description. Returns its task id.
-    pub async fn spawn_subagent(&self, description: &str, parent_id: Option<&str>) -> std::result::Result<String, String> {
+    pub async fn spawn_subagent(
+        &self,
+        description: &str,
+        parent_id: Option<&str>,
+    ) -> std::result::Result<String, String> {
         self.sub_agents
             .spawn(description, parent_id)
             .await
@@ -674,7 +679,10 @@ impl SoulEntity {
 
     /// Cancel a sub-agent task.
     pub async fn cancel_subagent(&self, task_id: &str) -> std::result::Result<(), String> {
-        self.sub_agents.cancel(task_id).await.map_err(|e| e.to_string())
+        self.sub_agents
+            .cancel(task_id)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     /// Collect results from all completed sub-agent tasks.
@@ -710,15 +718,30 @@ impl SoulEntity {
             c.register(t);
         }
         // Daily LEARNINGS.md generation at 06:00
-        if let Ok(t) = CronTask::new("auto-documentation", "0 6 * * *", "Generate daily autonomy report and update LEARNINGS.md", 3) {
+        if let Ok(t) = CronTask::new(
+            "auto-documentation",
+            "0 6 * * *",
+            "Generate daily autonomy report and update LEARNINGS.md",
+            3,
+        ) {
             c.register(t);
         }
         // Six-hourly memory consolidation
-        if let Ok(t) = CronTask::new("memory-consolidation", "0 */6 * * *", "Consolidate episodic memory to semantic every 6 hours", 3) {
+        if let Ok(t) = CronTask::new(
+            "memory-consolidation",
+            "0 */6 * * *",
+            "Consolidate episodic memory to semantic every 6 hours",
+            3,
+        ) {
             c.register(t);
         }
         // Every 15 min: system state check
-        if let Ok(t) = CronTask::new("system-state", "*/15 * * * *", "Verify system state: disk, memory, process health", 2) {
+        if let Ok(t) = CronTask::new(
+            "system-state",
+            "*/15 * * * *",
+            "Verify system state: disk, memory, process health",
+            2,
+        ) {
             c.register(t);
         }
     }

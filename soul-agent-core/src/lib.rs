@@ -180,7 +180,11 @@ impl AutonomousAgent {
     }
 
     /// Construct an agent sharing an external `HierarchicalMemory`.
-    pub fn with_memory(llm: OllamaClient, config: AgentConfig, memory: Arc<HierarchicalMemory>) -> Self {
+    pub fn with_memory(
+        llm: OllamaClient,
+        config: AgentConfig,
+        memory: Arc<HierarchicalMemory>,
+    ) -> Self {
         let system_prompt = build_system_prompt(&config.name);
         let chat_session = ChatSession::with_max_context(&system_prompt, 40000);
 

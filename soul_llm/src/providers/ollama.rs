@@ -1,5 +1,8 @@
 use crate::error::{LlmError, Result};
-use crate::provider::{ChatMessage, ChatResponse, ChatResponseMessage, ChatRole, LlmProvider, ToolCall, ToolCallFunction, ToolSchema};
+use crate::provider::{
+    ChatMessage, ChatResponse, ChatResponseMessage, ChatRole, LlmProvider, ToolCall,
+    ToolCallFunction, ToolSchema,
+};
 use crate::types::{
     EmbeddingResult, GenerateRequest, GenerateResult, ModelInfo, StreamChunk, TokenUsage,
 };
@@ -322,37 +325,44 @@ impl LlmProvider for OllamaProvider {
             arguments: serde_json::Value,
         }
 
-        let ollama_msgs: Vec<OllamaMessage> = messages.iter().map(|m| {
-            let role = match m.role {
-                ChatRole::System => "system",
-                ChatRole::User => "user",
-                ChatRole::Assistant => "assistant",
-                ChatRole::Tool => "tool",
-            };
-            let tool_calls: Option<Vec<ToolCallOllama>> = m.tool_calls.as_ref().map(|tcs| {
-                tcs.iter().map(|tc| ToolCallOllama {
-                    function: ToolCallFunctionOllama {
-                        name: &tc.function.name,
-                        arguments: &tc.function.arguments,
-                    },
-                }).collect()
-            });
-            OllamaMessage {
-                role: role.to_string(),
-                content: m.content.clone(),
-                tool_calls,
-            }
-        }).collect();
+        let ollama_msgs: Vec<OllamaMessage> = messages
+            .iter()
+            .map(|m| {
+                let role = match m.role {
+                    ChatRole::System => "system",
+                    ChatRole::User => "user",
+                    ChatRole::Assistant => "assistant",
+                    ChatRole::Tool => "tool",
+                };
+                let tool_calls: Option<Vec<ToolCallOllama>> = m.tool_calls.as_ref().map(|tcs| {
+                    tcs.iter()
+                        .map(|tc| ToolCallOllama {
+                            function: ToolCallFunctionOllama {
+                                name: &tc.function.name,
+                                arguments: &tc.function.arguments,
+                            },
+                        })
+                        .collect()
+                });
+                OllamaMessage {
+                    role: role.to_string(),
+                    content: m.content.clone(),
+                    tool_calls,
+                }
+            })
+            .collect();
 
         let ollama_tools: Option<Vec<OllamaTool>> = tools.map(|ts| {
-            ts.iter().map(|t| OllamaTool {
-                tool_type: "function".to_string(),
-                function: OllamaFunction {
-                    name: t.name.clone(),
-                    description: t.description.clone(),
-                    parameters: t.parameters.clone(),
-                },
-            }).collect()
+            ts.iter()
+                .map(|t| OllamaTool {
+                    tool_type: "function".to_string(),
+                    function: OllamaFunction {
+                        name: t.name.clone(),
+                        description: t.description.clone(),
+                        parameters: t.parameters.clone(),
+                    },
+                })
+                .collect()
         });
 
         let body = OllamaChatRequest {
@@ -374,16 +384,18 @@ impl LlmProvider for OllamaProvider {
             .map_err(|e| LlmError::Provider(format!("ollama chat deserialize: {e}")))?;
 
         let tool_calls: Option<Vec<ToolCall>> = resp.message.tool_calls.map(|tcs| {
-            tcs.into_iter().map(|tc| ToolCall {
-                id: uuid_like(),
-                function: ToolCallFunction {
-                    name: tc.function.name,
-                    arguments: match tc.function.arguments {
-                        serde_json::Value::String(s) => s,
-                        other => other.to_string(),
+            tcs.into_iter()
+                .map(|tc| ToolCall {
+                    id: uuid_like(),
+                    function: ToolCallFunction {
+                        name: tc.function.name,
+                        arguments: match tc.function.arguments {
+                            serde_json::Value::String(s) => s,
+                            other => other.to_string(),
+                        },
                     },
-                },
-            }).collect()
+                })
+                .collect()
         });
 
         Ok(ChatResponse {

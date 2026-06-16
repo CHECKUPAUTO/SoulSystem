@@ -135,10 +135,17 @@ mod tests {
     async fn hierarchical_memory_is_wired() {
         let e = test_entity();
         // Store an observation in hierarchical memory via the entity
-        e.store_observation("test fact: the sky is blue", soullink_memory_hierarchy::MemoryLayer::Episodic).await;
+        e.store_observation(
+            "test fact: the sky is blue",
+            soullink_memory_hierarchy::MemoryLayer::Episodic,
+        )
+        .await;
         // Search for it with a substring that is present
         let results = e.search_memory("sky", 5).await;
-        assert!(!results.is_empty(), "should find stored observation with substring 'sky'");
+        assert!(
+            !results.is_empty(),
+            "should find stored observation with substring 'sky'"
+        );
         assert!(results.iter().any(|r| r.text.contains("sky is blue")));
     }
 
@@ -154,7 +161,9 @@ mod tests {
         let e = test_entity();
         let results = e.search_memory("nonexistent_xyz_abc", 5).await;
         // Episodic store may return untagged results; test for no panic and valid vec.
-        assert!(results.iter().all(|r| !r.text.contains("SKY_BLUE_UNLIKELY")));
+        assert!(results
+            .iter()
+            .all(|r| !r.text.contains("SKY_BLUE_UNLIKELY")));
     }
 
     #[tokio::test]
@@ -180,8 +189,10 @@ mod tests {
         let id = e.spawn_subagent("cancel me", None).await.unwrap();
         // Task exists before cancel
         let task = e.subagent_task(&id).await.unwrap();
-        assert!(task.status == soul_subagents::TaskStatus::Pending
-            || task.status == soul_subagents::TaskStatus::Running);
+        assert!(
+            task.status == soul_subagents::TaskStatus::Pending
+                || task.status == soul_subagents::TaskStatus::Running
+        );
         // Cancel succeeds
         e.cancel_subagent(&id).await.unwrap();
         let cancelled = e.subagent_task(&id).await.unwrap();

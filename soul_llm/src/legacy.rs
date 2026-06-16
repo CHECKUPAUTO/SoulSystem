@@ -191,18 +191,17 @@ impl OllamaClient {
                     Role::Assistant => ProviderChatRole::Assistant,
                     Role::Tool => ProviderChatRole::Tool,
                 };
-                let tool_calls: Option<Vec<ProviderToolCall>> =
-                    m.tool_calls.as_ref().map(|tcs| {
-                        tcs.iter()
-                            .map(|tc| ProviderToolCall {
-                                id: tc.id.clone(),
-                                function: ProviderToolCallFunction {
-                                    name: tc.function.name.clone(),
-                                    arguments: tc.function.arguments.clone(),
-                                },
-                            })
-                            .collect()
-                    });
+                let tool_calls: Option<Vec<ProviderToolCall>> = m.tool_calls.as_ref().map(|tcs| {
+                    tcs.iter()
+                        .map(|tc| ProviderToolCall {
+                            id: tc.id.clone(),
+                            function: ProviderToolCallFunction {
+                                name: tc.function.name.clone(),
+                                arguments: tc.function.arguments.clone(),
+                            },
+                        })
+                        .collect()
+                });
                 ProviderChatMessage {
                     role,
                     content: m.content.clone(),
@@ -222,24 +221,21 @@ impl OllamaClient {
                 .collect()
         });
 
-        let tools_ref = provider_tools
-            .as_ref()
-            .map(|v| v.as_slice());
+        let tools_ref = provider_tools.as_ref().map(|v| v.as_slice());
 
         match self.client.chat(&provider_msgs, tools_ref).await {
             Ok(resp) => {
-                let tool_calls: Option<Vec<ToolCall>> =
-                    resp.message.tool_calls.map(|tcs| {
-                        tcs.into_iter()
-                            .map(|tc| ToolCall {
-                                id: tc.id,
-                                function: ToolFunction {
-                                    name: tc.function.name,
-                                    arguments: tc.function.arguments,
-                                },
-                            })
-                            .collect()
-                    });
+                let tool_calls: Option<Vec<ToolCall>> = resp.message.tool_calls.map(|tcs| {
+                    tcs.into_iter()
+                        .map(|tc| ToolCall {
+                            id: tc.id,
+                            function: ToolFunction {
+                                name: tc.function.name,
+                                arguments: tc.function.arguments,
+                            },
+                        })
+                        .collect()
+                });
                 Ok(ChatResponse {
                     message: AssistantMessage {
                         content: resp.message.content,

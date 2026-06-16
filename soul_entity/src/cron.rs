@@ -74,9 +74,7 @@ impl Field {
                     }
                 }
             } else {
-                let v: u32 = part
-                    .parse()
-                    .map_err(|_| format!("invalid value: {part}"))?;
+                let v: u32 = part.parse().map_err(|_| format!("invalid value: {part}"))?;
                 if v < min || v > max {
                     return Err(format!("value {v} out of range [{min}, {max}]"));
                 }
@@ -119,16 +117,26 @@ impl CronExpr {
             });
         }
         Ok(Self {
-            minute: Field::parse(parts[0], 0, 59)
-                .map_err(|r| CronError::InvalidField { field: "minute".into(), reason: r })?,
-            hour: Field::parse(parts[1], 0, 23)
-                .map_err(|r| CronError::InvalidField { field: "hour".into(), reason: r })?,
-            dom: Field::parse(parts[2], 1, 31)
-                .map_err(|r| CronError::InvalidField { field: "dom".into(), reason: r })?,
-            month: Field::parse(parts[3], 1, 12)
-                .map_err(|r| CronError::InvalidField { field: "month".into(), reason: r })?,
-            dow: Field::parse(parts[4], 0, 7)
-                .map_err(|r| CronError::InvalidField { field: "dow".into(), reason: r })?,
+            minute: Field::parse(parts[0], 0, 59).map_err(|r| CronError::InvalidField {
+                field: "minute".into(),
+                reason: r,
+            })?,
+            hour: Field::parse(parts[1], 0, 23).map_err(|r| CronError::InvalidField {
+                field: "hour".into(),
+                reason: r,
+            })?,
+            dom: Field::parse(parts[2], 1, 31).map_err(|r| CronError::InvalidField {
+                field: "dom".into(),
+                reason: r,
+            })?,
+            month: Field::parse(parts[3], 1, 12).map_err(|r| CronError::InvalidField {
+                field: "month".into(),
+                reason: r,
+            })?,
+            dow: Field::parse(parts[4], 0, 7).map_err(|r| CronError::InvalidField {
+                field: "dow".into(),
+                reason: r,
+            })?,
         })
     }
 
@@ -206,8 +214,14 @@ impl CronScheduler {
 
     /// Returns the list of tasks that are due to trigger now (not yet fired this minute).
     pub fn tick(&mut self, now: &DateTime<Utc>) -> Vec<&CronTask> {
-        let minute_key = format!("{}-{:02}-{:02}T{:02}:{:02}",
-            now.year(), now.month(), now.day(), now.hour(), now.minute());
+        let minute_key = format!(
+            "{}-{:02}-{:02}T{:02}:{:02}",
+            now.year(),
+            now.month(),
+            now.day(),
+            now.hour(),
+            now.minute()
+        );
 
         if self.last_trigger.get(&minute_key).is_some() {
             return vec![];
@@ -223,9 +237,8 @@ impl CronScheduler {
         self.last_trigger.insert(minute_key, *now);
         // Prune old keys to avoid unbounded growth
         if self.last_trigger.len() > 1440 {
-            self.last_trigger.retain(|_, v| {
-                now.signed_duration_since(*v).num_minutes() < 120
-            });
+            self.last_trigger
+                .retain(|_, v| now.signed_duration_since(*v).num_minutes() < 120);
         }
 
         triggered
@@ -289,7 +302,7 @@ mod tests {
     #[test]
     fn parse_range() {
         let e = CronExpr::parse("0 9-17 * * 1-5").unwrap(); // work hours weekdays
-        assert!(e.matches(&dt(16, 9, 0)));  // Tue Jun 16 2026 is a Tuesday (2)
+        assert!(e.matches(&dt(16, 9, 0))); // Tue Jun 16 2026 is a Tuesday (2)
         assert!(e.matches(&dt(16, 17, 0))); // Tue
         assert!(!e.matches(&dt(14, 9, 0))); // Sun
         assert!(!e.matches(&dt(16, 8, 0))); // before 9am
@@ -328,12 +341,10 @@ mod tests {
         // 0 = Sunday in cron, chrono Weekday::Sun = 7
         let e = CronExpr::parse("0 12 * * 0").unwrap();
         let sun = chrono::NaiveDate::from_ymd_opt(2026, 6, 21).unwrap();
-        let sun_dt: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
-            sun.and_hms_opt(12, 0, 0).unwrap(),
-            Utc,
-        );
-        assert!(e.matches(&sun_dt));  // Sunday
-        assert!(!e.matches(&dt(16, 12, 0)));  // Tuesday
+        let sun_dt: DateTime<Utc> =
+            DateTime::from_naive_utc_and_offset(sun.and_hms_opt(12, 0, 0).unwrap(), Utc);
+        assert!(e.matches(&sun_dt)); // Sunday
+        assert!(!e.matches(&dt(16, 12, 0))); // Tuesday
     }
 
     #[test]
