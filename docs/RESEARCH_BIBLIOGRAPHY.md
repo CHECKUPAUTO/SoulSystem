@@ -109,7 +109,7 @@ Crates: `soul-sandbox`, BoundSystem, `src/code_signing`, `soullink-gate`.
 - **Securing AI Agent Execution** — arXiv:2510.21236 — manifest permissions + runtime consent + network allow-lists.
 - **Fault-Tolerant Sandboxing for AI Coding Agents (Transactional)** — arXiv:2512.12806 — atomic, rollback-able agent actions.
 - **Agentic AI Security: Threats, Defenses, Evaluation** — arXiv:2510.23883 — emulator+evaluator dual-agent isolation.
-- **VIGIL: Defending Agents Against Tool Stream Injection (Verify-Before-Commit)** — arXiv:2601.05755 — verify tool outputs before acting.
+- **VIGIL: Defending Agents Against Tool Stream Injection (Verify-Before-Commit)** — arXiv:2601.05755 — verify tool outputs before acting; realized by `soullink-gate::injection` (signature/canary/encoding-evasion ensemble + spotlighting) and `ApprovalGate::screen_tool_output`, the inbound dual of the outbound approval gate.
 - **AttriGuard: Defeating Indirect Prompt Injection via Causal Attribution** — arXiv:2603.10749 — attribute tool-invocation causes; IPI defense.
 - **Quantifying Frontier LLM Capabilities for Container Sandbox Escape** — arXiv:2603.02277 — escape risks to harden the sandbox against.
 
