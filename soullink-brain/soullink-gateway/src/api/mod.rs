@@ -61,8 +61,10 @@ impl ApiState {
         }
     }
 
-    /// Retrain the difficulty model on the logged outcomes and install the
-    /// updated parameters for subsequent routing. Returns the final log-loss.
+    /// Retrain the difficulty model on the logged outcomes, then fit an
+    /// isotonic calibrator (UCCI-style) over the trained predictions, and
+    /// install the updated parameters for subsequent routing. Returns the final
+    /// training log-loss.
     pub fn retrain(&self, epochs: usize, lr: f64) -> f64 {
         let log = match self.outcomes.lock() {
             Ok(l) => l.clone(),
@@ -78,6 +80,9 @@ impl ApiState {
             params,
         );
         let loss = router.train_on_outcomes(&log, epochs, lr);
+        // Calibrate *after* training, so the calibrator maps the trained model's
+        // scores to empirical needed-strong rates.
+        router.calibrate_from_outcomes(&log);
         if let Ok(mut p) = self.router_params.write() {
             *p = router.params().clone();
         }

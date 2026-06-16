@@ -258,7 +258,7 @@ impl AutonomousAgent {
             }
 
             // Inject metacognition self-model (every 10 turns)
-            if self.turn.is_multiple_of(10) {
+            if self.turn % 10 == 0 {
                 let model = self.metacognition.self_model().await;
                 combined_context.push_str(&format!(
                     "\n\nSelf-model: health={:.1}%, load={:.1}%, capabilities={}",
@@ -996,6 +996,7 @@ impl AutonomousLoop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     // ── Mock helpers ────────────────────────────────────────────────────
 
@@ -1068,8 +1069,8 @@ mod tests {
         };
         assert_eq!(cfg.name, "MyBot");
         assert_eq!(cfg.max_turns, 100);
-        assert!(!cfg.auto_distill);
-        assert!(!cfg.auto_repair);
+        assert_eq!(cfg.auto_distill, false);
+        assert_eq!(cfg.auto_repair, false);
     }
 
     // ── truncate_output ─────────────────────────────────────────────────
@@ -1407,7 +1408,7 @@ mod tests {
         assert_eq!(agent.turn, 0);
         assert_eq!(agent.consecutive_failures, 0);
         assert_eq!(agent.repair_count, 0);
-        assert!(!agent.tool_schemas.is_empty(), "should have tool schemas");
+        assert!(agent.tool_schemas.len() > 0, "should have tool schemas");
     }
 
     #[tokio::test]

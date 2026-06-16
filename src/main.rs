@@ -1242,7 +1242,7 @@ async fn main() -> Result<()> {
             max_goal_history: 100,
             event_store_path: Some(std::path::PathBuf::from("/tmp/soul_events")),
         };
-        let entity = Arc::new(SoulEntity::new(entity_config).map_err(|e| *e)?);
+        let entity = Arc::new(SoulEntity::new(entity_config).map_err(|e| anyhow::anyhow!("{e}"))?);
         entity.openclaw.skills.install(Skill::new(
             "system_info",
             SkillVersion::new(1, 0, 0),
@@ -1259,7 +1259,6 @@ async fn main() -> Result<()> {
             "Lit un fichier texte",
         ));
         entity.create_goal("Vérifier l'état initial du système", 5);
-        entity.start_periodic_tasks().await;
 
         let entity_for_loop = entity.clone();
         let loop_handle = if cli.autonomous {

@@ -202,7 +202,7 @@ exclude = [
     "soul-neural",
     "soullink-node",
     "turboquant",
-    # "os-agents",  # excluded: duplicate crate subtree with its own workspace
+    "os-agents",
     "intel-integrations",
     "openclaw-gateway",
     "scirust-trading",

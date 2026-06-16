@@ -270,18 +270,9 @@ pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let old_text = args.get("old_text").and_then(|v| v.as_str()).unwrap_or("");
             let new_text = args.get("new_text").and_then(|v| v.as_str()).unwrap_or("");
-            let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-            let updated = content.replace(old_text, new_text);
-            std::fs::write(path, updated).map_err(|e| e.to_string())?;
-            Ok(format!("patched {} bytes", old_text.len()))
+            patch_file(path, old_text, new_text)
         }
-        _ => {
-            let args_str = match args {
-                serde_json::Value::Object(map) if map.is_empty() => String::new(),
-                _ => args.to_string(),
-            };
-            execute_shell(&format!("{} {}", name, args_str))
-        }
+        _ => execute_shell(&format!("{} {}", name, args.to_string())),
     }
 }
 
@@ -321,6 +312,47 @@ pub fn execute_shell(cmd: &str) -> std::result::Result<String, String> {
 pub fn execute_tool(tool: &Tool, args: &str) -> std::result::Result<String, String> {
     let full_cmd = format!("{} {}", tool.name, args);
     execute_shell(&full_cmd)
+}
+
+// ── File operations backing the tool dispatch ──────────────────────────
+
+fn read_file(path: &str, start: Option<usize>, num: Option<usize>) -> Result<String, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    match (start, num) {
+        (None, None) => Ok(content),
+        (s, n) => {
+            let skip = s.unwrap_or(1).saturating_sub(1);
+            let take = n.unwrap_or(usize::MAX);
+            Ok(content
+                .lines()
+                .skip(skip)
+                .take(take)
+                .collect::<Vec<_>>()
+                .join("\n"))
+        }
+    }
+}
+
+fn write_file(path: &str, content: &str, append: bool) -> Result<(), String> {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(append)
+        .truncate(!append)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    f.write_all(content.as_bytes()).map_err(|e| e.to_string())
+}
+
+fn patch_file(path: &str, old: &str, new: &str) -> Result<String, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    if !content.contains(old) {
+        return Err(format!("pattern not found in {path}"));
+    }
+    let updated = content.replacen(old, new, 1);
+    std::fs::write(path, updated).map_err(|e| e.to_string())?;
+    Ok(format!("patched {path}"))
 }
 
 #[cfg(test)]

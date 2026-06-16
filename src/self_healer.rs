@@ -117,7 +117,7 @@ impl SelfHealer {
             interval.tick().await;
 
             let (cpu, mem, disk) = Self::read_system_stats();
-            let disk_pct = disk;
+            let disk_pct = disk as f64;
 
             if let Some(actions) = self.preservation.check_resources(cpu, mem, disk_pct).await {
                 let level = self.preservation.level().await;

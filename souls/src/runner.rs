@@ -254,7 +254,7 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
         event_store_path: Some(std::path::PathBuf::from("/tmp/soul_events")),
     };
 
-    let entity = Arc::new(SoulEntity::new(entity_config).map_err(|e| *e)?);
+    let entity = Arc::new(SoulEntity::new(entity_config).map_err(|e| anyhow::anyhow!("{e}"))?);
     info!("entité {} initialisée", name);
 
     entity.openclaw.skills.install(Skill::new(
@@ -276,9 +276,6 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
 
     entity.create_goal("Vérifier l'état initial du système", 5);
     info!("goal de démarrage créé");
-
-    // Tâches périodiques : consolidation mémoire, validation skills, etc.
-    entity.start_periodic_tasks().await;
 
     let entity_for_loop = entity.clone();
     let loop_handle = if cli.autonomous {
