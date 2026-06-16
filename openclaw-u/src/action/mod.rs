@@ -281,16 +281,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_action_validation_success() {
-        // Valid IP
+        // Valid IP — may succeed if iptables is available, or fail for a non-security reason.
         let action = Action::BlockIp("1.2.3.4".to_string());
         let res = action.execute().await;
-        // Should fail because iptables not available in test, but NOT with security error
-        assert!(!res.unwrap_err().contains("Security"));
+        if let Err(e) = res {
+            assert!(!e.contains("Security"), "unexpected security error: {e}");
+        }
 
         // Valid service name
         let action = Action::RestartService("nginx".to_string());
         let res = action.execute().await;
-        assert!(!res.unwrap_err().contains("Security"));
+        if let Err(e) = res {
+            assert!(!e.contains("Security"), "unexpected security error: {e}");
+        }
 
         // Valid tool name
         let action = Action::CreateTool {
@@ -300,7 +303,7 @@ mod tests {
         let res = action.execute().await;
         // Might fail due to filesystem permissions in some envs, but not security validation
         if let Err(e) = res {
-            assert!(!e.contains("Security"));
+            assert!(!e.contains("Security"), "unexpected security error: {e}");
         }
     }
 

@@ -9,7 +9,9 @@ use crate::{EntityEvent, EntityHandle};
 use std::sync::Arc;
 
 pub mod discord;
+pub mod slack;
 pub mod telegram;
+pub mod whatsapp;
 
 /// Configuration common to all channel providers.
 #[derive(Clone)]
@@ -48,7 +50,8 @@ pub async fn start_all(config: ChannelConfig) {
     let providers: Vec<Box<dyn ChannelProvider>> = vec![
         Box::new(telegram::TelegramProvider::from_env()),
         Box::new(discord::DiscordProvider::from_env()),
-        // WhatsAppProvider::from_env(),
+        Box::new(slack::SlackProvider::from_env()),
+        Box::new(whatsapp::WhatsAppProvider::from_env()),
     ];
 
     for p in providers {

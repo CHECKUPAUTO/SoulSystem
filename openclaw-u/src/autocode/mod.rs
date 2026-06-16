@@ -55,7 +55,7 @@ impl AutoCoder {
             self.scan_dir(&src_dir, &mut opportunities);
         }
 
-        opportunities.sort_by(|a, b| b.priority.cmp(&a.priority));
+        opportunities.sort_by_key(|b| std::cmp::Reverse(b.priority));
         opportunities
     }
 

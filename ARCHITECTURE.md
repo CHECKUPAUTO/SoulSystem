@@ -20,7 +20,7 @@ Le cœur autonome fonctionnel est constitué d'une dizaine de crates fortement i
 ┌─────────────────────────────────────────────────────────────┐
 │  CLI / binaire : souls                                       │
 ├─────────────────────────────────────────────────────────────┤
-│  soul_gateway  ── HTTP/WS API + providers (Telegram)         │
+│  soul_gateway  ── HTTP/WS API + providers (Telegram/Discord/Slack/WhatsApp) │
 │  soul_entity   ── SoulEntity, boucle cognitive, mémoire     │
 │    ├─ soul_agent_core ── ReAct loop (utilisée par ask)      │
 │    ├─ soul_llm        ── multi-provider Ollama/OpenAI/Anthro │
@@ -50,10 +50,11 @@ Le cœur autonome fonctionnel est constitué d'une dizaine de crates fortement i
 1. `Cargo.toml` racine : suppression de la dépendance invalide `souls`.
 2. `soul_entity` : intégration de `soul_agent_core::AutonomousAgent` dans la méthode `ask`.
 3. `soul_sandbox` : correction d'un bug de sécurité critique (normalisation trop agressive qui masquait redirections/pipes).
-4. `soul_gateway` : ajout du module `providers` avec implémentation Telegram (long-poll bot).
-5. `soul_entity` tests : robustesse au scan automatique d'agents.
-6. `openclaw-u` tests : correction d'un test `unwrap_err()` trop strict.
-7. `soulsystem` : ajout du mode `--entity` qui lance `SoulEntity` + gateway + REPL/boucle autonome.
+4. `soul_gateway` : ajout du module `providers` avec implémentations Telegram (long-poll bot), Discord, Slack et WhatsApp (webhook-based).
+5. `soulsystem` : ajout du wizard interactif `--setup` (CLI) et `--setup-tui` (TUI ratatui) pour configurer LLM, entité et gateway.
+6. `soul_entity` tests : robustesse au scan automatique d'agents.
+7. `openclaw-u` tests : correction d'un test `unwrap_err()` trop strict.
+8. `soulsystem` : ajout du mode `--entity` qui lance `SoulEntity` + gateway + REPL/boucle autonome.
 
 ## Build & test
 
@@ -78,6 +79,6 @@ cargo test --workspace --lib
 ## Limites connues
 
 - Deux binaires coexistent ; `soulsystem --entity` unifie le runtime, `souls` reste le binaire canonique minimal.
-- Aucun canal natif WhatsApp/Discord pour l'instant (Telegram implémenté).
+- Tous les canaux principaux (Telegram, Discord, Slack, WhatsApp) sont implémentés en mode webhook ou long-poll.
 - `soul_agent_core` est utilisé pour `ask`, pas encore pour `run_cycle`.
 - Les 104 crates orphelins nécessitent un plan d'intégration ou d'exclusion progressive.

@@ -419,7 +419,7 @@ pub async fn generate_stream(
             }
             futures::future::ready(Some(lines))
         })
-        .flat_map(|batch| futures::stream::iter(batch.into_iter()));
+        .flat_map(futures::stream::iter);
 
     Ok(line_stream)
 }

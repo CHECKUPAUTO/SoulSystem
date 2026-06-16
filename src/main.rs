@@ -11,6 +11,8 @@
 
 use anyhow::Result;
 use clap::Parser;
+
+mod setup_tui;
 use soul_entity::{EntityConfig, SoulEntity};
 use soul_gateway::{serve as serve_gateway, GatewayState};
 use soul_llm::LlmConfig;
@@ -121,6 +123,10 @@ struct Cli {
     /// Run interactive first-time setup wizard and save config
     #[arg(long)]
     setup: bool,
+
+    /// Run TUI first-time setup wizard and save config
+    #[arg(long)]
+    setup_tui: bool,
 }
 
 #[tokio::main]
@@ -133,6 +139,9 @@ async fn main() -> Result<()> {
 
     if cli.setup {
         return run_setup_wizard().await;
+    }
+    if cli.setup_tui {
+        return setup_tui::run_tui_setup();
     }
 
     // Chargement de la configuration centralisée

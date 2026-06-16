@@ -183,11 +183,11 @@ impl MtpValidator {
         let mut break_index = 0usize;
         let mut corrected_token = None;
 
-        for step in 0..steps {
+        for (step, mtp_token) in mtp_tokens.iter().enumerate().take(steps) {
             let start = step * self.vocab_size;
             let main_step_logits = &main_logits[start..start + self.vocab_size];
             let mtp_step_logits = mtp_logits.map(|ml| &ml[start..start + self.vocab_size]);
-            let mtp_token = mtp_tokens[step];
+            let mtp_token = *mtp_token;
 
             let accepted = match self.strategy {
                 AcceptanceStrategy::Argmax => self.accept_argmax(mtp_token, main_step_logits),
@@ -277,11 +277,11 @@ impl MtpValidator {
         main_logits: &[f32],
     ) -> Result<(usize, Option<usize>)> {
         let steps = mtp_tokens.len().min(self.num_steps);
-        for step in 0..steps {
+        for (step, mtp_token) in mtp_tokens.iter().enumerate().take(steps) {
             let start = step * self.vocab_size;
             let logits = &main_logits[start..start + self.vocab_size];
             let predicted = argmax(logits);
-            if mtp_tokens[step] != predicted {
+            if *mtp_token != predicted {
                 return Ok((step, Some(predicted)));
             }
         }

@@ -145,14 +145,23 @@ fn neutralize_redirects_and_pipes(s: &str) -> String {
     out
 }
 
-/// Normalise une commande pour le matching.
+/// Normalise une commande pour le *matching* de sécurité.
+/// Décode les encodages d'échappement (ANSI C, IFS, backticks, command
+/// substitution) sans retirer les redirections/pipes/séparateurs qui sont
+/// justement utiles à la détection des menaces.
 pub fn normalize(cmd: &str) -> String {
     let mut s = cmd.to_string();
     s = decode_ansi_c_quoting(&s);
     s = neutralize_ifs(&s);
     s = neutralize_shell_metachars(&s);
-    s = neutralize_redirects_and_pipes(&s);
     s
+}
+
+/// Sanitize une commande avant l'exécution : neutralise les redirections,
+/// pipes et point-virgules pour empêcher l'exécution de séquences arbitraires.
+/// Doit être appelée APRÈS que `check()` a autorisé la commande.
+pub fn sanitize_for_execution(cmd: &str) -> String {
+    neutralize_redirects_and_pipes(cmd)
 }
 
 pub struct Sandbox {
@@ -371,11 +380,14 @@ impl Sandbox {
     /// Exécute une commande sous sandbox et retourne le verdict.
     pub fn execute(&self, cmd: &str) -> Result<SandboxVerdict, SandboxError> {
         let bin = self.check(cmd)?;
-        let normalized = normalize(cmd);
+        // Après autorisation, on sanitize la commande pour empêcher l'exécution
+        // de séquences complexes (redirections/pipes) via un simple split_whitespace.
+        let safe_cmd = sanitize_for_execution(cmd);
+        let normalized = normalize(&safe_cmd);
         let started_at = Utc::now();
         let t0 = Instant::now();
 
-        let (mut child, pid) = self.spawn_with_sandbox(cmd, Stdio::null())?;
+        let (mut child, pid) = self.spawn_with_sandbox(&safe_cmd, Stdio::null())?;
         let (exit_code, stdout, stderr) = self.wait_with_timeout(&mut child, pid);
 
         let duration_ms = t0.elapsed().as_millis() as u64;

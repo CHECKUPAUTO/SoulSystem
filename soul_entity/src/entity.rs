@@ -1,16 +1,23 @@
 use async_trait::async_trait;
+use avid_model_router::ModelRouter;
 use chrono::Utc;
 use parking_lot::Mutex;
 use serde_json::json;
+use soul_agent_core::{AgentConfig, AutonomousAgent};
 use soul_gateway::EntityEvent;
-use soul_llm::LlmClient;
+use soul_llm::{LlmClient, OllamaClient};
 use soul_persistence::{
     LongTermMemory, StampedEntry, KIND_CODE_ARTIFACT, KIND_DECISION, KIND_GOAL, KIND_OBSERVATION,
     KIND_PLAN, KIND_TOOL_RESULT,
 };
 use soul_planner::{CognitiveLoop, Decision, Evaluation};
 use soul_sandbox::{Sandbox, SandboxVerdict};
+use soul_skills::{SkillLoader, ValidatedSkillLibrary};
 use soul_tools::{discover_system_tools, ToolRegistry};
+use soullink_memory_hierarchy::{
+    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, MemoryLayer,
+    SemanticConfig,
+};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -39,6 +46,16 @@ pub struct SoulEntity {
     pub running: Arc<AtomicBool>,
     pub stats: Mutex<EntityStats>,
     pub subsystems: Arc<Subsystems>,
+    /// Reactive autonomous agent core (soul_agent_core ReAct loop).
+    pub agent: Mutex<Option<AutonomousAgent>>,
+    /// SoulLink hierarchical memory (Working → Episodic → Semantic).
+    pub hierarchical_memory: Arc<HierarchicalMemory>,
+    /// AVID capability-based model router.
+    pub model_router: ModelRouter,
+    /// Validated skill library (soul-skills).
+    pub skill_library: Mutex<ValidatedSkillLibrary>,
+    /// Skill loader base path.
+    pub skill_loader: Mutex<SkillLoader>,
 }
 
 impl SoulEntity {
@@ -46,7 +63,7 @@ impl SoulEntity {
     /// la mémoire est persistée sur disque.
     pub fn new(
         config: EntityConfig,
-    ) -> std::result::Result<Self, soul_persistence::PersistenceError> {
+    ) -> std::result::Result<Self, Box<soul_persistence::PersistenceError>> {
         let llm = LlmClient::new(config.llm.clone())
             .map_err(|e| soul_persistence::PersistenceError::Other(format!("LLM init: {e}")))?;
 
@@ -65,10 +82,10 @@ impl SoulEntity {
 
         let event_store = if let Some(ref path) = config.event_store_path {
             PersistentEventStore::new(path, 10, 1000)
-                .map_err(|e| soul_persistence::PersistenceError::Io(e))?
+                .map_err(soul_persistence::PersistenceError::Io)?
         } else {
             PersistentEventStore::new("/tmp/soul_events.log", 1, 100)
-                .map_err(|e| soul_persistence::PersistenceError::Io(e))?
+                .map_err(soul_persistence::PersistenceError::Io)?
         };
 
         // Sous-systèmes historiques câblés.
@@ -78,12 +95,50 @@ impl SoulEntity {
             .and_then(|p| p.join("journal.bin").to_str().map(|s| s.to_string()));
         let subsystems = Arc::new(
             Subsystems::new(journal_path.as_deref())
-                .map_err(|e| soul_persistence::PersistenceError::Io(e))?,
+                .map_err(soul_persistence::PersistenceError::Io)?,
         );
 
         // Démarrer la console clinique en arrière-plan.
         let subs_clone = subsystems.clone();
         let _ = subs_clone.start_clinical_console(8081);
+
+        // Build the autonomous agent core backed by the same LLM client.
+        let ollama_client = OllamaClient::with_client(llm.clone());
+        let agent = AutonomousAgent::new(ollama_client, AgentConfig::default());
+
+        // SoulLink hierarchical memory.
+        let hierarchical_memory = Arc::new(HierarchicalMemory::new(
+            64,
+            EpisodicConfig::default(),
+            SemanticConfig::default(),
+            ConsolidationConfig::default(),
+        ));
+
+        // AVID model router with sensible defaults.
+        let model_router = ModelRouter::with_defaults();
+
+        let openclaw = Arc::new(OpenClawFacade::new());
+
+        // Validated skill library seeded from OpenClaw facade skills.
+        let openclaw_skill_list = openclaw.skills.list();
+        let initial_skills: Vec<soul_skills::Skill> = openclaw_skill_list
+            .into_iter()
+            .map(|s| soul_skills::Skill {
+                name: s.name,
+                description: s.description,
+                triggers: vec![],
+                tools_required: vec![],
+                model_hint: None,
+                system_prompt: None,
+                steps: vec![],
+                examples: vec![],
+                tags: vec!["openclaw-import".into()],
+                priority: 5,
+                enabled: s.enabled,
+            })
+            .collect();
+        let skill_library = Mutex::new(ValidatedSkillLibrary::new(initial_skills));
+        let skill_loader = Mutex::new(SkillLoader::new(&std::env::temp_dir().join("soul_skills")));
 
         Ok(Self {
             config,
@@ -92,7 +147,7 @@ impl SoulEntity {
             tools: registry,
             sandbox,
             memory,
-            openclaw: Arc::new(OpenClawFacade::new()),
+            openclaw,
             events: event_store,
             goals: Mutex::new(HashMap::new()),
             goal_order: Mutex::new(VecDeque::new()),
@@ -100,6 +155,11 @@ impl SoulEntity {
             running: Arc::new(AtomicBool::new(false)),
             stats: Mutex::new(EntityStats::default()),
             subsystems,
+            agent: Mutex::new(Some(agent)),
+            hierarchical_memory,
+            model_router,
+            skill_library,
+            skill_loader,
         })
     }
 
@@ -128,6 +188,22 @@ impl SoulEntity {
                 .memory
                 .put(StampedEntry::new(KIND_GOAL, v).with_id(goal.id.clone()));
         }
+
+        // Also store in SoulLink hierarchical memory (episodic layer).
+        let entry = MemoryEntry {
+            id: goal.id.clone(),
+            text: goal.description.clone(),
+            created_at: goal.created_at.to_rfc3339(),
+            last_accessed: goal.created_at.to_rfc3339(),
+            access_count: 1,
+            importance: goal.priority as f32 / 10.0,
+            layer: MemoryLayer::Episodic,
+            tags: vec!["goal".into()],
+            embedding: None,
+            associations: vec![],
+            metadata: std::collections::HashMap::new(),
+        };
+        let _ = self.hierarchical_memory.store(entry, MemoryLayer::Episodic);
 
         self.goals.lock().insert(goal.id.clone(), goal.clone());
         self.goal_order.lock().push_back(goal.id.clone());
@@ -503,7 +579,34 @@ impl SoulEntity {
         info!("[entity] boucle autonome arrêtée");
     }
 
+    /// Tâches périodiques autonomes : consolidation de la mémoire hiérarchique
+    /// et auto-validation des skills. Doit être lancée une seule fois.
+    pub async fn start_periodic_tasks(&self) {
+        let memory = self.hierarchical_memory.clone();
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                let _ = memory.consolidate().await;
+                tracing::info!("[entity] hierarchical memory consolidated");
+            }
+        });
+
+        tracing::info!("[entity] tâches périodiques autonomes démarrées");
+    }
+
     pub async fn ask(&self, prompt: &str) -> std::result::Result<String, String> {
+        // Prefer the autonomous ReAct agent when available; it has memory,
+        // tools, and safety guardrails. Fall back to the plain LLM client.
+        // We take the agent out of the mutex to keep the future Send-compatible
+        // (parking_lot MutexGuard is not Send) and put it back after the call.
+        let agent_opt = self.agent.lock().take();
+        if let Some(mut agent) = agent_opt {
+            let res = agent.run_task(prompt).await;
+            *self.agent.lock() = Some(agent);
+            return res;
+        }
         self.ask_with_goal(prompt, "default").await
     }
 
@@ -512,8 +615,29 @@ impl SoulEntity {
         prompt: &str,
         goal_id: &str,
     ) -> std::result::Result<String, String> {
+        // 1. Route to the best model for the task via the AVID model router.
+        let selection = self.model_router.select_for_task(prompt, &[]);
+        tracing::info!(
+            "[entity] ask routed to model {} (reason: {})",
+            selection.profile.name,
+            selection.reason
+        );
+
+        // 2. Enrich prompt with relevant hierarchical memories (best-effort).
+        let memories = self.hierarchical_memory.search(prompt, 3).await;
+        let enriched = if memories.is_empty() {
+            prompt.to_string()
+        } else {
+            let ctx: Vec<String> = memories
+                .iter()
+                .map(|m| format!("- {} ({:?})", m.text, m.layer))
+                .collect();
+            format!("{}\n\nRelevant context:\n{}", prompt, ctx.join("\n"))
+        };
+
+        // 3. Generate via the unified LLM client.
         self.llm
-            .generate_with_goal(prompt, goal_id)
+            .generate_with_goal(&enriched, goal_id)
             .await
             .map(|r| r.text)
             .map_err(|e| format!("{e}"))

@@ -266,7 +266,22 @@ pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result
             std::fs::write(path, content).map_err(|e| e.to_string())?;
             Ok(format!("written {} bytes", content.len()))
         }
-        _ => execute_shell(&format!("{} {}", name, args.to_string())),
+        "patch_file" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let old_text = args.get("old_text").and_then(|v| v.as_str()).unwrap_or("");
+            let new_text = args.get("new_text").and_then(|v| v.as_str()).unwrap_or("");
+            let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+            let updated = content.replace(old_text, new_text);
+            std::fs::write(path, updated).map_err(|e| e.to_string())?;
+            Ok(format!("patched {} bytes", old_text.len()))
+        }
+        _ => {
+            let args_str = match args {
+                serde_json::Value::Object(map) if map.is_empty() => String::new(),
+                _ => args.to_string(),
+            };
+            execute_shell(&format!("{} {}", name, args_str))
+        }
     }
 }
 

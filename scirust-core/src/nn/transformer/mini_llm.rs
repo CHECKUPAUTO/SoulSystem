@@ -186,7 +186,7 @@ impl MiniLLM {
                 let q_head = &q[h * head_dim..(h + 1) * head_dim];
                 let mut scores = vec![0.0f32; pos + 1];
                 let mut max_score = f32::NEG_INFINITY;
-                for j in 0..=pos {
+                for (j, score) in scores.iter_mut().enumerate() {
                     // K for position j, head h
                     let kj_start = j * d + h * head_dim;
                     let mut dot = 0.0f32;
@@ -195,9 +195,9 @@ impl MiniLLM {
                         let kj = x[kj_start + k];
                         dot += q_head[k] * kj;
                     }
-                    scores[j] = dot * scale;
-                    if scores[j] > max_score {
-                        max_score = scores[j];
+                    *score = dot * scale;
+                    if *score > max_score {
+                        max_score = *score;
                     }
                 }
                 // Softmax + weighted sum of V
@@ -207,8 +207,8 @@ impl MiniLLM {
                     denom += *s;
                 }
                 let mut head_out = vec![0.0f32; head_dim];
-                for j in 0..=pos {
-                    let attn_w = scores[j] / denom;
+                for (j, score) in scores.iter().enumerate() {
+                    let attn_w = score / denom;
                     let vj_start = j * d + h * head_dim;
                     for k in 0..head_dim {
                         head_out[k] += attn_w * x[vj_start + k]; // V ≈ x
@@ -217,10 +217,10 @@ impl MiniLLM {
                 head_outs.push(head_out);
             }
             // Concatenate heads
-            for h in 0..n_heads {
+            for (h, head) in head_outs.iter().enumerate().take(n_heads) {
                 let start = h * head_dim;
                 for k in 0..head_dim {
-                    attn_out[pos * d + start + k] = head_outs[h][k];
+                    attn_out[pos * d + start + k] = head[k];
                 }
             }
         }
@@ -250,13 +250,13 @@ impl MiniLLM {
 
         // 4. LM head: project to vocabulary
         let mut logits = vec![vec![0.0f32; v]; seq_len];
-        for pos in 0..seq_len {
-            for t in 0..v {
+        for (pos, logit_row) in logits.iter_mut().enumerate().take(seq_len) {
+            for (t, logit) in logit_row.iter_mut().enumerate() {
                 let mut acc = 0.0f32;
                 for j in 0..d {
                     acc += hidden[pos * d + j] * self.lm_head[j * v + t];
                 }
-                logits[pos][t] = acc;
+                *logit = acc;
             }
         }
 
@@ -323,7 +323,7 @@ fn matvec_batch(w: &[f32], x: &[f32], batch: usize, in_dim: usize, out_dim: usiz
 }
 
 fn gelu(x: f32) -> f32 {
-    let sqrt_2_over_pi = 0.7978845608f32;
+    let sqrt_2_over_pi = 0.797_884_6_f32;
     let coeff = 0.044715f32;
     let x3 = x * x * x;
     x * 0.5 * (1.0 + (sqrt_2_over_pi * (x + coeff * x3)).tanh())

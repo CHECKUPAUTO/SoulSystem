@@ -3,7 +3,6 @@
 //! NOTE: une partie de l'échafaudage (scanner de synergies, feedback,
 //! healthcheck) n'est pas encore câblée aux sous-commandes — d'où le
 //! allow(dead_code) global en attendant le branchement.
-#![allow(dead_code)]
 //!
 //! Sous-commandes :
 //!   scan     — un seul scan, écrit le rapport et sort

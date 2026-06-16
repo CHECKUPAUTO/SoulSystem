@@ -391,6 +391,24 @@ async fn handle_discord_webhook(
     Json(response)
 }
 
+async fn handle_slack_webhook(
+    State(st): State<GatewayState>,
+    Json(payload): Json<providers::slack::SlackWebhookBody>,
+) -> impl IntoResponse {
+    let response =
+        providers::slack::handle_webhook(&st.entity, &Some(st.events.clone()), payload).await;
+    Json(response)
+}
+
+async fn handle_whatsapp_webhook(
+    State(st): State<GatewayState>,
+    Json(payload): Json<providers::whatsapp::WhatsAppWebhookBody>,
+) -> impl IntoResponse {
+    let response =
+        providers::whatsapp::handle_webhook(&st.entity, &Some(st.events.clone()), payload).await;
+    Json(response)
+}
+
 async fn ws_loop(mut socket: WebSocket, state: GatewayState) {
     let mut last_idx = 0usize;
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
@@ -431,6 +449,8 @@ pub fn router(state: GatewayState) -> Router {
         .route("/v1/events", get(handle_recent_events))
         .route("/v1/stream", get(handle_ws))
         .route("/providers/discord/webhook", post(handle_discord_webhook))
+        .route("/providers/slack/webhook", post(handle_slack_webhook))
+        .route("/providers/whatsapp/webhook", post(handle_whatsapp_webhook))
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state)
 }
@@ -528,10 +548,10 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    struct MockEntity {
-        ask_calls: AtomicUsize,
-        goal_calls: AtomicUsize,
-        plan_calls: AtomicUsize,
+    pub struct MockEntity {
+        pub ask_calls: AtomicUsize,
+        pub goal_calls: AtomicUsize,
+        pub plan_calls: AtomicUsize,
     }
 
     #[async_trait]
