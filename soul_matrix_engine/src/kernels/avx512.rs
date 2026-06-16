@@ -24,7 +24,7 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx512(
         let i_len = std::cmp::min(4, m - i);
 
         for j in (0..n).step_by(16) {
-            let j_len = std::cmp::min(16, n - j);
+            let _j_len = std::cmp::min(16, n - j);
 
             // Chargement initial des accumulateurs C dans les registres ZMM (16×f32 chacun)
             let mut c_acc: [*const f32; 4] = [std::ptr::null(); 4];
@@ -33,7 +33,7 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx512(
             }
 
             // Préchargement des registres ZMM initiaux (zero pour le premier passage, loadu pour les suivants — mais ici on fait C += ...)
-            let mut accum: [std::mem::MaybeUninit<[f32; 16]>; 4] = [
+            let _accum: [std::mem::MaybeUninit<[f32; 16]>; 4] = [
                 std::mem::MaybeUninit::uninit(),
                 std::mem::MaybeUninit::uninit(),
                 std::mem::MaybeUninit::uninit(),
