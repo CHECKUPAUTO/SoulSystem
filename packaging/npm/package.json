@@ -1,0 +1,31 @@
+{
+  "name": "soulsystem",
+  "version": "0.6.0",
+  "description": "SoulSystem — autonomous digital agent ecosystem (CLI installer)",
+  "bin": {
+    "soulsystem": "bin/soulsystem.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "files": [
+    "bin/soulsystem.js",
+    "scripts/install.js"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CHECKUPAUTO/SoulSystem.git"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}
