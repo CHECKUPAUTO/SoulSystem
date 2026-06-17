@@ -11359,6 +11359,7 @@ version = "13.5.0"
 dependencies = [
  "anyhow",
  "serde",
+ "tempfile",
  "tracing",
 ]
 
