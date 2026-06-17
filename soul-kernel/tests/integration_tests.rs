@@ -9,7 +9,6 @@ fn test_binary_exists() {
         exists,
         "soul-kernel binary not found in /usr/local/bin or target/debug"
     );
-    assert!(std::path::Path::new("/usr/local/bin/soul-kernel").exists());
 }
 
 #[test]

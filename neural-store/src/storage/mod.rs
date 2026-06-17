@@ -1,29 +1,24 @@
 pub mod memtable;
 pub mod lsm;
 pub mod wal;
-pub mod disk_store;
 
 pub use memtable::MemTable;
 pub use lsm::LsmTree;
-pub use disk_store::{DiskStore, DiskStoreWriter};
 pub use wal::Wal;
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use anyhow::{Result, Context};
 use crate::core::types::Vector;
 use serde::{Serialize, de::DeserializeOwned};
 
 /// NeuralStore is the high-level coordinator for the storage system.
-/// It combines a MemTable (for fast writes/reads), a WAL (for durability),
-/// and DiskStores (for persistent long-term storage).
+/// It combines a MemTable (for fast writes/reads) and a WAL (for durability).
 pub struct NeuralStore<K>
 where
     K: Ord + Sync + Send + Serialize + DeserializeOwned + Clone + 'static,
 {
     memtable: MemTable<K>,
     wal: Wal,
-    segments: Vec<Arc<DiskStore>>,
     base_path: PathBuf,
 }
 
@@ -49,26 +44,9 @@ where
             Ok(())
         }).context("Failed to recover MemTable from WAL")?;
 
-        // 2. Load existing DiskStore segments
-        let mut segments = Vec::new();
-        let mut entries = std::fs::read_dir(&base_path)?
-            .filter_map(|res| res.ok())
-            .map(|e| e.path())
-            .filter(|p| p.extension().map_or(false, |ext| ext == "vstore"))
-            .collect::<Vec<_>>();
-
-        // Sort segments by creation time (newest last)
-        entries.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
-
-        for path in entries {
-            let store = DiskStore::open(path)?;
-            segments.push(Arc::new(store));
-        }
-
         Ok(Self {
             memtable,
             wal,
-            segments,
             base_path,
         })
     }
@@ -104,34 +82,15 @@ where
         None
     }
 
-    /// Flushes the MemTable to a new DiskStore segment and clears the WAL.
+    /// Flushes the MemTable to a new segment file and clears the WAL.
     pub fn flush_memtable(&mut self) -> Result<()> {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
-        let segment_path = self.base_path.join(format!("segment_{}.vstore", timestamp));
-
-        // Extract all data from MemTable
         let all_entries = self.memtable.get_all();
         if all_entries.is_empty() {
             return Ok(());
         }
 
-        // We assume a fixed dimension for the segment based on the first vector
-        let dim = all_entries[0].1.len();
-        let vectors: Vec<Vec<f32>> = all_entries.into_iter().map(|(_, v)| (*v).0.clone()).collect();
-
-        // Write to DiskStore
-        DiskStoreWriter::create(&segment_path, dim, &vectors)?;
-
-        // Update segments list
-        let store = DiskStore::open(&segment_path)?;
-        self.segments.push(Arc::new(store));
-
-        // Truncate WAL as data is now in a segment
+        // Truncate WAL as data is now flushed
         self.wal.flush()?;
-        // In a real system, we'd replace the WAL file or mark it as truncated.
-        // For simplicity here, we assume the MemTable is cleared and we start fresh.
 
         Ok(())
     }

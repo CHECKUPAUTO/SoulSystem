@@ -57,11 +57,20 @@ impl Default for RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    pub const PATH: &'static str = "/tmp/soul_kernel_config.json";
+    fn config_dir() -> std::path::PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        std::path::PathBuf::from(home)
+            .join(".config")
+            .join("soul-system")
+    }
+
+    pub fn path() -> std::path::PathBuf {
+        Self::config_dir().join("soul_kernel_config.json")
+    }
 
     pub fn load() -> Self {
-        let path = Path::new(Self::PATH);
-        if let Ok(data) = std::fs::read_to_string(path) {
+        let path = Self::path();
+        if let Ok(data) = std::fs::read_to_string(&path) {
             match serde_json::from_str::<Self>(&data) {
                 Ok(cfg) => {
                     info!(
@@ -81,8 +90,12 @@ impl RuntimeConfig {
     }
 
     pub fn save(&self) {
+        let path = Self::path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(Self::PATH, json);
+            let _ = std::fs::write(&path, json);
         }
     }
 

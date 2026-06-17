@@ -2,9 +2,6 @@ pub mod core;
 pub mod storage;
 pub mod brain;
 pub mod ffi;
-pub mod index;
-pub mod neuromodulation;
-pub mod api;
 
 pub use storage::LsmTree;
 pub use core::types::{Vector, Metric};

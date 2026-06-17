@@ -5,15 +5,11 @@
 //! `soul_gateway` (HTTP/WS) et une **boucle cognitive autonome**.
 
 pub mod types;
-pub mod event_store;
-pub mod facade;
 pub mod entity;
 pub mod subsystems;
 
 // Re-exports
 pub use entity::SoulEntity;
-pub use event_store::PersistentEventStore;
-pub use facade::OpenClawFacade;
 pub use types::*;
 pub use subsystems::{Subsystems, TAG_DECISION, TAG_ERROR, TAG_EVOLVE, TAG_FORGE, TAG_GOAL, TAG_HEAL, TAG_PLAN, TAG_STEP};
 

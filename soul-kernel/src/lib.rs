@@ -68,6 +68,17 @@ pub struct CoreState {
 
 const MAX_HISTORY: usize = 100;
 
+pub fn data_dir() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home)
+        .join(".config")
+        .join("soul-system")
+}
+
+pub fn state_path() -> std::path::PathBuf {
+    data_dir().join("soul_kernel_state.json")
+}
+
 pub const STATE_PATH: &str = "/tmp/soul_kernel_state.json";
 
 impl CoreState {

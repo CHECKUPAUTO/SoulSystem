@@ -55,12 +55,9 @@ impl Action {
             }
             Action::CheckpointState => {
                 info!("💾 Checkpoint state");
-                let _ = Command::new("cp")
-                    .args([
-                        "/tmp/soul_kernel_state.json",
-                        "/tmp/soul_kernel_state.json.bak",
-                    ])
-                    .output();
+                let state = crate::state_path();
+                let bak = state.with_extension("json.bak");
+                let _ = std::fs::copy(&state, &bak);
                 Ok("State backed up".into())
             }
             Action::IndexMemory(content) => {
@@ -93,9 +90,12 @@ impl Action {
             }
             Action::AlertHuman(msg) => {
                 warn!("🚨 ALERT: {}", msg);
-                // Write to alert file
+                let alert_path = crate::data_dir().join("soul_kernel_alerts.log");
+                if let Some(parent) = alert_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
                 let alert = format!("{} | {}\n", chrono::Utc::now().to_rfc3339(), msg);
-                let _ = std::fs::write("/tmp/soul_kernel_alerts.log", alert);
+                let _ = std::fs::write(&alert_path, alert);
                 Ok(format!("Alert logged: {}", msg))
             }
             Action::ExploreWeb(query) => {

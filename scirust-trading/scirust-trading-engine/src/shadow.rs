@@ -1,10 +1,13 @@
 //! Le shadow maintient en mémoire une fenêtre glissante d'events actifs
 //! (filtre les expirés à chaque tick).
+//!
+//! NOTE: les modules atr, decision, evaluator, portfolio ont été supprimés.
+//! Ce fichier est en attente de réécriture.
 
-use crate::atr::AtrTracker;
-use crate::decision::Decision;
-use crate::evaluator::{Evaluator, EvaluatorContext};
-use crate::portfolio::PortfolioState;
+// use crate::atr::AtrTracker;       // REMOVED: module deleted
+// use crate::decision::Decision;     // REMOVED: module deleted
+// use crate::evaluator::{Evaluator, EvaluatorContext}; // REMOVED: module deleted
+// use crate::portfolio::PortfolioState; // REMOVED: module deleted
     /// Active la mise à jour des positions virtuelles à partir des décisions
     /// Open/Close (utile pour simuler une session paper)
     pub track_virtual_positions: bool,
