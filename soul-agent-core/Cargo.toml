@@ -14,6 +14,7 @@ soullink-memory-hierarchy = { path = "../soullink-brain/soullink-memory-hierarch
 soullink-autonomy = { path = "../soullink-brain/soullink-autonomy" }
 soullink-reasoning = { path = "../soullink-brain/soullink-reasoning" }
 soullink-trainer = { path = "../soullink-brain/soullink-trainer" }
+soullink-gate = { path = "../soullink-brain/soullink-gate" }
 soul-memory = { workspace = true }
 soul_skills = { path = "../soul-skills" }
 serde = { workspace = true }
