@@ -137,10 +137,27 @@ impl Node {
             }
         }
 
-        // In a real implementation, this would call the LLM via soullink-core's Ollama client.
-        // For now, store the prompt as context and return success.
-        ctx.set(&self.id, &prompt).await;
-        NodeResult::Success(prompt)
+        // Call the configured LLM endpoint; if none is configured the context
+        // runs in echo mode (returns the assembled prompt) so workflows remain
+        // runnable without a model.
+        self.finish_with_llm(ctx, prompt).await
+    }
+
+    /// Run `prompt` through the context's LLM when one is configured, else echo
+    /// it back. Stores the result under this node's id either way.
+    async fn finish_with_llm(&self, ctx: &WorkflowContext, prompt: String) -> NodeResult {
+        if ctx.has_llm() {
+            match ctx.generate(&prompt).await {
+                Ok(resp) => {
+                    ctx.set(&self.id, &resp).await;
+                    NodeResult::Success(resp)
+                }
+                Err(e) => NodeResult::Failed(format!("LLM call failed: {e}")),
+            }
+        } else {
+            ctx.set(&self.id, &prompt).await;
+            NodeResult::Success(prompt)
+        }
     }
 
     /// Execute an Agent node — CrewAI-inspired role-based AI worker.
@@ -188,8 +205,7 @@ impl Node {
             }
         }
 
-        ctx.set(&self.id, &prompt).await;
-        NodeResult::Success(prompt)
+        self.finish_with_llm(ctx, prompt).await
     }
 
     async fn execute_bash(bash: BashNode, _ctx: &WorkflowContext) -> NodeResult {

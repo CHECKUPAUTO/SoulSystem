@@ -16,10 +16,20 @@ tokio = { workspace = true }
 tracing = "0"
 garde = { version = "0", features = ["derive"] }
 async-trait = "0.1"
-ort = "2.0.0-rc.12"
+# ort (ONNX Runtime) and tesseract are only used by the not-yet-wired
+# detectors/models modules and pull heavy system/network build-time
+# dependencies (ort-sys downloads a prebuilt binary). Keep them optional and
+# off by default so the workspace builds offline; enable `models` to use them.
+ort = { version = "2.0.0-rc.12", optional = true }
 image = "0.25"
-tesseract = "0.15"
+tesseract = { version = "0.15", optional = true }
 lru = "0.12"
 chromiumoxide = { version = "0.7", features = ["async-std-runtime"] }
 futures = "0.3"
 chrono = { workspace = true }
+
+[features]
+default = []
+# ONNX/Tesseract-backed detector & model modules (require system libs / network
+# at build time). Off by default to keep the workspace build hermetic.
+models = ["dep:ort", "dep:tesseract"]

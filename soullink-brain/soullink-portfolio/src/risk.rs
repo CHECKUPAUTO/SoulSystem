@@ -115,14 +115,10 @@ impl RiskManager {
         RiskVerdict::Allow
     }
 
-    /// Calculate total portfolio exposure.
+    /// Calculate total portfolio exposure as the summed market value of all
+    /// open positions at their current prices.
     fn calculate_total_exposure(&self, portfolio: &Portfolio) -> Decimal {
-        // Sum of all position values at current prices
-        // This is a rough estimate — we'd need position tracking
-        let cash = portfolio.cash();
-        // Total exposure = starting cash - remaining cash (what's deployed)
-        // This works for simple portfolios
-        dec!(1000) - cash // NOTE: proper position value tracking
+        portfolio.market_exposure()
     }
 
     /// Record a realized loss for daily tracking.

@@ -6,6 +6,34 @@ This repository is a unified Rust workspace that merges the original SoulSystem 
 
 ## Build
 
+**One-liner (recommended):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/CHECKUPAUTO/SoulSystem/main/install.sh | sh
+```
+
+This downloads a prebuilt `soulsystem` binary for your platform (Linux/macOS,
+x86_64/arm64), or builds from source if no release matches — installing the Rust
+toolchain automatically if needed. Override the target dir with
+`SOULSYSTEM_INSTALL_DIR` or pin a version with `SOULSYSTEM_VERSION`.
+
+**npm:**
+
+```bash
+npm install -g soulsystem
+```
+
+**Cargo (from source):**
+
+```bash
+cargo install --git https://github.com/CHECKUPAUTO/SoulSystem soulsystem
+# or, in a clone:
+cargo build --release --bin soulsystem
+```
+
+<details>
+<summary>Legacy <code>souls</code> TUI binary</summary>
+
 ```bash
 # Fast workspace check
 cargo check --workspace
@@ -16,6 +44,7 @@ cargo run --bin soulsystem -- [--dev] [--repl] [--daemon]
 # Release build
 cargo build --release
 ```
+</details>
 
 ## Utilisation
 

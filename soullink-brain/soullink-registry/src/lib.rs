@@ -242,10 +242,11 @@ impl Registry {
     // ── Cleanup ────────────────────────────────────────────────────────
 
     /// Remove services that haven't been re-registered within the TTL.
+    ///
+    /// Alias for [`Self::purge_expired`], which already implements the
+    /// heartbeat-based eviction (a `register` refreshes the entry).
     pub fn cleanup_stale(&self) -> usize {
-        // In a real implementation, we'd track last_heartbeat per service
-        // and remove entries older than TTL. Placeholder for now.
-        0
+        self.purge_expired()
     }
 
     /// Serialize the registry state (for multi-node sync).
@@ -323,6 +324,26 @@ mod tests {
         reg.register(svc.clone());
         assert_eq!(reg.lookup("brain-science").len(), 1);
         assert_eq!(reg.lookup("brain-science")[0].host, "192.168.1.10");
+    }
+
+    #[test]
+    fn test_cleanup_stale_purges_expired() {
+        let reg = Registry::new(); // default TTL 60s
+        reg.register(ServiceInstance {
+            name: "old-svc".into(),
+            host: "10.0.0.9".into(),
+            port: 9099,
+            capabilities: vec![],
+            version: "1.0".into(),
+            node_id: "node-z".into(),
+            // Far in the past → well beyond the 60s TTL.
+            registered_at: "2026-01-01T00:00:00Z".into(),
+            health_path: "/health".into(),
+        });
+        assert_eq!(reg.lookup("old-svc").len(), 1);
+        let purged = reg.cleanup_stale();
+        assert_eq!(purged, 1, "stale service should be purged, not ignored");
+        assert_eq!(reg.lookup("old-svc").len(), 0);
     }
 
     #[test]
