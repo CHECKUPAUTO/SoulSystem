@@ -9293,6 +9293,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul-error-unifier"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "soul-intrinsic-motivation"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "soul-kernel"
 version = "0.1.0"
 dependencies = [
@@ -10752,6 +10774,8 @@ dependencies = [
  "serde",
  "serde_json",
  "soul-bridge",
+ "soul-error-unifier",
+ "soul-intrinsic-motivation",
  "soul-memory",
  "soul_agent_core",
  "soul_entity",

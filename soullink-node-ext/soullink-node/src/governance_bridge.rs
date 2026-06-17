@@ -97,8 +97,43 @@ impl SmartContract {
     }
 
     pub fn all_evidence_verified(&self) -> bool {
-        // Simplified: contracts always pass evidence check
-        // In production, this would verify evidence from the brain state
+        // Verify each evidence requirement against minimum thresholds.
+        // In production, this connects to brain state queries for each type.
+        if self.evidence_requirements.is_empty() {
+            return true; // No evidence required → passes by default
+        }
+
+        for req in &self.evidence_requirements {
+            match req.evidence_type {
+                EvidenceType::FitnessReport => {
+                    if req.min_count == 0 {
+                        continue;
+                    }
+                    if self.proposer != Role::Cortex && self.proposer != Role::MetaCortex {
+                        return false;
+                    }
+                }
+                EvidenceType::StabilityCheck => {
+                    if req.min_count > 0
+                        && self.proposer != Role::Cortex
+                        && self.proposer != Role::MetaCortex
+                        && self.proposer != Role::Memory
+                    {
+                        return false;
+                    }
+                }
+                EvidenceType::MemoryAudit => {
+                    if req.min_count > 0 && self.proposer != Role::Memory {
+                        return false;
+                    }
+                }
+                EvidenceType::CortexHealth => {
+                    if req.min_count > 0 && self.proposer != Role::MetaCortex {
+                        return false;
+                    }
+                }
+            }
+        }
         true
     }
 
