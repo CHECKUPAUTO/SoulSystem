@@ -48,6 +48,16 @@ impl Portfolio {
         self.positions.values().filter(|p| !p.is_empty()).count()
     }
 
+    /// Total market value deployed across open positions, valued at each
+    /// position's current price (`Σ quantity × current_price`).
+    pub fn market_exposure(&self) -> Decimal {
+        self.positions
+            .values()
+            .filter(|p| !p.is_empty())
+            .map(|p| p.quantity * p.current_price)
+            .sum()
+    }
+
     /// Total realized P&L.
     pub fn realized_pnl(&self) -> Decimal {
         self.realized_pnl
@@ -271,6 +281,22 @@ mod tests {
         let p = Portfolio::new(dec!(1000));
         assert_eq!(p.cash(), dec!(1000));
         assert_eq!(p.open_position_count(), 0);
+    }
+
+    #[test]
+    fn market_exposure_sums_position_values() {
+        let mut p = Portfolio::new(dec!(10000));
+        assert_eq!(p.market_exposure(), dec!(0));
+        // Buy 0.01 BTC at $50,000 → exposure = 0.01 * 50000 = $500.
+        p.execute_trade(
+            Symbol::new("BTCUSDT"),
+            Side::Buy,
+            dec!(50000),
+            dec!(0.01),
+            mock_signal(0.5),
+        )
+        .unwrap();
+        assert_eq!(p.market_exposure(), dec!(500));
     }
 
     #[test]
