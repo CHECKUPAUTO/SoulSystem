@@ -3730,7 +3730,10 @@ That's my plan."#;
             &self,
             _request: crate::llm::CompletionRequest,
         ) -> Result<crate::llm::CompletionResponse, crate::llm::error::LlmError> {
-            unimplemented!()
+            Err(crate::llm::error::LlmError::RequestFailed {
+                provider: "truncating-stub".into(),
+                reason: "TruncatingLlm::complete is a test mock — never called by these tests".into(),
+            })
         }
         async fn complete_with_tools(
             &self,

@@ -13,6 +13,7 @@
 //! souls run --provider openai --model gpt-4o
 //! ```
 
+pub mod brain;
 pub mod config;
 
 use clap::{Parser, Subcommand};
@@ -276,6 +277,25 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
 
     entity.create_goal("Vérifier l'état initial du système", 5);
     info!("goal de démarrage créé");
+
+    // ── SoulLink BrainMesh wiring ──────────────────────────────────
+    let brain = Arc::new(brain::BrainMesh::new(100));
+    info!(
+        brain_status = %brain.status(),
+        "🧠 BrainMesh wired into entity"
+    );
+
+    // Background brain maintenance every 60s
+    let brain_maintenance = brain.clone();
+    let _brain_handle = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            if let Err(e) = brain_maintenance.maintain().await {
+                tracing::warn!("BrainMesh maintenance failed: {e}");
+            }
+        }
+    });
+    info!("🧠 BrainMesh consolidation loop started");
 
     let entity_for_loop = entity.clone();
     let loop_handle = if cli.autonomous {

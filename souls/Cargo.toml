@@ -24,6 +24,14 @@ soul_sandbox = { path = "../soul_sandbox" }
 soul_openclaw = { path = "../soul_openclaw" }
 soul_repl = { path = "../soul_repl" }
 soul_telemetry = { path = "../soul_telemetry" }
+soul-bridge = { path = "../soul-bridge" }
+soul-memory = { path = "../soul-memory" }
+soul-agent-core = { path = "../soul-agent-core", package = "soul_agent_core" }
+
+# SoulLink Brain — wired into autonomous entity
+soullink-memory-hierarchy = { path = "../soullink-brain/soullink-memory-hierarchy" }
+soullink-reasoning = { path = "../soullink-brain/soullink-reasoning" }
+soullink-autonomy = { path = "../soullink-brain/soullink-autonomy" }
 
 tokio = { workspace = true, features = ["full"] }
 serde = { workspace = true, features = ["derive"] }
@@ -39,3 +47,5 @@ crossterm = { workspace = true, features = ["event-stream"] }
 dirs = { workspace = true }
 axum = "0.7"
 num_cpus = "1"
+uuid = { workspace = true }
+chrono = { workspace = true }

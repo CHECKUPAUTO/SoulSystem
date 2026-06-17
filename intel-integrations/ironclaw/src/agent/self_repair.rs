@@ -957,7 +957,10 @@ mod tests {
             _result: &crate::tools::BuildResult,
             _error: &str,
         ) -> Result<crate::tools::BuildResult, crate::error::ToolError> {
-            unimplemented!("not needed for this test")
+            Err(crate::error::ToolError::ExecutionFailed {
+                name: "StubBuilder".into(),
+                reason: "StubBuilder::repair is a test mock — never called by these tests".into(),
+            })
         }
     }
 
