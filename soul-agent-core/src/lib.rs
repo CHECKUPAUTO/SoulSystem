@@ -20,7 +20,10 @@ use soullink_memory_hierarchy::{
 };
 use soullink_reasoning::{ThoughtTree, TreeConfig};
 use soullink_trainer::{Trajectory, TrajectoryRecorder};
-use soullink_gate::{spotlight, InjectionScanner, Verdict};
+use soullink_gate::{
+    spotlight, ApprovalGate, ApprovalRequirement, ExecutionMode, GateDecision, InjectionScanner,
+    RiskLevel, Verdict,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
@@ -134,6 +137,9 @@ pub struct AutonomousAgent {
     /// Scans untrusted tool output for indirect prompt-injection before it is
     /// fed back to the LLM (VIGIL-style inbound defense).
     scanner: InjectionScanner,
+    /// Outbound policy gate: the single decision point for whether a tool call
+    /// is allowed, with persistent allow/deny memory and execution modes.
+    gate: ApprovalGate,
     event_tx: Option<mpsc::UnboundedSender<AgentEvent>>,
 }
 
@@ -180,6 +186,7 @@ impl AutonomousAgent {
             knowledge_graph: KnowledgeGraph::new(),
             skill_loader: None,
             scanner: InjectionScanner::new(),
+            gate: ApprovalGate::new(ExecutionMode::Autonomous),
             event_tx: None,
         }
     }
@@ -374,26 +381,37 @@ impl AutonomousAgent {
                             args: args.clone(),
                         });
 
-                        // Permission check
-                        let permission = if name == "execute_shell" {
+                        // Outbound policy gate. PermissionLevel classifies the
+                        // command (conservative, command-aware); ApprovalGate is
+                        // the single decision point that turns that risk into an
+                        // Allow/Deny under the active execution mode, with
+                        // persistent per-(tool, scope) allow/deny memory.
+                        let (permission, scope) = if name == "execute_shell" {
                             let cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("");
-                            soul_tools::PermissionLevel::from_command(cmd)
+                            (
+                                soul_tools::PermissionLevel::from_command(cmd),
+                                cmd.to_string(),
+                            )
                         } else {
-                            soul_tools::PermissionLevel::Read
+                            (soul_tools::PermissionLevel::Read, name.clone())
                         };
 
-                        if permission == soul_tools::PermissionLevel::Destructive {
-                            let msg = "BLOCKED: Destructive command detected. This requires explicit confirmation.";
-                            self.emit_event(AgentEvent::ToolResult {
-                                name: name.clone(),
-                                output: msg.to_string(),
-                                success: false,
-                            });
-                            self.chat_session.add_tool_result(&tc.id, msg);
-                            continue;
+                        let req = permission_requirement(permission);
+                        match self.gate.evaluate(&name, &scope, &req).await {
+                            GateDecision::Allow => {}
+                            GateDecision::Deny(reason) | GateDecision::Pause(reason) => {
+                                let msg = format!("BLOCKED by approval gate: {reason}");
+                                self.emit_event(AgentEvent::ToolResult {
+                                    name: name.clone(),
+                                    output: msg.clone(),
+                                    success: false,
+                                });
+                                self.chat_session.add_tool_result(&tc.id, &msg);
+                                continue;
+                            }
                         }
 
-                        // Audit log for Write-level commands
+                        // Audit log for Write-level commands that the gate allowed.
                         if permission == soul_tools::PermissionLevel::Write {
                             let audit_msg = format!(
                                 "AUDIT: Write-level command executed: {}({})",
@@ -917,6 +935,24 @@ fn truncate_output(s: &str, max_len: usize) -> String {
     }
 }
 
+/// Map a command's [`soul_tools::PermissionLevel`] to a gate
+/// [`ApprovalRequirement`]. Under `ExecutionMode::Autonomous` (threshold
+/// Medium) this preserves the historical policy: Read/Write are allowed,
+/// Destructive is denied.
+fn permission_requirement(level: soul_tools::PermissionLevel) -> ApprovalRequirement {
+    match level {
+        soul_tools::PermissionLevel::Read => ApprovalRequirement::safe(),
+        soul_tools::PermissionLevel::Write => ApprovalRequirement {
+            risk: RiskLevel::Medium,
+            reason: "mutates state".to_string(),
+            auto_approve_safe: false,
+        },
+        soul_tools::PermissionLevel::Destructive => {
+            ApprovalRequirement::critical("irreversible / system-wide damage")
+        }
+    }
+}
+
 // ── Task Queue ───────────────────────────────────────────────────────
 
 pub struct TaskQueue {
@@ -1114,6 +1150,33 @@ mod tests {
         // Raw payload withheld; replaced by a quarantine notice.
         assert!(safe.contains("QUARANTINED"));
         assert!(!safe.contains("evil.example"));
+    }
+
+    // ── Outbound gate policy ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn gate_denies_destructive_allows_read_write() {
+        use soul_tools::PermissionLevel;
+        let gate = ApprovalGate::new(ExecutionMode::Autonomous);
+
+        // Read and Write clear the Autonomous threshold (Medium); Destructive
+        // (Critical) is denied — identical to the historical ad-hoc policy.
+        let read = permission_requirement(PermissionLevel::Read);
+        let write = permission_requirement(PermissionLevel::Write);
+        let destr = permission_requirement(PermissionLevel::Destructive);
+
+        assert!(matches!(
+            gate.evaluate("execute_shell", "ls", &read).await,
+            GateDecision::Allow
+        ));
+        assert!(matches!(
+            gate.evaluate("execute_shell", "rm file.txt", &write).await,
+            GateDecision::Allow
+        ));
+        assert!(matches!(
+            gate.evaluate("execute_shell", "rm -rf /", &destr).await,
+            GateDecision::Deny(_)
+        ));
     }
 
     // ── AgentConfig ─────────────────────────────────────────────────────
