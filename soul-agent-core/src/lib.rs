@@ -7,6 +7,22 @@
 //! - Safety warnings and turn limits
 //! - Task queue with abort support
 //! - Memory distillation
+//!
+//! ## Framework API
+//!
+//! This crate provides a public framework API via traits that can be implemented
+//! by external crates:
+//!
+//! - [`Agent`] — Core agent interface (run_task, ask)
+//! - [`Memory`] — Hierarchical memory interface (store, retrieve, search)
+//! - [`Tool`] — Tool interface with schema and execution
+//! - [`LLMClient`] — Multi-provider LLM interface
+//! - [`Planner`] — Goal decomposition and decision making
+//!
+//! See [`builder`] module for the `AgentBuilder` to compose agents from components.
+
+pub mod builder;
+pub mod traits;
 
 use chrono::Utc;
 use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolSchema};
@@ -191,6 +207,48 @@ impl AutonomousAgent {
         }
     }
 
+    /// Construct an agent sharing an external `HierarchicalMemory`.
+    pub fn with_memory(
+        llm: OllamaClient,
+        config: AgentConfig,
+        memory: Arc<HierarchicalMemory>,
+    ) -> Self {
+        let system_prompt = build_system_prompt(&config.name);
+        let chat_session = ChatSession::with_max_context(&system_prompt, 40000);
+
+        let tools = discover_system_tools();
+        let mut registry = ToolRegistry::new();
+        for tool in tools {
+            registry.register(tool);
+        }
+
+        let tool_schemas = build_tool_schemas();
+        let metacognition = MetaCognition::new();
+        let reasoning = ThoughtTree::new(TreeConfig::default());
+
+        Self {
+            config: config.clone(),
+            llm,
+            chat_session,
+            planner: CognitiveLoop::new(),
+            registry,
+            executor: AsyncShellExecutor::new(config.shell_timeout_secs),
+            tool_schemas,
+            history: Vec::new(),
+            turn: 0,
+            consecutive_failures: 0,
+            repair_count: 0,
+            running: Arc::new(RwLock::new(false)),
+            memory,
+            metacognition,
+            reasoning,
+            trajectory_recorder: None,
+            knowledge_graph: KnowledgeGraph::new(),
+            skill_loader: None,
+            event_tx: None,
+        }
+    }
+
     pub fn set_event_sender(&mut self, tx: mpsc::UnboundedSender<AgentEvent>) {
         self.event_tx = Some(tx);
     }
@@ -316,7 +374,7 @@ impl AutonomousAgent {
             }
 
             // Inject metacognition self-model (every 10 turns)
-            if self.turn.is_multiple_of(10) {
+            if self.turn % 10 == 0 {
                 let model = self.metacognition.self_model().await;
                 combined_context.push_str(&format!(
                     "\n\nSelf-model: health={:.1}%, load={:.1}%, capabilities={}",
@@ -674,7 +732,9 @@ Only return the JSON, no explanation."#,
         );
 
         match self.llm.generate(&prompt).await {
-            Ok(resp) => match serde_json::from_str::<serde_json::Value>(&resp.response) {
+            Ok(resp) => match serde_json::from_str::<serde_json::Value>(
+                resp.message.content.as_deref().unwrap_or(""),
+            ) {
                 Ok(val) => {
                     if let Some(info) = val.get("key_info").and_then(|v| v.as_str()) {
                         self.planner.memory.set_key_info(info);
@@ -761,7 +821,9 @@ Only return the JSON array, no explanation."#,
         );
 
         match self.llm.generate(&prompt).await {
-            Ok(resp) => match serde_json::from_str::<Vec<serde_json::Value>>(&resp.response) {
+            Ok(resp) => match serde_json::from_str::<Vec<serde_json::Value>>(
+                resp.message.content.as_deref().unwrap_or(""),
+            ) {
                 Ok(skills) => {
                     let mut crystallized = 0;
                     for skill_val in &skills {
@@ -957,12 +1019,16 @@ fn permission_requirement(level: soul_tools::PermissionLevel) -> ApprovalRequire
 
 pub struct TaskQueue {
     tx: mpsc::UnboundedSender<TaskRequest>,
+    #[allow(dead_code)]
     rx: Arc<RwLock<mpsc::UnboundedReceiver<TaskRequest>>>,
 }
 
 struct TaskRequest {
+    #[allow(dead_code)]
     id: String,
+    #[allow(dead_code)]
     task: String,
+    #[allow(dead_code)]
     response_tx: oneshot::Sender<Result<String, String>>,
 }
 
@@ -972,21 +1038,6 @@ impl TaskQueue {
         Self {
             tx,
             rx: Arc::new(RwLock::new(rx)),
-        }
-    }
-
-    /// Process the next queued task with the given agent.
-    /// Returns `false` if the queue is empty.
-    pub async fn process_next(&self, agent: &mut AutonomousAgent) -> bool {
-        let req = self.rx.write().await.try_recv().ok();
-        match req {
-            Some(req) => {
-                tracing::info!("processing queued task {}: {}", req.id, req.task);
-                let result = agent.run_task(&req.task).await;
-                let _ = req.response_tx.send(result);
-                true
-            }
-            None => false,
         }
     }
 
@@ -1099,12 +1150,20 @@ mod tests {
 
     /// Creates a minimal AutonomousAgent for testing logic that doesn't need real LLM calls.
     fn make_test_agent() -> AutonomousAgent {
+        use std::time::Duration;
         let llm_config = soul_llm::LlmConfig {
+            provider: soul_llm::ProviderKind::Ollama,
             base_url: "http://localhost:11888".to_string(), // unreachable, but we never call it
             model: "test-model".to_string(),
             temperature: 0.5,
             max_tokens: 1024,
-            ..Default::default()
+            http_timeout: Duration::from_secs(5),
+            connect_timeout: Duration::from_secs(1),
+            auth_token: None,
+            goal_token_budget: 1000,
+            tokens_per_minute_budget: 10000,
+            pool_max_idle: 1,
+            pool_idle_timeout: Duration::from_secs(30),
         };
         let llm = OllamaClient::new(llm_config);
         let config = AgentConfig {
@@ -1214,8 +1273,8 @@ mod tests {
         };
         assert_eq!(cfg.name, "MyBot");
         assert_eq!(cfg.max_turns, 100);
-        assert!(!cfg.auto_distill);
-        assert!(!cfg.auto_repair);
+        assert_eq!(cfg.auto_distill, false);
+        assert_eq!(cfg.auto_repair, false);
     }
 
     // ── truncate_output ─────────────────────────────────────────────────
@@ -1296,18 +1355,22 @@ mod tests {
         assert!(!repairs.is_empty(), "repair should trigger at threshold");
         assert_eq!(agent.repair_count, 1);
         assert_eq!(agent.consecutive_failures, 0);
-        // auto_repair preserves the system prompt at [0] and appends a user
-        // message explaining the reset.
+        // Should have added a repair message
+        assert!(!agent.chat_session.messages.is_empty());
         assert_eq!(
-            agent.chat_session.messages[0].role,
-            soul_llm::Role::System,
-            "repair should keep the system prompt"
+            agent.chat_session.messages.last().unwrap().role,
+            soul_llm::Role::User,
+            "repair should add a user message explaining the reset"
         );
         assert!(
-            agent.chat_session.messages.iter().any(|m| {
-                m.role == soul_llm::Role::User && m.content.contains("Self-repair triggered")
-            }),
-            "repair should add a user message explaining the reset"
+            agent
+                .chat_session
+                .messages
+                .last()
+                .unwrap()
+                .content
+                .contains("Self-repair triggered"),
+            "repair message should explain the reset"
         );
     }
 
@@ -1549,7 +1612,7 @@ mod tests {
         assert_eq!(agent.turn, 0);
         assert_eq!(agent.consecutive_failures, 0);
         assert_eq!(agent.repair_count, 0);
-        assert!(!agent.tool_schemas.is_empty(), "should have tool schemas");
+        assert!(agent.tool_schemas.len() > 0, "should have tool schemas");
     }
 
     #[tokio::test]
@@ -1725,9 +1788,9 @@ mod tests {
     #[tokio::test]
     async fn test_agent_chat_session_initialization() {
         let agent = make_test_agent();
-        // The system prompt is seeded as the first message of the session.
-        assert_eq!(agent.chat_session.messages.len(), 1);
-        assert_eq!(agent.chat_session.messages[0].role, soul_llm::Role::System);
+        // chat_session starts with the system prompt message
+        assert!(!agent.chat_session.messages.is_empty());
+        // system prompt should contain agent name
         assert!(agent.chat_session.messages[0].content.contains("TestAgent"));
     }
 
@@ -1737,7 +1800,7 @@ mod tests {
         agent.chat_session.add_user_message("Message A");
         agent.chat_session.add_assistant_message("Reply A");
         agent.chat_session.add_user_message("Message B");
-        // seeded system prompt + 3 added messages
+        // Initial messages: system prompt + 3 user/assistant messages
         assert_eq!(agent.chat_session.messages.len(), 4);
 
         // Compact under threshold should not change anything

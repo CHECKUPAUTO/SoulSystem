@@ -28,8 +28,8 @@ impl TaskCache {
     }
 
     /// Retrieve a value from the cache, if present.
-    pub fn get(&self, key: &str) -> Option<TaskResult> {
-        let value = self.inner.get(key);
+    pub async fn get(&self, key: &str) -> Option<TaskResult> {
+        let value = self.inner.get(key).await;
         if value.is_some() {
             debug!("Cache hit for key: {}", key);
         }

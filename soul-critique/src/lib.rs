@@ -234,12 +234,15 @@ impl CritiqueEngine {
 
 pub struct ReflexionLoop {
     engine: CritiqueEngine,
+    #[allow(dead_code)]
+    max_rounds: usize,
 }
 
 impl ReflexionLoop {
     pub fn new(threshold: f64, max_rounds: usize) -> Self {
         Self {
             engine: CritiqueEngine::new(threshold).with_max_iterations(max_rounds),
+            max_rounds,
         }
     }
 

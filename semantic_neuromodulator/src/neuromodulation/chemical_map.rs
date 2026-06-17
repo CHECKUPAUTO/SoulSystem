@@ -51,7 +51,7 @@ impl NeuromodulatorMapper {
     /// Renvoie le MSE final (sortie clampee). NB: machinerie reelle et testee, mais
     /// un VRAI jeu (input -> cible) reste a fournir pour que ce soit utile.
     #[allow(clippy::needless_range_loop)]
-pub fn fit(&mut self, inputs: &[[f32; 3]], targets: &[[f32; 3]], ridge: f32) -> f32 {
+    pub fn fit(&mut self, inputs: &[[f32; 3]], targets: &[[f32; 3]], ridge: f32) -> f32 {
         assert_eq!(
             inputs.len(),
             targets.len(),

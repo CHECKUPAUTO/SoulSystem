@@ -72,8 +72,8 @@ mod tests {
 
         let mut surgeon = NeuralSurgeon::new(0.5);
         let mut v = [0.0f32; VECTOR_DIM];
-        for i in 0..dim {
-            v[i] = if i % 2 == 0 { 1.0 } else { -1.0 };
+        for (i, vi) in v.iter_mut().enumerate().take(dim) {
+            *vi = if i % 2 == 0 { 1.0 } else { -1.0 };
         }
         surgeon.set_steering_target(&v);
         assert!(surgeon.is_active.load(Ordering::Acquire));

@@ -45,9 +45,11 @@ impl Auditor {
         let raw_fm = fm.raw.clone();
 
         Some(AgentDef {
-            name: fm
-                .get_string("name")
-                .unwrap_or_else(|| path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()),
+            name: fm.get_string("name").unwrap_or_else(|| {
+                path.file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default()
+            }),
             description: fm.get_string("description").unwrap_or_default(),
             tools: fm.get_string_array("tools").unwrap_or_default(),
             model: fm.get_string("model").unwrap_or_default(),
@@ -127,10 +129,7 @@ impl Auditor {
             issues.push(Issue {
                 severity: Severity::Low,
                 category: IssueCategory::UnknownModel,
-                message: format!(
-                    "Agent {} uses unknown model '{}'",
-                    agent.name, agent.model
-                ),
+                message: format!("Agent {} uses unknown model '{}'", agent.name, agent.model),
             });
         }
 
@@ -191,16 +190,8 @@ impl Auditor {
 
         for audit in audits {
             for lang in KNOWN_LANGUAGES {
-                if audit
-                    .agent
-                    .name
-                    .to_lowercase()
-                    .contains(lang)
-                    || audit
-                        .agent
-                        .description
-                        .to_lowercase()
-                        .contains(lang)
+                if audit.agent.name.to_lowercase().contains(lang)
+                    || audit.agent.description.to_lowercase().contains(lang)
                 {
                     *language_coverage.entry(lang.to_string()).or_insert(0) += 1;
                 }
@@ -356,18 +347,9 @@ pub fn format_audit_report(report: &AuditReport) -> String {
     let mut out = String::new();
     use std::fmt::Write;
 
-    let _ = writeln!(
-        out,
-        "╔══════════════════════════════════════════════╗"
-    );
-    let _ = writeln!(
-        out,
-        "║        AGENT ECOSYSTEM AUDIT REPORT          ║"
-    );
-    let _ = writeln!(
-        out,
-        "╚══════════════════════════════════════════════╝"
-    );
+    let _ = writeln!(out, "╔══════════════════════════════════════════════╗");
+    let _ = writeln!(out, "║        AGENT ECOSYSTEM AUDIT REPORT          ║");
+    let _ = writeln!(out, "╚══════════════════════════════════════════════╝");
     let _ = writeln!(out);
     let _ = writeln!(
         out,
@@ -378,7 +360,11 @@ pub fn format_audit_report(report: &AuditReport) -> String {
     let _ = writeln!(out, "  Commands:     {}", report.command_count);
     let _ = writeln!(out, "  Skills:       {}", report.skill_count);
     let _ = writeln!(out, "  Rules:        {}", report.rule_count);
-    let _ = writeln!(out, "  Health Score: {:.1}%", report.ecosystem_health * 100.0);
+    let _ = writeln!(
+        out,
+        "  Health Score: {:.1}%",
+        report.ecosystem_health * 100.0
+    );
     let _ = writeln!(out);
 
     let _ = writeln!(out, "── Agent Quality Distribution ──");
@@ -432,11 +418,8 @@ pub fn format_audit_report(report: &AuditReport) -> String {
     let issues_total: usize = report.audits.iter().map(|a| a.issues.len()).sum();
     if issues_total > 0 {
         let _ = writeln!(out, "── Top Issues ──");
-        let mut all_issues: Vec<&Issue> = report
-            .audits
-            .iter()
-            .flat_map(|a| a.issues.iter())
-            .collect();
+        let mut all_issues: Vec<&Issue> =
+            report.audits.iter().flat_map(|a| a.issues.iter()).collect();
         all_issues.sort_by(|a, b| {
             b.severity
                 .score()
@@ -464,9 +447,6 @@ pub fn format_audit_report(report: &AuditReport) -> String {
         }
     }
 
-    let _ = writeln!(
-        out,
-        "────────────────────────────────────────────"
-    );
+    let _ = writeln!(out, "────────────────────────────────────────────");
     out
 }

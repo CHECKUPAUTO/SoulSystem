@@ -4,20 +4,29 @@ use parking_lot::Mutex;
 use serde_json::json;
 use soul_gateway::EntityEvent;
 use soul_llm::LlmClient;
-use soul_persistence::{KIND_CODE_ARTIFACT, KIND_DECISION, KIND_GOAL, KIND_OBSERVATION, KIND_PLAN, KIND_TOOL_RESULT, LongTermMemory, StampedEntry};
+use soul_persistence::{
+    LongTermMemory, StampedEntry, KIND_CODE_ARTIFACT, KIND_DECISION, KIND_GOAL, KIND_OBSERVATION,
+    KIND_PLAN, KIND_TOOL_RESULT,
+};
 use soul_planner::{CognitiveLoop, Decision, Evaluation};
 use soul_sandbox::{Sandbox, SandboxVerdict};
-use soul_tools::{ToolRegistry, discover_system_tools};
+use soul_subagents::{SubAgentManager, SubAgentTask};
+use soul_tools::{discover_system_tools, ToolRegistry};
+use soullink_memory_hierarchy::{
+    ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, MemoryLayer,
+    SemanticConfig,
+};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::types::*;
+use crate::cron::{CronScheduler, CronTask};
 use crate::event_store::PersistentEventStore;
 use crate::facade::OpenClawFacade;
 use crate::subsystems::Subsystems;
+use crate::types::*;
 
 // ── L'entité ─────────────────────────────────────────────────
 
@@ -28,8 +37,11 @@ pub struct SoulEntity {
     pub tools: ToolRegistry,
     pub sandbox: Arc<Sandbox>,
     pub memory: Arc<LongTermMemory>,
+    pub hierarchical_memory: Arc<HierarchicalMemory>,
     pub openclaw: Arc<OpenClawFacade>,
     pub events: PersistentEventStore,
+    pub sub_agents: Arc<SubAgentManager>,
+    pub cron: Arc<Mutex<CronScheduler>>,
     pub goals: Mutex<HashMap<String, PersistentGoal>>,
     pub goal_order: Mutex<VecDeque<String>>,
     pub code_artifacts: Mutex<Vec<CodeArtifact>>,
@@ -41,7 +53,9 @@ pub struct SoulEntity {
 impl SoulEntity {
     /// Construit une nouvelle entité. Si `config.memory_path` est fourni,
     /// la mémoire est persistée sur disque.
-    pub fn new(config: EntityConfig) -> std::result::Result<Self, soul_persistence::PersistenceError> {
+    pub fn new(
+        config: EntityConfig,
+    ) -> std::result::Result<Self, soul_persistence::PersistenceError> {
         let llm = LlmClient::new(config.llm.clone())
             .map_err(|e| soul_persistence::PersistenceError::Other(format!("LLM init: {e}")))?;
 
@@ -58,24 +72,34 @@ impl SoulEntity {
             Arc::new(LongTermMemory::open_temporary()?)
         };
 
+        let hierarchical_memory = Arc::new(HierarchicalMemory::new(
+            50,
+            EpisodicConfig::default(),
+            SemanticConfig::default(),
+            ConsolidationConfig::default(),
+        ));
+
+        let sub_agents = Arc::new(SubAgentManager::new(config.llm.clone(), 4));
+        let cron = Arc::new(Mutex::new(CronScheduler::new()));
+
         let event_store = if let Some(ref path) = config.event_store_path {
-            PersistentEventStore::new(path, 10, 1000).map_err(|e| {
-                soul_persistence::PersistenceError::Io(e)
-            })?
+            PersistentEventStore::new(path, 10, 1000)
+                .map_err(|e| soul_persistence::PersistenceError::Io(e))?
         } else {
-            PersistentEventStore::new("/tmp/soul_events.log", 1, 100).map_err(|e| {
-                soul_persistence::PersistenceError::Io(e)
-            })?
+            PersistentEventStore::new("/tmp/soul_events.log", 1, 100)
+                .map_err(|e| soul_persistence::PersistenceError::Io(e))?
         };
 
         // Sous-systèmes historiques câblés.
-        let journal_path = config.memory_path.as_ref().and_then(|p| {
-            p.join("journal.bin").to_str().map(|s| s.to_string())
-        });
-        let subsystems = Arc::new(Subsystems::new(journal_path.as_deref()).map_err(|e| {
-            soul_persistence::PersistenceError::Io(e)
-        })?);
-        
+        let journal_path = config
+            .memory_path
+            .as_ref()
+            .and_then(|p| p.join("journal.bin").to_str().map(|s| s.to_string()));
+        let subsystems = Arc::new(
+            Subsystems::new(journal_path.as_deref())
+                .map_err(|e| soul_persistence::PersistenceError::Io(e))?,
+        );
+
         // Démarrer la console clinique en arrière-plan.
         let subs_clone = subsystems.clone();
         let _ = subs_clone.start_clinical_console(8081);
@@ -87,8 +111,11 @@ impl SoulEntity {
             tools: registry,
             sandbox,
             memory,
+            hierarchical_memory,
             openclaw: Arc::new(OpenClawFacade::new()),
             events: event_store,
+            sub_agents,
+            cron,
             goals: Mutex::new(HashMap::new()),
             goal_order: Mutex::new(VecDeque::new()),
             code_artifacts: Mutex::new(Vec::new()),
@@ -119,16 +146,22 @@ impl SoulEntity {
         };
 
         if let Ok(v) = serde_json::to_value(&goal) {
-            let _ = self.memory.put(StampedEntry::new(KIND_GOAL, v).with_id(goal.id.clone()));
+            let _ = self
+                .memory
+                .put(StampedEntry::new(KIND_GOAL, v).with_id(goal.id.clone()));
         }
 
         self.goals.lock().insert(goal.id.clone(), goal.clone());
         self.goal_order.lock().push_back(goal.id.clone());
-        
+
         // Enregistrer dans l'orchestrateur (qui gère aussi le linker).
-        self.subsystems.orch_register_goal(stable_hash32(&goal.id), &goal.description);
+        self.subsystems
+            .orch_register_goal(stable_hash32(&goal.id), &goal.description);
         // Journaliser.
-        self.subsystems.journal_log(crate::subsystems::TAG_GOAL, &format!("new goal: {}", goal.id));
+        self.subsystems.journal_log(
+            crate::subsystems::TAG_GOAL,
+            &format!("new goal: {}", goal.id),
+        );
 
         self.events.publish(EntityEvent::GoalCreated {
             id: goal.id.clone(),
@@ -146,7 +179,10 @@ impl SoulEntity {
     pub fn list_goals(&self) -> Vec<PersistentGoal> {
         let order = self.goal_order.lock();
         let goals = self.goals.lock();
-        order.iter().filter_map(|id| goals.get(id).cloned()).collect()
+        order
+            .iter()
+            .filter_map(|id| goals.get(id).cloned())
+            .collect()
     }
 
     // ── Actions de l'entité ────────────────────────────────────
@@ -163,10 +199,13 @@ impl SoulEntity {
             "Exécuter les étapes".into(),
             "Évaluer le résultat".into(),
         ];
-        
+
         // 2. Tri topologique (via neural_graph_compiler).
-        let edges = vec![(0,1), (1,2), (2,3)];
-        let sorted = self.subsystems.graph_compile_plan(4, &edges).map_err(|e| e.to_string())?;
+        let edges = vec![(0, 1), (1, 2), (2, 3)];
+        let sorted = self
+            .subsystems
+            .graph_compile_plan(4, &edges)
+            .map_err(|e| e.to_string())?;
         let sorted_steps: Vec<String> = sorted.into_iter().map(|i| steps[i].clone()).collect();
 
         let plan = PersistentPlan {
@@ -178,11 +217,18 @@ impl SoulEntity {
         goal.status = "planned".into();
 
         if let Ok(v) = serde_json::to_value(&plan) {
-            let _ = self.memory.put(StampedEntry::new(KIND_PLAN, v).with_id(plan.id.clone()).with_parent(goal_id));
+            let _ = self.memory.put(
+                StampedEntry::new(KIND_PLAN, v)
+                    .with_id(plan.id.clone())
+                    .with_parent(goal_id),
+            );
         }
-        
+
         // Journaliser.
-        self.subsystems.journal_log(crate::subsystems::TAG_PLAN, &format!("plan for {}: {} steps", goal_id, plan.steps.len()));
+        self.subsystems.journal_log(
+            crate::subsystems::TAG_PLAN,
+            &format!("plan for {}: {} steps", goal_id, plan.steps.len()),
+        );
 
         self.events.publish(EntityEvent::PlanCreated {
             id: plan.id.clone(),
@@ -208,7 +254,7 @@ impl SoulEntity {
 
         for (i, step) in plan.steps.iter().enumerate() {
             info!("[entity] étape {}: {}", i, step);
-            
+
             let start = std::time::Instant::now();
 
             // Injection de chaos légère.
@@ -225,16 +271,19 @@ impl SoulEntity {
                 ms: start.elapsed().as_millis() as u64,
                 ts: Utc::now(),
             });
-            
+
             // Journaliser chaque étape.
-            self.subsystems.journal_log(crate::subsystems::TAG_STEP, &format!("step {} ok", i));
+            self.subsystems
+                .journal_log(crate::subsystems::TAG_STEP, &format!("step {} ok", i));
         }
 
         let mut goals = self.goals.lock();
-        let goal = goals.get_mut(goal_id).ok_or_else(|| format!("goal {goal_id} introuvable"))?;
+        let goal = goals
+            .get_mut(goal_id)
+            .ok_or_else(|| format!("goal {goal_id} introuvable"))?;
         goal.status = "completed".into();
         self.stats.lock().goals_completed += 1;
-        
+
         // Marquer comme fini dans l'orchestrateur.
         self.subsystems.orch_complete(stable_hash32(goal_id));
 
@@ -243,11 +292,15 @@ impl SoulEntity {
 
     pub fn execute_shell(&self, cmd: &str) -> std::result::Result<String, String> {
         let verdict = self.sandbox.execute(cmd).map_err(|e| format!("{e}"))?;
-        
+
         let out = if verdict.exit_code == Some(0) {
             verdict.stdout.clone()
         } else {
-            format!("ERROR ({}): {}", verdict.exit_code.unwrap_or(-1), verdict.stderr)
+            format!(
+                "ERROR ({}): {}",
+                verdict.exit_code.unwrap_or(-1),
+                verdict.stderr
+            )
         };
 
         if let Ok(v) = serde_json::to_value(&verdict) {
@@ -295,11 +348,11 @@ impl SoulEntity {
         stored.verdict = Some(verdict.clone());
 
         if let Ok(v) = serde_json::to_value(&stored) {
-            let _ = self
-                .memory
-                .put(StampedEntry::new(KIND_CODE_ARTIFACT, v)
+            let _ = self.memory.put(
+                StampedEntry::new(KIND_CODE_ARTIFACT, v)
                     .with_id(artifact.id.clone())
-                    .with_tags(vec![language.into()]));
+                    .with_tags(vec![language.into()]),
+            );
         }
         self.code_artifacts.lock().push(stored.clone());
         self.stats.lock().code_artifacts_generated += 1;
@@ -313,7 +366,10 @@ impl SoulEntity {
     /// Renvoie un JSON décrivant le cycle.
     pub async fn run_cycle(&self) -> std::result::Result<serde_json::Value, String> {
         let cycle_id = Uuid::new_v4().to_string();
-        self.events.publish(EntityEvent::CycleStarted { id: cycle_id.clone(), ts: Utc::now() });
+        self.events.publish(EntityEvent::CycleStarted {
+            id: cycle_id.clone(),
+            ts: Utc::now(),
+        });
         self.stats.lock().cycles_run += 1;
         self.stats.lock().last_cycle_at = Some(Utc::now());
 
@@ -347,13 +403,16 @@ impl SoulEntity {
 
             let goal = match candidate {
                 Some(g) => g,
-                None => {
-                    self.create_goal("Vérifier l'état du système", 3)
-                }
+                None => self.create_goal("Vérifier l'état du système", 3),
             };
 
             // 2. Planifier si pas de plan
-            let has_plan = self.goals.lock().get(&goal.id).and_then(|g| g.plan.clone()).is_some();
+            let has_plan = self
+                .goals
+                .lock()
+                .get(&goal.id)
+                .and_then(|g| g.plan.clone())
+                .is_some();
             if !has_plan {
                 self.plan(&goal.id)?;
             }
@@ -361,10 +420,35 @@ impl SoulEntity {
             // 3. Observer (mémoire de travail)
             let observation = format!("[{}] goal={}", cycle_id, goal.description);
             self.planner.lock().memory.observe(observation.clone());
-            self.events.publish(EntityEvent::Observation { text: observation.clone(), ts: Utc::now() });
-            
+            self.events.publish(EntityEvent::Observation {
+                text: observation.clone(),
+                ts: Utc::now(),
+            });
+
+            // Store in hierarchical memory asynchronously
+            let hier_mem = self.hierarchical_memory.clone();
+            let obs_clone = observation.clone();
+            tokio::spawn(async move {
+                let entry = MemoryEntry {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    text: obs_clone,
+                    created_at: Utc::now().to_rfc3339(),
+                    last_accessed: Utc::now().to_rfc3339(),
+                    access_count: 1,
+                    importance: 0.6,
+                    layer: MemoryLayer::Working,
+                    tags: vec!["goal".to_string(), "cycle".to_string()],
+                    embedding: None,
+                    associations: vec![],
+                    metadata: std::collections::HashMap::new(),
+                };
+                hier_mem.store(entry, MemoryLayer::Working).await;
+            });
+
             if let Ok(v) = serde_json::to_value(&observation) {
-                let _ = self.memory.put(StampedEntry::new(KIND_OBSERVATION, v).with_parent(&goal.id));
+                let _ = self
+                    .memory
+                    .put(StampedEntry::new(KIND_OBSERVATION, v).with_parent(&goal.id));
             }
 
             // 4. Agir
@@ -390,13 +474,23 @@ impl SoulEntity {
 
             // 7. Persister la décision
             if let Ok(v) = serde_json::to_value(&decision) {
-                let _ = self.memory.put(StampedEntry::new(KIND_DECISION, v).with_parent(&goal.id));
+                let _ = self
+                    .memory
+                    .put(StampedEntry::new(KIND_DECISION, v).with_parent(&goal.id));
             }
-            
-            // Journaliser la décision.
-            self.subsystems.journal_log(crate::subsystems::TAG_DECISION, &format!("goal {} archived", goal.id));
 
-            Ok(SyncOutcome { goal, exec_result, eval, decision })
+            // Journaliser la décision.
+            self.subsystems.journal_log(
+                crate::subsystems::TAG_DECISION,
+                &format!("goal {} archived", goal.id),
+            );
+
+            Ok(SyncOutcome {
+                goal,
+                exec_result,
+                eval,
+                decision,
+            })
         })();
 
         let outcome = sync?;
@@ -411,7 +505,7 @@ impl SoulEntity {
         } else {
             None
         };
-        
+
         let llm_usage = self.llm_usage(&outcome.goal.id);
 
         let outcome_json = Ok(json!({
@@ -425,7 +519,11 @@ impl SoulEntity {
         }));
 
         self.stats.lock().cycles_succeeded += 1;
-        self.events.publish(EntityEvent::CycleFinished { id: cycle_id.clone(), success: true, ts: Utc::now() });
+        self.events.publish(EntityEvent::CycleFinished {
+            id: cycle_id.clone(),
+            success: true,
+            ts: Utc::now(),
+        });
         outcome_json
     }
 
@@ -433,7 +531,10 @@ impl SoulEntity {
     /// C'est le mode "entité autonome en arrière-plan".
     pub async fn autonomous_loop(&self) {
         self.running.store(true, Ordering::SeqCst);
-        info!("[entity] boucle autonome démarrée ({}ms tick)", self.config.autonomous_tick.as_millis());
+        info!(
+            "[entity] boucle autonome démarrée ({}ms tick)",
+            self.config.autonomous_tick.as_millis()
+        );
         while self.running.load(Ordering::SeqCst) {
             match self.run_cycle().await {
                 Ok(v) => info!("[entity] cycle ok: {}", v),
@@ -448,7 +549,11 @@ impl SoulEntity {
         self.ask_with_goal(prompt, "default").await
     }
 
-    pub async fn ask_with_goal(&self, prompt: &str, goal_id: &str) -> std::result::Result<String, String> {
+    pub async fn ask_with_goal(
+        &self,
+        prompt: &str,
+        goal_id: &str,
+    ) -> std::result::Result<String, String> {
         self.llm
             .generate_with_goal(prompt, goal_id)
             .await
@@ -483,7 +588,10 @@ impl SoulEntity {
         let meta_json = serde_json::Value::Object({
             let mut m = serde_json::Map::new();
             m.insert("timestamp_ns".into(), json!(meta.timestamp_ns));
-            m.insert("throughput_bytes_per_sec".into(), json!(meta.memory_throughput_bytes_per_sec));
+            m.insert(
+                "throughput_bytes_per_sec".into(),
+                json!(meta.memory_throughput_bytes_per_sec),
+            );
             m.insert("synapses".into(), json!(meta.active_synapse_count));
             m.insert("meta_loss".into(), json!(meta.current_meta_loss));
             m
@@ -496,6 +604,9 @@ impl SoulEntity {
             "goals_total": self.goals.lock().len(),
             "goals_active": self.list_goals().iter().filter(|g| g.status == "active" || g.status == "planned").count(),
             "memory_entries": self.memory.len(),
+            "hierarchical_memory_working": self.hierarchical_memory.working.try_read().map(|w| w.len()).unwrap_or(0),
+            "hierarchical_memory_episodic": self.hierarchical_memory.episodic.len(),
+            "hierarchical_memory_semantic": self.hierarchical_memory.semantic.len(),
             "code_artifacts": self.code_artifacts.lock().len(),
             "sandbox_history": self.sandbox.history_len(),
             "stats": *self.stats.lock(),
@@ -516,6 +627,125 @@ impl SoulEntity {
 
     // ── Accès direct aux subsystems pour le REPL/CLI ────────
 
+    /// Search hierarchical memory across all layers (working + episodic + semantic).
+    pub async fn search_memory(&self, query: &str, limit: usize) -> Vec<MemoryEntry> {
+        self.hierarchical_memory.search(query, limit).await
+    }
+
+    /// Store an observation in both memory systems.
+    pub async fn store_observation(&self, observation: &str, layer: MemoryLayer) {
+        let entry = MemoryEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            text: observation.to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            last_accessed: Utc::now().to_rfc3339(),
+            access_count: 1,
+            importance: 0.5,
+            layer,
+            tags: vec!["observation".to_string()],
+            embedding: None,
+            associations: vec![],
+            metadata: std::collections::HashMap::new(),
+        };
+        self.hierarchical_memory.store(entry, layer).await;
+    }
+
+    /// Run a consolidation cycle on the hierarchical memory.
+    pub async fn consolidate_memory(&self) {
+        self.hierarchical_memory.consolidate().await;
+    }
+
+    /// Spawn a sub-agent for a task description. Returns its task id.
+    pub async fn spawn_subagent(
+        &self,
+        description: &str,
+        parent_id: Option<&str>,
+    ) -> std::result::Result<String, String> {
+        self.sub_agents
+            .spawn(description, parent_id)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// Get the status of a sub-agent task.
+    pub async fn subagent_task(&self, task_id: &str) -> Option<SubAgentTask> {
+        self.sub_agents.get_task(task_id).await.ok()
+    }
+
+    /// List all sub-agent tasks.
+    pub async fn subagent_tasks(&self) -> Vec<SubAgentTask> {
+        self.sub_agents.list_tasks().await
+    }
+
+    /// Cancel a sub-agent task.
+    pub async fn cancel_subagent(&self, task_id: &str) -> std::result::Result<(), String> {
+        self.sub_agents
+            .cancel(task_id)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// Collect results from all completed sub-agent tasks.
+    pub async fn subagent_results(&self) -> Vec<(String, String)> {
+        self.sub_agents.collect_results().await
+    }
+
+    /// Number of currently active (running + pending) sub-agent tasks.
+    pub async fn subagent_active_count(&self) -> usize {
+        self.sub_agents.active_tasks().await.len()
+    }
+
+    /// Register a cron task for periodic goal creation.
+    pub fn register_cron(&self, task: CronTask) {
+        self.cron.lock().register(task);
+    }
+
+    /// Tick the cron scheduler and return any tasks that are due.
+    pub fn cron_tick(&self, now: &chrono::DateTime<Utc>) -> Vec<CronTask> {
+        self.cron.lock().tick(now).into_iter().cloned().collect()
+    }
+
+    /// Number of registered cron tasks.
+    pub fn cron_task_count(&self) -> usize {
+        self.cron.lock().task_count()
+    }
+
+    /// Register default periodic goals (hourly health check, daily documentation, 6h memory consolidation).
+    pub fn register_default_cron_tasks(&self) {
+        let mut c = self.cron.lock();
+        // Hourly health check
+        if let Ok(t) = CronTask::new("health-check", "0 * * * *", "Run system health check", 4) {
+            c.register(t);
+        }
+        // Daily LEARNINGS.md generation at 06:00
+        if let Ok(t) = CronTask::new(
+            "auto-documentation",
+            "0 6 * * *",
+            "Generate daily autonomy report and update LEARNINGS.md",
+            3,
+        ) {
+            c.register(t);
+        }
+        // Six-hourly memory consolidation
+        if let Ok(t) = CronTask::new(
+            "memory-consolidation",
+            "0 */6 * * *",
+            "Consolidate episodic memory to semantic every 6 hours",
+            3,
+        ) {
+            c.register(t);
+        }
+        // Every 15 min: system state check
+        if let Ok(t) = CronTask::new(
+            "system-state",
+            "*/15 * * * *",
+            "Verify system state: disk, memory, process health",
+            2,
+        ) {
+            c.register(t);
+        }
+    }
+
     pub fn journal_dump(&self) -> Vec<(u32, String)> {
         self.subsystems.journal_dump()
     }
@@ -532,8 +762,14 @@ impl SoulEntity {
         self.subsystems.crdt_snapshot()
     }
 
-    pub fn graph_compile_plan(&self, n: usize, deps: &[(usize, usize)]) -> std::result::Result<Vec<usize>, String> {
-        self.subsystems.graph_compile_plan(n, deps).map_err(|e| e.to_string())
+    pub fn graph_compile_plan(
+        &self,
+        n: usize,
+        deps: &[(usize, usize)],
+    ) -> std::result::Result<Vec<usize>, String> {
+        self.subsystems
+            .graph_compile_plan(n, deps)
+            .map_err(|e| e.to_string())
     }
 
     pub fn heal(&self, state: &mut [f32], min: f32, max: f32) -> usize {
@@ -612,5 +848,9 @@ fn stable_hash32(s: &str) -> u32 {
         h = h.wrapping_mul(0x0100_0193);
     }
     // 0 et 0xFFFFFFFF sont des sentinelles pour BROADCAST.
-    if h == 0 { 1 } else { h }
+    if h == 0 {
+        1
+    } else {
+        h
+    }
 }

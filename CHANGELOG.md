@@ -125,5 +125,5 @@ All notable changes to SoulSystem.
 
 ### Added
 - Initial SoulSystem unified monorepo
-- OpenClaw-U kernel, SoulLink HNN Mesh, Clawd Assistant, AVID Engineering
+- SoulKernelkernel, SoulLink HNN Mesh, Clawd Assistant, AVID Engineering
 - 87 workspace crates, ~1194 Rust files, ~254K LOC

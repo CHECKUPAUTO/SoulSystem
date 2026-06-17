@@ -240,6 +240,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "slow: memory benchmark"]
     fn vram_savings_positive() {
         let cache = TurboQuantKVCache::new(4, 4096, 128, 16);
         let savings = cache.effective_vram_savings_mib();

@@ -1,0 +1,110 @@
+[workspace]
+resolver = "2"
+members = [
+    "soullink-brain/soullink-inference",
+    "soullink-brain/soullink-nvml",
+    "scirust-core",
+    "scirust-gpu",
+    "scirust-simd",
+    "scirust-autodiff",
+    "scirust-simd-macros",
+    "scirust-gpu-macros",
+    "scirust-macros",
+    "scirust-trading-core",
+    "synergie",
+    "semantic_firewall",
+    "semantic_neuromodulator",
+    "scirust_affective_core",
+]
+
+exclude = []
+
+[workspace.package]
+version = "13.5.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["SoulLink Mesh Team"]
+license = "MIT"
+repository = "internal"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal", "net", "io-util", "io-std"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tempfile = "3"
+arc-swap = "1.7"
+dashmap = "6"
+parking_lot = "0.12"
+ahash = "0.8"
+metrics = "0.23"
+metrics-exporter-prometheus = { version = "0.15", default-features = false, features = ["http-listener"] }
+async-trait = "0.1"
+subtle = "2.5"
+uuid = { version = "1", features = ["v4", "serde"] }
+rmp-serde = "1.1"
+futures = { version = "0.3", default-features = false, features = ["std"] }
+wiremock = "0.6"
+criterion = { version = "0.5", default-features = false, features = ["async_tokio", "html_reports"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "tokio", "tower-log"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tower-http = { version = "0.6", default-features = false, features = ["trace", "cors", "limit", "set-header"] }
+hyper = { version = "1", features = ["server", "http1", "http2"] }
+nvml-wrapper = { version = "0.9", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+toml = "0.8"
+regex = "1.10"
+thiserror = "2"
+anyhow = "1"
+rand = "0.8"
+tokio-stream = { version = "0.1", features = ["sync"] }
+clap = { version = "4", features = ["derive"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+redb = "2"
+prometheus = "0.13"
+lazy_static = "1.4"
+colored = "3"
+crossterm = { version = "0.28", features = ["event-stream"] }
+ratatui = "0.30"
+dirs = "6"
+ansi-converter = { path = "ansi-converter" }
+bus = { path = "bus" }
+bound-system = { path = "bound-system" }
+clawd = { path = "clawd" }
+local-skills = { path = "local-skills" }
+model-router = { path = "model-router" }
+pty-terminal = { path = "pty-terminal" }
+soul-memory = { path = "soul-memory" }
+soul-bridge = { path = "soul-bridge" }
+spinner = { path = "spinner" }
+terminal-stream = { path = "terminal-stream" }
+soulsystem-common = { path = "crates/soulsystem-common" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[workspace.lints.rust]
+dead_code = "allow"
+unused_imports = "allow"
+unused_variables = "allow"
+unused_mut = "allow"
+unused_assignments = "allow"
+unused_unsafe = "allow"
+unused_comparisons = "allow"
+unreachable_pub = "allow"
+non_camel_case_types = "allow"
+non_snake_case = "allow"
+deprecated = "allow"
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(blas)', 'cfg(rayon)'] }
+missing_docs = "allow"
+
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true
+codegen-units = 256

@@ -13,6 +13,6 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 dashmap = { workspace = true }
-moka = { version = "0.10", features = ["future"] }
+moka = { version = "0.12.15", features = ["future"] }
 uuid = { workspace = true }
 confy = "0.6"

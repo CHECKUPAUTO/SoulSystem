@@ -1,21 +1,20 @@
 /// SoulSystem Mesh — Initialise et connecte tous les composants
 /// Utilisation: cargo run --features all
+// Unified bridge aliases (replaces 9 individual bridge crates)
 
 #[cfg(feature = "avid")]
-use avid_bridge as avid;
-#[cfg(feature = "synergie")]
-use synergie_bridge as synergie;
-#[cfg(feature = "openevolve")]
-use openevolve_bridge as openevolve;
+use soul_bridge::avid as avid;
 #[cfg(feature = "brain")]
-use brain_bridge as brain;
+use soul_bridge::brain as brain;
+#[cfg(feature = "openevolve")]
+use soul_bridge::openevolve as openevolve;
 #[cfg(feature = "soul_neural")]
-use soul_neural_bridge as soul_neural;
+use soul_bridge::soul_neural as soul_neural;
+#[cfg(feature = "synergie")]
+use soul_bridge::synergie as synergie;
 
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     tracing::info!("🧬 SoulSystem Mesh initializing...");
 

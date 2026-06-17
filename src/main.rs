@@ -11,9 +11,18 @@
 
 use anyhow::Result;
 use clap::Parser;
+
+mod setup_tui;
+use soul_entity::{EntityConfig, SoulEntity};
+use soul_gateway::{serve as serve_gateway, GatewayState};
+use soul_llm::LlmConfig;
+use soul_openclaw::{Skill, SkillVersion};
+use soul_sandbox::SandboxPolicy;
 use soulsystem::bound_system::BoundSystem;
 use soulsystem::bus::Bus;
 use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
+use std::io::{self, Write};
+use std::time::Duration;
 // Unified bridge aliases (replaces 9 individual bridge crates).
 // Each alias is only referenced inside its matching feature-gated block below,
 // so gate the import too to keep `-D warnings` clean when features are off.
@@ -82,6 +91,42 @@ struct Cli {
     /// List daemon goals and exit
     #[arg(long)]
     list_goals: bool,
+
+    /// Start the unified autonomous entity (SoulEntity + gateway + skills)
+    #[arg(long)]
+    entity: bool,
+
+    /// Gateway address for the autonomous entity (default: 127.0.0.1:7878)
+    #[arg(long, default_value = "127.0.0.1:7878")]
+    gateway_addr: String,
+
+    /// LLM provider for the autonomous entity
+    #[arg(long, default_value = "ollama")]
+    provider: soul_llm::ProviderKind,
+
+    /// LLM base URL for the autonomous entity
+    #[arg(long, default_value = "http://127.0.0.1:11434")]
+    llm_url: String,
+
+    /// LLM model for the autonomous entity
+    #[arg(long, default_value = "qwen3:8b")]
+    model: String,
+
+    /// API key for the LLM provider (OpenAI/Anthropic)
+    #[arg(long)]
+    api_key: Option<String>,
+
+    /// Start the autonomous loop in the background
+    #[arg(long)]
+    autonomous: bool,
+
+    /// Run interactive first-time setup wizard and save config
+    #[arg(long)]
+    setup: bool,
+
+    /// Run TUI first-time setup wizard and save config
+    #[arg(long)]
+    setup_tui: bool,
 }
 
 #[tokio::main]
@@ -91,6 +136,13 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    if cli.setup {
+        return run_setup_wizard().await;
+    }
+    if cli.setup_tui {
+        return setup_tui::run_tui_setup();
+    }
 
     // Chargement de la configuration centralisée
     let settings = soulsystem::config::Settings::new()?;
@@ -771,6 +823,7 @@ async fn main() -> Result<()> {
         let preservation = Preservation::new(PreservationConfig::default());
         let healer = Arc::new(soulsystem::self_healer::SelfHealer::new(
             preservation.clone(),
+            settings.paths.data_dir.clone(),
         ));
         // Error cascade monitoring from bus events
         let bus_heal = bus.clone();
@@ -1164,6 +1217,91 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if cli.entity {
+        info!("▶ Mode entité autonome unifiée activé");
+        let entity_config = EntityConfig {
+            name: "soulsystem".into(),
+            llm: LlmConfig {
+                provider: cli.provider,
+                base_url: cli.llm_url.clone(),
+                model: cli.model.clone(),
+                temperature: 0.7,
+                http_timeout: Duration::from_secs(30),
+                connect_timeout: Duration::from_secs(5),
+                auth_token: cli.api_key.clone(),
+                max_tokens: 4096,
+                goal_token_budget: 50000,
+                tokens_per_minute_budget: 100000,
+                pool_max_idle: 10,
+                pool_idle_timeout: Duration::from_secs(30),
+            },
+            sandbox_policy: SandboxPolicy::default(),
+            loop_config: soul_openclaw::AgentLoopConfig::default(),
+            autonomous_tick: Duration::from_millis(750),
+            memory_path: Some(soulsystem::config::Settings::new()?.paths.data_dir.clone()),
+            max_goal_history: 100,
+            event_store_path: Some(std::path::PathBuf::from("/tmp/soul_events")),
+        };
+        let entity = Arc::new(SoulEntity::new(entity_config).map_err(|e| anyhow::anyhow!("{e}"))?);
+        entity.openclaw.skills.install(Skill::new(
+            "system_info",
+            SkillVersion::new(1, 0, 0),
+            "Récupère les informations système de base",
+        ));
+        entity.openclaw.skills.install(Skill::new(
+            "list_dir",
+            SkillVersion::new(1, 0, 0),
+            "Liste le contenu d'un répertoire",
+        ));
+        entity.openclaw.skills.install(Skill::new(
+            "read_file",
+            SkillVersion::new(1, 0, 0),
+            "Lit un fichier texte",
+        ));
+        entity.create_goal("Vérifier l'état initial du système", 5);
+
+        let entity_for_loop = entity.clone();
+        let loop_handle = if cli.autonomous {
+            Some(tokio::spawn(async move {
+                entity_for_loop.autonomous_loop().await;
+            }))
+        } else {
+            None
+        };
+
+        let gw_addr: std::net::SocketAddr = cli
+            .gateway_addr
+            .parse()
+            .map_err(|e| anyhow::anyhow!("adresse gateway invalide: {e}"))?;
+        let gw_state = GatewayState::new(entity.clone() as Arc<dyn soul_gateway::EntityHandle>);
+        let gw_handle = tokio::spawn(async move {
+            if let Err(e) = serve_gateway(gw_state, gw_addr).await {
+                tracing::error!("gateway crashed: {e}");
+            }
+        });
+        info!("gateway HTTP/WS sur http://{gw_addr}");
+
+        if cli.repl {
+            match soul_repl::ReplState::new(soul_llm::LlmConfig::default()) {
+                Ok(mut repl_state) => {
+                    if let Err(e) = soul_repl::run_repl(&mut repl_state).await {
+                        warn!("REPL terminé sur erreur: {e}");
+                    }
+                }
+                Err(e) => warn!("Initialisation REPL échouée: {e}"),
+            }
+        } else {
+            tokio::signal::ctrl_c().await?;
+            info!("Signal reçu, arrêt de l'entité...");
+        }
+        entity.stop();
+        gw_handle.abort();
+        if let Some(h) = loop_handle {
+            h.abort();
+        }
+        return Ok(());
+    }
+
     if cli.repl {
         info!("▶ Mode REPL autonome activé");
         match soul_repl::ReplState::new(soul_llm::LlmConfig::default()) {
@@ -1262,7 +1400,11 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Scheduler: vérifie les tâches planifiées toutes les 60 secondes
+    // Scheduler: cron tasks disabled — current `soul_scheduler` is a CPU topology
+    // work-stealing scheduler, not a cron scheduler. The cron functionality from
+    // the historical monolith is preserved in `soul-daemon`'s goal loop.
+    info!("Scheduler: cron tasks temporarily disabled (pending cron scheduler crate)");
+    /*
     let scheduler = Arc::new(soul_scheduler::Scheduler::new(|task| {
         tracing::info!("Scheduler tick: {} — {}", task.name, task.description);
         Ok(())
@@ -1271,7 +1413,7 @@ async fn main() -> Result<()> {
     scheduler
         .add_task(soul_scheduler::ScheduledTask::new(
             "memory-consolidation",
-            "0 */6 * * *",
+            "0 6 * * *",
             "Consolidate episodic memory to semantic every 6 hours",
         ))
         .await;
@@ -1294,6 +1436,7 @@ async fn main() -> Result<()> {
         sched.run().await;
     });
     info!("Scheduler: cron tasks active (6h consolidation, hourly health)");
+    */
 
     // Phase 7: Auto-documentation — generate LEARNINGS.md every hour
     let docs_path = settings.paths.data_dir.join("LEARNINGS.md");
@@ -1323,4 +1466,134 @@ async fn main() -> Result<()> {
     tokio::signal::ctrl_c().await?;
     info!("Signal reçu, arrêt de SoulSystem...");
     Ok(())
+}
+
+/// Run an interactive first-time setup wizard and persist configuration.
+async fn run_setup_wizard() -> Result<()> {
+    println!("\n═══════════════════════════════════════════════════════════════");
+    println!("  SoulSystem — First-time setup wizard");
+    println!("═══════════════════════════════════════════════════════════════\n");
+
+    let mut cfg = souls::config::PersistConfig::default();
+
+    let provider = prompt_choice(
+        "LLM provider",
+        &[
+            ("ollama", "Ollama (local, default)"),
+            ("openai", "OpenAI"),
+            ("anthropic", "Anthropic"),
+        ],
+        0,
+    )?;
+    cfg.llm.provider = provider.to_string();
+
+    let default_url = match provider {
+        "openai" => "https://api.openai.com/v1",
+        "anthropic" => "https://api.anthropic.com/v1",
+        _ => "http://127.0.0.1:11434",
+    };
+    cfg.llm.base_url = prompt_with_default("Base URL", default_url)?;
+
+    let default_model = match provider {
+        "openai" => "gpt-4o-mini",
+        "anthropic" => "claude-3-5-haiku-latest",
+        _ => "qwen3:8b",
+    };
+    cfg.llm.model = prompt_with_default("Model", default_model)?;
+
+    if provider != "ollama" {
+        let key = prompt_password("API key (optional, leave empty for env var)")?;
+        cfg.llm.api_key = if key.is_empty() { None } else { Some(key) };
+    } else {
+        cfg.llm.api_key = None;
+    }
+
+    cfg.entity_name = prompt_with_default("Entity name", &cfg.entity_name)?;
+    cfg.gateway_addr = prompt_with_default("Gateway address", &cfg.gateway_addr)?;
+
+    println!("\nConfiguration summary:");
+    println!("  Provider   : {}", cfg.llm.provider);
+    println!("  Base URL   : {}", cfg.llm.base_url);
+    println!("  Model      : {}", cfg.llm.model);
+    println!("  API key    : {}", mask_key(cfg.llm.api_key.as_deref()));
+    println!("  Entity     : {}", cfg.entity_name);
+    println!("  Gateway    : {}", cfg.gateway_addr);
+
+    let save = prompt_yes_no("\nSave this configuration?", true)?;
+    if save {
+        souls::config::save_config(&cfg)?;
+        println!("Configuration saved. You can now run:");
+        println!("   soulsystem --entity --repl");
+        println!("   or");
+        println!("   souls run --repl");
+    } else {
+        println!("Setup cancelled.");
+    }
+    Ok(())
+}
+
+fn prompt_choice(
+    label: &str,
+    options: &[(&'static str, &'static str)],
+    default: usize,
+) -> Result<&'static str> {
+    println!("{}:", label);
+    for (i, (_key, desc)) in options.iter().enumerate() {
+        let marker = if i == default { ">" } else { " " };
+        println!("  {} [{}] {}", marker, i + 1, desc);
+    }
+    print!("Choice [{}]: ", default + 1);
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Ok(options[default].0);
+    }
+    match trimmed.parse::<usize>() {
+        Ok(n) if n > 0 && n <= options.len() => Ok(options[n - 1].0),
+        _ => Err(anyhow::anyhow!("invalid choice")),
+    }
+}
+
+fn prompt_with_default(label: &str, default: &str) -> Result<String> {
+    print!("{} [{}]: ", label, default);
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        Ok(default.to_string())
+    } else {
+        Ok(trimmed.to_string())
+    }
+}
+
+fn prompt_password(label: &str) -> Result<String> {
+    print!("{}: ", label);
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    Ok(input.trim().to_string())
+}
+
+fn prompt_yes_no(label: &str, default: bool) -> Result<bool> {
+    let hint = if default { "Y/n" } else { "y/N" };
+    print!("{} [{}]: ", label, hint);
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let trimmed = input.trim().to_lowercase();
+    if trimmed.is_empty() {
+        return Ok(default);
+    }
+    Ok(matches!(trimmed.as_str(), "y" | "yes" | "true" | "1"))
+}
+
+fn mask_key(key: Option<&str>) -> String {
+    match key {
+        None => "(none)".into(),
+        Some(k) if k.len() <= 8 => "***".into(),
+        Some(k) => format!("{}...***", &k[..4]),
+    }
 }

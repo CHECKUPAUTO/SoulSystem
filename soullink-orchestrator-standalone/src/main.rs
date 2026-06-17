@@ -3,8 +3,6 @@
 //! NOTE: les structs d'API mesh (QueryRequest, BrainStats...) sont
 //! l'échafaudage du protocole v3, pas encore toutes câblées — d'où le
 //! allow(dead_code) global en attendant.
-#![allow(dead_code)]
-//!
 //! Remplace brain_orchestrator.py
 //! Architecture: axum + tokio + dashmap + reqwest
 //!
@@ -14,6 +12,8 @@
 //!   - Registry lock-free (DashMap)
 //!   - Métriques Prometheus (/metrics)
 //!   - Auto-spawn via Command::new
+
+#![allow(dead_code)]
 
 use axum::{
     routing::{get, post},

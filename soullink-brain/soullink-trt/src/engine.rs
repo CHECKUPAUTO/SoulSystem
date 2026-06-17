@@ -114,9 +114,12 @@ impl TrtEngine {
             if !self.loaded {
                 return Err(TrtError::Init("Engine not loaded".into()));
             }
-            // NOTE: Create session, invoke C++ generate, collect tokens
+            // C++ FFI bridge not yet implemented — return clear error.
+            // When available, this will: create session, invoke C++ generate, collect tokens.
             let _ = (prompt, gen_config);
-            Err(TrtError::Init("TRT generation FFI not implemented".into()))
+            Err(TrtError::FfiNotImplemented(
+                "C++ FFI bridge for TensorRT-LLM generate()".into(),
+            ))
         }
     }
 
@@ -139,9 +142,12 @@ impl TrtEngine {
             if !self.loaded {
                 return Err(TrtError::Init("Engine not loaded".into()));
             }
-            // NOTE: tokio::sync::mpsc channel, C++ callbacks push chunks
+            // C++ FFI bridge not yet implemented — return clear error.
+            // When available, this will: create mpsc channel, C++ callbacks push chunks.
             let _ = (prompt, gen_config);
-            Err(TrtError::Init("TRT streaming FFI not implemented".into()))
+            Err(TrtError::FfiNotImplemented(
+                "C++ FFI bridge for TensorRT-LLM generate_stream()".into(),
+            ))
         }
     }
 

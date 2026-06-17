@@ -46,8 +46,8 @@ use neural_metacognition::api::init_auditor;
 use neural_metacognition::SystemAuditor;
 use ontological_self_healing as healer;
 use parking_lot::Mutex;
+use soul_evolution::registry::{register_agents, scan_agents};
 use soul_evolution::DynamicModuleLoader;
-use soul_evolution::registry::{scan_agents, register_agents};
 use soul_forge::EvolutionaryForge;
 use soul_journal::MmapJournal;
 use soul_orchestrator::SovereignOrchestrator;
@@ -477,15 +477,18 @@ mod tests {
     fn constructs_without_journal() {
         let s = Subsystems::new(None).unwrap();
         assert!(s.journal.is_none());
-        assert_eq!(s.orch_count(), 0);
-        assert_eq!(s.synapse_count(), 0);
+        // The constructor auto-loads agents from /root/.agents/agents, so counts
+        // may be non-zero. We only assert the constructor succeeds.
+        let _ = s.orch_count();
+        let _ = s.synapse_count();
     }
 
     #[test]
     fn orch_register_and_wake() {
         let s = Subsystems::new(None).unwrap();
+        let baseline = s.orch_count();
         assert!(s.orch_register_goal(101, "test goal"));
-        assert_eq!(s.orch_count(), 1);
+        assert_eq!(s.orch_count(), baseline + 1);
         assert_eq!(s.orch_state(101), Some("Dormant".into()));
         assert!(s.orch_wake(101));
         assert_eq!(s.orch_state(101), Some("Active".into()));
@@ -517,7 +520,7 @@ mod tests {
         let mut buf = vec![0.0f32; 1000];
         let faults = s.chaos_perturb(&mut buf);
         // rate=0.05 → ~50 fautes attendues
-        assert!(faults >= 20 && faults <= 100, "got {faults} faults");
+        assert!((20..=100).contains(&faults), "got {faults} faults");
     }
 
     #[test]

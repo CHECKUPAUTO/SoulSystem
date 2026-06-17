@@ -80,10 +80,15 @@ impl ClusterNode {
                 return None;
             }
 
-            let src_agent = unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(4) as *const u32) };
-            let dst_agent = unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(8) as *const u32) };
-            let signal = unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(12) as *const u32) };
-            let payload_len = unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(16) as *const u32) } as usize;
+            let src_agent =
+                unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(4) as *const u32) };
+            let dst_agent =
+                unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(8) as *const u32) };
+            let signal =
+                unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(12) as *const u32) };
+            let payload_len =
+                unsafe { std::ptr::read_unaligned(incoming.as_ptr().add(16) as *const u32) }
+                    as usize;
 
             if payload_len > MAX_PAYLOAD_LEN {
                 return None;

@@ -28,7 +28,7 @@ assignees: ''
 
 - OS: [e.g. Debian 12]
 - Rust version: `rustc --version`
-- Component: [e.g. SoulLink Orchestrator, OpenClaw-U, AVID]
+- Component: [e.g. SoulLink Orchestrator, SoulKernel AVID]
 - Version/Commit:
 
 ## Logs / Screenshots

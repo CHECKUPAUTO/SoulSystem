@@ -1,0 +1,11 @@
+[package]
+name = "soul-error-unifier"
+version = "0.1.0"
+edition = "2021"
+description = "Unified global error function E_t = Σ w_i E_i for SoulSystem adaptive agent"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }

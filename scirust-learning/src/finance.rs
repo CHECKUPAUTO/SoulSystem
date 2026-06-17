@@ -50,7 +50,11 @@ pub fn rsi(data: &[f64], period: usize) -> Vec<f64> {
 
     for i in (period + 1)..data.len() {
         let diff = data[i] - data[i - 1];
-        let (gain, loss) = if diff >= 0.0 { (diff, 0.0) } else { (0.0, -diff) };
+        let (gain, loss) = if diff >= 0.0 {
+            (diff, 0.0)
+        } else {
+            (0.0, -diff)
+        };
 
         avg_gain = (avg_gain * (period as f64 - 1.0) + gain) / period as f64;
         avg_loss = (avg_loss * (period as f64 - 1.0) + loss) / period as f64;
@@ -77,7 +81,11 @@ pub fn bollinger_bands(data: &[f64], period: usize, k: f64) -> Vec<(f64, f64, f6
     for i in 0..=(data.len() - period) {
         let window = &data[i..(i + period)];
         let middle_band: f64 = window.iter().sum::<f64>() / period as f64;
-        let variance: f64 = window.iter().map(|&x| (x - middle_band).powi(2)).sum::<f64>() / period as f64;
+        let variance: f64 = window
+            .iter()
+            .map(|&x| (x - middle_band).powi(2))
+            .sum::<f64>()
+            / period as f64;
         let std_dev = variance.sqrt();
         results.push((
             middle_band + k * std_dev,
@@ -90,7 +98,12 @@ pub fn bollinger_bands(data: &[f64], period: usize, k: f64) -> Vec<(f64, f64, f6
 
 /// Moving Average Convergence Divergence (MACD)
 /// Returns (MACD Line, Signal Line, Histogram)
-pub fn macd(data: &[f64], fast_period: usize, slow_period: usize, signal_period: usize) -> Vec<(f64, f64, f64)> {
+pub fn macd(
+    data: &[f64],
+    fast_period: usize,
+    slow_period: usize,
+    signal_period: usize,
+) -> Vec<(f64, f64, f64)> {
     let ema_fast = ema(data, fast_period);
     let ema_slow = ema(data, slow_period);
 
@@ -159,7 +172,10 @@ mod tests {
 
     #[test]
     fn test_rsi() {
-        let data = vec![44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.10, 45.42, 45.84, 46.08, 45.89, 46.03, 45.61, 46.28, 46.28, 46.00];
+        let data = vec![
+            44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.10, 45.42, 45.84, 46.08, 45.89, 46.03,
+            45.61, 46.28, 46.28, 46.00,
+        ];
         let period = 14;
         let result = rsi(&data, period);
         assert_eq!(result.len(), 2);
@@ -208,7 +224,9 @@ mod tests {
 
     #[test]
     fn test_value_at_risk() {
-        let returns = vec![-0.05, -0.02, 0.01, 0.03, 0.05, -0.10, 0.02, 0.04, -0.01, 0.01];
+        let returns = vec![
+            -0.05, -0.02, 0.01, 0.03, 0.05, -0.10, 0.02, 0.04, -0.01, 0.01,
+        ];
         // Sorted: [-0.10, -0.05, -0.02, -0.01, 0.01, 0.01, 0.02, 0.02, 0.03, 0.04, 0.05]
         // Len = 10. confidence = 0.90 => alpha = 0.10. Index = floor(0.1 * 10) = 1
         // returns[1] = -0.05. VaR = 0.05

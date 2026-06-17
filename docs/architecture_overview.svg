@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="820" viewBox="0 0 1100 820">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="brain" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#6d28d9"/>
+    </linearGradient>
+    <linearGradient id="entity" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="sci" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+    <linearGradient id="guard" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ef4444"/>
+      <stop offset="100%" stop-color="#b91c1c"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  <rect width="1100" height="820" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="550" y="40" text-anchor="middle" fill="#f8fafc" font-family="system-ui, sans-serif" font-size="24" font-weight="bold">SoulSystem Architecture Overview</text>
+  <text x="550" y="68" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="13">149 workspace crates · unified Rust monorepo · autonomous digital agent ecosystem</text>
+
+  <!-- Core runtime -->
+  <g transform="translate(50,100)">
+    <rect width="240" height="120" rx="12" fill="url(#core)" filter="url(#shadow)"/>
+    <text x="120" y="28" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="15" font-weight="bold">SoulSystem Core</text>
+    <text x="120" y="55" text-anchor="middle" fill="#dbeafe" font-family="system-ui, sans-serif" font-size="11">soulsystem (bin) · config · bus ·</text>
+    <text x="120" y="73" text-anchor="middle" fill="#dbeafe" font-family="system-ui, sans-serif" font-size="11">memory_hub · audit_log · telemetry ·</text>
+    <text x="120" y="91" text-anchor="middle" fill="#dbeafe" font-family="system-ui, sans-serif" font-size="11">code_signing · self_healer · ws_bridge</text>
+  </g>
+
+  <!-- SoulLink Brain -->
+  <g transform="translate(350,100)">
+    <rect width="260" height="120" rx="12" fill="url(#brain)" filter="url(#shadow)"/>
+    <text x="130" y="28" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="15" font-weight="bold">SoulLink Neural Mesh</text>
+    <text x="130" y="55" text-anchor="middle" fill="#ede9fe" font-family="system-ui, sans-serif" font-size="11">soullink-core · soullink-inference ·</text>
+    <text x="130" y="73" text-anchor="middle" fill="#ede9fe" font-family="system-ui, sans-serif" font-size="11">soullink-memory · soullink-reasoning ·</text>
+    <text x="130" y="91" text-anchor="middle" fill="#ede9fe" font-family="system-ui, sans-serif" font-size="11">orchestrator · autonomy · circuit · rag</text>
+  </g>
+
+  <!-- Autonomous Entity -->
+  <g transform="translate(670,100)">
+    <rect width="260" height="120" rx="12" fill="url(#entity)" filter="url(#shadow)"/>
+    <text x="130" y="28" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="15" font-weight="bold">Autonomous Entity</text>
+    <text x="130" y="55" text-anchor="middle" fill="#d1fae5" font-family="system-ui, sans-serif" font-size="11">soul_agent_core · soul_llm · soul_planner ·</text>
+    <text x="130" y="73" text-anchor="middle" fill="#d1fae5" font-family="system-ui, sans-serif" font-size="11">soul_tools · soul_sandbox · soul_repl ·</text>
+    <text x="130" y="91" text-anchor="middle" fill="#d1fae5" font-family="system-ui, sans-serif" font-size="11">soul-daemon · souls · soul_entity</text>
+  </g>
+
+  <!-- SciRust -->
+  <g transform="translate(50,260)">
+    <rect width="240" height="100" rx="12" fill="url(#sci)" filter="url(#shadow)"/>
+    <text x="120" y="26" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="15" font-weight="bold">SciRust Compute</text>
+    <text x="120" y="53" text-anchor="middle" fill="#fef3c7" font-family="system-ui, sans-serif" font-size="11">scirust-core · autodiff · symbolic ·</text>
+    <text x="120" y="71" text-anchor="middle" fill="#fef3c7" font-family="system-ui, sans-serif" font-size="11">simd · gpu · learning · trading pipeline</text>
+  </g>
+
+  <!-- CCOS -->
+  <g transform="translate(350,260)">
+    <rect width="260" height="100" rx="12" fill="#06b6d4" filter="url(#shadow)"/>
+    <text x="130" y="26" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="15" font-weight="bold">CCOS</text>
+    <text x="130" y="53" text-anchor="middle" fill="#ccfbf1" font-family="system-ui, sans-serif" font-size="11">Causal Context Operating System —</text>
+    <text x="130" y="71" text-anchor="middle" fill="#ccfbf1" font-family="system-ui, sans-serif" font-size="11">event log · consensus · memory · scheduler</text>
+  </g>
+
+  <!-- Security / Semantic -->
+  <g transform="translate(670,260)">
+    <rect width="260" height="100" rx="12" fill="url(#guard)" filter="url(#shadow)"/>
+    <text x="130" y="26" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="15" font-weight="bold">Guard &amp; Semantic Layer</text>
+    <text x="130" y="53" text-anchor="middle" fill="#fee2e2" font-family="system-ui, sans-serif" font-size="11">semantic_firewall · semantic_neuromodulator ·</text>
+    <text x="130" y="71" text-anchor="middle" fill="#fee2e2" font-family="system-ui, sans-serif" font-size="11">soul_guard · BoundSystem sandbox · critique</text>
+  </g>
+
+  <!-- Data plane -->
+  <g transform="translate(50,400)">
+    <rect width="880" height="90" rx="12" fill="#334155" filter="url(#shadow)"/>
+    <text x="440" y="28" text-anchor="middle" fill="#f8fafc" font-family="system-ui, sans-serif" font-size="15" font-weight="bold">Unified Data &amp; Memory Plane</text>
+    <text x="440" y="55" text-anchor="middle" fill="#cbd5e1" font-family="system-ui, sans-serif" font-size="11">soul-memory (sled-backed vector store) · soul-memory-hierarchy · soul_persistence · soul_journal · knowledge graph ·</text>
+    <text x="440" y="73" text-anchor="middle" fill="#cbd5e1" font-family="system-ui, sans-serif" font-size="11">semantic memory · audit chain · checkpoint/rollback · compaction · event bus (tokio broadcast / mpsc)</text>
+  </g>
+
+  <!-- Bridge layer -->
+  <g transform="translate(50,520)">
+    <rect width="880" height="90" rx="12" fill="#475569" filter="url(#shadow)"/>
+    <text x="440" y="28" text-anchor="middle" fill="#f8fafc" font-family="system-ui, sans-serif" font-size="15" font-weight="bold">Unified Bridge Layer</text>
+    <text x="440" y="55" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="11">soul-bridge replaces 9 legacy bridges: avid · brain · mesh · openevolve · organs · services · soul_neural · synergie · orchestrator</text>
+    <text x="440" y="73" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="11">HTTP/WS mesh protocol · bridge probe API · AVID/ONAEU health relay · multi-agent aggregation</text>
+  </g>
+
+  <!-- Tooling / UX -->
+  <g transform="translate(50,640)">
+    <rect width="420" height="100" rx="12" fill="#0ea5e9" filter="url(#shadow)"/>
+    <text x="210" y="26" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="15" font-weight="bold">Interfaces &amp; Tooling</text>
+    <text x="210" y="53" text-anchor="middle" fill="#e0f2fe" font-family="system-ui, sans-serif" font-size="11">soul_repl (TUI) · soulsystem CLI · axum/WS gateway ·</text>
+    <text x="210" y="71" text-anchor="middle" fill="#e0f2fe" font-family="system-ui, sans-serif" font-size="11">HTTP REST bridge API · telegram bot · web dashboard ·</text>
+    <text x="210" y="89" text-anchor="middle" fill="#e0f2fe" font-family="system-ui, sans-serif" font-size="11">Prometheus metrics · tracing/OTLP telemetry</text>
+  </g>
+
+  <!-- External providers -->
+  <g transform="translate(510,640)">
+    <rect width="420" height="100" rx="12" fill="#64748b" filter="url(#shadow)"/>
+    <text x="210" y="26" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="15" font-weight="bold">External Attachments</text>
+    <text x="210" y="53" text-anchor="middle" fill="#f1f5f9" font-family="system-ui, sans-serif" font-size="11">LLM providers: Ollama · OpenAI · Anthropic ·</text>
+    <text x="210" y="71" text-anchor="middle" fill="#f1f5f9" font-family="system-ui, sans-serif" font-size="11">browser automation · webfetch · shell/sandbox ·</text>
+    <text x="210" y="89" text-anchor="middle" fill="#f1f5f9" font-family="system-ui, sans-serif" font-size="11">MCP servers · GitHub · Telegram · optional GPU/CUDA</text>
+  </g>
+
+  <!-- Connecting lines -->
+  <g stroke="#64748b" stroke-width="1.5" fill="none" opacity="0.6">
+    <path d="M170 220 L170 260"/>
+    <path d="M480 220 L480 260"/>
+    <path d="M800 220 L800 260"/>
+    <path d="M170 360 L170 400"/>
+    <path d="M480 360 L480 400"/>
+    <path d="M800 360 L800 400"/>
+    <path d="M490 490 L490 520"/>
+    <path d="M260 610 L260 640"/>
+    <path d="M720 610 L720 640"/>
+  </g>
+
+  <!-- Legend -->
+  <g transform="translate(50,760)">
+    <text x="0" y="0" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="11">Arrows: data/control flow · Colors: functional domain · All layers compile under a single Cargo workspace with resolver v2.</text>
+  </g>
+</svg>

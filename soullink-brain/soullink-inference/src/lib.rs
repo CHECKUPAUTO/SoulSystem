@@ -20,6 +20,7 @@
 pub mod batch;
 pub mod engine;
 pub mod hardware;
+pub mod mtp;
 pub mod router;
 pub mod standby;
 pub mod turboquant;

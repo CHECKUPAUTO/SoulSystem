@@ -254,10 +254,8 @@ async fn api_safety(
                         violations.push("potential_harm".to_string());
                     }
                 }
-                "no_deception" => {
-                    if lower.contains("pretend") && lower.contains("not") {
-                        violations.push("potential_deception".to_string());
-                    }
+                "no_deception" if lower.contains("pretend") && lower.contains("not") => {
+                    violations.push("potential_deception".to_string());
                 }
                 _ => {}
             }

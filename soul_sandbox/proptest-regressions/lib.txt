@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc f595e9354c731d90138a0de817fcfeff6cbc9721fe412b38455218ac00fca6b1 # shrinks to bin = "a", args = [".", "/"]
+cc b0a49b04192728c5deab362c62fcb147d0eedc6e6015a24665db2112478039e0 # shrinks to cmd = ":(){ :|:& };:"

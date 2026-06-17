@@ -16,6 +16,8 @@ pub enum TrtError {
     OutOfMemory(String),
     #[error("TensorRT-LLM feature is disabled. Fallback to Ollama required.")]
     FeatureDisabled,
+    #[error("TensorRT-LLM FFI not yet implemented. Fallback to Ollama. (Planned: {0})")]
+    FfiNotImplemented(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

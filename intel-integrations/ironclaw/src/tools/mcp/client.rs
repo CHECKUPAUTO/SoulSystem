@@ -1790,10 +1790,14 @@ mod tests {
                 _user_id: &str,
                 _params: CreateSecretParams,
             ) -> Result<Secret, SecretError> {
-                unimplemented!()
+                Err(SecretError::NotFound(
+                    "create not used in this test".into(),
+                ))
             }
             async fn get(&self, _user_id: &str, _name: &str) -> Result<Secret, SecretError> {
-                unimplemented!()
+                Err(SecretError::NotFound(
+                    "get not used in this test".into(),
+                ))
             }
             async fn get_decrypted(
                 &self,
@@ -1855,10 +1859,14 @@ mod tests {
                 _user_id: &str,
                 _params: CreateSecretParams,
             ) -> Result<Secret, SecretError> {
-                unimplemented!()
+                Err(SecretError::NotFound(
+                    "create not used in this test".into(),
+                ))
             }
             async fn get(&self, _user_id: &str, _name: &str) -> Result<Secret, SecretError> {
-                unimplemented!()
+                Err(SecretError::NotFound(
+                    "get not used in this test".into(),
+                ))
             }
             async fn get_decrypted(
                 &self,

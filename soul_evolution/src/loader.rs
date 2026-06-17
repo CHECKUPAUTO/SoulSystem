@@ -57,9 +57,7 @@ impl DynamicModuleLoader {
             let msg = if err.is_null() {
                 "unknown error".to_string()
             } else {
-                std::ffi::CStr::from_ptr(err)
-                    .to_string_lossy()
-                    .into_owned()
+                std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned()
             };
             tracing::error!(
                 path = %library_path,
@@ -78,9 +76,7 @@ impl DynamicModuleLoader {
             let msg = if err.is_null() {
                 "unknown error".to_string()
             } else {
-                std::ffi::CStr::from_ptr(err)
-                    .to_string_lossy()
-                    .into_owned()
+                std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned()
             };
             libc::dlclose(handle);
             tracing::error!(

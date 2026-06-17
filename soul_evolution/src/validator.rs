@@ -143,9 +143,7 @@ impl Validator {
         Self::validate_agent_file(&proposal.template_content)
     }
 
-    pub fn validate_batch(
-        proposals: &[ImprovementProposal],
-    ) -> Vec<(String, ValidationResult)> {
+    pub fn validate_batch(proposals: &[ImprovementProposal]) -> Vec<(String, ValidationResult)> {
         proposals
             .iter()
             .map(|p| {
@@ -159,18 +157,9 @@ impl Validator {
         let mut out = String::new();
         use std::fmt::Write;
 
-        let _ = writeln!(
-            out,
-            "╔══════════════════════════════════════════════╗"
-        );
-        let _ = writeln!(
-            out,
-            "║           VALIDATION RESULTS                  ║"
-        );
-        let _ = writeln!(
-            out,
-            "╚══════════════════════════════════════════════╝"
-        );
+        let _ = writeln!(out, "╔══════════════════════════════════════════════╗");
+        let _ = writeln!(out, "║           VALIDATION RESULTS                  ║");
+        let _ = writeln!(out, "╚══════════════════════════════════════════════╝");
         let _ = writeln!(out);
 
         let valid_count = results.iter().filter(|r| r.1.valid).count();
@@ -178,7 +167,11 @@ impl Validator {
         let _ = writeln!(out, "  {}/{} proposals valid", valid_count, total);
 
         for (id, result) in results {
-            let status = if result.valid { "✓ VALID" } else { "✗ INVALID" };
+            let status = if result.valid {
+                "✓ VALID"
+            } else {
+                "✗ INVALID"
+            };
             let _ = writeln!(out, "  [{}] {}", id, status);
 
             for err in &result.errors {
@@ -224,10 +217,7 @@ impl Validator {
             }
         }
 
-        let _ = writeln!(
-            out,
-            "────────────────────────────────────────────"
-        );
+        let _ = writeln!(out, "────────────────────────────────────────────");
         out
     }
 }

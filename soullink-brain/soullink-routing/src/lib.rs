@@ -117,6 +117,7 @@ pub struct ComplexityScorer {
 struct PatternOverride {
     regex: Regex,
     tier: Tier,
+    #[allow(dead_code)]
     name: String,
 }
 

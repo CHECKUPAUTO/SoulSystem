@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use soul_telemetry::{TelemetryHub, PrometheusExporter, gather_metrics};
+    use soul_telemetry::{gather_metrics, PrometheusExporter, TelemetryHub};
 
     #[test]
     fn telemetry_hub_integration() {

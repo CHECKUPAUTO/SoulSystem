@@ -276,7 +276,7 @@ impl Agent {
         let stats = crate::reporter::build_stats(&filtered);
         let elapsed_ms = t0.elapsed().as_millis() as u64;
         let mut languages: HashMap<String, usize> = HashMap::new();
-        for (_, idx) in ctx.file_index.iter() {
+        for idx in ctx.file_index.values() {
             for (lang, files) in &idx.by_lang {
                 *languages.entry(format!("{:?}", lang)).or_default() += files.len();
             }
@@ -369,7 +369,7 @@ impl Agent {
 
     async fn apply_top_actions(&self, report: &ScanReport) {
         let threshold = self.cfg.agent.action_threshold;
-        let cap = self.cfg.agent.max_actions_per_tick.max(0);
+        let cap = self.cfg.agent.max_actions_per_tick;
         if cap == 0 {
             return;
         }

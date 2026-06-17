@@ -90,6 +90,7 @@ async fn sse_handler(
                     Message::Custom { topic, payload } => {
                         serde_json::json!({"type": "custom", "topic": topic, "payload": payload})
                     }
+                    _ => serde_json::json!({"type": "unknown"}),
                 };
                 Event::default().data(serde_json::to_string(&data).unwrap_or_default())
             }
