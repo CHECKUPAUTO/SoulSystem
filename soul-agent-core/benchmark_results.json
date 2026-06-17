@@ -1,0 +1,76 @@
+{
+  "benchmarks": [
+    {
+      "operation": "LLM Chat Call",
+      "time_ms": 10.152003401890397,
+      "ops_per_sec": 98.5027250693977,
+      "iterations": 10
+    },
+    {
+      "operation": "Tool Execution",
+      "time_ms": 3.065200289711356e-05,
+      "ops_per_sec": 32624295.49405295,
+      "iterations": 10000
+    },
+    {
+      "operation": "Memory Store",
+      "time_ms": 2.9637303669005632e-05,
+      "ops_per_sec": 33741261.05290034,
+      "iterations": 10000
+    },
+    {
+      "operation": "Memory Search",
+      "time_ms": 2.9628799529746176e-05,
+      "ops_per_sec": 33750945.56213924,
+      "iterations": 10000
+    },
+    {
+      "operation": "Message Parsing",
+      "time_ms": 0.0015128059900598601,
+      "ops_per_sec": 661023.2948379793,
+      "iterations": 100000
+    }
+  ],
+  "comparisons": [
+    {
+      "operation": "LLM Chat Call",
+      "base_time_ms": 10,
+      "python_overhead_ms": 5,
+      "rust_overhead_ms": 0.1,
+      "speedup": 1.4851485148514851
+    },
+    {
+      "operation": "Tool Execution",
+      "base_time_ms": 0.1,
+      "python_overhead_ms": 5,
+      "rust_overhead_ms": 0.1,
+      "speedup": 25.499999999999996
+    },
+    {
+      "operation": "Memory Store",
+      "base_time_ms": 0.5,
+      "python_overhead_ms": 5,
+      "rust_overhead_ms": 0.1,
+      "speedup": 9.166666666666668
+    },
+    {
+      "operation": "Memory Search",
+      "base_time_ms": 2.0,
+      "python_overhead_ms": 5,
+      "rust_overhead_ms": 0.1,
+      "speedup": 3.333333333333333
+    },
+    {
+      "operation": "Message Parsing",
+      "base_time_ms": 0.01,
+      "python_overhead_ms": 5,
+      "rust_overhead_ms": 0.1,
+      "speedup": 45.54545454545455
+    }
+  ],
+  "summary": {
+    "avg_speedup": 2.8688024408848207,
+    "total_python_time_ms": 37.61,
+    "total_rust_time_ms": 13.11
+  }
+}

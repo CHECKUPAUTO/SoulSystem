@@ -7,6 +7,22 @@
 //! - Safety warnings and turn limits
 //! - Task queue with abort support
 //! - Memory distillation
+//!
+//! ## Framework API
+//!
+//! This crate provides a public framework API via traits that can be implemented
+//! by external crates:
+//!
+//! - [`Agent`] — Core agent interface (run_task, ask)
+//! - [`Memory`] — Hierarchical memory interface (store, retrieve, search)
+//! - [`Tool`] — Tool interface with schema and execution
+//! - [`LLMClient`] — Multi-provider LLM interface
+//! - [`Planner`] — Goal decomposition and decision making
+//!
+//! See [`builder`] module for the `AgentBuilder` to compose agents from components.
+
+pub mod builder;
+pub mod traits;
 
 use chrono::Utc;
 use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolSchema};
