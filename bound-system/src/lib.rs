@@ -175,10 +175,20 @@ impl BoundSystem {
             );
         }
 
+        // Mirror execute()'s strict policy: a requested sandbox must never be
+        // silently downgraded to direct execution. If isolation was asked for
+        // but bwrap is missing, refuse rather than streaming unsandboxed.
+        if self.use_sandbox && !Self::bwrap_available() {
+            anyhow::bail!(
+                "BoundSystem: sandbox requested but bwrap is not available. \
+                 Install bubblewrap or set use_sandbox=false pour exécuter directement."
+            );
+        }
+
         let (tx, rx) = mpsc::unbounded_channel();
         let (pid_tx, pid_rx) = tokio::sync::oneshot::channel();
         let cmd_str = command.to_string();
-        let use_sandbox = self.use_sandbox && Self::bwrap_available();
+        let use_sandbox = self.use_sandbox;
         let timeout = self.timeout;
         let audit = self.audit.clone();
 
@@ -495,6 +505,19 @@ mod tests {
         let bs = BoundSystem::new(vec![]).without_sandbox();
         let result = bs.execute("date").await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_execute_streaming_refuses_sandbox_without_bwrap() {
+        // Sandbox on by default; if bwrap is unavailable the streaming path must
+        // refuse rather than silently degrade to unsandboxed execution.
+        if BoundSystem::bwrap_available() {
+            return; // environment has bwrap; strict-refusal path not exercised
+        }
+        let bs = BoundSystem::new(vec!["echo".into()]); // use_sandbox = true
+        let result = bs.execute_streaming("echo hello").await;
+        assert!(result.is_err(), "must refuse, not fall back to direct exec");
+        assert!(result.unwrap_err().to_string().contains("bwrap is not available"));
     }
 
     #[tokio::test]

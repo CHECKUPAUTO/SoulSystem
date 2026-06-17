@@ -9403,6 +9403,7 @@ dependencies = [
  "soul_skills",
  "soul_tools",
  "soullink-autonomy",
+ "soullink-gate",
  "soullink-memory-hierarchy",
  "soullink-reasoning",
  "soullink-trainer",

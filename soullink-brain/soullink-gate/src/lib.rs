@@ -220,16 +220,28 @@ impl ApprovalGate {
         self.permissions.write().await.always_deny(tool, scope);
     }
 
-    /// Save permissions to file (debug format for v0.1).
+    /// Persist the permission store to `path` as JSON, so always-allow /
+    /// always-deny decisions survive a restart.
     pub async fn save(&self, path: impl AsRef<Path>) -> Result<(), GateError> {
         let perms = self.permissions.read().await;
-        let data = format!("{:?}", perms);
-        tokio::fs::write(path, &data).await?;
+        let data = serde_json::to_string_pretty(&*perms)
+            .map_err(|e| GateError::Persistence(e.to_string()))?;
+        tokio::fs::write(path, data).await?;
         Ok(())
     }
 
-    /// Load permissions from file (NOTE: proper serialization).
-    pub async fn load(&self, _path: impl AsRef<Path>) -> Result<(), GateError> {
+    /// Load the permission store from a JSON file previously written by
+    /// [`Self::save`], replacing the in-memory store. A missing file is treated
+    /// as an empty store (first run), not an error.
+    pub async fn load(&self, path: impl AsRef<Path>) -> Result<(), GateError> {
+        let data = match tokio::fs::read_to_string(path).await {
+            Ok(d) => d,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(GateError::Io(e)),
+        };
+        let store: PermissionStore =
+            serde_json::from_str(&data).map_err(|e| GateError::Persistence(e.to_string()))?;
+        *self.permissions.write().await = store;
         Ok(())
     }
 }
@@ -245,6 +257,37 @@ pub enum GateError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn permissions_persist_across_save_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("perms.json");
+
+        let gate = ApprovalGate::new(ExecutionMode::Autonomous);
+        gate.grant_permission("shell", "ls").await;
+        gate.deny_permission("shell", "rm -rf /").await;
+        gate.save(&path).await.unwrap();
+
+        // Fresh gate, load the persisted decisions back.
+        let restored = ApprovalGate::new(ExecutionMode::Autonomous);
+        restored.load(&path).await.unwrap();
+
+        let req = ApprovalRequirement::critical("dangerous");
+        assert!(matches!(
+            restored.evaluate("shell", "ls", &req).await,
+            GateDecision::Allow
+        ));
+        assert!(matches!(
+            restored.evaluate("shell", "rm -rf /", &req).await,
+            GateDecision::Deny(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn load_missing_file_is_empty_not_error() {
+        let gate = ApprovalGate::new(ExecutionMode::Interactive);
+        gate.load("/nonexistent/path/perms.json").await.unwrap();
+    }
 
     #[tokio::test]
     async fn interactive_allows_safe() {
