@@ -40,9 +40,14 @@ pub struct Modification {
     pub verified: bool,
 }
 
+/// A compile-validation strategy: given the path just written, return `Ok(())`
+/// if the change is acceptable, or `Err(reason)` to trigger a rollback.
+type Validator = Box<dyn Fn(&Path) -> Result<(), String> + Send + Sync>;
+
 pub struct AutoModifier {
     backup_dir: PathBuf,
     history: Vec<Modification>,
+    validator: Validator,
 }
 
 impl AutoModifier {
@@ -50,7 +55,18 @@ impl AutoModifier {
         Self {
             backup_dir: backup_dir.to_path_buf(),
             history: Vec::new(),
+            validator: Box::new(default_cargo_validator),
         }
+    }
+
+    /// Replace the compile validator (e.g. for tests, or a non-cargo
+    /// toolchain). The default runs `cargo check` on the modified file's crate.
+    pub fn with_validator<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&Path) -> Result<(), String> + Send + Sync + 'static,
+    {
+        self.validator = Box::new(f);
+        self
     }
 
     /// Backup a file before modification
@@ -74,23 +90,31 @@ impl AutoModifier {
         Ok(backup_path)
     }
 
-    /// Apply a modification to a file
+    /// Apply a modification to a file.
+    ///
+    /// When `validate` is true the change is compile-checked *after* being
+    /// written: if the validator rejects it, the write is rolled back (the
+    /// original content is restored, or a newly-created file is removed) and
+    /// [`AutoModifyError::ValidationFailed`] is returned — the agent never keeps
+    /// a change that breaks the build. The resulting [`Modification::verified`]
+    /// flag records whether validation actually ran and passed.
     pub fn modify(
         &mut self,
         file_path: &Path,
         new_content: &str,
         description: &str,
-        _validate: bool,
+        validate: bool,
     ) -> Result<Modification, AutoModifyError> {
         // Read original content
-        let original = if file_path.exists() {
+        let existed = file_path.exists();
+        let original = if existed {
             std::fs::read_to_string(file_path)?
         } else {
             String::new()
         };
 
         // Backup
-        let backup_path = if file_path.exists() {
+        let backup_path = if existed {
             Some(self.backup(file_path)?.display().to_string())
         } else {
             None
@@ -105,6 +129,19 @@ impl AutoModifier {
         }
         std::fs::write(file_path, new_content)?;
 
+        // Compile-gate: validate the applied change, rolling back on failure so
+        // a broken edit never survives.
+        if validate {
+            if let Err(reason) = (self.validator)(file_path) {
+                if existed {
+                    std::fs::write(file_path, &original)?;
+                } else {
+                    let _ = std::fs::remove_file(file_path);
+                }
+                return Err(AutoModifyError::ValidationFailed(reason));
+            }
+        }
+
         let mod_id = uuid::Uuid::new_v4().to_string();
         let modification = Modification {
             id: mod_id,
@@ -114,7 +151,7 @@ impl AutoModifier {
             backup_path,
             diff,
             applied: true,
-            verified: false,
+            verified: validate,
         };
 
         self.history.push(modification.clone());
@@ -221,6 +258,47 @@ fn compute_diff(old: &str, new: &str) -> String {
     }
 }
 
+/// Walk up from `file_path` to the nearest ancestor directory containing a
+/// `Cargo.toml`, returning that manifest path.
+fn nearest_manifest(file_path: &Path) -> Option<PathBuf> {
+    let mut dir = file_path.parent();
+    while let Some(d) = dir {
+        let candidate = d.join("Cargo.toml");
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+/// Default compile validator: run `cargo check` on the crate owning the
+/// modified file.
+///
+/// Only Rust sources are compiled. A non-`.rs` file, or a `.rs` file with no
+/// `Cargo.toml` ancestor (nothing to compile), passes — this is a build-quality
+/// gate, not a security control, so "nothing to check" is success.
+fn default_cargo_validator(file_path: &Path) -> Result<(), String> {
+    if file_path.extension().and_then(|e| e.to_str()) != Some("rs") {
+        return Ok(());
+    }
+    let Some(manifest) = nearest_manifest(file_path) else {
+        return Ok(());
+    };
+    let output = std::process::Command::new("cargo")
+        .arg("check")
+        .arg("--quiet")
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .output()
+        .map_err(|e| format!("failed to run cargo check: {e}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +327,54 @@ mod tests {
 
         let content = std::fs::read_to_string(&file).unwrap();
         assert!(content.contains("world"));
+    }
+
+    #[test]
+    fn validation_failure_rolls_back_existing_file() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("code.rs");
+        std::fs::write(&file, "original").unwrap();
+
+        // Validator that always rejects → the change must be rolled back.
+        let mut modifier = AutoModifier::new(&dir.path().join("backups"))
+            .with_validator(|_| Err("does not compile".to_string()));
+
+        let result = modifier.modify(&file, "broken", "bad change", true);
+        assert!(matches!(result, Err(AutoModifyError::ValidationFailed(_))));
+        // File restored to the original content.
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "original");
+        // Nothing recorded in history (the change did not stick).
+        assert!(modifier.history().is_empty());
+    }
+
+    #[test]
+    fn validation_failure_removes_new_file() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("new.rs");
+
+        let mut modifier = AutoModifier::new(&dir.path().join("backups"))
+            .with_validator(|_| Err("nope".to_string()));
+
+        let result = modifier.modify(&file, "content", "create", true);
+        assert!(result.is_err());
+        // A newly-created file is removed on rollback.
+        assert!(!file.exists());
+    }
+
+    #[test]
+    fn validation_success_marks_verified() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("ok.rs");
+        std::fs::write(&file, "old").unwrap();
+
+        let mut modifier =
+            AutoModifier::new(&dir.path().join("backups")).with_validator(|_| Ok(()));
+
+        let m = modifier
+            .modify(&file, "new", "good change", true)
+            .unwrap();
+        assert!(m.verified);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
     }
 
     #[test]
