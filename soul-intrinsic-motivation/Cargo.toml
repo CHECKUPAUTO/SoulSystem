@@ -1,0 +1,13 @@
+[package]
+name = "soul-intrinsic-motivation"
+version = "0.1.0"
+edition = "2021"
+description = "Curiosity-driven autonomous goal generation — bridges soul-cognition curiosity to soul-goaltree"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }

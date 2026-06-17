@@ -83,6 +83,8 @@ members = [
     "soul-skills",
     "soul-compaction",
     "soul-critique",
+    "soul-error-unifier",
+    "soul-intrinsic-motivation",
     "soul-goaltree",
     "soul-automodify",
     "soul-protocol",
