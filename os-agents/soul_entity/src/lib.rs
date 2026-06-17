@@ -49,7 +49,7 @@ mod tests {
             event_store_path: None,
             max_goal_history: 10,
         };
-        SoulEntity::new(cfg).unwrap()
+        SoulEntity::new(cfg).map_err(|e| *e).unwrap()
     }
 
     #[tokio::test]

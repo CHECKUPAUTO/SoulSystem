@@ -11,7 +11,7 @@
 | 9022 | WebSocket Bridge | Real-time event bridge |
 | 9023 | HTTP API | REST API |
 | 9030 | Memory | Memory service |
-| 9051 | OpenClaw-U | Autonomous kernel |
+| 9051 | SoulKernel| Autonomous kernel |
 | 9052 | Metabolism | Digital metabolism |
 | 9090 | Dashboard | Web dashboard |
 | 9095 | SoulLink v14 | Evolution engine |

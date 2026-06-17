@@ -10,7 +10,7 @@
       "scirust": "Socle mathématique — tenseur ND, autodiff, SIMD, GPU",
       "SoulNeural": "PUBLIC 🌐 Système 3 cognitif — 15 crates, 3545 lignes Rust",
       "AGENT-SWARM": "Orchestrateur multi-agent — 15 agents spécialisés, bus broadcast",
-      "SoulSystem": "SoulLink Neural Mesh + OpenClaw-U",
+      "SoulSystem": "SoulLink Neural Mesh + SoulKernel",
       "SYNERGIE": "Détecteur de synergies cross-repo",
       "OPENCLAW": "Framework agentique, gateway Telegram/WhatsApp"
     }

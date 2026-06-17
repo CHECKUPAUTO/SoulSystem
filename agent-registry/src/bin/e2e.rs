@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let start = Instant::now();
         println!("  [3/6] orchestrator mesh status...");
-        let client = orchestrator_bridge::OrchestratorClient::connect("http://127.0.0.1:9020");
+        let client = soul_bridge::orchestrator::OrchestratorClient::connect("http://127.0.0.1:9020");
         match client.mesh_status().await {
             Ok(s) => {
                 println!(

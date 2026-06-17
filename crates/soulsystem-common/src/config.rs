@@ -1,7 +1,7 @@
 //! Config — Traits et types pour la persistance de configuration.
 //!
 //! Fournit :
-//! - `PersistableConfig` trait pour JSON (openclaw-u pattern)
+//! - `PersistableConfig` trait pour JSON (soul-kernelpattern)
 //! - `ConfigLoader` builder pour TOML + env overrides (guardian/settings pattern)
 //! - `load_toml_config()` helper pour les cas simples
 

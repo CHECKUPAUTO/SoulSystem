@@ -228,7 +228,7 @@ async fn main() -> anyhow::Result<()> {
         event_store_path: Some(std::path::PathBuf::from("/tmp/soul_events")),
     };
 
-    let entity = Arc::new(SoulEntity::new(entity_config)?);
+    let entity = Arc::new(SoulEntity::new(entity_config).map_err(|e| *e)?);
     info!("entité {} initialisée", name);
 
     entity.openclaw.skills.install(Skill::new(

@@ -23,4 +23,4 @@ scirust_affective_core = { path = "../scirust_affective_core" }
 semantic_neuromodulator = { path = "../semantic_neuromodulator" }
 
 tokio = { workspace = true, features = ["full"] }
-scirust = { package = "scirust-core", path = "../scirust/scirust-core" }
+scirust = { package = "scirust-core", path = "../scirust-core" }

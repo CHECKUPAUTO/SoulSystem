@@ -243,7 +243,7 @@ pub fn list_feedback() -> Result<Vec<UiFeedbackEntry>> {
             out.push(e);
         }
     }
-    out.sort_by(|a, b| b.at.cmp(&a.at));
+    out.sort_by_key(|b| std::cmp::Reverse(b.at));
     Ok(out)
 }
 

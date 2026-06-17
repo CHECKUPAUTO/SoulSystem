@@ -1,6 +1,6 @@
 //! soulsystem-common — Types et utilities partagés.
 //!
-//! Ce crate factorise les types dupliqués entre openclaw-u, soullink-brain,
+//! Ce crate factorise les types dupliqués entre soul-kernel soullink-brain,
 //! et le crate soulsystem principal.
 
 pub mod config;

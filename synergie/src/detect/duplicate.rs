@@ -82,7 +82,7 @@ impl Detector for DuplicateDetector {
         }
 
         let mut candidate_pairs: HashSet<(usize, usize)> = HashSet::new();
-        for (_, ids) in buckets.iter() {
+        for ids in buckets.values() {
             if ids.len() < 2 {
                 continue;
             }

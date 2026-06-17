@@ -24,7 +24,7 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx512(
         let i_len = std::cmp::min(4, m - i);
 
         for j in (0..n).step_by(16) {
-            let j_len = std::cmp::min(16, n - j);
+            let _j_len = std::cmp::min(16, n - j);
 
             // Chargement initial des accumulateurs C dans les registres ZMM (16×f32 chacun)
             let mut c_acc: [*const f32; 4] = [std::ptr::null(); 4];
@@ -33,7 +33,7 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx512(
             }
 
             // Préchargement des registres ZMM initiaux (zero pour le premier passage, loadu pour les suivants — mais ici on fait C += ...)
-            let mut accum: [std::mem::MaybeUninit<[f32; 16]>; 4] = [
+            let _accum: [std::mem::MaybeUninit<[f32; 16]>; 4] = [
                 std::mem::MaybeUninit::uninit(),
                 std::mem::MaybeUninit::uninit(),
                 std::mem::MaybeUninit::uninit(),
@@ -42,7 +42,7 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx512(
             // Initialiser à zéro via _mm512_setzero_ps (le micro-kernel fait C += A*B, pas C = A*B)
             let zero = _mm512_setzero_ps();
             for ci in 0..i_len {
-                _mm512_storeu_ps(c_acc[ci].cast(), zero);
+                _mm512_storeu_ps(c_acc[ci].cast_mut(), zero);
             }
 
             // Boucle sur K — accumulation FMA
@@ -61,13 +61,13 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx512(
 
                     let c_vec = _mm512_loadu_ps(c_acc[ci]);
                     let result = _mm512_fmadd_ps(va, vb, c_vec);
-                    _mm512_storeu_ps(c_acc[ci], result);
+                    _mm512_storeu_ps(c_acc[ci].cast_mut(), result);
                 }
             }
 
             // Stockage des accumulateurs finaux
             for ci in 0..i_len {
-                _mm512_storeu_ps(c_acc[ci], _mm512_loadu_ps(c_acc[ci])); // déjà en place via load/store pair
+                _mm512_storeu_ps(c_acc[ci].cast_mut(), _mm512_loadu_ps(c_acc[ci]));
             }
         }
 

@@ -180,7 +180,7 @@ impl YoutubeExtractor {
             }
         }
 
-        formats.sort_by(|a, b| b.height.cmp(&a.height));
+        formats.sort_by_key(|b| std::cmp::Reverse(b.height));
         Ok(formats)
     }
 }

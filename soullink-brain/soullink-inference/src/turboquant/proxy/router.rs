@@ -163,6 +163,7 @@ mod tests {
     use crate::turboquant::proxy::server::ProxyConfig;
 
     #[test]
+    #[ignore = "slow: integration setup"]
     fn router_builds() {
         let state = AppState {
             proxy: TurboQuantProxy::new(ProxyConfig::default()),

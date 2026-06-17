@@ -9,6 +9,6 @@ keywords = ["neuromodulation", "affective", "pad", "dopamine", "serotonin", "rid
 categories = ["machine-learning", "neuroscience", "embedded"]
 
 [dependencies]
-scirust = { package = "scirust-core", path = "../../scirust/scirust-core" }
+scirust = { package = "scirust-core", path = "../scirust-core" }
 scirust_affective_core = { path = "../scirust_affective_core" }
 core_affinity = "0.8"

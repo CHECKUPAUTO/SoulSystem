@@ -77,7 +77,7 @@ impl ExprNode {
     }
 
     /// Pretty-print the expression as a string.
-    pub fn to_string(&self) -> String {
+    pub fn pretty_string(&self) -> String {
         match self {
             ExprNode::X => "x".into(),
             ExprNode::Const(c) => {
@@ -87,16 +87,22 @@ impl ExprNode {
                     format!("{:.4}", c)
                 }
             }
-            ExprNode::Add(a, b) => format!("({}+{})", a.to_string(), b.to_string()),
-            ExprNode::Sub(a, b) => format!("({}-{})", a.to_string(), b.to_string()),
-            ExprNode::Mul(a, b) => format!("({}*{})", a.to_string(), b.to_string()),
-            ExprNode::Div(a, b) => format!("({}/{})", a.to_string(), b.to_string()),
-            ExprNode::Sin(a) => format!("sin({})", a.to_string()),
-            ExprNode::Cos(a) => format!("cos({})", a.to_string()),
-            ExprNode::Exp(a) => format!("exp({})", a.to_string()),
-            ExprNode::Log(a) => format!("log({})", a.to_string()),
-            ExprNode::Pow2(a) => format!("({})^2", a.to_string()),
+            ExprNode::Add(a, b) => format!("({}+{})", a.pretty_string(), b.pretty_string()),
+            ExprNode::Sub(a, b) => format!("({}-{})", a.pretty_string(), b.pretty_string()),
+            ExprNode::Mul(a, b) => format!("({}*{})", a.pretty_string(), b.pretty_string()),
+            ExprNode::Div(a, b) => format!("({}/{})", a.pretty_string(), b.pretty_string()),
+            ExprNode::Sin(a) => format!("sin({})", a.pretty_string()),
+            ExprNode::Cos(a) => format!("cos({})", a.pretty_string()),
+            ExprNode::Exp(a) => format!("exp({})", a.pretty_string()),
+            ExprNode::Log(a) => format!("log({})", a.pretty_string()),
+            ExprNode::Pow2(a) => format!("({})^2", a.pretty_string()),
         }
+    }
+
+    /// Alias for `pretty_string` for backward compatibility.
+    #[allow(clippy::inherent_to_string)]
+    pub fn to_string(&self) -> String {
+        self.pretty_string()
     }
 
     /// Return the node count (a proxy for formula complexity).
@@ -312,23 +318,12 @@ fn generate_expressions(max_depth: usize) -> Vec<ExprNode> {
             }
             for e1 in &exprs[d1].clone() {
                 for e2 in &exprs[d2].clone() {
-                    exprs[depth].push(ExprNode::Add(
-                        Box::new(e1.clone()),
-                        Box::new(e2.clone()),
-                    ));
-                    exprs[depth].push(ExprNode::Sub(
-                        Box::new(e1.clone()),
-                        Box::new(e2.clone()),
-                    ));
-                    exprs[depth].push(ExprNode::Mul(
-                        Box::new(e1.clone()),
-                        Box::new(e2.clone()),
-                    ));
+                    exprs[depth].push(ExprNode::Add(Box::new(e1.clone()), Box::new(e2.clone())));
+                    exprs[depth].push(ExprNode::Sub(Box::new(e1.clone()), Box::new(e2.clone())));
+                    exprs[depth].push(ExprNode::Mul(Box::new(e1.clone()), Box::new(e2.clone())));
                     if !is_zero(e2) {
-                        exprs[depth].push(ExprNode::Div(
-                            Box::new(e1.clone()),
-                            Box::new(e2.clone()),
-                        ));
+                        exprs[depth]
+                            .push(ExprNode::Div(Box::new(e1.clone()), Box::new(e2.clone())));
                     }
                 }
             }
@@ -368,7 +363,9 @@ mod tests {
         let noise_level = 0.15;
         let mut rng = fastrand::Rng::new();
         // Generate y = sin(x) where x_i = i (the miner evaluates at x=i)
-        let y: Vec<f64> = (0..n).map(|i| (i as f64).sin() + noise_level * (rng.f64() - 0.5)).collect();
+        let y: Vec<f64> = (0..n)
+            .map(|i| (i as f64).sin() + noise_level * (rng.f64() - 0.5))
+            .collect();
 
         let miner = PatternMiner::new(3);
         let results = miner.mine(&y);
@@ -496,12 +493,17 @@ mod tests {
 
         assert!(results.len() >= 2, "should produce at least 2 patterns");
         // Filter out NaN scores before checking sort order
-        let valid_scores: Vec<f64> = results.iter().map(|p| p.score).filter(|s| !s.is_nan()).collect();
+        let valid_scores: Vec<f64> = results
+            .iter()
+            .map(|p| p.score)
+            .filter(|s| !s.is_nan())
+            .collect();
         for w in valid_scores.windows(2) {
             assert!(
                 w[0] + 1e-9 >= w[1],
                 "mine_multi scores should be sorted descending, got {} >= {}",
-                w[0], w[1]
+                w[0],
+                w[1]
             );
         }
 

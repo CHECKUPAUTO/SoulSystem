@@ -1887,13 +1887,19 @@ mod tests {
             &self,
             _req: CompletionRequest,
         ) -> Result<CompletionResponse, crate::error::LlmError> {
-            unimplemented!("stub")
+            Err(crate::error::LlmError::RequestFailed {
+                provider: "stub".into(),
+                reason: "StubLlm::complete is a test mock — never called by these tests".into(),
+            })
         }
         async fn complete_with_tools(
             &self,
             _req: ToolCompletionRequest,
         ) -> Result<ToolCompletionResponse, crate::error::LlmError> {
-            unimplemented!("stub")
+            Err(crate::error::LlmError::RequestFailed {
+                provider: "stub".into(),
+                reason: "StubLlm::complete_with_tools is a test mock — never called by these tests".into(),
+            })
         }
     }
 

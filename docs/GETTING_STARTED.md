@@ -87,7 +87,7 @@ export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
 ```
 
 The system starts:
-- The OpenClaw-U kernel
+- The SoulKernelkernel
 - The SoulLink HNN neural mesh
 - The Clawd assistant connected to Telegram
 - Optional modules (AVID, OpenEvolve, SciRust, SYNERGIE) are **not** started by default.

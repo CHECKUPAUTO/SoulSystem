@@ -25,9 +25,9 @@ pub fn simplex(c: &[f64], a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
         // Find entering column (most negative value in bottom row)
         let mut pivot_col = 0;
         let mut min_val = tableau[m][0];
-        for j in 1..(n + m) {
-            if tableau[m][j] < min_val {
-                min_val = tableau[m][j];
+        for (j, val) in tableau[m].iter().enumerate().take(n + m).skip(1) {
+            if *val < min_val {
+                min_val = *val;
                 pivot_col = j;
             }
         }
@@ -39,9 +39,9 @@ pub fn simplex(c: &[f64], a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
         // Find leaving row (minimum ratio test)
         let mut pivot_row = None;
         let mut min_ratio = f64::INFINITY;
-        for i in 0..m {
-            if tableau[i][pivot_col] > 1e-10 {
-                let ratio = tableau[i][n + m] / tableau[i][pivot_col];
+        for (i, row) in tableau.iter().enumerate().take(m) {
+            if row[pivot_col] > 1e-10 {
+                let ratio = row[n + m] / row[pivot_col];
                 if ratio < min_ratio {
                     min_ratio = ratio;
                     pivot_row = Some(i);
@@ -49,22 +49,20 @@ pub fn simplex(c: &[f64], a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
             }
         }
 
-        let r = match pivot_row {
-            Some(row) => row,
-            None => return None, // unbounded
-        };
+        let r = pivot_row?;
 
         // Pivot
         let divisor = tableau[r][pivot_col];
-        for j in 0..=(n + m) {
-            tableau[r][j] /= divisor;
+        for row_item in tableau[r].iter_mut().take(n + m + 1) {
+            *row_item /= divisor;
         }
 
-        for i in 0..=m {
+        let pivot_row = tableau[r].clone();
+        for (i, row) in tableau.iter_mut().enumerate().take(m + 1) {
             if i != r {
-                let multiplier = tableau[i][pivot_col];
+                let multiplier = row[pivot_col];
                 for j in 0..=(n + m) {
-                    tableau[i][j] -= multiplier * tableau[r][j];
+                    row[j] -= multiplier * pivot_row[j];
                 }
             }
         }
@@ -72,24 +70,26 @@ pub fn simplex(c: &[f64], a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
 
     // Extract solution
     let mut x = vec![0.0; n];
-    for j in 0..n {
+    for (j, xj) in x.iter_mut().enumerate().take(n) {
         let mut row_with_one = None;
         let mut is_basis = true;
-        for i in 0..m {
-            if (tableau[i][j] - 1.0).abs() < 1e-10 {
+        for (i, row) in tableau.iter().enumerate().take(m) {
+            if (row[j] - 1.0).abs() < 1e-10 {
                 if row_with_one.is_none() {
                     row_with_one = Some(i);
                 } else {
                     is_basis = false;
                     break;
                 }
-            } else if tableau[i][j].abs() > 1e-10 {
+            } else if row[j].abs() > 1e-10 {
                 is_basis = false;
                 break;
             }
         }
-        if is_basis && row_with_one.is_some() && tableau[m][j].abs() < 1e-10 {
-            x[j] = tableau[row_with_one.unwrap()][n + m];
+        if let Some(row_idx) = row_with_one {
+            if is_basis && tableau[m][j].abs() < 1e-10 {
+                *xj = tableau[row_idx][n + m];
+            }
         }
     }
 
@@ -107,9 +107,9 @@ pub fn bregman_projection_simplex(y: &[f64]) -> Vec<f64> {
 
     let mut running_sum = 0.0;
     let mut rho = 0;
-    for i in 0..x.len() {
-        running_sum += x[i];
-        if x[i] + (1.0 - running_sum) / ((i + 1) as f64) > 0.0 {
+    for (i, xi) in x.iter().enumerate() {
+        running_sum += *xi;
+        if *xi + (1.0 - running_sum) / ((i + 1) as f64) > 0.0 {
             rho = i + 1;
         }
     }
@@ -132,11 +132,7 @@ mod tests {
         // x, y >= 0
         // Optimal solution: x=3, y=12, Value=33 (or something like that)
         let c = vec![3.0, 2.0];
-        let a = vec![
-            vec![2.0, 1.0],
-            vec![2.0, 3.0],
-            vec![3.0, 1.0],
-        ];
+        let a = vec![vec![2.0, 1.0], vec![2.0, 3.0], vec![3.0, 1.0]];
         let b = vec![18.0, 42.0, 24.0];
 
         let sol = simplex(&c, &a, &b).unwrap();

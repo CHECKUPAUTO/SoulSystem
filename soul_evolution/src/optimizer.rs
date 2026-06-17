@@ -359,8 +359,7 @@ fn main() {{
 
         // Exécuter le benchmark
         let binary = temp_dir.join("target").join("release").join(crate_name);
-        let output = std::process::Command::new(&binary)
-            .output();
+        let output = std::process::Command::new(&binary).output();
 
         let elapsed = start.elapsed().as_millis() as u64;
 
@@ -391,13 +390,17 @@ fn main() {{
     ) -> String {
         // Cas A : Échec de compilation
         if !compile.success {
-            return Self::build_iteration_prompt(&OptimizationState::format_case_a(&compile.error_log));
+            return Self::build_iteration_prompt(&OptimizationState::format_case_a(
+                &compile.error_log,
+            ));
         }
 
         // Cas B : Échec de test
         if let Some(t) = test {
             if !t.success {
-                return Self::build_iteration_prompt(&OptimizationState::format_case_b(&t.error_log));
+                return Self::build_iteration_prompt(&OptimizationState::format_case_b(
+                    &t.error_log,
+                ));
             }
         }
 
@@ -411,11 +414,7 @@ fn main() {{
     }
 
     fn build_iteration_prompt(feedback: &str) -> String {
-        format!(
-            "{}\n\n[FEEDBACK]\n{}",
-            SYSTEM_PROMPT,
-            feedback
-        )
+        format!("{}\n\n[FEEDBACK]\n{}", SYSTEM_PROMPT, feedback)
     }
 
     /// Nettoie le répertoire temporaire
@@ -515,14 +514,19 @@ mod tests {
 
     #[test]
     fn test_optimization_state_tracks_best_time() {
-        let mut state = OptimizationState::new("fn foo()", "fn foo() {}", "#[test] fn t() {}", "test_crate");
+        let mut state =
+            OptimizationState::new("fn foo()", "fn foo() {}", "#[test] fn t() {}", "test_crate");
 
         let mut a1 = OptimizationAttempt {
             iteration: 1,
             code: "fn foo() {}".to_string(),
             compile: None,
             test: None,
-            bench: Some(BenchResult { execution_time_ns: 100.0, duration_ms: 0, iterations: 0 }),
+            bench: Some(BenchResult {
+                execution_time_ns: 100.0,
+                duration_ms: 0,
+                iterations: 0,
+            }),
             best_time_ns: f64::INFINITY,
             formatted_prompt: String::new(),
         };
@@ -535,7 +539,11 @@ mod tests {
             code: "fn foo() {}".to_string(),
             compile: None,
             test: None,
-            bench: Some(BenchResult { execution_time_ns: 50.0, duration_ms: 0, iterations: 0 }),
+            bench: Some(BenchResult {
+                execution_time_ns: 50.0,
+                duration_ms: 0,
+                iterations: 0,
+            }),
             best_time_ns: 100.0,
             formatted_prompt: String::new(),
         };

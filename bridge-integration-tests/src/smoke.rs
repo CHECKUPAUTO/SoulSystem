@@ -34,7 +34,8 @@ async fn main() -> anyhow::Result<()> {
     // 2. OpenEvolve bridge — async init
     {
         let start = Instant::now();
-        let res = tokio::time::timeout(Duration::from_secs(8), soul_bridge::openevolve::init()).await;
+        let res =
+            tokio::time::timeout(Duration::from_secs(8), soul_bridge::openevolve::init()).await;
         let (msg, ok) = match res {
             Ok(Ok(_)) => ("openevolve-bridge init OK".to_string(), true),
             Ok(Err(e)) => (format!("init error: {e}"), false),
@@ -63,7 +64,8 @@ async fn main() -> anyhow::Result<()> {
     // 4. services-bridge
     {
         let start = Instant::now();
-        let res = tokio::time::timeout(Duration::from_secs(12), soul_bridge::services::init()).await;
+        let res =
+            tokio::time::timeout(Duration::from_secs(12), soul_bridge::services::init()).await;
         let (msg, ok) = match res {
             Ok(Ok(client)) => {
                 let probed = client.probe_all().await;
@@ -112,7 +114,8 @@ async fn main() -> anyhow::Result<()> {
     // 7. soul-neural-bridge
     {
         let start = Instant::now();
-        let res = tokio::time::timeout(Duration::from_secs(8), soul_bridge::soul_neural::init()).await;
+        let res =
+            tokio::time::timeout(Duration::from_secs(8), soul_bridge::soul_neural::init()).await;
         let (msg, ok) = match res {
             Ok(Ok(_)) => ("soul-neural-bridge init OK".to_string(), true),
             Ok(Err(e)) => (format!("init error: {e}"), false),

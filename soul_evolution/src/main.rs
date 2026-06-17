@@ -1,12 +1,12 @@
-use soul_evolution::audit::{self, Auditor};
 use soul_evolution::analyzer::Analyzer;
-use soul_evolution::generator::Generator;
-use soul_evolution::validator::Validator;
-use soul_evolution::meta_evolution::MetaEvolver;
+use soul_evolution::audit::{self, Auditor};
 use soul_evolution::evol_loop::{self, SelfImprovementLoop};
-use soul_evolution::optimizer::{Optimizer, OptimizationState, SYSTEM_PROMPT};
-use soul_evolution::types::Severity;
+use soul_evolution::generator::Generator;
+use soul_evolution::meta_evolution::MetaEvolver;
+use soul_evolution::optimizer::{OptimizationState, Optimizer, SYSTEM_PROMPT};
 use soul_evolution::types::EvolutionConfig;
+use soul_evolution::types::Severity;
+use soul_evolution::validator::Validator;
 use std::env;
 
 const USAGE: &str = r#"
@@ -93,13 +93,11 @@ fn main() {
     }
 
     tracing_subscriber::fmt()
-        .with_env_filter(
-            if verbose {
-                "soul_evolution=debug"
-            } else {
-                "soul_evolution=info"
-            },
-        )
+        .with_env_filter(if verbose {
+            "soul_evolution=debug"
+        } else {
+            "soul_evolution=info"
+        })
         .with_target(false)
         .init();
 
@@ -169,13 +167,22 @@ fn cmd_validate(_config: &EvolutionConfig) {
             continue;
         }
         let result = Validator::validate_file(path);
-        let name = path.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+        let name = path
+            .file_stem()
+            .map(|s| s.to_string_lossy())
+            .unwrap_or_default();
         results.push((name.to_string(), result));
     }
 
-    println!("{}", Validator::format_validation(
-        &results.iter().map(|(n, r)| (n.clone(), r.clone())).collect::<Vec<_>>()
-    ));
+    println!(
+        "{}",
+        Validator::format_validation(
+            &results
+                .iter()
+                .map(|(n, r)| (n.clone(), r.clone()))
+                .collect::<Vec<_>>()
+        )
+    );
 }
 
 fn cmd_evolve(config: EvolutionConfig, apply: bool, max_iter: Option<u64>, verbose: bool) {
@@ -243,7 +250,10 @@ fn cmd_status() {
         .filter(|i| matches!(i.severity, Severity::High | Severity::Critical))
         .count();
     let total_issues: usize = report.audits.iter().map(|a| a.issues.len()).sum();
-    println!("  Issues:      {} total ({} high/critical)", total_issues, high_issues);
+    println!(
+        "  Issues:      {} total ({} high/critical)",
+        total_issues, high_issues
+    );
 
     let lang_coverage = report.language_coverage.len();
     println!("  Languages:   {}", lang_coverage);
@@ -259,7 +269,10 @@ fn cmd_status() {
             let dir = if trend > 0.0 { "↑" } else { "↓" };
             println!("  Trend:       {} {:+.4}/iter", dir, trend);
         }
-        println!("  Persisted:   {}", output_dir.join("evolution-state.txt").display());
+        println!(
+            "  Persisted:   {}",
+            output_dir.join("evolution-state.txt").display()
+        );
     }
 
     match report.ecosystem_health {
@@ -293,7 +306,11 @@ fn cmd_meta(config: &EvolutionConfig) {
         "Meta cycle: {} to archive, {} self-play matches, {} explosions",
         meta_result.archive_additions,
         meta_result.self_play_matches,
-        if meta_result.explosion_report.contains("DETECTED") { 1 } else { 0 }
+        if meta_result.explosion_report.contains("DETECTED") {
+            1
+        } else {
+            0
+        }
     );
 }
 

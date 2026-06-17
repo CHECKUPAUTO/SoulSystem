@@ -24,7 +24,7 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx2(
         let i_len = std::cmp::min(2, m - i);
 
         for j in (0..n).step_by(8) {
-            let j_len = std::cmp::min(8, n - j);
+            let _j_len = std::cmp::min(8, n - j);
 
             // Accumulateurs initiaux à zéro (C += ... et non C = ...)
             let zero = _mm256_setzero_ps();

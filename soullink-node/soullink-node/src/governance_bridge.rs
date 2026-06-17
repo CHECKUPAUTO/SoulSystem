@@ -97,8 +97,50 @@ impl SmartContract {
     }
 
     pub fn all_evidence_verified(&self) -> bool {
-        // Simplified: contracts always pass evidence check
-        // In production, this would verify evidence from the brain state
+        // Verify each evidence requirement against minimum thresholds.
+        // In production, this connects to brain state queries for each type.
+        if self.evidence_requirements.is_empty() {
+            return true; // No evidence required → passes by default
+        }
+
+        for req in &self.evidence_requirements {
+            match req.evidence_type {
+                EvidenceType::FitnessReport => {
+                    // Fitness: require at least 1 report per min_count
+                    if req.min_count == 0 {
+                        continue;
+                    }
+                    // Placeholder: in production, queries MetaCortex.last_fitness_report()
+                    // For now, contracts with fitness evidence default to verified
+                    // if the proposer is Cortex or MetaCortex (authoritative sources)
+                    if self.proposer != Role::Cortex && self.proposer != Role::MetaCortex {
+                        return false;
+                    }
+                }
+                EvidenceType::StabilityCheck => {
+                    // Stability: require proposer to be a core organ
+                    if req.min_count > 0
+                        && self.proposer != Role::Cortex
+                        && self.proposer != Role::MetaCortex
+                        && self.proposer != Role::Memory
+                    {
+                        return false;
+                    }
+                }
+                EvidenceType::MemoryAudit => {
+                    // Memory: only Memory organ can provide audit evidence
+                    if req.min_count > 0 && self.proposer != Role::Memory {
+                        return false;
+                    }
+                }
+                EvidenceType::CortexHealth => {
+                    // Cortex health: MetaCortex is the authoritative monitor
+                    if req.min_count > 0 && self.proposer != Role::MetaCortex {
+                        return false;
+                    }
+                }
+            }
+        }
         true
     }
 

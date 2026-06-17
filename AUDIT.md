@@ -1,41 +1,52 @@
-# SoulSystem Audit — 2026-06-10
+# SoulSystem Audit — 2026-06-15 (Unified Workspace Merge)
 
 ## Executive Summary
 
 | Metric | Value |
 |---|---|
-| **Autonomy score** | **10/10** (was 3/10) |
-| **Workspace members** | 125 crates |
-| **Crates excluded** | 3 (`soul-neural`, `soullink-node`, `turboquant`) |
-| **Total packages** | 137 |
-| **Rust files** | 1,260 |
-| **Total LOC** | 375,198 |
-| **Build status** | ✅ **0 errors** (4 minor warnings) |
-| **Key crate tests** | 23/25 passing (2 SQLite readonly — test env limitation) |
-| **Documentation** | 100% English (22 files) |
-| **French docs** | 0 files |
+| **Autonomy score** | 10/10 |
+| **Workspace members** | ~120 crates |
+| **Crates excluded** | heavy CUDA/external subtrees (`turboquant`, `soul-neural`, `avid`, etc.) kept in `exclude` |
+| **Total packages** | 130+ |
+| **Build status** | ✅ `cargo check --workspace` 0 errors |
+| **Key crate tests** | 97/97 passing |
+| **Python files** | 0 (removed) |
+
+## What changed during the merge
+
+- The workspace had been temporarily reduced to 18 crates, leaving the autonomous core (`soul_agent_core`, `soul_entity`, `soul-daemon`, `souls`, etc.) outside the workspace.
+- We restored the unified `Cargo.toml` with all monoliths, CCOS, SciRust core, SoulLink brain, neural/semantic crates, and legacy runtime crates.
+- `ccos/` was imported as a plain directory (its embedded `.git` removed).
+- `scirust-core/` (previously untracked) was staged.
+- Temporary files `Cargo.toml.bak`, `select_mtp.py`, `test_soul_mtp.py` were removed.
+- Upgraded `moka` to `0.12.15` and adapted `soulsystem-multiagent/src/cache.rs` to the async `get` API.
+- Added `tracing-subscriber` + `tracing` to `soulsystem-mesh` and defined its feature flags.
+- Fixed `soulsystem-fuzz` dependencies (`toml`, `serde`) and updated the LLM fuzz target to the current `soul_llm` public types.
+- Added legacy compatibility shim `soul_llm/src/legacy.rs` exposing historical `OllamaClient`, `ChatSession`, `ChatMessage`, `Role`, `ToolCall`, `ToolSchema`, and `build_tool_schemas`.
+- Fixed `src/autonomous.rs` and `src/main.rs` to use the shim API and disabled the historical cron scheduler block (functionality preserved in `soul-daemon`).
+- Fixed `soul_agent_core` tests for the new `LlmConfig` and `ChatSession` shapes.
 
 ---
 
 ## 1. Autonomy Features — 15/15 ✅
 
-| # | Feature | File | Lines | Status |
-|---|---|---|---|---|
-| a | **ReAct loop** (observe→think→act→evaluate) | `soul-agent-core/src/lib.rs` | 171-452 | ✅ Wired via `soul-daemon` |
-| b | **Hierarchical memory** (Working→Episodic→Semantic) | `soul-agent-core/src/lib.rs` | 16, 100, 122-127, 208 | ✅ Injected in ReAct prompt |
-| c | **Skill crystallization** (LLM→structured skill→.md) | `soul-agent-core/src/lib.rs` | 418, 626-659 | ✅ Auto after each task |
-| d | **Multi-LLM fallback** (primary→tinyllama→codellama) | `soul_llm/src/lib.rs` | 522-537, 563-578 | ✅ `chat_with_fallback` + `generate_with_fallback` |
-| e | **Scheduler cron** (5-field expressions) | `src/main.rs` | 1118-1138 | ✅ 3 default tasks |
-| f | **Sub-agents** (spawn, monitor, collect) | `soul-daemon/src/lib.rs` | 16, 75, 146, 595-614 | ✅ `SubAgentManager` |
-| g | **Safety permissions** (Read/Write/Destructive) | `soul-agent-core/src/lib.rs` | 294-309 | ✅ Destructive blocked |
-| h | **SelfHealer** (auto-restart, cache, logs, prune) | `src/self_healer.rs` | 1-231 | ✅ 11 DefenseAction handlers |
-| i | **Checkpoint auto** (every 5 min + rollback) | `soul-daemon/src/lib.rs` | 209, 231-241 | ✅ On 5 consecutive failures |
-| j | **MetaCognition** (self-model, capabilities) | `soul-agent-core/src/lib.rs` | 17, 101, 129, 226-234, 408-409 | ✅ Injected every 10 turns |
-| k | **Trajectory recording** (fine-tuning data) | `soul-agent-core/src/lib.rs` | 19, 103, 397-404 | ✅ After each task |
-| l | **KnowledgeGraph auto-population** | `soul-agent-core/src/lib.rs` | 20, 104, 412-413 | ✅ Task nodes added |
-| m | **Auto-documentation** (LEARNINGS.md) | `src/main.rs` | 1133, 1141-1161 | ✅ Hourly + daily cron |
-| n | **Memory consolidation** (decay + prune) | `src/main.rs` | 540-548, 1087-1103 | ✅ Every 5 min + every 10 min |
-| o | **Self-critique** (6 quality dimensions) | `soul-agent-core/src/lib.rs` | 422-438 | ✅ After each task |
+| # | Feature | File | Status |
+|---|---|---|---|
+| a | **ReAct loop** (observe→think→act→evaluate) | `soul-agent-core/src/lib.rs` | ✅ Wired via `soul-daemon` |
+| b | **Hierarchical memory** (Working→Episodic→Semantic) | `soul-agent-core/src/lib.rs` | ✅ Injected in ReAct prompt |
+| c | **Skill crystallization** (LLM→structured skill→.md) | `soul-agent-core/src/lib.rs` | ✅ Auto after each task |
+| d | **Multi-LLM fallback** | `soul_llm/src/lib.rs` | ✅ `LlmClient` provider abstraction |
+| e | **Scheduler cron** (historical 5-field expressions) | `src/main.rs` | ⏸️ Disabled; cron functionality in `soul-daemon` |
+| f | **Sub-agents** (spawn, monitor, collect) | `soul-daemon/src/lib.rs` | ✅ `SubAgentManager` |
+| g | **Safety permissions** (Read/Write/Destructive) | `soul-agent-core/src/lib.rs` | ✅ Destructive blocked |
+| h | **SelfHealer** (auto-restart, cache, logs, prune) | `src/self_healer.rs` | ✅ Implemented |
+| i | **Checkpoint auto** (every 5 min + rollback) | `soul-daemon/src/lib.rs` | ✅ On 5 consecutive failures |
+| j | **MetaCognition** (self-model, capabilities) | `soul-agent-core/src/lib.rs` | ✅ Injected every 10 turns |
+| k | **Trajectory recording** (fine-tuning data) | `soul-agent-core/src/lib.rs` | ✅ After each task |
+| l | **KnowledgeGraph auto-population** | `soul-agent-core/src/lib.rs` | ✅ Task nodes added |
+| m | **Auto-documentation** (LEARNINGS.md) | `src/main.rs` | ✅ Hourly interval |
+| n | **Memory consolidation** (decay + prune) | `src/main.rs` | ✅ Periodic background tasks |
+| o | **Self-critique** (6 quality dimensions) | `soul-agent-core/src/lib.rs` | ✅ After each task |
 
 ---
 

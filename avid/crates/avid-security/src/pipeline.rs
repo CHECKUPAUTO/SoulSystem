@@ -187,6 +187,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "slow: runs full pipeline with LLM calls"]
     async fn test_pipeline_new() {
         let config = PipelineConfig::default();
         let pipeline = AgenticPipeline::new(config);

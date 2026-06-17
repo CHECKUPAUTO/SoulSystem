@@ -118,4 +118,16 @@ impl LlmClient {
 
         self.provider.generate_stream(req).await
     }
+
+    /// Chat completion with tool calling support.
+    ///
+    /// Routes to the provider's native chat API (Ollama `/api/chat`, etc.).
+    /// Falls back to prompt completion for providers that don't support tools.
+    pub async fn chat(
+        &self,
+        messages: &[crate::provider::ChatMessage],
+        tools: Option<&[crate::provider::ToolSchema]>,
+    ) -> Result<crate::provider::ChatResponse> {
+        self.provider.chat(messages, tools).await
+    }
 }

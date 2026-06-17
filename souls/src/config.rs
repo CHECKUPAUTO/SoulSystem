@@ -182,14 +182,12 @@ impl ConfigApp {
             5 => self.cfg.llm.max_tokens.to_string(),
             6 => self.cfg.entity_name.clone(),
             7 => self.cfg.gateway_addr.clone(),
-            8 => {
-                if self.cfg.autonomous {
-                    "activé"
-                } else {
-                    "désactivé"
-                }
-                .into()
+            8 => if self.cfg.autonomous {
+                "activé"
+            } else {
+                "désactivé"
             }
+            .into(),
             _ => String::new(),
         }
     }
@@ -649,14 +647,8 @@ fn draw_preview(f: &mut Frame, area: Rect, app: &ConfigApp) {
                 let parts: Vec<&str> = line.splitn(2, '=').collect();
                 if parts.len() == 2 {
                     Line::from(vec![
-                        Span::styled(
-                            format!("{}=", parts[0]),
-                            Style::default().fg(Color::Yellow),
-                        ),
-                        Span::styled(
-                            parts[1].trim(),
-                            Style::default().fg(Color::Green),
-                        ),
+                        Span::styled(format!("{}=", parts[0]), Style::default().fg(Color::Yellow)),
+                        Span::styled(parts[1].trim(), Style::default().fg(Color::Green)),
                     ])
                 } else {
                     Line::from(Span::styled(line, Style::default().fg(Color::White)))

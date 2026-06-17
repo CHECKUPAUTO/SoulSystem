@@ -133,4 +133,54 @@ impl AuditLog {
         entries.truncate(limit);
         Ok(entries)
     }
+
+    /// Structured metrics for agent observability (Phase III — Agent Audit).
+    /// Exposes module-level action counts to drive autonomous decisions.
+    pub fn metrics(&self) -> anyhow::Result<serde_json::Value> {
+        let entries = self.get_all()?;
+        let total = entries.len() as u64;
+
+        if total == 0 {
+            return Ok(serde_json::json!({
+                "total_entries": 0,
+                "modules": {},
+                "actions": {},
+                "error_count": 0,
+                "last_timestamp": null,
+                "integrity_ok": self.verify_integrity().unwrap_or(false),
+            }));
+        }
+
+        let mut modules: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        let mut actions: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        let mut error_count: u64 = 0;
+        let mut last_ts: i64 = 0;
+
+        for entry in &entries {
+            *modules.entry(entry.module.clone()).or_default() += 1;
+            *actions.entry(entry.action.clone()).or_default() += 1;
+            if entry.action.contains("error") || entry.action.contains("fail") || entry.details.contains("error") {
+                error_count += 1;
+            }
+            if entry.timestamp > last_ts {
+                last_ts = entry.timestamp;
+            }
+        }
+
+        let error_rate = if total > 0 {
+            error_count as f64 / total as f64
+        } else {
+            0.0
+        };
+
+        Ok(serde_json::json!({
+            "total_entries": total,
+            "modules": modules,
+            "actions": actions,
+            "error_count": error_count,
+            "error_rate": error_rate,
+            "last_timestamp": last_ts,
+            "integrity_ok": self.verify_integrity().unwrap_or(false),
+        }))
+    }
 }

@@ -30,7 +30,7 @@ impl AppState {
     pub fn find_backend(&self, path: &str) -> Option<(String, String)> {
         // Sort by prefix length (longest match first)
         let mut backends = self.config.backends.clone();
-        backends.sort_by(|a, b| b.prefix.len().cmp(&a.prefix.len()));
+        backends.sort_by_key(|b| std::cmp::Reverse(b.prefix.len()));
 
         for backend in backends {
             if path.starts_with(&backend.prefix) {
