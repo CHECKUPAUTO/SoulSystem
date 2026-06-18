@@ -25,6 +25,11 @@
 //! Each model layer has its own independent KvCacheManager instance.
 //! The outer system maintains a `Vec<KvCacheManager>` of length `n_layers`.
 
+// The design docs use `3a.`/`3b.` sub-steps, which clippy's doc list parser
+// treats as lazy/overindented continuations; the rendering is intentional.
+#![allow(clippy::doc_lazy_continuation)]
+#![allow(clippy::doc_overindented_list_items)]
+
 use thiserror::Error;
 
 // ── Error types ───────────────────────────────────────────────────────────────
@@ -803,8 +808,7 @@ mod tests {
         assert!(fragmented >= 2);
 
         // Compact should pack them efficiently
-        let freed = cache.compact();
-        assert!(freed >= 0);
+        let _freed = cache.compact();
         assert!(cache.used_pages_count() <= fragmented);
     }
 

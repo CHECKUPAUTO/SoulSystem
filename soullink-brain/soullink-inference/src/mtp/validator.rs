@@ -183,6 +183,7 @@ impl MtpValidator {
         let mut break_index = 0usize;
         let mut corrected_token = None;
 
+        #[allow(clippy::needless_range_loop)] // index drives per-step logits slicing
         for step in 0..steps {
             let start = step * self.vocab_size;
             let main_step_logits = &main_logits[start..start + self.vocab_size];
@@ -277,6 +278,7 @@ impl MtpValidator {
         main_logits: &[f32],
     ) -> Result<(usize, Option<usize>)> {
         let steps = mtp_tokens.len().min(self.num_steps);
+        #[allow(clippy::needless_range_loop)] // index drives per-step logits slicing
         for step in 0..steps {
             let start = step * self.vocab_size;
             let logits = &main_logits[start..start + self.vocab_size];
