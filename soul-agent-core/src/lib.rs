@@ -256,6 +256,8 @@ impl AutonomousAgent {
             skill_loader: None,
             scanner: InjectionScanner::new(),
             gate: ApprovalGate::new(ExecutionMode::Autonomous),
+            error_unifier: ErrorUnifier::new(),
+            motivation: IntrinsicMotivation::new(),
             event_tx: None,
         }
     }

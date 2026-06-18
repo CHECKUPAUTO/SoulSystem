@@ -183,13 +183,14 @@ fn bench_llm_chat(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     group.bench_function("soul_system_chat", |b| {
-        let agent: ComposedAgent<MockLLM, MockMemory, MockTool, MockPlanner> = AgentBuilder::new()
-            .llm(MockLLM::new())
-            .memory(MockMemory::new())
-            .tool(MockTool::new())
-            .planner(MockPlanner)
-            .build()
-            .unwrap();
+        let mut agent: ComposedAgent<MockLLM, MockMemory, MockTool, MockPlanner> =
+            AgentBuilder::new()
+                .llm(MockLLM::new())
+                .memory(MockMemory::new())
+                .tool(MockTool::new())
+                .planner(MockPlanner)
+                .build()
+                .unwrap();
 
         b.iter(|| {
             rt.block_on(async {
@@ -276,7 +277,7 @@ fn bench_react_loop(c: &mut Criterion) {
 
     group.bench_function("soul_system_react_5_turns", |b| {
         b.iter(|| {
-            let agent: ComposedAgent<MockLLM, MockMemory, MockTool, MockPlanner> =
+            let mut agent: ComposedAgent<MockLLM, MockMemory, MockTool, MockPlanner> =
                 AgentBuilder::new()
                     .llm(MockLLM::new())
                     .memory(MockMemory::new())
@@ -311,15 +312,19 @@ fn bench_concurrent_agents(c: &mut Criterion) {
                         let mut handles = Vec::new();
 
                         for i in 0..num_agents {
-                            let agent: ComposedAgent<MockLLM, MockMemory, MockTool, MockPlanner> =
-                                AgentBuilder::new()
-                                    .llm(MockLLM::new())
-                                    .memory(MockMemory::new())
-                                    .tool(MockTool::new())
-                                    .planner(MockPlanner)
-                                    .name(&format!("Agent_{}", i))
-                                    .build()
-                                    .unwrap();
+                            let mut agent: ComposedAgent<
+                                MockLLM,
+                                MockMemory,
+                                MockTool,
+                                MockPlanner,
+                            > = AgentBuilder::new()
+                                .llm(MockLLM::new())
+                                .memory(MockMemory::new())
+                                .tool(MockTool::new())
+                                .planner(MockPlanner)
+                                .name(&format!("Agent_{}", i))
+                                .build()
+                                .unwrap();
 
                             handles.push(tokio::spawn(async move {
                                 agent.run_task("concurrent task").await.unwrap();
@@ -357,12 +362,8 @@ fn bench_context_compaction(c: &mut Criterion) {
 
             // Fill context with messages
             for i in 0..100 {
-                agent
-                    .chat_session
-                    .add_user_message(&format!("Message {}", i));
-                agent
-                    .chat_session
-                    .add_assistant_message(&format!("Response {}", i));
+                agent.push_user_message(&format!("Message {}", i));
+                agent.push_assistant_message(&format!("Response {}", i));
             }
 
             rt.block_on(async {

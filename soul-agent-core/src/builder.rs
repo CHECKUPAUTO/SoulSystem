@@ -196,6 +196,17 @@ pub struct ComposedAgent<L: LLMClient, M: Memory, T: Tool, P: Planner> {
 }
 
 impl<L: LLMClient, M: Memory, T: Tool, P: Planner> ComposedAgent<L, M, T, P> {
+    /// Seed a user message into the conversation context (e.g. to pre-fill
+    /// context in benchmarks/tests without driving the full ReAct loop).
+    pub fn push_user_message(&mut self, message: &str) {
+        self.chat_session.add_user_message(message);
+    }
+
+    /// Seed an assistant message into the conversation context.
+    pub fn push_assistant_message(&mut self, message: &str) {
+        self.chat_session.add_assistant_message(message);
+    }
+
     fn tool_schemas(&self) -> Vec<ToolSchema> {
         self.tools.iter().map(|t| t.schema()).collect()
     }
