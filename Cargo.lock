@@ -9395,6 +9395,8 @@ dependencies = [
  "criterion",
  "serde",
  "serde_json",
+ "soul-error-unifier",
+ "soul-intrinsic-motivation",
  "soul-memory",
  "soul_compaction",
  "soul_critique",

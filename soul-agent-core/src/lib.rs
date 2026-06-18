@@ -40,6 +40,8 @@ use soullink_gate::{
     spotlight, ApprovalGate, ApprovalRequirement, ExecutionMode, GateDecision, InjectionScanner,
     RiskLevel, Verdict,
 };
+use soul_error_unifier::ErrorUnifier;
+use soul_intrinsic_motivation::IntrinsicMotivation;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
@@ -156,6 +158,11 @@ pub struct AutonomousAgent {
     /// Outbound policy gate: the single decision point for whether a tool call
     /// is allowed, with persistent allow/deny memory and execution modes.
     gate: ApprovalGate,
+    /// Unified global-error tracker (E_t): fused prediction/reinforcement/goal/
+    /// social/uncertainty/initiative error driving adaptive behavior.
+    error_unifier: ErrorUnifier,
+    /// Intrinsic motivation engine: boredom-driven exploration drive.
+    motivation: IntrinsicMotivation,
     event_tx: Option<mpsc::UnboundedSender<AgentEvent>>,
 }
 
@@ -203,6 +210,8 @@ impl AutonomousAgent {
             skill_loader: None,
             scanner: InjectionScanner::new(),
             gate: ApprovalGate::new(ExecutionMode::Autonomous),
+            error_unifier: ErrorUnifier::new(),
+            motivation: IntrinsicMotivation::new(),
             event_tx: None,
         }
     }
@@ -247,6 +256,8 @@ impl AutonomousAgent {
             skill_loader: None,
             scanner: InjectionScanner::new(),
             gate: ApprovalGate::new(ExecutionMode::Autonomous),
+            error_unifier: ErrorUnifier::new(),
+            motivation: IntrinsicMotivation::new(),
             event_tx: None,
         }
     }
@@ -263,6 +274,42 @@ impl AutonomousAgent {
         if let Some(tx) = &self.event_tx {
             let _ = tx.send(event);
         }
+    }
+
+    /// Fuse one tool outcome into the adaptive subsystems and return whether the
+    /// unified global error has become critical.
+    ///
+    /// Maps loop state to the six error components:
+    /// - `reinforcement` — 1.0 on tool failure, 0.0 on success (the realized
+    ///   action reward signal),
+    /// - `prediction` — recent failure pressure (consecutive failures over the
+    ///   configured tolerance),
+    /// - `uncertainty` — the intrinsic exploration drive (boredom-driven),
+    /// - `initiative` — the unmet-initiative gap.
+    ///
+    /// A successful action resets boredom (the agent is making progress).
+    fn record_cognitive_feedback(&mut self, tool_success: bool) -> bool {
+        if tool_success {
+            self.motivation.reset_boredom();
+        }
+        let drive = self.motivation.compute_drive();
+        let initiative_gap = self.motivation.initiative_gap();
+        let tolerance = self.config.max_consecutive_failures.max(1) as f64;
+        let prediction = (self.consecutive_failures as f64 / tolerance).clamp(0.0, 1.0);
+        let reinforcement = if tool_success { 0.0 } else { 1.0 };
+        self.error_unifier
+            .feed(prediction, reinforcement, 0.0, 0.0, drive, initiative_gap);
+        self.error_unifier.is_critical()
+    }
+
+    /// Human-readable snapshot of the adaptive state (global error + drive),
+    /// for monitoring and tests.
+    pub fn cognitive_diagnostic(&self) -> String {
+        format!(
+            "{} | initiative_gap={:.3}",
+            self.error_unifier.diagnostic(),
+            self.motivation.initiative_gap()
+        )
     }
 
     /// Screen untrusted tool output for indirect prompt injection before it is
@@ -483,7 +530,9 @@ impl AutonomousAgent {
                         }
 
                         // Execute tool
-                        let result = match async_dispatch_tool(&name, args.clone()).await {
+                        let (result, tool_success) = match async_dispatch_tool(&name, args.clone())
+                            .await
+                        {
                             Ok(output) => {
                                 self.consecutive_failures = 0;
                                 self.emit_event(AgentEvent::ToolResult {
@@ -491,7 +540,7 @@ impl AutonomousAgent {
                                     output: truncate_output(&output, 2000),
                                     success: true,
                                 });
-                                output
+                                (output, true)
                             }
                             Err(e) => {
                                 self.consecutive_failures += 1;
@@ -508,9 +557,22 @@ impl AutonomousAgent {
                                         });
                                     }
                                 }
-                                e
+                                (e, false)
                             }
                         };
+
+                        // Adaptive feedback: fuse this outcome into the unified
+                        // global error and exploration drive. When error becomes
+                        // critical, surface the cognitive diagnostic so the loop
+                        // (and observers) can react.
+                        if self.record_cognitive_feedback(tool_success) {
+                            self.emit_event(AgentEvent::SafetyWarning {
+                                message: format!(
+                                    "Cognitive error critical — {}",
+                                    self.error_unifier.diagnostic()
+                                ),
+                            });
+                        }
 
                         self.planner.history.record(
                             format!("{}({})", name, truncate_output(&args.to_string(), 100)),
@@ -1238,6 +1300,48 @@ mod tests {
             gate.evaluate("execute_shell", "rm -rf /", &destr).await,
             GateDecision::Deny(_)
         ));
+    }
+
+    // ── Adaptive feedback ───────────────────────────────────────────────
+
+    #[test]
+    fn cognitive_feedback_escalates_on_repeated_failures() {
+        let mut agent = make_test_agent();
+        // A fresh agent is not in a critical-error state.
+        assert!(!agent.record_cognitive_feedback(true));
+
+        // Sustained tool failures drive the unified error up to critical.
+        agent.consecutive_failures = agent.config.max_consecutive_failures;
+        let mut became_critical = false;
+        for _ in 0..50 {
+            if agent.record_cognitive_feedback(false) {
+                became_critical = true;
+                break;
+            }
+        }
+        assert!(
+            became_critical,
+            "sustained failures should push global error to critical"
+        );
+        assert!(!agent.cognitive_diagnostic().is_empty());
+    }
+
+    #[test]
+    fn cognitive_success_recovers_from_critical() {
+        let mut agent = make_test_agent();
+        agent.consecutive_failures = agent.config.max_consecutive_failures;
+        for _ in 0..50 {
+            agent.record_cognitive_feedback(false);
+        }
+        // Recovery: a run of successes (failures reset) pulls error back down.
+        agent.consecutive_failures = 0;
+        for _ in 0..200 {
+            agent.record_cognitive_feedback(true);
+        }
+        assert!(
+            !agent.record_cognitive_feedback(true),
+            "sustained success should clear the critical state"
+        );
     }
 
     // ── AgentConfig ─────────────────────────────────────────────────────
