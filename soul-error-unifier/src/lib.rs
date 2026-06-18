@@ -373,7 +373,7 @@ impl ErrorUnifier {
         self.error.update(components, &weights);
 
         // Adapt weights every 16 samples based on component history
-        if self.sample_count % 16 == 0 {
+        if self.sample_count.is_multiple_of(16) {
             self.error.adapt_weights(&self.component_history);
             info!(
                 weights = ?self.error.weights,
