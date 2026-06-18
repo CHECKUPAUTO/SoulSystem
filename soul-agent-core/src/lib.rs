@@ -245,6 +245,8 @@ impl AutonomousAgent {
             trajectory_recorder: None,
             knowledge_graph: KnowledgeGraph::new(),
             skill_loader: None,
+            scanner: InjectionScanner::new(),
+            gate: ApprovalGate::new(ExecutionMode::Autonomous),
             event_tx: None,
         }
     }
