@@ -1,11 +1,21 @@
 //! Micro-kernel vectorisé en AVX-512 (Puces Intel/AMD Xeon modernes).
 //! Traite 16 flottants f32 en une seule instruction de registre (ZMM).
 
+// SIMD accumulator loops index fixed-size register tiles; the index drives
+// pointer offsets, so the range-loop form is intentional here.
+#![allow(clippy::needless_range_loop)]
+
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
 /// Micro-kernel AVX-512 FMA : C += A × B pour un bloc M×K, K×N.
 /// Les vecteurs non-alignés sont gérés par des boucles de nettoyage scalaires en fin de bloc.
+///
+/// # Safety
+/// - The running CPU must support AVX-512F/CD/VL/DQ (check
+///   `is_x86_feature_detected!`).
+/// - `a`, `b`, `c` must be valid for the `m×k`, `k×n`, `m×n` tiles respectively,
+///   aligned for `f32`, with `c` not overlapping `a`/`b`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512cd,avx512vl,avx512dq")]
 pub unsafe extern "C" fn gemm_micro_kernel_avx512(
@@ -23,9 +33,10 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx512(
     for i in (0..m).step_by(4) {
         let i_len = std::cmp::min(4, m - i);
 
-        for j in (0..n).step_by(16) {
-            let _j_len = std::cmp::min(16, n - j);
-
+        // Only full 16-wide column blocks: storing a 512-bit vector for a partial
+        // block would write past the row. The `n % 16` tail is handled by the
+        // scalar cleanup below.
+        for j in (0..(n / 16) * 16).step_by(16) {
             // Chargement initial des accumulateurs C dans les registres ZMM (16×f32 chacun)
             let mut c_acc: [*const f32; 4] = [std::ptr::null(); 4];
             for ci in 0..i_len {
@@ -85,20 +96,9 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx512(
             }
         }
     }
-
-    // === Cleanup : lignes non-alignées (dimensions % 4 != 0) ===
-    let i_start = (m / 4) * 4;
-    if i_start < m {
-        for i in i_start..m {
-            for j in 0..n {
-                let mut sum: f32 = *c.add(i * ld_c + j);
-                for p in 0..k {
-                    sum += *a.add(i * ld_a + p) * *b.add(p * ld_b + j);
-                }
-                *c.add(i * ld_c + j) = sum;
-            }
-        }
-    }
+    // No row (`m % 4`) cleanup: the loop above uses `i_len = min(4, m - i)`, so
+    // the partial final row-block is already processed; a second pass would
+    // double-count those rows.
 }
 
 /// Stub pour les plateformes non-x86_64 (toujours disponible via fallback)

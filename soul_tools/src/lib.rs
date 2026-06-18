@@ -272,7 +272,7 @@ pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result
             let new_text = args.get("new_text").and_then(|v| v.as_str()).unwrap_or("");
             patch_file(path, old_text, new_text)
         }
-        _ => execute_shell(&format!("{} {}", name, args.to_string())),
+        _ => execute_shell(&format!("{} {}", name, args)),
     }
 }
 

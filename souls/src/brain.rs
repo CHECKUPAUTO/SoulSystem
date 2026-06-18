@@ -190,7 +190,7 @@ impl BrainMesh {
         }
 
         // ── 4. Adapt error weights periodically ──
-        if cycle % 16 == 0 {
+        if cycle.is_multiple_of(16) {
             if let Ok(unifier) = self.error_unifier.lock() {
                 info!(
                     total = unifier.error.total,
