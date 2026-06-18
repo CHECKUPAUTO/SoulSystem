@@ -26,6 +26,9 @@ pub unsafe extern "C" fn gemm_micro_kernel_fallback(
         let a_row = a.add(i * ld_a);
         let c_row = c.add(i * ld_c);
 
+        // `rem_k = min(8, k - p)` already covers the partial final K-block, so
+        // the whole K dimension is accumulated here — a separate tail cleanup
+        // would double-count the last `k % 8` contributions.
         for p in (0..k).step_by(8) {
             let rem_k = std::cmp::min(8, k - p);
             for j in 0..n {
@@ -34,19 +37,6 @@ pub unsafe extern "C" fn gemm_micro_kernel_fallback(
                 let mut acc = *c_row.add(j);
                 for pk in 0..rem_k {
                     acc += *a_row.add(p + pk) * *b.add((p + pk) * ld_b + j);
-                }
-                *c_row.add(j) = acc;
-            }
-        }
-
-        // Cleanup K non-aligné
-        let k_start = (k / 8) * 8;
-        if k_start < k {
-            let c_row = c.add(i * ld_c);
-            for j in 0..n {
-                let mut acc = *c_row.add(j);
-                for pk in k_start..k {
-                    acc += *a_row.add(pk) * *b.add(pk * ld_b + j);
                 }
                 *c_row.add(j) = acc;
             }

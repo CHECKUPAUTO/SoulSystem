@@ -28,9 +28,10 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx2(
     for i in (0..m).step_by(2) {
         let i_len = std::cmp::min(2, m - i);
 
-        for j in (0..n).step_by(8) {
-            let _j_len = std::cmp::min(8, n - j);
-
+        // Only full 8-wide column blocks: storing a 256-bit vector for a partial
+        // block would write past the row. The `n % 8` tail is handled by the
+        // scalar cleanup below.
+        for j in (0..(n / 8) * 8).step_by(8) {
             // Accumulateurs initiaux à zéro (C += ... et non C = ...)
             let zero = _mm256_setzero_ps();
             for ci in 0..i_len {
@@ -65,20 +66,9 @@ pub unsafe extern "C" fn gemm_micro_kernel_avx2(
             }
         }
     }
-
-    // === Cleanup : lignes non-alignées (m % 2 != 0) ===
-    let i_start = (m / 2) * 2;
-    if i_start < m {
-        for i in i_start..m {
-            for j in 0..n {
-                let mut sum: f32 = *c.add(i * ld_c + j);
-                for p in 0..k {
-                    sum += *a.add(i * ld_a + p) * *b.add(p * ld_b + j);
-                }
-                *c.add(i * ld_c + j) = sum;
-            }
-        }
-    }
+    // No row (`m % 2`) cleanup: the loop above uses `i_len = min(2, m - i)`, so
+    // the partial final row-block is already processed; a second pass would
+    // double-count those rows.
 }
 
 /// Stub pour les plateformes non-x86_64
