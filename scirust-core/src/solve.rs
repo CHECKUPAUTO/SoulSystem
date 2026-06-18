@@ -30,8 +30,8 @@ fn extract_linear_coeffs(expr: &Expr, var: &str) -> Option<(f64, f64)> {
         }
         Expr::Mul(a, b) => {
             match (a.as_ref(), b.as_ref()) {
-                (&Expr::Const(coeff), &Expr::Var(ref v)) if v == var => Some((coeff, 0.0)),
-                (&Expr::Var(ref v), &Expr::Const(coeff)) if v == var => Some((coeff, 0.0)),
+                (&Expr::Const(coeff), Expr::Var(v)) if v == var => Some((coeff, 0.0)),
+                (Expr::Var(v), &Expr::Const(coeff)) if v == var => Some((coeff, 0.0)),
                 (&Expr::Const(c), inner) => {
                     let (a_coeff, b_coeff) = extract_linear_coeffs(inner, var)?;
                     Some((a_coeff * c, b_coeff * c))
@@ -86,11 +86,9 @@ fn extract_quadratic_coeffs(expr: &Expr, var: &str) -> Option<(f64, f64, f64)> {
         Expr::Mul(a, b) => {
             // Try: const * var, var * var, const * var^2
             match (a.as_ref(), b.as_ref()) {
-                (&Expr::Const(coeff), &Expr::Var(ref v)) if v == var => Some((0.0, coeff, 0.0)),
-                (&Expr::Var(ref v), &Expr::Const(coeff)) if v == var => Some((0.0, coeff, 0.0)),
-                (&Expr::Var(ref v1), &Expr::Var(ref v2)) if v1 == var && v2 == var => {
-                    Some((1.0, 0.0, 0.0))
-                }
+                (&Expr::Const(coeff), Expr::Var(v)) if v == var => Some((0.0, coeff, 0.0)),
+                (Expr::Var(v), &Expr::Const(coeff)) if v == var => Some((0.0, coeff, 0.0)),
+                (Expr::Var(v1), Expr::Var(v2)) if v1 == var && v2 == var => Some((1.0, 0.0, 0.0)),
                 (&Expr::Const(coeff), inner) => {
                     let (a1, b1, c1) = extract_quadratic_coeffs(inner, var)?;
                     Some((a1 * coeff, b1 * coeff, c1 * coeff))
@@ -104,7 +102,7 @@ fn extract_quadratic_coeffs(expr: &Expr, var: &str) -> Option<(f64, f64, f64)> {
         }
         Expr::Pow(base, exp) => {
             if let &Expr::Const(2.0) = exp.as_ref() {
-                if let &Expr::Var(ref v) = base.as_ref() {
+                if let Expr::Var(v) = base.as_ref() {
                     if v == var {
                         return Some((1.0, 0.0, 0.0));
                     }
