@@ -12,3 +12,6 @@ graphify-out/
 # Generated agent checkpoints & evolution outputs
 **/checkpoints/agent/
 openevolve*/output/
+
+# Test-generated checkpoints
+**/forge_checkpoint.json
