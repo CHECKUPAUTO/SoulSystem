@@ -1,9 +1,0 @@
-[package]
-name = "scirust-distributed"
-version = "0.1.0"
-edition = "2021"
-description = "Distributed inference for SciRust: TCP-based model serving, data parallelism, rendezvous"
-
-[dependencies]
-scirust-inference = { path = "../scirust-inference" }
-scirust-probability = { path = "../scirust-probability" }

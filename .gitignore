@@ -8,3 +8,7 @@ graphify-out/
 
 # Compiled scirust rustc-driver test binary
 **/scirust-rustc-driver/test
+
+# Generated agent checkpoints & evolution outputs
+**/checkpoints/agent/
+openevolve*/output/
