@@ -1,9 +1,0 @@
-[package]
-name = "scirust-symbolic"
-version = "0.1.0"
-edition = "2021"
-authors = ["SciRust Team"]
-description = "Symbolic mathematics core for SciRust: AST, parser, simplification, differentiation"
-publish = false
-
-[dependencies]

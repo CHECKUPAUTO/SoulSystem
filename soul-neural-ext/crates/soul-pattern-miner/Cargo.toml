@@ -1,9 +1,0 @@
-[package]
-name = "soul-pattern-miner"
-version.workspace = true
-edition.workspace = true
-description = "Symbolic pattern discovery from data series"
-
-[dependencies]
-serde = { workspace = true }
-fastrand = "2"
