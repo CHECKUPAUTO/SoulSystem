@@ -53,6 +53,9 @@ pub struct SoulEntity {
 impl SoulEntity {
     /// Construit une nouvelle entité. Si `config.memory_path` est fourni,
     /// la mémoire est persistée sur disque.
+    // PersistenceError is a large enum; boxing it would ripple through every
+    // caller's signature, so accept the large Err here.
+    #[allow(clippy::result_large_err)]
     pub fn new(
         config: EntityConfig,
     ) -> std::result::Result<Self, soul_persistence::PersistenceError> {
@@ -84,10 +87,10 @@ impl SoulEntity {
 
         let event_store = if let Some(ref path) = config.event_store_path {
             PersistentEventStore::new(path, 10, 1000)
-                .map_err(|e| soul_persistence::PersistenceError::Io(e))?
+                .map_err(soul_persistence::PersistenceError::Io)?
         } else {
             PersistentEventStore::new("/tmp/soul_events.log", 1, 100)
-                .map_err(|e| soul_persistence::PersistenceError::Io(e))?
+                .map_err(soul_persistence::PersistenceError::Io)?
         };
 
         // Sous-systèmes historiques câblés.
@@ -97,7 +100,7 @@ impl SoulEntity {
             .and_then(|p| p.join("journal.bin").to_str().map(|s| s.to_string()));
         let subsystems = Arc::new(
             Subsystems::new(journal_path.as_deref())
-                .map_err(|e| soul_persistence::PersistenceError::Io(e))?,
+                .map_err(soul_persistence::PersistenceError::Io)?,
         );
 
         // Démarrer la console clinique en arrière-plan.

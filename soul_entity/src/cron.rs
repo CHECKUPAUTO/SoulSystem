@@ -223,7 +223,7 @@ impl CronScheduler {
             now.minute()
         );
 
-        if self.last_trigger.get(&minute_key).is_some() {
+        if self.last_trigger.contains_key(&minute_key) {
             return vec![];
         }
 

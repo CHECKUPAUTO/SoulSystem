@@ -215,7 +215,7 @@ mod tests {
         let before = e.subagent_active_count().await;
         e.spawn_subagent("active task", None).await.unwrap();
         // Since tasks start as Pending, they count as active
-        assert!(e.subagent_active_count().await >= before + 1);
+        assert!(e.subagent_active_count().await > before);
     }
 
     #[tokio::test]
