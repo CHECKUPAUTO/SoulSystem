@@ -159,7 +159,10 @@ impl AuditLog {
         for entry in &entries {
             *modules.entry(entry.module.clone()).or_default() += 1;
             *actions.entry(entry.action.clone()).or_default() += 1;
-            if entry.action.contains("error") || entry.action.contains("fail") || entry.details.contains("error") {
+            if entry.action.contains("error")
+                || entry.action.contains("fail")
+                || entry.details.contains("error")
+            {
                 error_count += 1;
             }
             if entry.timestamp > last_ts {

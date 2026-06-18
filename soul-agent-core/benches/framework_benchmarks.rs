@@ -7,7 +7,7 @@
 //! cargo bench -p soul_agent_core
 //! ```
 
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use soul_agent_core::builder::{AgentBuilder, ComposedAgent};
 use soul_agent_core::traits::*;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -311,19 +311,15 @@ fn bench_concurrent_agents(c: &mut Criterion) {
                         let mut handles = Vec::new();
 
                         for i in 0..num_agents {
-                            let agent: ComposedAgent<
-                                MockLLM,
-                                MockMemory,
-                                MockTool,
-                                MockPlanner,
-                            > = AgentBuilder::new()
-                                .llm(MockLLM::new())
-                                .memory(MockMemory::new())
-                                .tool(MockTool::new())
-                                .planner(MockPlanner)
-                                .name(&format!("Agent_{}", i))
-                                .build()
-                                .unwrap();
+                            let agent: ComposedAgent<MockLLM, MockMemory, MockTool, MockPlanner> =
+                                AgentBuilder::new()
+                                    .llm(MockLLM::new())
+                                    .memory(MockMemory::new())
+                                    .tool(MockTool::new())
+                                    .planner(MockPlanner)
+                                    .name(&format!("Agent_{}", i))
+                                    .build()
+                                    .unwrap();
 
                             handles.push(tokio::spawn(async move {
                                 agent.run_task("concurrent task").await.unwrap();
@@ -361,8 +357,12 @@ fn bench_context_compaction(c: &mut Criterion) {
 
             // Fill context with messages
             for i in 0..100 {
-                agent.chat_session.add_user_message(&format!("Message {}", i));
-                agent.chat_session.add_assistant_message(&format!("Response {}", i));
+                agent
+                    .chat_session
+                    .add_user_message(&format!("Message {}", i));
+                agent
+                    .chat_session
+                    .add_assistant_message(&format!("Response {}", i));
             }
 
             rt.block_on(async {

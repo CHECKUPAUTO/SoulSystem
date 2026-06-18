@@ -370,9 +370,7 @@ mod tests {
         let mut modifier =
             AutoModifier::new(&dir.path().join("backups")).with_validator(|_| Ok(()));
 
-        let m = modifier
-            .modify(&file, "new", "good change", true)
-            .unwrap();
+        let m = modifier.modify(&file, "new", "good change", true).unwrap();
         assert!(m.verified);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
     }

@@ -25,23 +25,23 @@ pub mod builder;
 pub mod traits;
 
 use chrono::Utc;
+use soul_error_unifier::ErrorUnifier;
+use soul_intrinsic_motivation::IntrinsicMotivation;
 use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolSchema};
 use soul_memory::{KnowledgeGraph, Node, NodeType};
 use soul_planner::{CognitiveLoop, Goal, GoalStatus};
 use soul_skills::SkillLoader;
 use soul_tools::{async_dispatch_tool, discover_system_tools, AsyncShellExecutor, ToolRegistry};
 use soullink_autonomy::metacognition::MetaCognition;
+use soullink_gate::{
+    spotlight, ApprovalGate, ApprovalRequirement, ExecutionMode, GateDecision, InjectionScanner,
+    RiskLevel, Verdict,
+};
 use soullink_memory_hierarchy::{
     ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, SemanticConfig,
 };
 use soullink_reasoning::{ThoughtTree, TreeConfig};
 use soullink_trainer::{Trajectory, TrajectoryRecorder};
-use soullink_gate::{
-    spotlight, ApprovalGate, ApprovalRequirement, ExecutionMode, GateDecision, InjectionScanner,
-    RiskLevel, Verdict,
-};
-use soul_error_unifier::ErrorUnifier;
-use soul_intrinsic_motivation::IntrinsicMotivation;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
@@ -528,36 +528,35 @@ impl AutonomousAgent {
                         }
 
                         // Execute tool
-                        let (result, tool_success) = match async_dispatch_tool(&name, args.clone())
-                            .await
-                        {
-                            Ok(output) => {
-                                self.consecutive_failures = 0;
-                                self.emit_event(AgentEvent::ToolResult {
-                                    name: name.clone(),
-                                    output: truncate_output(&output, 2000),
-                                    success: true,
-                                });
-                                (output, true)
-                            }
-                            Err(e) => {
-                                self.consecutive_failures += 1;
-                                self.emit_event(AgentEvent::ToolResult {
-                                    name: name.clone(),
-                                    output: e.clone(),
-                                    success: false,
-                                });
-                                let repairs = self.auto_repair();
-                                if !repairs.is_empty() {
-                                    for r in &repairs {
-                                        self.emit_event(AgentEvent::SafetyWarning {
-                                            message: r.clone(),
-                                        });
-                                    }
+                        let (result, tool_success) =
+                            match async_dispatch_tool(&name, args.clone()).await {
+                                Ok(output) => {
+                                    self.consecutive_failures = 0;
+                                    self.emit_event(AgentEvent::ToolResult {
+                                        name: name.clone(),
+                                        output: truncate_output(&output, 2000),
+                                        success: true,
+                                    });
+                                    (output, true)
                                 }
-                                (e, false)
-                            }
-                        };
+                                Err(e) => {
+                                    self.consecutive_failures += 1;
+                                    self.emit_event(AgentEvent::ToolResult {
+                                        name: name.clone(),
+                                        output: e.clone(),
+                                        success: false,
+                                    });
+                                    let repairs = self.auto_repair();
+                                    if !repairs.is_empty() {
+                                        for r in &repairs {
+                                            self.emit_event(AgentEvent::SafetyWarning {
+                                                message: r.clone(),
+                                            });
+                                        }
+                                    }
+                                    (e, false)
+                                }
+                            };
 
                         // Adaptive feedback: fuse this outcome into the unified
                         // global error and exploration drive. When error becomes

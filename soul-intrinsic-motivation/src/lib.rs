@@ -294,7 +294,11 @@ impl IntrinsicMotivation {
     ///
     /// # Returns
     /// An `InitiativeSignal` indicating whether and how strongly to generate goals.
-    pub fn compute_initiative(&mut self, uncertainty: f64, active_goal_count: usize) -> InitiativeSignal {
+    pub fn compute_initiative(
+        &mut self,
+        uncertainty: f64,
+        active_goal_count: usize,
+    ) -> InitiativeSignal {
         let drive = self.compute_drive();
 
         // Gap factor: more unexplored gaps → stronger initiative.
@@ -398,16 +402,12 @@ impl IntrinsicMotivation {
 
     /// Feed probe candidates from the curiosity module.
     /// High-novelty probes become knowledge gaps.
-    pub fn ingest_probes(
-        &mut self,
-        probes: &[(String, f64)],
-    ) // (topic, novelty)
+    pub fn ingest_probes(&mut self, probes: &[(String, f64)]) // (topic, novelty)
     {
         for (topic, novelty) in probes {
             if *novelty >= self.min_novelty {
                 let info_value = *novelty; // Novelty ≈ information value for unexplored domains
-                self.knowledge
-                    .record_gap(topic, 1.0 - novelty, info_value);
+                self.knowledge.record_gap(topic, 1.0 - novelty, info_value);
             }
         }
     }
@@ -419,7 +419,8 @@ impl IntrinsicMotivation {
         if self.knowledge.gaps.is_empty() {
             return 0.0; // No gaps → no initiative needed
         }
-        let saturation = self.active_intrinsic_goals as f64 / self.max_active_intrinsic_goals as f64;
+        let saturation =
+            self.active_intrinsic_goals as f64 / self.max_active_intrinsic_goals as f64;
         1.0 - saturation // High saturation → low gap, low saturation → high gap
     }
 
@@ -492,11 +493,7 @@ mod tests {
         m.boredom_threshold = 1; // Immediate drive for testing
         m.min_intensity = 0.2; // Lower threshold for testing
         m.max_active_intrinsic_goals = 2;
-        m.ingest_probes(&[
-            ("a".into(), 0.9),
-            ("b".into(), 0.8),
-            ("c".into(), 0.7),
-        ]);
+        m.ingest_probes(&[("a".into(), 0.9), ("b".into(), 0.8), ("c".into(), 0.7)]);
 
         // Generate 2 goals
         assert!(m.generate_goal(0.9, 0).is_some());

@@ -227,8 +227,8 @@ impl GlobalError {
         // Trend detection: last 5 values
         if self.history.len() >= 5 {
             let recent: Vec<f64> = self.history.iter().rev().take(5).copied().collect();
-            self.trending_up = recent.first().copied().unwrap_or(0.0)
-                > recent.last().copied().unwrap_or(0.0);
+            self.trending_up =
+                recent.first().copied().unwrap_or(0.0) > recent.last().copied().unwrap_or(0.0);
         }
 
         if self.total > 0.7 {
@@ -517,7 +517,10 @@ mod tests {
         // All zero except uncertainty
         let history = [0.0, 0.0, 0.0, 0.0, 1.0, 0.0]; // only uncertainty has signal
         error.adapt_weights(&history);
-        assert!(error.weights.w_uncertainty > 0.9, "uncertainty should dominate");
+        assert!(
+            error.weights.w_uncertainty > 0.9,
+            "uncertainty should dominate"
+        );
     }
 
     #[test]
