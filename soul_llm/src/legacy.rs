@@ -221,7 +221,7 @@ impl OllamaClient {
                 .collect()
         });
 
-        let tools_ref = provider_tools.as_ref().map(|v| v.as_slice());
+        let tools_ref = provider_tools.as_deref();
 
         match self.client.chat(&provider_msgs, tools_ref).await {
             Ok(resp) => {
