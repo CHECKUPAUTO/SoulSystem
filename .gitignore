@@ -2,3 +2,9 @@
 **/target
 *.log
 node_modules/
+
+# Generated graph analysis output
+graphify-out/
+
+# Compiled scirust rustc-driver test binary
+**/scirust-rustc-driver/test
