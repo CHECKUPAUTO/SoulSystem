@@ -1,1 +1,0 @@
-/mnt/nvme_secondary/SoulNeural/target/release/libsoul_hnn.rlib: /mnt/nvme_secondary/SoulNeural/crates/soul-hnn/src/hnn/hamiltonian.rs /mnt/nvme_secondary/SoulNeural/crates/soul-hnn/src/hnn/integrator.rs /mnt/nvme_secondary/SoulNeural/crates/soul-hnn/src/hnn/learn.rs /mnt/nvme_secondary/SoulNeural/crates/soul-hnn/src/hnn/mod.rs /root/scirust/scirust-autodiff/src/lib.rs
