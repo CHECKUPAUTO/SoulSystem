@@ -42,12 +42,12 @@ impl EmbeddingEngine {
     pub fn embed(&self, text: &str) -> Vec<f32> {
         let hash_vec = Self::text_to_hash_vec(text, self.hash_space);
         let mut out = vec![0.0f32; self.dim];
-        for i in 0..self.dim {
+        for (i, o) in out.iter_mut().enumerate() {
             let mut acc = 0.0f32;
-            for j in 0..self.hash_space {
-                acc += hash_vec[j] as f32 * self.proj[i * self.hash_space + j];
+            for (j, &h) in hash_vec.iter().enumerate() {
+                acc += h as f32 * self.proj[i * self.hash_space + j];
             }
-            out[i] = acc / (self.hash_space as f32).sqrt();
+            *o = acc / (self.hash_space as f32).sqrt();
         }
         // L2 normalize
         let norm: f32 = out.iter().map(|v| v * v).sum::<f32>().sqrt();

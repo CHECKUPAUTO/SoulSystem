@@ -186,6 +186,7 @@ impl MiniLLM {
                 let q_head = &q[h * head_dim..(h + 1) * head_dim];
                 let mut scores = vec![0.0f32; pos + 1];
                 let mut max_score = f32::NEG_INFINITY;
+                #[allow(clippy::needless_range_loop)] // index drives K/score offsets
                 for j in 0..=pos {
                     // K for position j, head h
                     let kj_start = j * d + h * head_dim;
@@ -207,6 +208,7 @@ impl MiniLLM {
                     denom += *s;
                 }
                 let mut head_out = vec![0.0f32; head_dim];
+                #[allow(clippy::needless_range_loop)] // index drives V offsets
                 for j in 0..=pos {
                     let attn_w = scores[j] / denom;
                     let vj_start = j * d + h * head_dim;
@@ -217,6 +219,7 @@ impl MiniLLM {
                 head_outs.push(head_out);
             }
             // Concatenate heads
+            #[allow(clippy::needless_range_loop)] // index maps head slot to output offset
             for h in 0..n_heads {
                 let start = h * head_dim;
                 for k in 0..head_dim {
@@ -251,6 +254,7 @@ impl MiniLLM {
         // 4. LM head: project to vocabulary
         let mut logits = vec![vec![0.0f32; v]; seq_len];
         for pos in 0..seq_len {
+            #[allow(clippy::needless_range_loop)] // index drives logits/x offsets
             for t in 0..v {
                 let mut acc = 0.0f32;
                 for j in 0..d {
@@ -323,7 +327,7 @@ fn matvec_batch(w: &[f32], x: &[f32], batch: usize, in_dim: usize, out_dim: usiz
 }
 
 fn gelu(x: f32) -> f32 {
-    let sqrt_2_over_pi = 0.7978845608f32;
+    let sqrt_2_over_pi = 0.797_884_6_f32;
     let coeff = 0.044715f32;
     let x3 = x * x * x;
     x * 0.5 * (1.0 + (sqrt_2_over_pi * (x + coeff * x3)).tanh())

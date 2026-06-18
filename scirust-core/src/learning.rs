@@ -8,10 +8,7 @@ use crate::symbolic::Expr;
 /// Returns coefficients [a_0, a_1, ..., a_d] for a_0 + a_1*x + ... + a_d*x^d.
 pub fn polynomial_fit(xs: &[f64], ys: &[f64], degree: usize) -> Vec<f64> {
     assert_eq!(xs.len(), ys.len(), "xs and ys must have same length");
-    assert!(
-        xs.len() >= degree + 1,
-        "not enough data points for given degree"
-    );
+    assert!(xs.len() > degree, "not enough data points for given degree");
     let n = xs.len();
     let d = degree + 1;
 
