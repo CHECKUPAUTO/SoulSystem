@@ -6,6 +6,11 @@ use std::arch::x86_64::*;
 
 /// Micro-kernel AVX2 FMA : C += A × B pour un bloc M×K, K×N.
 /// Gestion des dimensions non-alignées (non-multiples de 8) via cleanup scalar en fin de tile.
+///
+/// # Safety
+/// - The running CPU must support AVX2 and FMA (check `is_x86_feature_detected!`).
+/// - `a`, `b`, `c` must be valid for the `m×k`, `k×n`, `m×n` tiles respectively,
+///   aligned for `f32`, with `c` not overlapping `a`/`b`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2,fma")]
 pub unsafe extern "C" fn gemm_micro_kernel_avx2(

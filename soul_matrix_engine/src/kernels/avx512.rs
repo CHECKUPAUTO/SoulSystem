@@ -1,11 +1,21 @@
 //! Micro-kernel vectorisé en AVX-512 (Puces Intel/AMD Xeon modernes).
 //! Traite 16 flottants f32 en une seule instruction de registre (ZMM).
 
+// SIMD accumulator loops index fixed-size register tiles; the index drives
+// pointer offsets, so the range-loop form is intentional here.
+#![allow(clippy::needless_range_loop)]
+
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
 /// Micro-kernel AVX-512 FMA : C += A × B pour un bloc M×K, K×N.
 /// Les vecteurs non-alignés sont gérés par des boucles de nettoyage scalaires en fin de bloc.
+///
+/// # Safety
+/// - The running CPU must support AVX-512F/CD/VL/DQ (check
+///   `is_x86_feature_detected!`).
+/// - `a`, `b`, `c` must be valid for the `m×k`, `k×n`, `m×n` tiles respectively,
+///   aligned for `f32`, with `c` not overlapping `a`/`b`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512cd,avx512vl,avx512dq")]
 pub unsafe extern "C" fn gemm_micro_kernel_avx512(
