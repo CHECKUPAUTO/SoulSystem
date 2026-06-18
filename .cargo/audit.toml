@@ -1,0 +1,15 @@
+# cargo-audit configuration
+# Run: cargo audit
+#
+# Suppressed advisories:
+# - RUSTSEC-2023-0071 (rsa): Marvin Attack — no fixed version available (transitive dep)
+# - RUSTSEC-2026-0098/0099/0104 (rustls-webpki): Transitive via tokio-tungstenite 0.24 
+#   used by soul-mcp/soul-protocol/soul-browser. Requires major refactor to upgrade.
+
+[advisories]
+ignore = [
+    "RUSTSEC-2023-0071",  # rsa — no fix available
+    "RUSTSEC-2026-0098",  # rustls-webpki name constraints URI (transitive)
+    "RUSTSEC-2026-0099",  # rustls-webpki name constraints wildcard (transitive)
+    "RUSTSEC-2026-0104",  # rustls-webpki CRL parsing panic (transitive)
+]

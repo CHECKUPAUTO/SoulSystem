@@ -241,7 +241,7 @@ parking_lot = "0.12"
 ahash = "0.8"
 metrics = "0.23"
 metrics-exporter-prometheus = { version = "0.15", default-features = false, features = ["http-listener"] }
-prometheus = "0.13"
+prometheus = "0.14"
 async-trait = "0.1"
 subtle = "2.5"
 sha2 = "0.10"
