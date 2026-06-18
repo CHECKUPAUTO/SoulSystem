@@ -9,7 +9,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  RUSTFLAGS: "-D warnings"
+  # Deny warnings, but keep the noise-suppressions the workspace applies locally
+  # via .cargo/config.toml. An env RUSTFLAGS overrides that file entirely, so the
+  # allows must be repeated here or dead_code/unused_imports/unexpected_cfgs would
+  # turn into hard errors and break the build.
+  RUSTFLAGS: "-D warnings -A unexpected_cfgs -A dead_code -A unused_imports"
 
 jobs:
   check:
@@ -30,9 +34,7 @@ jobs:
         run: cargo check --workspace --all-targets
       - name: Check GPU/CUDA sub-workspace
         working-directory: workspaces/gpu
-        run: |
-          RUSTFLAGS="-D warnings" \\
-          cargo check --workspace --all-targets
+        run: cargo check --workspace --all-targets
 
   test:
     name: Test
@@ -73,9 +75,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Clippy GPU sub-workspace
         working-directory: workspaces/gpu
-        run: |
-          RUSTFLAGS="-D warnings" \\
-          cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   fmt:
     name: Format

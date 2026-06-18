@@ -73,7 +73,11 @@ impl Memory for MockMemory {
         Ok(())
     }
 
-    async fn search(&self, _query: &str, _k: usize) -> Result<Vec<MemorySearchResult>, MemoryError> {
+    async fn search(
+        &self,
+        _query: &str,
+        _k: usize,
+    ) -> Result<Vec<MemorySearchResult>, MemoryError> {
         Ok(vec![])
     }
 

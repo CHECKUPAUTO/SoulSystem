@@ -39,11 +39,7 @@ impl Memory for InMemoryBackend {
         Ok(())
     }
 
-    async fn search(
-        &self,
-        query: &str,
-        k: usize,
-    ) -> Result<Vec<MemorySearchResult>, MemoryError> {
+    async fn search(&self, query: &str, k: usize) -> Result<Vec<MemorySearchResult>, MemoryError> {
         let records = self
             .records
             .read()
@@ -73,14 +69,7 @@ impl Memory for InMemoryBackend {
         let ctx: Vec<String> = results
             .into_iter()
             .enumerate()
-            .map(|(i, r)| {
-                format!(
-                    "[{}] (score: {:.2}): {}",
-                    i + 1,
-                    r.score,
-                    r.record.text
-                )
-            })
+            .map(|(i, r)| format!("[{}] (score: {:.2}): {}", i + 1, r.score, r.record.text))
             .collect();
 
         Ok(ctx.join("\n"))

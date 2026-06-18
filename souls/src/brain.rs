@@ -142,9 +142,10 @@ impl BrainMesh {
         let goal_error = 0.1;
 
         let (uncertainty, initiative_gap) = {
-            let mot = self.intrinsic_motivation.lock().map_err(|e| {
-                anyhow::anyhow!("IntrinsicMotivation lock poisoned: {}", e)
-            })?;
+            let mot = self
+                .intrinsic_motivation
+                .lock()
+                .map_err(|e| anyhow::anyhow!("IntrinsicMotivation lock poisoned: {}", e))?;
             let u = 1.0 - mot.knowledge.skill_coverage;
             let g = mot.initiative_gap();
             (u, g)
@@ -167,9 +168,10 @@ impl BrainMesh {
 
         // ── 2. Compute intrinsic motivation ──
         {
-            let mut mot = self.intrinsic_motivation.lock().map_err(|e| {
-                anyhow::anyhow!("IntrinsicMotivation lock poisoned: {}", e)
-            })?;
+            let mut mot = self
+                .intrinsic_motivation
+                .lock()
+                .map_err(|e| anyhow::anyhow!("IntrinsicMotivation lock poisoned: {}", e))?;
             let active_goals = mot.active_intrinsic_goals;
             let initiative = mot.compute_initiative(uncertainty, active_goals);
 

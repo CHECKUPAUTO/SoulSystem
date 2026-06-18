@@ -517,7 +517,12 @@ mod tests {
         let bs = BoundSystem::new(vec!["echo".into()]); // use_sandbox = true
         let result = bs.execute_streaming("echo hello").await;
         assert!(result.is_err(), "must refuse, not fall back to direct exec");
-        assert!(result.unwrap_err().to_string().contains("bwrap is not available"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("bwrap is not available")
+        );
     }
 
     #[tokio::test]

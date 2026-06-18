@@ -137,10 +137,7 @@ impl<L: LLMClient, M: Memory, T: Tool, P: Planner> AgentBuilder<L, M, T, P> {
             tools: self.tools,
             planner: self.planner,
             config: self.config,
-            chat_session: ChatSessionBuilder::new(
-                &build_system_prompt(&name),
-                max_context,
-            ),
+            chat_session: ChatSessionBuilder::new(&build_system_prompt(&name), max_context),
             turn: 0,
             consecutive_failures: 0,
             running: Arc::new(tokio::sync::RwLock::new(false)),
@@ -217,7 +214,11 @@ impl<L: LLMClient, M: Memory, T: Tool, P: Planner> Agent for ComposedAgent<L, M,
         self.chat_session.add_user_message(task);
 
         let schemas = self.tool_schemas();
-        let schemas_ref = if schemas.is_empty() { None } else { Some(schemas.as_slice()) };
+        let schemas_ref = if schemas.is_empty() {
+            None
+        } else {
+            Some(schemas.as_slice())
+        };
 
         let mut last_response = String::new();
 
@@ -241,10 +242,8 @@ impl<L: LLMClient, M: Memory, T: Tool, P: Planner> Agent for ComposedAgent<L, M,
             if let Some(ref memory) = self.memory {
                 if let Ok(ctx) = memory.get_context(task).await {
                     if !ctx.is_empty() {
-                        self.chat_session.add_user_message(&format!(
-                            "Relevant memories:\n{}",
-                            ctx
-                        ));
+                        self.chat_session
+                            .add_user_message(&format!("Relevant memories:\n{}", ctx));
                     }
                 }
             }
@@ -308,11 +307,17 @@ impl<L: LLMClient, M: Memory, T: Tool, P: Planner> Agent for ComposedAgent<L, M,
 
         let messages = self.chat_session.build_messages();
         let schemas = self.tool_schemas();
-        let schemas_ref = if schemas.is_empty() { None } else { Some(schemas.as_slice()) };
+        let schemas_ref = if schemas.is_empty() {
+            None
+        } else {
+            Some(schemas.as_slice())
+        };
 
-        let response = self.llm.chat(&messages, schemas_ref).await.map_err(|e| {
-            AgentError::LLMError(e.to_string())
-        })?;
+        let response = self
+            .llm
+            .chat(&messages, schemas_ref)
+            .await
+            .map_err(|e| AgentError::LLMError(e.to_string()))?;
 
         let content = response;
         self.chat_session.add_assistant_message(&content);

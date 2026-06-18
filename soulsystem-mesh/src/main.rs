@@ -3,15 +3,15 @@
 // Unified bridge aliases (replaces 9 individual bridge crates)
 
 #[cfg(feature = "avid")]
-use soul_bridge::avid as avid;
+use soul_bridge::avid;
 #[cfg(feature = "brain")]
-use soul_bridge::brain as brain;
+use soul_bridge::brain;
 #[cfg(feature = "openevolve")]
-use soul_bridge::openevolve as openevolve;
+use soul_bridge::openevolve;
 #[cfg(feature = "soul_neural")]
-use soul_bridge::soul_neural as soul_neural;
+use soul_bridge::soul_neural;
 #[cfg(feature = "synergie")]
-use soul_bridge::synergie as synergie;
+use soul_bridge::synergie;
 
 fn main() {
     tracing_subscriber::fmt().with_env_filter("info").init();
