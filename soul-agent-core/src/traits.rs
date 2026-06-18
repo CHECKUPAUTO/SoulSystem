@@ -75,13 +75,12 @@ pub struct ChatSessionBuilder {
 
 impl ChatSessionBuilder {
     pub fn new(system_prompt: &str, max_context_chars: usize) -> Self {
-        let mut messages = Vec::new();
-        messages.push(ChatMessage {
+        let messages = vec![ChatMessage {
             role: ChatRole::System,
             content: system_prompt.to_string(),
             tool_calls: None,
             tool_call_id: None,
-        });
+        }];
         Self {
             messages,
             max_context_chars,
