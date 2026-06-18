@@ -12,6 +12,7 @@ soul_compaction = { path = "../soul-compaction" }
 soul_critique = { path = "../soul-critique" }
 soullink-memory-hierarchy = { path = "../soullink-brain/soullink-memory-hierarchy" }
 soullink-autonomy = { path = "../soullink-brain/soullink-autonomy" }
+soullink-circuit = { path = "../soullink-brain/soullink-circuit" }
 soullink-reasoning = { path = "../soullink-brain/soullink-reasoning" }
 soullink-trainer = { path = "../soullink-brain/soullink-trainer" }
 soullink-gate = { path = "../soullink-brain/soullink-gate" }
