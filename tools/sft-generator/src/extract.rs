@@ -306,7 +306,6 @@ fn make_fn(
             ret,
             parent,
             signature,
-            derives_default_parent: false,
         },
         file: ctx.file.clone(),
     }
@@ -339,10 +338,7 @@ fn make_test(
         name: sig.ident.to_string(),
         doc: None,
         doc_examples: Vec::new(),
-        kind: ItemKind::Test {
-            is_async: sig.asyncness.is_some(),
-            body,
-        },
+        kind: ItemKind::Test { body },
         file: ctx.file.clone(),
     })
 }

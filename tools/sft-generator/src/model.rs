@@ -27,7 +27,6 @@ pub enum ItemKind {
         parent: Option<String>,
         /// Full reconstructed signature, e.g. `pub async fn foo(&self) -> Result<T, E>`.
         signature: String,
-        derives_default_parent: bool,
     },
     Struct {
         fields: Vec<Field>,
@@ -47,7 +46,7 @@ pub enum ItemKind {
     },
     /// A real `#[test]` / `#[tokio::test]` function — the body is sliced verbatim
     /// from source so it is genuine, compiling usage.
-    Test { is_async: bool, body: String },
+    Test { body: String },
     /// Crate / module level `//!` documentation.
     ModuleDoc,
 }
@@ -66,22 +65,6 @@ pub struct ApiItem {
 }
 
 impl ApiItem {
-    /// Fully-qualified path used in `use` statements and prose.
-    pub fn full_path(&self) -> String {
-        match (self.module_path.is_empty(), &self.kind) {
-            (_, ItemKind::ModuleDoc) if self.module_path.is_empty() => self.crate_name.clone(),
-            (_, ItemKind::ModuleDoc) => format!("{}::{}", self.crate_name, self.module_path),
-            (true, _) => format!("{}::{}", self.crate_name, self.name),
-            (false, _) => format!("{}::{}::{}", self.crate_name, self.module_path, self.name),
-        }
-    }
-
-    /// Best-effort `use` path. Re-exports often flatten the module path, but the
-    /// fully-qualified form is always valid.
-    pub fn use_path(&self) -> String {
-        self.full_path()
-    }
-
     /// First sentence / first non-empty line of the doc comment, for one-liners.
     pub fn doc_summary(&self) -> Option<String> {
         let doc = self.doc.as_ref()?;

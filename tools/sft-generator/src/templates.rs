@@ -29,7 +29,6 @@ fn function_pairs(item: &ApiItem) -> Vec<Pair> {
         ret,
         parent,
         signature,
-        ..
     } = &item.kind
     else {
         return Vec::new();
@@ -417,7 +416,7 @@ fn trait_pairs(item: &ApiItem) -> Vec<Pair> {
 // ──────────────────────────────── tests ────────────────────────────────────
 
 fn test_pairs(item: &ApiItem) -> Vec<Pair> {
-    let ItemKind::Test { body, .. } = &item.kind else {
+    let ItemKind::Test { body } = &item.kind else {
         return Vec::new();
     };
     let c = &item.crate_name;
