@@ -17,7 +17,3 @@ name = "octasoma"
 # The agent layer and the HTTP (Ollama) embedder use the standard library only.
 lz4_flex = "0.11"
 
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = 3

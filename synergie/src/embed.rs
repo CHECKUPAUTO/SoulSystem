@@ -88,7 +88,7 @@ impl EmbedClient {
             .local
             .as_ref()
             .ok_or_else(|| anyhow!("local engine non initialisé"))?;
-        let engine = engine.lock().unwrap();
+        let mut engine = engine.lock().unwrap();
         let v = engine.embed(text);
         Ok(v)
     }
