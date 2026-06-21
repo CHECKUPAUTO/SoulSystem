@@ -2,12 +2,18 @@
 
 Générateur de jeux de données **SFT** (Supervised Fine-Tuning) à partir du
 monorepo SoulSystem. L'outil parse l'intégralité du workspace Rust avec `syn`
-et produit des paires *instruction → réponse* (format chat `messages`, une ligne
-JSON par exemple) montrant **comment utiliser et interagir avec les modules**
-réels : fonctions, structs, enums, traits, docs de crate et tests authentiques.
+et produit des paires *instruction → réponse* (une ligne JSON par exemple)
+montrant **comment utiliser et interagir avec les modules** réels : fonctions,
+structs, enums, traits, docs de crate, tests authentiques, et **scénarios
+inter-crates**.
+
+Deux formats de sortie au choix : chat `messages`, Alpaca
+`instruction/input/output`, ou les deux (`--format`).
 
 Tout est **ancré dans le code réel** : signatures, commentaires de doc, champs,
-variantes et corps de tests sont extraits de l'AST, jamais inventés.
+variantes et corps de tests sont extraits de l'AST, jamais inventés. Les
+scénarios sont des **compositions** : les briques (crates, types, méthodes,
+constructeurs) sont réelles, seul le récit qui les relie est synthétisé.
 
 ## Pourquoi un générateur (et pas 550 000 paires écrites à la main)
 
@@ -34,12 +40,15 @@ Capacité de génération (mesurée, après déduplication exacte) :
 
 | Cible | Commande | Paires distinctes |
 |---|---|---|
-| **Premium (organique, ×1)** | `--augment 1` | **69 423** |
+| **Premium (organique, ×1)** | `--augment 1` | **70 444** |
 | **150 000 (recommandé)** | `--augment 3 --limit 150000` | **150 000** |
 | **550 000** | `--augment 9 --limit 550000` | **550 000** |
-| Plafond | `--augment 12` | ~832 000 |
+| Plafond | `--augment 12` | ~840 000 |
 
-- Le **premium organique** (≈ 69 K) correspond aux angles *réellement distincts*
+Le premium organique inclut ~1 000 paires de **scénarios** (844 workflows
+intra-crate, 172 intégrations inter-crates, 5 panoramas de sous-système).
+
+- Le **premium organique** (≈ 70 K) correspond aux angles *réellement distincts*
   (réponses différentes), sans augmentation.
 - Au-delà, l'**augmentation** diversifie la formulation de l'instruction tout en
   conservant la réponse ancrée (technique standard d'instruction-tuning). Les
@@ -70,6 +79,9 @@ pas le build des ~313 crates du monorepo.
 ./tools/sft-generator/target/release/sft-generator \
     --augment 9 --limit 550000 --out sft_550k.jsonl
 
+# Les deux formats à la fois (écrit sft.jsonl + sft.alpaca.jsonl)
+./tools/sft-generator/target/release/sft-generator --format both --out sft.jsonl
+
 # Statistiques d'extraction uniquement (rapide, n'écrit rien)
 ./tools/sft-generator/target/release/sft-generator --stats-only
 ```
@@ -80,15 +92,20 @@ pas le build des ~313 crates du monorepo.
 |---|---|---|
 | `--root <chemin>` | `.` | Racine du workspace à parser |
 | `--out <fichier>` | `sft_dataset.jsonl` | Fichier de sortie JSONL |
+| `--format <fmt>` | `messages` | `messages`, `alpaca`, ou `both` |
 | `--augment <K>` | `1` | Nombre de formulations par paire (rondes) |
 | `--limit <N>` | `0` (illimité) | Plafond de paires écrites |
 | `--sample <fichier>` | — | Écrit un petit échantillon varié et lisible |
-| `--sample-size <N>` | `80` | Taille de l'échantillon |
+| `--sample-size <N>` | `150` | Taille de l'échantillon |
 | `--stats-only` | — | Affiche seulement les statistiques d'extraction |
 
-## Format de sortie
+En mode `both`, le fichier Alpaca est dérivé de `--out` en insérant `.alpaca`
+(ex. `sft.jsonl` → `sft.alpaca.jsonl`). L'échantillon est toujours au format
+`messages` pour rester lisible.
 
-Une ligne JSON par exemple, format chat `messages` :
+## Formats de sortie
+
+Une ligne JSON par exemple. Format chat `messages` (défaut) :
 
 ```json
 {
@@ -101,8 +118,21 @@ Une ligne JSON par exemple, format chat `messages` :
 }
 ```
 
+Format Alpaca (`--format alpaca` ou `both`) :
+
+```json
+{
+  "instruction": "Dans le crate `soul_llm`, comment utiliser `generate` … ?",
+  "input": "",
+  "output": "`generate` — …",
+  "system": "Tu es un assistant expert du codebase SoulSystem…",
+  "meta": {"source": "fn.usage", "crate": "soul_llm"}
+}
+```
+
 Le champ `meta.source` permet de filtrer / pondérer par type. Un échantillon
-varié de 80 lignes est fourni dans [`sample.jsonl`](./sample.jsonl).
+varié (~96 lignes, format `messages`, couvrant toutes les catégories) est fourni
+dans [`sample.jsonl`](./sample.jsonl).
 
 ## Catégories générées (`meta.source`)
 
@@ -129,6 +159,9 @@ varié de 80 lignes est fourni dans [`sample.jsonl`](./sample.jsonl).
 | `crate.example` | Exemple tiré de la doc du crate |
 | `crate.exports` | Ré-exports publics principaux |
 | `nav.location` | Où est défini un symbole (crate, module, fichier) |
+| `scenario.workflow` | Workflow multi-étapes : `new` puis enchaînement de méthodes réelles |
+| `scenario.pair` | Intégration de deux crates d'un même sous-système |
+| `scenario.subsystem` | Panorama d'un sous-système et de ses types clés |
 
 ## Notes
 

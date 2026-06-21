@@ -5,7 +5,7 @@
 //! implementation, real tests). Responses reuse the *actual* signatures, docs,
 //! fields and variants pulled from source, so the dataset teaches the real API.
 
-use crate::model::{ApiItem, ItemKind, Pair, Param};
+use crate::model::{crate_ident, ApiItem, ItemKind, Pair, Param};
 
 /// Produce all training pairs for a single item.
 pub fn pairs_for(item: &ApiItem) -> Vec<Pair> {
@@ -463,12 +463,6 @@ fn module_pairs(item: &ApiItem) -> Vec<Pair> {
 }
 
 // ─────────────────────────────── helpers ───────────────────────────────────
-
-/// Crate name as it appears *in code*: cargo allows `-` in package names but
-/// the Rust path uses `_` (e.g. `soul-memory` → `soul_memory`).
-fn crate_ident(name: &str) -> String {
-    name.replace('-', "_")
-}
 
 /// A codebase-navigation pair: "where is X defined?". Grounded in the real file
 /// path and module, this is exactly what a repo assistant is asked.

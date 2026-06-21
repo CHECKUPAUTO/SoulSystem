@@ -1,16 +1,19 @@
 //! SoulSystem SFT dataset generator.
 //!
 //! Walks the workspace, parses every `.rs` file with `syn`, and emits supervised
-//! fine-tuning pairs (chat `messages` format, one JSON object per line) that show
-//! how to use the real public API: functions, structs, enums, traits, crate docs
-//! and genuine tests.
+//! fine-tuning pairs that show how to use the real public API: functions,
+//! structs, enums, traits, crate docs, genuine tests, plus cross-crate scenarios.
+//!
+//! Output formats: chat `messages` (default), Alpaca `instruction/input/output`,
+//! or both. One JSON object per line.
 //!
 //! Usage:
-//!   sft-generator [--root .] [--out sft_dataset.jsonl] [--augment 1]
-//!                 [--limit N] [--sample sample.jsonl] [--stats-only]
+//!   sft-generator [--root .] [--out sft_dataset.jsonl] [--format messages|alpaca|both]
+//!                 [--augment 1] [--limit N] [--sample sample.jsonl] [--stats-only]
 
 mod extract;
 mod model;
+mod scenarios;
 mod templates;
 
 use std::collections::hash_map::DefaultHasher;
@@ -29,6 +32,13 @@ use model::{ItemKind, Pair};
 
 const SYSTEM: &str = "Tu es un assistant expert du codebase SoulSystem, un monorepo Rust d'agents autonomes (réseau neuronal SoulLink, entité autonome ReAct, écosystème AVID, framework SciRust). Tu réponds avec des explications claires et des exemples de code Rust corrects et idiomatiques, en t'appuyant sur l'API réelle des crates.";
 
+#[derive(Clone, Copy, PartialEq)]
+enum Format {
+    Messages,
+    Alpaca,
+    Both,
+}
+
 struct Args {
     root: PathBuf,
     out: PathBuf,
@@ -37,6 +47,7 @@ struct Args {
     limit: usize,
     augment: usize,
     stats_only: bool,
+    format: Format,
 }
 
 impl Args {
@@ -45,10 +56,11 @@ impl Args {
             root: PathBuf::from("."),
             out: PathBuf::from("sft_dataset.jsonl"),
             sample: None,
-            sample_size: 80,
+            sample_size: 150,
             limit: 0,
             augment: 1,
             stats_only: false,
+            format: Format::Messages,
         };
         let mut it = std::env::args().skip(1);
         while let Some(arg) = it.next() {
@@ -63,11 +75,18 @@ impl Args {
                     ))
                 }
                 "--sample-size" => {
-                    a.sample_size = it.next().and_then(|s| s.parse().ok()).unwrap_or(80)
+                    a.sample_size = it.next().and_then(|s| s.parse().ok()).unwrap_or(150)
                 }
                 "--limit" => a.limit = it.next().and_then(|s| s.parse().ok()).unwrap_or(0),
                 "--augment" => {
                     a.augment = it.next().and_then(|s| s.parse().ok()).unwrap_or(1).max(1)
+                }
+                "--format" => {
+                    a.format = match it.next().as_deref() {
+                        Some("alpaca") => Format::Alpaca,
+                        Some("both") => Format::Both,
+                        _ => Format::Messages,
+                    }
                 }
                 "--stats-only" => a.stats_only = true,
                 other => eprintln!("argument ignoré : {other}"),
@@ -87,6 +106,73 @@ struct Stats {
     pairs_by_source: HashMap<&'static str, usize>,
     distinct_pairs: usize,
     augmented_pairs: usize,
+}
+
+/// Owns the output writers and dedup/sample state; `emit` is the single funnel
+/// through which every pair is written.
+struct Sink {
+    msg: Option<BufWriter<File>>,
+    alpaca: Option<BufWriter<File>>,
+    sample: Option<BufWriter<File>>,
+    sample_by_source: HashMap<&'static str, usize>,
+    sample_total: usize,
+    sample_size: usize,
+    seen: HashSet<u64>,
+    written: usize,
+    limit: usize,
+    stats: Stats,
+}
+
+impl Sink {
+    /// Emit one pair under paraphrase round `k`. Returns `false` once `--limit`
+    /// is reached (caller should stop).
+    fn emit(&mut self, k: usize, pair: &Pair, crate_name: &str) -> bool {
+        let user = paraphrase(&pair.user, k);
+        let mut hasher = DefaultHasher::new();
+        user.hash(&mut hasher);
+        if !self.seen.insert(hasher.finish()) {
+            return true; // exact duplicate instruction — skip, keep going
+        }
+        if let Some(w) = self.msg.as_mut() {
+            let line = to_messages_json(&user, &pair.assistant, pair.source, crate_name);
+            w.write_all(line.as_bytes()).unwrap();
+            w.write_all(b"\n").unwrap();
+        }
+        if let Some(w) = self.alpaca.as_mut() {
+            let line = to_alpaca_json(&user, &pair.assistant, pair.source, crate_name);
+            w.write_all(line.as_bytes()).unwrap();
+            w.write_all(b"\n").unwrap();
+        }
+        self.written += 1;
+        *self.stats.pairs_by_source.entry(pair.source).or_default() += 1;
+        if k > 0 {
+            self.stats.augmented_pairs += 1;
+        }
+        if k == 0 {
+            if let Some(sw) = self.sample.as_mut() {
+                let n = self.sample_by_source.entry(pair.source).or_default();
+                if *n < 4 && self.sample_total < self.sample_size {
+                    let line = to_messages_json(&user, &pair.assistant, pair.source, crate_name);
+                    sw.write_all(line.as_bytes()).unwrap();
+                    sw.write_all(b"\n").unwrap();
+                    *n += 1;
+                    self.sample_total += 1;
+                }
+            }
+        }
+        !(self.limit != 0 && self.written >= self.limit)
+    }
+
+    fn finish(mut self) -> Stats {
+        for w in [&mut self.msg, &mut self.alpaca, &mut self.sample]
+            .into_iter()
+            .flatten()
+        {
+            w.flush().unwrap();
+        }
+        self.stats.distinct_pairs = self.written;
+        self.stats
+    }
 }
 
 fn main() {
@@ -134,86 +220,108 @@ fn main() {
         return;
     }
 
-    // Generate, dedup, write.
-    eprintln!("→ Génération des paires SFT (augment ×{})…", args.augment);
-    let out_file = File::create(&args.out).expect("création du fichier de sortie");
-    let mut writer = BufWriter::new(out_file);
+    // Composition pairs (cross-crate scenarios + per-crate re-export listings).
+    eprintln!("→ Construction des scénarios inter-crates…");
+    let index = scenarios::Index::build(&extracts);
+    let mut extra: Vec<(Pair, String)> = index.pairs();
+    let scenario_count = extra.len();
+    extra.extend(export_pairs(&reexports));
+    eprintln!(
+        "  {scenario_count} scénarios, {} listes d'exports",
+        extra.len() - scenario_count
+    );
 
-    let mut sample_writer = args
-        .sample
-        .as_ref()
-        .map(|p| BufWriter::new(File::create(p).expect("création du sample")));
-    let mut sample_by_source: HashMap<&'static str, usize> = HashMap::new();
-    let mut sample_total = 0usize;
+    // Resolve output paths per format.
+    let (msg_path, alpaca_path) = match args.format {
+        Format::Messages => (Some(args.out.clone()), None),
+        Format::Alpaca => (None, Some(args.out.clone())),
+        Format::Both => (Some(args.out.clone()), Some(alpaca_sibling(&args.out))),
+    };
 
-    let mut seen: HashSet<u64> = HashSet::new();
-    let mut written = 0usize;
+    eprintln!(
+        "→ Génération des paires SFT (format {}, augment ×{})…",
+        format_label(args.format),
+        args.augment
+    );
 
-    // Augmentation runs as outer rounds so coverage stays balanced: round 0 is
-    // the canonical phrasing of every item, round 1 a second phrasing of every
-    // item, etc. With a `--limit`, the final round is simply truncated.
+    let mut sink = Sink {
+        msg: msg_path.as_ref().map(create),
+        alpaca: alpaca_path.as_ref().map(create),
+        sample: args.sample.as_ref().map(create),
+        sample_by_source: HashMap::new(),
+        sample_total: 0,
+        sample_size: args.sample_size,
+        seen: HashSet::new(),
+        written: 0,
+        limit: args.limit,
+        stats,
+    };
+
+    // Balanced round-based augmentation: round 0 is the canonical phrasing of
+    // every pair, round 1 a second phrasing, etc. `--limit` truncates the tail.
     'outer: for k in 0..args.augment {
         for ex in &extracts {
             for it in &ex.items {
                 for pair in templates::pairs_for(it) {
-                    let user = paraphrase(&pair.user, k);
-                    let mut hasher = DefaultHasher::new();
-                    user.hash(&mut hasher);
-                    if !seen.insert(hasher.finish()) {
-                        continue;
-                    }
-                    let line = to_jsonl(&user, &pair, &ex.crate_name);
-                    writer.write_all(line.as_bytes()).unwrap();
-                    writer.write_all(b"\n").unwrap();
-
-                    written += 1;
-                    *stats.pairs_by_source.entry(pair.source).or_default() += 1;
-                    if k > 0 {
-                        stats.augmented_pairs += 1;
-                    }
-
-                    // Diverse, human-readable sample (canonical phrasing only).
-                    if k == 0 {
-                        if let Some(sw) = sample_writer.as_mut() {
-                            let n = sample_by_source.entry(pair.source).or_default();
-                            if *n < 4 && sample_total < args.sample_size {
-                                sw.write_all(line.as_bytes()).unwrap();
-                                sw.write_all(b"\n").unwrap();
-                                *n += 1;
-                                sample_total += 1;
-                            }
-                        }
-                    }
-
-                    if args.limit != 0 && written >= args.limit {
+                    if !sink.emit(k, &pair, &ex.crate_name) {
                         break 'outer;
                     }
                 }
             }
         }
+        for (pair, crate_name) in &extra {
+            if !sink.emit(k, pair, crate_name) {
+                break 'outer;
+            }
+        }
     }
 
-    // Per-crate re-export listing pairs.
-    if args.limit == 0 || written < args.limit {
-        let mut crates: Vec<_> = reexports.iter().collect();
-        crates.sort_by(|a, b| a.0.cmp(b.0));
-        for (c, set) in crates {
-            if set.is_empty() {
-                continue;
-            }
-            let mut names: Vec<_> = set.iter().cloned().collect();
-            names.sort();
-            names.truncate(60);
-            let user = format!(
-                "Quels sont les principaux symboles exportés (ré-exports publics) du crate `{c}` ?"
-            );
-            let mut hasher = DefaultHasher::new();
-            user.hash(&mut hasher);
-            if !seen.insert(hasher.finish()) {
-                continue;
-            }
-            let pair = Pair {
-                user,
+    let stats = sink.finish();
+    print_final_stats(
+        &stats,
+        &args,
+        &msg_path,
+        &alpaca_path,
+        t0.elapsed().as_secs_f32(),
+    );
+}
+
+fn create(p: &PathBuf) -> BufWriter<File> {
+    BufWriter::new(File::create(p).expect("création du fichier de sortie"))
+}
+
+fn alpaca_sibling(out: &Path) -> PathBuf {
+    let s = out.to_string_lossy();
+    match s.strip_suffix(".jsonl") {
+        Some(stem) => PathBuf::from(format!("{stem}.alpaca.jsonl")),
+        None => PathBuf::from(format!("{s}.alpaca.jsonl")),
+    }
+}
+
+fn format_label(f: Format) -> &'static str {
+    match f {
+        Format::Messages => "messages",
+        Format::Alpaca => "alpaca",
+        Format::Both => "messages+alpaca",
+    }
+}
+
+fn export_pairs(reexports: &HashMap<String, HashSet<String>>) -> Vec<(Pair, String)> {
+    let mut crates: Vec<_> = reexports.iter().collect();
+    crates.sort_by(|a, b| a.0.cmp(b.0));
+    let mut out = Vec::new();
+    for (c, set) in crates {
+        if set.is_empty() {
+            continue;
+        }
+        let mut names: Vec<_> = set.iter().cloned().collect();
+        names.sort();
+        names.truncate(60);
+        out.push((
+            Pair {
+                user: format!(
+                    "Quels sont les principaux symboles exportés (ré-exports publics) du crate `{c}` ?"
+                ),
                 assistant: format!(
                     "Le crate `{c}` ré-exporte notamment : {}.",
                     names
@@ -223,25 +331,11 @@ fn main() {
                         .join(", ")
                 ),
                 source: "crate.exports",
-            };
-            let line = to_jsonl(&pair.user, &pair, c);
-            writer.write_all(line.as_bytes()).unwrap();
-            writer.write_all(b"\n").unwrap();
-            written += 1;
-            *stats.pairs_by_source.entry("crate.exports").or_default() += 1;
-            if args.limit != 0 && written >= args.limit {
-                break;
-            }
-        }
+            },
+            c.clone(),
+        ));
     }
-
-    writer.flush().unwrap();
-    if let Some(mut sw) = sample_writer {
-        sw.flush().unwrap();
-    }
-    stats.distinct_pairs = written;
-
-    print_final_stats(&stats, &args, t0.elapsed().as_secs_f32());
+    out
 }
 
 fn collect_rs_files(root: &Path) -> Vec<PathBuf> {
@@ -273,18 +367,27 @@ fn kind_tag(k: &ItemKind) -> &'static str {
     }
 }
 
-/// Serialize one example to a JSONL line in chat `messages` format.
-fn to_jsonl(user: &str, pair: &Pair, crate_name: &str) -> String {
+/// One JSONL line in chat `messages` format.
+fn to_messages_json(user: &str, assistant: &str, source: &str, crate_name: &str) -> String {
     let value = serde_json::json!({
         "messages": [
             {"role": "system", "content": SYSTEM},
             {"role": "user", "content": user},
-            {"role": "assistant", "content": pair.assistant},
+            {"role": "assistant", "content": assistant},
         ],
-        "meta": {
-            "source": pair.source,
-            "crate": crate_name,
-        }
+        "meta": {"source": source, "crate": crate_name}
+    });
+    serde_json::to_string(&value).unwrap()
+}
+
+/// One JSONL line in Alpaca `instruction/input/output` format.
+fn to_alpaca_json(user: &str, assistant: &str, source: &str, crate_name: &str) -> String {
+    let value = serde_json::json!({
+        "instruction": user,
+        "input": "",
+        "output": assistant,
+        "system": SYSTEM,
+        "meta": {"source": source, "crate": crate_name}
     });
     serde_json::to_string(&value).unwrap()
 }
@@ -341,18 +444,30 @@ fn print_pre_stats(s: &Stats) {
     println!("  {:<14} : {}", "TOTAL", total);
 }
 
-fn print_final_stats(s: &Stats, args: &Args, secs: f32) {
+fn print_final_stats(
+    s: &Stats,
+    args: &Args,
+    msg_path: &Option<PathBuf>,
+    alpaca_path: &Option<PathBuf>,
+    secs: f32,
+) {
     print_pre_stats(s);
     println!("\n──────── PAIRES SFT GÉNÉRÉES ────────");
     let mut by: Vec<_> = s.pairs_by_source.iter().collect();
     by.sort_by(|a, b| b.1.cmp(a.1));
     for (k, v) in &by {
-        println!("  {:<16} : {}", k, v);
+        println!("  {:<18} : {}", k, v);
     }
     println!("\n  Paires distinctes     : {}", s.distinct_pairs);
     println!("  Dont augmentées       : {}", s.augmented_pairs);
     println!("  Facteur augment       : ×{}", args.augment);
-    println!("  Fichier de sortie     : {}", args.out.display());
+    println!("  Format                : {}", format_label(args.format));
+    if let Some(p) = msg_path {
+        println!("  Sortie (messages)     : {}", p.display());
+    }
+    if let Some(p) = alpaca_path {
+        println!("  Sortie (alpaca)       : {}", p.display());
+    }
     if let Some(sp) = &args.sample {
         println!("  Échantillon           : {}", sp.display());
     }

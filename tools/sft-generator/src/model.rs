@@ -85,6 +85,12 @@ pub struct Pair {
     pub source: &'static str,
 }
 
+/// Crate name as it appears *in code*: cargo allows `-` in package names but the
+/// Rust path uses `_` (e.g. `soul-memory` → `soul_memory`).
+pub fn crate_ident(name: &str) -> String {
+    name.replace('-', "_")
+}
+
 /// Collapse the spacing that `quote` inserts around punctuation so reconstructed
 /// types and signatures read like hand-written Rust (`Result<T, E>`, not
 /// `Result < T , E >`).
