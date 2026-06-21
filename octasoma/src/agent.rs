@@ -64,6 +64,47 @@ impl<E: Embedder> OctaSomaAgent<E> {
         Ok(self.recall(query, k)?.join("\n"))
     }
 
+    /// Explains a recall: the query's 3-D position, the coarse→fine regions it
+    /// falls through, and the `k` nearest memories with distances and positions.
+    /// `Ok(None)` only if the embedding projects to a non-finite point.
+    pub fn explain(
+        &self,
+        query: &str,
+        k: usize,
+    ) -> Result<Option<crate::explain::Explanation>, EmbedError> {
+        let v = self.embedder.embed(query)?;
+        Ok(self.core.explain(&v, k))
+    }
+
+    /// Exports up to `max_points` memories as JSON for a 3-D viewer.
+    pub fn export_points_json(&self, max_points: usize) -> String {
+        self.core.export_points_json(max_points)
+    }
+
+    /// Zooms to the region a query falls in at `level` (0 = the whole memory,
+    /// deeper = finer), summarised. `Ok(None)` for a non-finite projection.
+    pub fn zoom(
+        &self,
+        query: &str,
+        level: u32,
+        samples: usize,
+    ) -> Result<Option<crate::RegionView>, EmbedError> {
+        let v = self.embedder.embed(query)?;
+        Ok(self.core.zoom(&v, level, samples))
+    }
+
+    /// The coarse→fine path of regions a query falls through — progressive recall
+    /// from the broad theme near the root to the exact memory at a leaf.
+    pub fn zoom_path(
+        &self,
+        query: &str,
+        max_level: u32,
+        samples: usize,
+    ) -> Result<Vec<crate::RegionView>, EmbedError> {
+        let v = self.embedder.embed(query)?;
+        Ok(self.core.zoom_path(&v, max_level, samples))
+    }
+
     /// Persists the memory to a `.frac` file.
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         self.core.save_to_disk(path)

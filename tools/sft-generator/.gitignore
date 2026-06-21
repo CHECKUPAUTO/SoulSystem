@@ -1,0 +1,7 @@
+# Build artifacts
+/target/
+
+# Generated datasets can reach hundreds of MB — regenerate with the tool.
+# The small, human-readable sample.jsonl is intentionally tracked.
+*.jsonl
+!sample.jsonl

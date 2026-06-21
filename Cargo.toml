@@ -6,6 +6,8 @@ members = [
     "soullink-brain/soullink-octasoma-backend",
     # ── CCOS (Causal Context Operating System) ─────────────────────────
     "ccos",
+    "octasoma",
+    "octasoma/octacore",
 
     # ── SciRust core (local, replaces /root/scirust subtree) ─────────────
     "scirust-core",
@@ -220,6 +222,8 @@ exclude = [
     "avid-soullink",
     "avid-rstdp",
     "turbovec",
+    # Standalone tooling — own isolated workspace, not part of the main build
+    "tools/sft-generator",
 ]
 
 [workspace.package]
@@ -296,6 +300,7 @@ spinner = { path = "spinner" }
 terminal-stream = { path = "terminal-stream" }
 soulsystem-common = { path = "crates/soulsystem-common" }
 ccos = { path = "ccos" }
+octasoma = { path = "octasoma" }
 
 [package]
 name = "soulsystem"

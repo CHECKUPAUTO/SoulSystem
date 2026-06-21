@@ -12,3 +12,4 @@ chrono = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
 ccos = { workspace = true }
+octasoma = { workspace = true }

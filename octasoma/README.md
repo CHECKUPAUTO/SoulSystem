@@ -1,24 +1,27 @@
-# OctaSoma — 3-D Fractal Semantic Memory Engine
+# OctaSoma — a fractal, zoomable, explainable memory for AI agents
 
-[![tests](https://img.shields.io/badge/tests-20%20passing-success)](#tests)
+[![CI](https://github.com/checkupauto/octasoma/actions/workflows/ci.yml/badge.svg)](https://github.com/checkupauto/octasoma/actions/workflows/ci.yml)
 [![rust](https://img.shields.io/badge/rust-stable%2C%20edition%202024-orange)](#)
 [![unsafe](https://img.shields.io/badge/unsafe-forbidden-success)](#)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**OctaSoma** is a small, dependency-light, **100 % safe stable Rust** engine for
-embedding-based memory. It projects high-dimensional embeddings to a 3-D point
-with a *learned* (PCA) or *deterministic* (Johnson–Lindenstrauss) linear map,
-indexes them in a **cache-efficient bucket point-region octree**, and answers
-**exact `k`-nearest-neighbour** queries in the projected space — with
-LZ4-compressed, versioned persistence.
+**OctaSoma** is a compact, **100 % safe stable Rust** *fractal memory* for AI
+agents. It projects embeddings to 3-D and indexes them in a cache-efficient bucket
+point-region octree — but, unlike a flat index, it treats that octree as a
+**zoomable, multi-resolution memory**: every depth is a *zoom level*, so a recall
+can be navigated from the broad theme near the root to the exact memory at a leaf,
+**explained** (each memory has real 3-D coordinates and reports its *why*), and
+**visualised** (export the store for a 3-D viewer). The `k`-NN is *exact* and fast,
+with LZ4-compressed, versioned persistence.
 
 It is deliberately honest about what 3 dimensions can and cannot do. See
-[**Evaluation**](#evaluation) and [`docs/evaluation.md`](docs/evaluation.md):
-the octree k-NN is *exact and fast*, but the 3-D projection is a **coarse
-semantic router** — with a PCA projection it retrieves topically-correct
-memories well when a corpus has few dominant themes, and degrades as topical
-diversity grows. Use it as a compact, explainable, embeddable index — not as a
-drop-in replacement for a high-dimensional ANN library.
+[**Evaluation**](#evaluation): the octree k-NN is *exact and fast*, but the 3-D
+projection is a **coarse semantic router** — with PCA it retrieves topically-correct
+memories well when a corpus has few dominant themes, and degrades as diversity
+grows. The embeddings→3-D→octree *pipeline* itself is prior art (Ellendula & Bajaj,
+2025); OctaSoma's contribution is the **fractal, zoomable, explainable memory**
+built on it — see [`docs/positioning.md`](docs/positioning.md) for the honest
+prior-art positioning.
 
 ```
             ┌──────────────────────────────────────────────┐
@@ -190,6 +193,125 @@ tool schema for wiring memory into an LLM. See
 [`docs/integration-kernel.md`](docs/integration-kernel.md) and
 `cargo run --release --example kernel_loop`.
 
+## Fractal (zoomable) memory
+
+The octree is a **fractal**: it subdivides space into eight self-similar cells,
+recursively, down to `min_half_size`. Where a flat index reads only the leaves,
+OctaSoma exposes the **whole hierarchy as a multi-resolution, zoomable memory** —
+every depth is a zoom level, coarse near the root, finer toward the leaves. You can
+summarise the region a query falls in at any resolution and walk the coarse→fine
+path, navigating memory the way you zoom into a fractal image to reveal more detail.
+This multi-resolution view is what sets OctaSoma apart from using an octree as a
+plain spatial index.
+
+```rust
+use octasoma::FractalMemory3D;
+
+// `mem` is a populated engine, `query` an embedding.
+for region in mem.zoom_path(&query, 16, 1) {
+    println!("level {} — {} memories (half_size {:.3})",
+             region.level, region.count, region.half_size);
+}
+```
+
+`cargo run --release --example fractal_zoom` shows a query zooming from the whole
+store down to the handful of memories nearest it — coarse theme → exact note.
+
+## Explainable & visualizable
+
+Because the index is natively 3-D, every memory has a real position — so a recall
+can show its *why*. `explain` returns the query's 3-D location, the coarse→fine
+regions it falls through, and the nearest memories with distances and coordinates;
+`export_points_json` dumps the whole store for a 3-D scatter viewer.
+
+```bash
+octasoma explain "what does the user prefer?"   # zoom path + nearest memories + positions
+octasoma export memory.json                      # 3-D points for a viewer
+```
+
+```rust
+let e = mem.explain(&query, 5).unwrap();      // Explanation { query_point, neighbors, zoom_path }
+let json = mem.export_points_json(100_000);   // {count, half_size, points:[{x,y,z,payload}]}
+```
+
+Then open [`viewer/index.html`](viewer/index.html) in any browser and drop
+`memory.json` onto it — an offline, dependency-free 3-D scatter you can rotate,
+zoom, and hover to read each memory. Points are **colour-coded by category** with a
+legend: a CCOS region/file (`sym:src/db.rs:query` → `src/db.rs`) or an SLHAv2
+attention head (`head 3 tok 12` → `head 3`), so clusters are legible at a glance.
+
+This is what a black-box high-dimensional ANN cannot offer: a memory you can
+inspect and *see*, not just query.
+
+## MCP server (ecosystem connector)
+
+Expose OctaSoma as semantic memory over **MCP** (stdio JSON-RPC) — a connector for
+agents and the wider CHECKUPAUTO stack (CCOS, SLHAv2):
+
+```bash
+cargo build --release --features mcp     # optional feature; adds serde_json
+octasoma-mcp memory.store --hash         # or --url/--model for a real Ollama model
+```
+
+The server is **region-sharded** (`ShardedMemory`) — the validated deployment.
+`ingest`/`recall` take an optional `region`; when omitted it is derived from the
+CCOS-style uri (`sym:src/db.rs:query` → `src/db.rs`). With a `region`, `recall` is
+scoped to that causal region (the 99 %-hit path); without one it is a coarse
+cross-region merge. The store is a **directory** of per-region shards.
+
+Tools: `ingest`, `recall`, `explain`, `stats`. The `recall` result uses CCOS's
+`RecallWindow { strategy, items:[{uri,score,kind,content}], tokens }` shape, so it
+drops straight into CCOS or any MCP-speaking agent. Client config:
+
+```json
+{ "mcpServers": { "octasoma": { "command": "octasoma-mcp", "args": ["memory.store"] } } }
+```
+
+See [`docs/integration-ecosystem.md`](docs/integration-ecosystem.md) for the full
+CCOS / SLHAv2 integration plan.
+
+## In the CCOS cascade (the validated deployment)
+
+OctaSoma's 3-D projection is a *coarse router*, so a single **global** index over a
+large corpus collapses (validated at **0 %** exact hit over ~800 real CCOS nodes).
+The payoff comes from **sharding per causal region**: let CCOS narrow to a region
+(small N), then let OctaSoma recall *within* it. Measured on 795 real CCOS nodes
+embedded with `nomic-embed-text` (768-d):
+
+| strategy | tokens/turn | target hit | causal-relevant |
+|---|---|---|---|
+| naive (inject everything) | 3622 | 100 % | 3 % |
+| semantic-only (OctaSoma **global** 3-D) | 30 | **0 %** | 4 % |
+| **causal + semantic (per region)** | **26** | **99 %** | **100 %** |
+
+The cascade hits the target **99 % at ~26 tokens/turn — ~137× fewer than naive** —
+with fully causally-relevant context. Neither brick alone works.
+
+This deployment is a first-class type, [`ShardedMemory`](src/sharded.rs): one
+OctaSoma index per region key, with scoped `recall`, a `build_pca` bulk-builder
+(per-region PCA — the higher-recall path), and directory persistence. The CCOS
+adapter `ShardedOctaIndex` (`integration/ccos/octa_index.rs`) speaks node URIs:
+
+```rust
+use octasoma::{HashEmbedder, ShardedMemory};
+
+let mut mem = ShardedMemory::new(HashEmbedder::new(768));
+mem.insert("src/db.rs", "sym:src/db.rs:query", "build and run SQL queries")?;
+let hits = mem.recall("src/db.rs", "run a SQL query", 3)?; // scoped to the region
+mem.save_dir("memory.shards")?;
+```
+
+Reproduce the table with `examples/pipeline_bench_text.rs` (see
+[`docs/integration-ecosystem.md`](docs/integration-ecosystem.md));
+`cargo run --release --example ccos_bridge` is an offline demo.
+
+**OctaCore** is the thin orchestrator that assembles the three into this cascade as
+one recall (CCOS causal scope → OctaSoma cosine rerank; SLHAv2 the KV-cache lens). It
+is a real crate staged at [`octacore/`](octacore/) — its `ccos`/`slha` adapters are
+verified to compile against CCOS v0.3.0 and SLHAv2 v0.2.0. Try it with
+`cargo run --manifest-path octacore/Cargo.toml --example cascade_demo`; design in
+[`docs/octacore.md`](docs/octacore.md).
+
 ## Evaluation
 
 All numbers are reproducible with the bundled harness and are *machine-dependent*:
@@ -236,8 +358,11 @@ the number of latent themes (`N = 20 000`, `D = 128`):
 | [`docs/api.md`](docs/api.md) | Full public API reference with examples |
 | [`docs/agent.md`](docs/agent.md) | Agent layer: embedders, perceive/recall/reflect |
 | [`docs/integration-kernel.md`](docs/integration-kernel.md) | Wiring memory into an AI agent: kernel API, system prompt, tool schemas |
+| [`docs/integration-ecosystem.md`](docs/integration-ecosystem.md) | CCOS · SLHAv2 ecosystem plan, the MCP connector, the validated cascade |
+| [`docs/octacore.md`](docs/octacore.md) | OctaCore: assembling CCOS + OctaSoma + SLHAv2 into one cascade |
 | [`docs/file-format.md`](docs/file-format.md) | The `FRAC` v3 on-disk format, byte-by-byte |
-| [`docs/evaluation.md`](docs/evaluation.md) | Methodology, full results, interpretation, limitations |
+| [`docs/evaluation.md`](docs/evaluation.md) | Methodology, full results, comparison vs other memory regimes |
+| [`docs/positioning.md`](docs/positioning.md) | Prior art, the closest precedent, and what we can/can't claim |
 | [`paper/`](paper/) | arXiv-style paper (English & French sources) |
 
 Build the API docs locally with `cargo doc --open`.
