@@ -182,11 +182,8 @@ impl StrategySelector {
 
         // Count steps indicators
         let step_markers = [
-            "first", "then", "after", "next", "finally",
-            "step 1", "step 2", "step 3",
-            "1.", "2.", "3.", "4.", "5.",
-            "1)", "2)", "3)", "4)", "5)",
-            "first,", "second,", "third,",
+            "first", "then", "after", "next", "finally", "step 1", "step 2", "step 3", "1.", "2.",
+            "3.", "4.", "5.", "1)", "2)", "3)", "4)", "5)", "first,", "second,", "third,",
         ];
         let marker_count: usize = step_markers
             .iter()
@@ -223,11 +220,25 @@ impl StrategySelector {
 
         // Requires exploration (creative, design, debug, research tasks)
         let exploration_keywords = [
-            "design", "architect", "brainstorm", "ideate",
-            "explore", "investigate", "debug", "trace", "diagnose",
-            "optimize", "improve", "refactor", "restructure",
-            "research", "analyze alternatives", "compare approaches",
-            "evaluate tradeoffs", "novel", "innovative",
+            "design",
+            "architect",
+            "brainstorm",
+            "ideate",
+            "explore",
+            "investigate",
+            "debug",
+            "trace",
+            "diagnose",
+            "optimize",
+            "improve",
+            "refactor",
+            "restructure",
+            "research",
+            "analyze alternatives",
+            "compare approaches",
+            "evaluate tradeoffs",
+            "novel",
+            "innovative",
         ];
         let requires_exploration = exploration_keywords
             .iter()
@@ -240,12 +251,8 @@ impl StrategySelector {
             || task_lower.contains("instructions:");
 
         // Complexity score (0.0–1.0)
-        let complexity_score = self.calculate_complexity(
-            char_count,
-            estimated_steps,
-            requires_exploration,
-            domain,
-        );
+        let complexity_score =
+            self.calculate_complexity(char_count, estimated_steps, requires_exploration, domain);
 
         TaskComplexity {
             char_count,
@@ -260,32 +267,93 @@ impl StrategySelector {
     /// Detect the domain of a task from its content.
     fn detect_domain(&self, task: &str) -> TaskDomain {
         let code_keywords = [
-            "code", "function", "class", "module", "crate", "cargo",
-            "rustc", "compile", "borrow checker", "trait", "impl",
-            "struct", "enum", "api", "endpoint", "http", "rest",
-            "database", "sql", "query", "migrate", "test",
-            "bug", "fix", "patch", "refactor",
-            "npm", "pip", "docker", "kubernetes",
+            "code",
+            "function",
+            "class",
+            "module",
+            "crate",
+            "cargo",
+            "rustc",
+            "compile",
+            "borrow checker",
+            "trait",
+            "impl",
+            "struct",
+            "enum",
+            "api",
+            "endpoint",
+            "http",
+            "rest",
+            "database",
+            "sql",
+            "query",
+            "migrate",
+            "test",
+            "bug",
+            "fix",
+            "patch",
+            "refactor",
+            "npm",
+            "pip",
+            "docker",
+            "kubernetes",
         ];
         let system_keywords = [
-            "shell", "bash", "command", "directory", "file", "disk",
-            "memory", "cpu", "process", "service", "daemon", "log",
-            "permission", "chmod", "chown", "mount", "network",
-            "port", "firewall", "cron",
+            "shell",
+            "bash",
+            "command",
+            "directory",
+            "file",
+            "disk",
+            "memory",
+            "cpu",
+            "process",
+            "service",
+            "daemon",
+            "log",
+            "permission",
+            "chmod",
+            "chown",
+            "mount",
+            "network",
+            "port",
+            "firewall",
+            "cron",
         ];
         let research_keywords = [
-            "research", "analyze", "summarize", "explain", "compare",
-            "review", "audit", "evaluate", "assess", "study",
+            "research",
+            "analyze",
+            "summarize",
+            "explain",
+            "compare",
+            "review",
+            "audit",
+            "evaluate",
+            "assess",
+            "study",
         ];
         let creative_keywords = [
-            "write", "story", "poem", "creative", "brainstorm",
-            "design", "draw", "visual", "layout",
+            "write",
+            "story",
+            "poem",
+            "creative",
+            "brainstorm",
+            "design",
+            "draw",
+            "visual",
+            "layout",
         ];
 
         let code_count = code_keywords.iter().filter(|k| task.contains(*k)).count();
         let sys_count = system_keywords.iter().filter(|k| task.contains(*k)).count();
-        let research_count = research_keywords.iter().filter(|k| task.contains(*k)).count();
-        let creative_count = creative_keywords.iter().filter(|k| task.contains(*k)).count();
+        let research_count = research_keywords
+            .iter()
+            .filter(|k| task.contains(*k))
+            .count();
+        let creative_count = creative_keywords
+            .iter()
+            .filter(|k| task.contains(*k))
+            .count();
 
         let scores = [
             (code_count, TaskDomain::Code),
@@ -338,9 +406,7 @@ impl StrategySelector {
         }
 
         // Rule 1: Multi-step tasks needing planning
-        if complexity.estimated_steps >= self.config.plan_min_steps
-            && complexity.is_multi_step
-        {
+        if complexity.estimated_steps >= self.config.plan_min_steps && complexity.is_multi_step {
             return StrategyType::PlanThenExecute;
         }
 
@@ -349,11 +415,7 @@ impl StrategySelector {
     }
 
     /// Select strategy considering previous failures (auto-escalation).
-    pub fn select_with_failures(
-        &self,
-        task: &str,
-        consecutive_failures: usize,
-    ) -> StrategyType {
+    pub fn select_with_failures(&self, task: &str, consecutive_failures: usize) -> StrategyType {
         // Escalation level 2: heavy failures → force ToT
         if consecutive_failures >= self.config.escalation_after_failures * 2 {
             return StrategyType::TreeOfThoughts;
@@ -518,10 +580,7 @@ mod tests {
         let sel = make_selector();
         let task = "echo hello";
         // Normally ReAct
-        assert_eq!(
-            sel.select_with_failures(task, 0),
-            StrategyType::ReAct
-        );
+        assert_eq!(sel.select_with_failures(task, 0), StrategyType::ReAct);
         // After 5 failures, escalate to plan
         assert_eq!(
             sel.select_with_failures(task, 5),
@@ -611,7 +670,13 @@ mod tests {
     #[test]
     fn strategy_display() {
         assert_eq!(format!("{}", StrategyType::ReAct), "ReAct");
-        assert_eq!(format!("{}", StrategyType::TreeOfThoughts), "TreeOfThoughts");
-        assert_eq!(format!("{}", StrategyType::PlanThenExecute), "PlanThenExecute");
+        assert_eq!(
+            format!("{}", StrategyType::TreeOfThoughts),
+            "TreeOfThoughts"
+        );
+        assert_eq!(
+            format!("{}", StrategyType::PlanThenExecute),
+            "PlanThenExecute"
+        );
     }
 }

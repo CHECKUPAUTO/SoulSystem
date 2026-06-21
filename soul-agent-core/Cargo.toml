@@ -18,6 +18,7 @@ soullink-trainer = { path = "../soullink-brain/soullink-trainer" }
 soullink-gate = { path = "../soullink-brain/soullink-gate" }
 soul-error-unifier = { path = "../soul-error-unifier" }
 soul-intrinsic-motivation = { path = "../soul-intrinsic-motivation" }
+ccos = { path = "../ccos", features = ["syn-parser"] }
 soul-memory = { workspace = true }
 soul_skills = { path = "../soul-skills" }
 serde = { workspace = true }

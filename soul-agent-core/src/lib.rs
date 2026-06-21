@@ -36,6 +36,10 @@ pub mod router;
 pub mod strategy;
 pub mod traits;
 
+use crate::finetune::{DpoPair, FineTuneLoop};
+use crate::router::LlmRouter;
+use crate::strategy::{StrategyOutcome, StrategySelector, StrategyType};
+use ccos::external_memory::{CcosMemory, ExternalMemory, Recall, RecallWindow};
 use chrono::Utc;
 use soul_error_unifier::ErrorUnifier;
 use soul_intrinsic_motivation::IntrinsicMotivation;
@@ -44,25 +48,22 @@ use soul_memory::{KnowledgeGraph, Node, NodeType};
 use soul_planner::{CognitiveLoop, Goal, GoalStatus};
 use soul_skills::SkillLoader;
 use soul_tools::{async_dispatch_tool, discover_system_tools, AsyncShellExecutor, ToolRegistry};
+use soullink_autonomy::{
+    error_metrics::{ErrorWeights, GlobalError},
+    metacognition::MetaCognition,
+    policy_evolution::{ActionSelector, PolicyEvolution, PolicyMetrics, PolicyWeights},
+    reward_system::{ActionReward, AgentReward, InformationReward, RewardWeights, SocialReward},
+};
 use soullink_circuit::{CircuitBreaker, CircuitBreakerConfig};
 use soullink_gate::{
     spotlight, ApprovalGate, ApprovalRequirement, ExecutionMode, GateDecision, InjectionScanner,
     RiskLevel, Verdict,
-};
-use soullink_autonomy::{
-    metacognition::MetaCognition,
-    error_metrics::{GlobalError, ErrorWeights},
-    reward_system::{ActionReward, AgentReward, InformationReward, RewardWeights, SocialReward},
-    policy_evolution::{ActionSelector, PolicyEvolution, PolicyMetrics, PolicyWeights},
 };
 use soullink_memory_hierarchy::{
     ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, SemanticConfig,
 };
 use soullink_reasoning::{ThoughtTree, TreeConfig};
 use soullink_trainer::{Trajectory, TrajectoryRecorder};
-use crate::finetune::{DpoPair, FineTuneLoop};
-use crate::router::LlmRouter;
-use crate::strategy::{StrategyOutcome, StrategySelector, StrategyType};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
@@ -191,6 +192,10 @@ pub struct AutonomousAgent {
     pub llm_breaker: CircuitBreaker,
     /// Fine-tuning loop for automated model improvement.
     pub ft_loop: Arc<FineTuneLoop>,
+    /// Causal context memory (CCOS): files the agent reads are ingested into a
+    /// causal graph; failures inject pressure; recall yields a bounded,
+    /// causally-coherent working set for long sessions.
+    pub ccos: CcosMemory,
 }
 
 impl AutonomousAgent {
@@ -229,10 +234,8 @@ impl AutonomousAgent {
         let policy_metrics = PolicyMetrics::calculate(&policy_evolution);
 
         let strategy_selector = StrategySelector::default();
-        let llm_breaker = CircuitBreaker::new(
-            "llm",
-            CircuitBreakerConfig::llm_provider(&config.name),
-        );
+        let llm_breaker =
+            CircuitBreaker::new("llm", CircuitBreakerConfig::llm_provider(&config.name));
 
         Self {
             config: config.clone(),
@@ -266,6 +269,7 @@ impl AutonomousAgent {
             router: None,
             llm_breaker,
             ft_loop: Arc::new(FineTuneLoop::new(Default::default())),
+            ccos: CcosMemory::new(),
         }
     }
 
@@ -301,10 +305,8 @@ impl AutonomousAgent {
         let policy_metrics = PolicyMetrics::calculate(&policy_evolution);
 
         let strategy_selector = StrategySelector::default();
-        let llm_breaker = CircuitBreaker::new(
-            "llm",
-            CircuitBreakerConfig::llm_provider(&config.name),
-        );
+        let llm_breaker =
+            CircuitBreaker::new("llm", CircuitBreakerConfig::llm_provider(&config.name));
 
         Self {
             config: config.clone(),
@@ -338,6 +340,7 @@ impl AutonomousAgent {
             router: None,
             llm_breaker,
             ft_loop: Arc::new(FineTuneLoop::new(Default::default())),
+            ccos: CcosMemory::new(),
         }
     }
 
@@ -373,10 +376,8 @@ impl AutonomousAgent {
                     let t = tools.as_ref().map(|v| v.as_slice());
                     match llm.chat(&msgs, t).await {
                         Ok(resp) => Ok(resp),
-                        Err(e) => Err(Box::new(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e,
-                        )) as Box<dyn std::error::Error + Send + Sync>),
+                        Err(e) => Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                            as Box<dyn std::error::Error + Send + Sync>),
                     }
                 }
             })
@@ -394,7 +395,12 @@ impl AutonomousAgent {
             Some(router) => {
                 let complexity = self.strategy_selector.analyze(prompt);
                 router
-                    .generate(prompt, complexity.domain, complexity.complexity_score, prompt)
+                    .generate(
+                        prompt,
+                        complexity.domain,
+                        complexity.complexity_score,
+                        prompt,
+                    )
                     .await
             }
             None => self.llm.generate(prompt).await,
@@ -405,6 +411,50 @@ impl AutonomousAgent {
         if let Some(tx) = &self.event_tx {
             let _ = tx.send(event);
         }
+    }
+
+    // ── CCOS causal context memory ──
+
+    /// Fold a tool outcome into the CCOS causal graph. File-read tool results
+    /// (those carrying a path + source) are ingested so the right code can be
+    /// recalled later; failures inject pressure on the implicated file so its
+    /// causal neighborhood stays hot.
+    fn ccos_observe_tool(&mut self, name: &str, args: &serde_json::Value, output: &str, ok: bool) {
+        // Heuristic: a file path the tool acted on (read_file/cat/edit-style tools).
+        let path = args
+            .get("path")
+            .or_else(|| args.get("file"))
+            .or_else(|| args.get("filename"))
+            .and_then(|v| v.as_str());
+
+        if let Some(p) = path {
+            let uri = format!("file:{p}");
+            if ok && !output.is_empty() {
+                // Successful read/write: ingest the current source.
+                let _ = self.ccos.ingest_source(&uri, output);
+            } else if !ok {
+                // Failure touching this file: signal it (no-op if not yet known).
+                let _ = self.ccos.signal_failure(&uri, 3);
+            }
+        } else if !ok && (output.contains("error[") || output.contains("test failed")) {
+            // A build/test failure with no explicit path: bias the hottest node.
+            if let Some(node) = self.ccos.hottest_failure_node() {
+                let _ = self.ccos.signal_failure(&node, 2);
+            }
+        }
+        let _ = name; // (kept for future per-tool routing)
+    }
+
+    /// Recall a bounded, causally-coherent context window for `task` (highest
+    /// causal score first). Public so callers/tests can inspect what CCOS would
+    /// keep in context.
+    pub fn ccos_recall(&self, task: &str, budget_tokens: usize) -> RecallWindow {
+        self.ccos.recall(&Recall::task(task), budget_tokens)
+    }
+
+    /// Current CCOS graph stats (nodes/edges/events/files/clock).
+    pub fn ccos_stats(&self) -> ccos::external_memory::MemoryStats {
+        self.ccos.stats()
     }
 
     // ── Core ReAct Loop ──
@@ -636,7 +686,10 @@ impl AutonomousAgent {
                 content: format!("Turn {}/{}", self.turn, self.config.max_turns),
             });
 
-            let response = match self.guarded_llm_chat(&messages, Some(&self.tool_schemas)).await {
+            let response = match self
+                .guarded_llm_chat(&messages, Some(&self.tool_schemas))
+                .await
+            {
                 Ok(resp) => resp,
                 Err(e) => {
                     self.consecutive_failures += 1;
@@ -699,7 +752,8 @@ impl AutonomousAgent {
                             );
                         }
 
-                        let result = match async_dispatch_tool(&name, args.clone()).await {
+                        let (result, tool_ok) = match async_dispatch_tool(&name, args.clone()).await
+                        {
                             Ok(output) => {
                                 self.consecutive_failures = 0;
                                 self.emit_event(AgentEvent::ToolResult {
@@ -707,7 +761,7 @@ impl AutonomousAgent {
                                     output: truncate_output(&output, 2000),
                                     success: true,
                                 });
-                                output
+                                (output, true)
                             }
                             Err(e) => {
                                 self.consecutive_failures += 1;
@@ -722,9 +776,13 @@ impl AutonomousAgent {
                                         message: r.clone(),
                                     });
                                 }
-                                e
+                                (e, false)
                             }
                         };
+
+                        // Feed the causal context memory: ingest any file the tool
+                        // surfaced, and inject failure pressure on errors.
+                        self.ccos_observe_tool(&name, &args, &result, tool_ok);
 
                         self.planner.history.record(
                             format!("{}({})", name, truncate_output(&args.to_string(), 100)),
@@ -841,7 +899,12 @@ N. Final step"#,
             );
 
             self.emit_event(AgentEvent::Thinking {
-                content: format!("Step {}/{}: {}", i + 1, step_count, truncate_output(step, 60)),
+                content: format!(
+                    "Step {}/{}: {}",
+                    i + 1,
+                    step_count,
+                    truncate_output(step, 60)
+                ),
             });
 
             self.chat_session.clear();
@@ -913,9 +976,12 @@ N. Final step"#,
             }
             Err(e) => {
                 // Fallback: add generic branches
-                self.reasoning.add_child(root_id, format!("Analyze: {}", task));
-                self.reasoning.add_child(root_id, format!("Decompose: {}", task));
-                self.reasoning.add_child(root_id, format!("Research: {}", task));
+                self.reasoning
+                    .add_child(root_id, format!("Analyze: {}", task));
+                self.reasoning
+                    .add_child(root_id, format!("Decompose: {}", task));
+                self.reasoning
+                    .add_child(root_id, format!("Research: {}", task));
                 tracing::warn!("ToT branch generation failed, using fallback: {}", e);
             }
         }
@@ -934,7 +1000,9 @@ N. Final step"#,
                 // Use best_path as proxy for iteration
                 for id in 0..self.reasoning.len() + 10 {
                     if let Some(node) = self.reasoning.get(id) {
-                        if node.is_leaf() && node.status != soullink_reasoning::node::NodeStatus::Pruned {
+                        if node.is_leaf()
+                            && node.status != soullink_reasoning::node::NodeStatus::Pruned
+                        {
                             ids.push(id);
                         }
                     }
@@ -969,8 +1037,7 @@ N. Final step"#,
                         let text = resp.message.content.unwrap_or_default();
                         let mut added = 0;
                         for line in text.lines() {
-                            let trimmed =
-                                line.trim().strip_prefix("- ").unwrap_or(line.trim());
+                            let trimmed = line.trim().strip_prefix("- ").unwrap_or(line.trim());
                             if !trimmed.is_empty()
                                 && added < self.strategy_selector.config.tot_max_branches
                             {
@@ -1420,25 +1487,28 @@ Only return the JSON array, no explanation."#,
             self.turn as f64,             // execution time (simplified)
             self.config.max_turns as f64, // max allowed time (simplified)
         );
-        self.reward_system.update_action_reward(action_reward.total());
+        self.reward_system
+            .update_action_reward(action_reward.total());
 
         // Social reward calculation
         let social_reward = SocialReward::calculate(
-            0.7,                          // performance improvement (simplified)
-            0.8,                          // risk avoidance (simplified)
-            0.9,                          // knowledge gain (simplified)
-            0.8,                          // collaboration score (simplified)
+            0.7, // performance improvement (simplified)
+            0.8, // risk avoidance (simplified)
+            0.9, // knowledge gain (simplified)
+            0.8, // collaboration score (simplified)
         );
-        self.reward_system.update_social_reward(social_reward.total());
+        self.reward_system
+            .update_social_reward(social_reward.total());
 
         // Information reward calculation
         let information_reward = InformationReward::calculate(
-            0.8,                          // uncertainty before (simplified)
-            0.3,                          // uncertainty after (simplified)
-            0.7,                          // performance improvement (simplified)
-            0.9,                          // novelty score (simplified)
+            0.8, // uncertainty before (simplified)
+            0.3, // uncertainty after (simplified)
+            0.7, // performance improvement (simplified)
+            0.9, // novelty score (simplified)
         );
-        self.reward_system.update_information_reward(information_reward.total());
+        self.reward_system
+            .update_information_reward(information_reward.total());
 
         // Recalculate total reward
         self.reward_system.calculate();
@@ -1447,8 +1517,14 @@ Only return the JSON array, no explanation."#,
     /// Update policy based on recent performance.
     async fn update_policy(&mut self) {
         // Get current policy parameters
-        let exploration_rate = self.policy_evolution.get_parameter("exploration_rate").unwrap_or(0.1);
-        let exploitation_rate = self.policy_evolution.get_parameter("exploitation_rate").unwrap_or(0.9);
+        let exploration_rate = self
+            .policy_evolution
+            .get_parameter("exploration_rate")
+            .unwrap_or(0.1);
+        let exploitation_rate = self
+            .policy_evolution
+            .get_parameter("exploitation_rate")
+            .unwrap_or(0.9);
 
         // Use global error and reward to update policy
         let error = self.global_error.global_error;
@@ -1456,11 +1532,11 @@ Only return the JSON array, no explanation."#,
 
         // Simplified policy update - in practice this would be more complex
         self.policy_evolution.update_policy(
-            reward,               // Q-value (simplified)
-            1.0 - error,          // Goal alignment (inverted error)
-            error,                // Global error
-            0.5,                  // Uncertainty (simplified)
-            0.7,                  // Social factor (simplified)
+            reward,      // Q-value (simplified)
+            1.0 - error, // Goal alignment (inverted error)
+            error,       // Global error
+            0.5,         // Uncertainty (simplified)
+            0.7,         // Social factor (simplified)
         );
 
         // Update policy metrics
@@ -1674,6 +1750,51 @@ impl AutonomousLoop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── CCOS causal context memory ──────────────────────────────────────
+
+    #[test]
+    fn ccos_ingests_file_reads_and_recalls_causal_window() {
+        let mut agent = make_test_agent();
+        // Simulate the agent reading a 3-file dependency chain via a read tool.
+        let read = |p: &str, src: &str| (serde_json::json!({ "path": p }), src.to_string());
+        let chain = [
+            (
+                "src/main.rs",
+                "use crate::handler;\nfn main() { handler::handle(); }\n",
+            ),
+            (
+                "src/handler.rs",
+                "use crate::db;\npub fn handle() { db::query(); }\n",
+            ),
+            ("src/db.rs", "pub fn query() -> i64 { 0 }\n"),
+        ];
+        for (p, src) in chain {
+            let (args, out) = read(p, src);
+            agent.ccos_observe_tool("read_file", &args, &out, true);
+        }
+
+        // The causal graph now has the files.
+        assert!(agent.ccos_stats().files >= 3, "files should be ingested");
+
+        // Recall for a task about db.rs brings back the causal neighborhood.
+        let window = agent.ccos_recall("fix the query() bug in db.rs", 4096);
+        let uris: Vec<&str> = window.items.iter().map(|i| i.uri.as_str()).collect();
+        assert!(
+            uris.iter().any(|u| u.contains("db.rs")),
+            "recall window must contain db.rs, got {uris:?}"
+        );
+    }
+
+    #[test]
+    fn ccos_failure_signal_is_safe_when_unknown() {
+        let mut agent = make_test_agent();
+        // Failure on an unknown file must not panic / must be a no-op signal.
+        let args = serde_json::json!({ "path": "src/missing.rs" });
+        agent.ccos_observe_tool("edit_file", &args, "error[E0001]: boom", false);
+        // Graph is still consistent.
+        assert!(agent.ccos.verify().valid);
+    }
 
     // ── Mock helpers ────────────────────────────────────────────────────
 

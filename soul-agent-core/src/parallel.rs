@@ -174,11 +174,7 @@ impl ParallelExecutor {
 
     /// Execute a DAG of goals in parallel where possible.
     /// The `executor` function is called for each goal.
-    pub async fn execute<F, Fut>(
-        &self,
-        dag: &GoalDag,
-        executor: F,
-    ) -> ParallelResult
+    pub async fn execute<F, Fut>(&self, dag: &GoalDag, executor: F) -> ParallelResult
     where
         F: Fn(String, String) -> Fut + Send + Sync + Clone + 'static,
         Fut: std::future::Future<Output = Result<String, String>> + Send,
@@ -283,8 +279,7 @@ impl ParallelExecutor {
 
     /// Check if two goals can run in parallel (no dependency relationship).
     pub fn can_parallelize(goal1: &GoalNode, goal2: &GoalNode) -> bool {
-        !goal1.dependencies.contains(&goal2.id)
-            && !goal2.dependencies.contains(&goal1.id)
+        !goal1.dependencies.contains(&goal2.id) && !goal2.dependencies.contains(&goal1.id)
     }
 }
 
