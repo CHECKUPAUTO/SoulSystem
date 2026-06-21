@@ -467,6 +467,40 @@ impl AutonomousAgent {
         self.ccos.stats()
     }
 
+    /// Append the CCOS causal working set to the chat context as a bounded
+    /// system note, so files the session causally depends on survive text
+    /// compaction. No-op when CCOS has ingested nothing.
+    fn inject_ccos_working_set(&mut self) {
+        if self.ccos.stats().files == 0 {
+            return;
+        }
+        let window = self.ccos.recall(&Recall::working_set(), 3000);
+        if window.items.is_empty() {
+            return;
+        }
+        let mut block = String::from("[CCOS causal working set — code this session depends on]\n");
+        for item in window.items.iter().take(8) {
+            block.push_str(&format!(
+                "\n=== {} (causal score {:.2}) ===\n{}\n",
+                item.uri,
+                item.score,
+                truncate_output(&item.content, 600)
+            ));
+        }
+        self.chat_session.messages.push(soul_llm::ChatMessage {
+            role: soul_llm::Role::System,
+            content: block,
+            tool_calls: None,
+            tool_call_id: None,
+        });
+        self.emit_event(AgentEvent::SafetyWarning {
+            message: format!(
+                "CCOS re-injected {} causal file(s) after compaction",
+                window.items.len().min(8)
+            ),
+        });
+    }
+
     /// Screen untrusted tool output for indirect prompt injection before it is
     /// returned to the LLM: `Clean` passes through, `Suspicious` is spotlight-
     /// fenced as inert data, `Malicious` is quarantined (raw payload withheld).
@@ -1257,6 +1291,11 @@ N. Final step"#,
                     stats.tokens_after * 4,
                     stats.savings_pct()
                 );
+
+                // CCOS enrichment: text compaction is blind to causal structure
+                // and may evict code the session still depends on. Re-inject the
+                // causal working set (bounded) so the right files stay in context.
+                self.inject_ccos_working_set();
             }
             Err(e) => {
                 tracing::warn!("Compaction failed, truncating oldest messages: {e}");
@@ -1893,6 +1932,31 @@ mod tests {
             uris.iter().any(|u| u.contains("db.rs")),
             "recall window must contain db.rs, got {uris:?}"
         );
+    }
+
+    #[test]
+    fn ccos_injects_causal_working_set_into_context() {
+        let mut agent = make_test_agent();
+        let before = agent.chat_session.messages.len();
+        // No files ingested yet → injection is a no-op.
+        agent.inject_ccos_working_set();
+        assert_eq!(agent.chat_session.messages.len(), before);
+
+        // Ingest a dependency chain, then inject.
+        for (p, src) in [
+            ("src/a.rs", "use crate::b;\npub fn a() { b::b(); }\n"),
+            ("src/b.rs", "pub fn b() -> i64 { 0 }\n"),
+        ] {
+            let args = serde_json::json!({ "path": p });
+            agent.ccos_observe_tool("read_file", &args, src, true);
+        }
+        agent.inject_ccos_working_set();
+        let last = agent.chat_session.messages.last().unwrap();
+        assert!(
+            last.content.contains("CCOS causal working set"),
+            "expected an injected working-set message"
+        );
+        assert!(last.content.contains(".rs"));
     }
 
     #[test]
