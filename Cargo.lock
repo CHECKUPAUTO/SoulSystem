@@ -2106,6 +2106,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ccos"
+version = "0.3.0"
+source = "git+https://github.com/CHECKUPAUTO/CCOS#f80c95a15bc07bd76f6bb8aaf97063eea5ef871c"
+dependencies = [
+ "chrono",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "cexpr"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5802,6 +5817,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
+name = "lz4_flex"
+version = "0.11.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
+dependencies = [
+ "twox-hash 2.1.2",
+]
+
+[[package]]
 name = "lzma-rust2"
 version = "0.15.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6611,6 +6635,23 @@ dependencies = [
  "url",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "octacore"
+version = "0.1.0"
+dependencies = [
+ "ccos 0.3.0 (git+https://github.com/CHECKUPAUTO/CCOS)",
+ "octasoma",
+ "scirust",
+]
+
+[[package]]
+name = "octasoma"
+version = "0.4.0"
+dependencies = [
+ "lz4_flex",
+ "serde_json",
 ]
 
 [[package]]
@@ -8722,6 +8763,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "scirust"
+version = "0.2.0"
+source = "git+https://github.com/CHECKUPAUTO/SLHAv2#0893598262b2bdf145ec31e184c30ddae5ee68da"
+
+[[package]]
 name = "scirust-autodiff"
 version = "0.1.0"
 
@@ -9641,8 +9687,9 @@ dependencies = [
 name = "soul_cognitive"
 version = "0.1.0"
 dependencies = [
- "ccos",
+ "ccos 0.3.0",
  "chrono",
+ "octasoma",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -10932,7 +10979,7 @@ dependencies = [
  "axum 0.8.9",
  "bound-system",
  "bus",
- "ccos",
+ "ccos 0.3.0",
  "chrono",
  "clap",
  "clawd",
@@ -11492,7 +11539,7 @@ dependencies = [
  "tower-http 0.6.11",
  "tracing",
  "tracing-subscriber",
- "twox-hash",
+ "twox-hash 1.6.3",
  "uuid",
  "walkdir",
 ]
@@ -12523,6 +12570,12 @@ dependencies = [
  "rand 0.8.6",
  "static_assertions",
 ]
+
+[[package]]
+name = "twox-hash"
+version = "2.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ea3136b675547379c4bd395ca6b938e5ad3c3d20fad76e7fe85f9e0d011419c"
 
 [[package]]
 name = "typenum"
