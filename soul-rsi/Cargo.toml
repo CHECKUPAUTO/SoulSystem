@@ -19,3 +19,4 @@ tempfile = "3"
 
 [lints]
 workspace = true
+license = "PolyForm-Noncommercial-1.0.0"
