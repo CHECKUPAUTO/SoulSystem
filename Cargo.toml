@@ -219,6 +219,8 @@ exclude = [
     "avid-soullink",
     "avid-rstdp",
     "turbovec",
+    # Standalone tooling — own isolated workspace, not part of the main build
+    "tools/sft-generator",
 ]
 
 [workspace.package]
