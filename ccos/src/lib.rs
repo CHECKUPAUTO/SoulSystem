@@ -67,6 +67,7 @@ pub mod distributed_event_log;
 pub mod event_log;
 pub mod external_memory;
 pub mod guard;
+pub mod shield;
 pub mod incremental;
 pub mod llm;
 pub mod mcp;
