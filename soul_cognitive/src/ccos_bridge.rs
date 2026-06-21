@@ -197,3 +197,69 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// CONTEXT SHIELD — Virtual File System for Agent Context Windows
+// ═══════════════════════════════════════════════════════════════════
+
+/// The Context Shield protects the agent's context window from overflow
+/// by treating files as virtualised, topologically-indexed documents.
+///
+/// **Parse** → structural skeleton (anchors only, no function bodies).
+/// **Page-fault** → load full body of a specific anchor on demand.
+///
+/// Use `ShieldViewer::skeleton()` to get the compressed view (~120 tokens
+/// for a 277-line test suite instead of ~10k raw tokens).
+pub struct ShieldViewer;
+
+impl ShieldViewer {
+    /// Parse a file and return its structural skeleton — the compressed
+    /// view the agent should use instead of reading the whole file.
+    pub fn skeleton(path: &str) -> Result<String, String> {
+        let s = ccos::shield::Shield::parse(path)
+            .map_err(|e| e.to_string())?;
+        Ok(s.text)
+    }
+
+    /// Page-fault: retrieve the full implementation body of a specific
+    /// function/test/anchor. Call this ONLY when the agent needs to
+    /// inspect or modify that specific code.
+    pub fn page_fault(path: &str, anchor: &str) -> Result<String, String> {
+        ccos::shield::Shield::page_fault(path, anchor)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Parse a Rust source string directly and return the skeleton.
+    pub fn skeleton_str(source: &str, name: &str) -> Result<String, String> {
+        let s = ccos::shield::Shield::parse_str(source, name)
+            .map_err(|e| e.to_string())?;
+        Ok(s.text)
+    }
+
+    /// Page-fault on an in-memory source string.
+    pub fn page_fault_str(source: &str, anchor: &str) -> Result<String, String> {
+        ccos::shield::Shield::page_fault_str(source, anchor)
+            .map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod shield_tests {
+    use super::*;
+
+    #[test]
+    fn test_shield_skeleton() {
+        let source = "\npub fn add(x: i32) -> i32 { x + 1 }\n\npub struct Point { x: i32, y: i32 }\n";
+        let sk = ShieldViewer::skeleton_str(source, "test.rs").unwrap();
+        assert!(sk.contains("add"), "should find fn anchor");
+        assert!(sk.contains("Point"), "should find struct anchor");
+        assert!(sk.len() < 500, "skeleton should be compact");
+    }
+
+    #[test]
+    fn test_shield_page_fault() {
+        let source = "\nfn secret() -> i32 {\n    let x = 42;\n    x * 2\n}\n";
+        let body = ShieldViewer::page_fault_str(source, "secret").unwrap();
+        assert!(body.contains("let x = 42"), "should load function body");
+    }
+}

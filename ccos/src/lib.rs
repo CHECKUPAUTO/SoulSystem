@@ -92,3 +92,4 @@ pub mod eval;
 pub mod experiment;
 pub mod region_engine;
 pub mod region_metrics;
+pub mod shield;

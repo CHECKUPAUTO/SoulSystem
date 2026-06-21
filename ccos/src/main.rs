@@ -84,7 +84,8 @@ async fn main() {
             }
         }
         "postmortem" => run_postmortem(rest),
-        // ── CCOS v0.3 — Autonomous Context Runtime ──────────────────
+        "shield" => run_shield(rest),
+        "page-fault" => run_page_fault(rest),
         "scan" => commands_runtime::run_scan(rest).await,
         "agents" => commands_runtime::run_agents(rest).await,
         "benchmark" => commands_runtime::run_benchmark(rest),
@@ -2072,6 +2073,12 @@ COMMANDS:\n\
     postmortem [workspace] [--json]  Time-travel debugger over a session timeline; --json\n\
     \x20                          dumps the field record (stats/timeline/integrity) and exits\n\
 \n\
+  Context Shield (virtual file system for LLMs):
+    shield <path>              Parse a file into a structural skeleton (no function bodies)
+                               --json  Output as JSON
+    page-fault <path> <anchor>  Page-fault: load the full body of a specific anchor
+                               --json  Output as JSON
+
   CCOS v0.3 — Autonomous Context Runtime:\n\
     scan <path>                Scan a real workspace and ingest the delta\n\
     agents <path>              Run Coder/Reviewer/Security agents over a workspace\n\
@@ -2094,6 +2101,56 @@ EXAMPLES:\n\
     ccos benchmark --cycles 100000\n",
         env!("CARGO_PKG_VERSION")
     );
+}
+
+fn run_shield(args: &[String]) -> i32 {
+    if args.is_empty() {
+        eprintln!("Usage: ccos shield <path> [--json]");
+        return 1;
+    }
+    let path = args[0].as_str();
+    let as_json = args.iter().any(|a| a == "--json");
+    match ccos::shield::Shield::parse(path) {
+        Ok(skeleton) => {
+            if as_json {
+                println!("{}", serde_json::to_string_pretty(&skeleton).unwrap());
+            } else {
+                println!("{}", skeleton.text);
+                eprintln!("// estimated tokens: {} (raw file: ~{}k)", skeleton.estimated_tokens, skeleton.total_lines * 35 / 1000);
+                eprintln!("// use 'ccos page-fault <path> <anchor-name>' to load full body");
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("ccos shield: {e}");
+            1
+        }
+    }
+}
+
+fn run_page_fault(args: &[String]) -> i32 {
+    if args.len() < 2 {
+        eprintln!("Usage: ccos page-fault <path> <anchor-name> [--json]");
+        return 1;
+    }
+    let path = &args[0];
+    let anchor = &args[1];
+    let as_json = args.iter().any(|a| a == "--json");
+    match ccos::shield::Shield::page_fault(path, anchor) {
+        Ok(body) => {
+            if as_json {
+                let j = serde_json::json!({"path": path, "anchor": anchor, "body": body});
+                println!("{}", serde_json::to_string_pretty(&j).unwrap());
+            } else {
+                println!("{}", body);
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("ccos page-fault: {e}");
+            1
+        }
+    }
 }
 
 #[cfg(test)]
