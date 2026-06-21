@@ -36,7 +36,7 @@ locally CI will too:
 ```bash
 cargo fmt --all                          # format (CI runs --check)
 cargo clippy --all-targets -- -D warnings  # lint; warnings are errors
-cargo test                               # 165 unit + integration tests
+cargo test                               # 212 unit + integration tests
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps   # docs must build clean
 ```
 
@@ -51,20 +51,24 @@ cargo run -- analyze src --cycles        # exercise the CLI on our own source
 
 ## What CI checks
 
-`.github/workflows/ci.yml` runs five parallel jobs. It uses **only** the
-GitHub-authored `actions/checkout` plus the runner's pre-installed `rustup`, so
-no third-party action can be blocked by org policy.
+`.github/workflows/ci.yml` runs a **single consolidated job** (one checkout, one
+toolchain, one cached `target/` so dependencies compile once) to keep Actions
+minute usage low on this private repo. It uses **only** GitHub-authored actions
+(`actions/checkout`, `actions/cache`) plus the runner's `rustup`, so no
+third-party action can be blocked by org policy. Steps run cheapest-first
+(fail-fast):
 
-| Job | Command | Blocking |
+| Step | Command | Blocking |
 | --- | ------- | -------- |
 | **Format** | `cargo fmt --all --check` | yes |
-| **Clippy** | `cargo clippy --all-targets --locked -- -D warnings` | yes |
-| **Build & Test** | `cargo build` + `cargo test` + a CLI smoke run | yes |
+| **Clippy** | `cargo clippy --all-targets --all-features --locked -- -D warnings` | yes |
+| **Test** | `cargo test` **and** `cargo test --features syn-parser` | yes |
 | **Docs** | `cargo doc --no-deps` with `RUSTDOCFLAGS=-D warnings` | yes |
-| **Security Audit** | `cargo audit` | informational (non-blocking) |
+| **CLI smoke** | `analyze → verify → replay → top → blame → export → chaos` | yes |
 
-The CLI smoke run exercises `analyze → verify → replay → top → blame → export →
-chaos` so a broken command fails CI even without a dedicated test.
+A broken command fails the smoke step even without a dedicated test. The slower
+`cargo audit` lives in `.github/workflows/audit.yml`, which runs **weekly** (and
+on demand via *Run workflow*) rather than on every push.
 
 ## Coding conventions
 
@@ -93,7 +97,7 @@ These are enforced in code and covered by tests; don't regress them.
 | Node count ≤ `max_in_memory_nodes` | `enforce_paging` |
 | Deterministic eviction / ordering | total order *(score, NodeId)* across `memory` |
 | Guard output is always valid JSON | `GuardLayer::validate_and_sanitize` → `fallback_response` |
-| Hash chain is tamper-evident | `DistributedEventLog::verify_integrity` |
+| Hash chain is tamper-evident | `EventLog::verify_integrity` (primary log) + `DistributedEventLog::verify_integrity` |
 
 Regression coverage lives in `tests/graph_invariants.rs`,
 `tests/snapshot_differential.rs`, `tests/long_term_stability.rs`,

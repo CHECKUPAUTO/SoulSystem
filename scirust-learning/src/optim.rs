@@ -9,40 +9,55 @@ pub fn simplex(c: &[f64], a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
     // Initial tableau
     let mut tableau = vec![vec![0.0; n + m + 1]; m + 1];
 
-    for i in 0..m {
-        for j in 0..n {
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..m
+    {
+        #[allow(clippy::needless_range_loop)]
+        for j in 0..n
+        {
             tableau[i][j] = a[i][j];
         }
         tableau[i][n + i] = 1.0; // slack variables
         tableau[i][n + m] = b[i];
     }
 
-    for j in 0..n {
+    #[allow(clippy::needless_range_loop)]
+    for j in 0..n
+    {
         tableau[m][j] = -c[j];
     }
 
-    loop {
+    loop
+    {
         // Find entering column (most negative value in bottom row)
         let mut pivot_col = 0;
         let mut min_val = tableau[m][0];
-        for (j, val) in tableau[m].iter().enumerate().take(n + m).skip(1) {
-            if *val < min_val {
-                min_val = *val;
+        #[allow(clippy::needless_range_loop)]
+        for j in 1..(n + m)
+        {
+            if tableau[m][j] < min_val
+            {
+                min_val = tableau[m][j];
                 pivot_col = j;
             }
         }
 
-        if min_val >= -1e-10 {
+        if min_val >= -1e-10
+        {
             break; // optimal
         }
 
         // Find leaving row (minimum ratio test)
         let mut pivot_row = None;
         let mut min_ratio = f64::INFINITY;
-        for (i, row) in tableau.iter().enumerate().take(m) {
-            if row[pivot_col] > 1e-10 {
-                let ratio = row[n + m] / row[pivot_col];
-                if ratio < min_ratio {
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..m
+        {
+            if tableau[i][pivot_col] > 1e-10
+            {
+                let ratio = tableau[i][n + m] / tableau[i][pivot_col];
+                if ratio < min_ratio
+                {
                     min_ratio = ratio;
                     pivot_row = Some(i);
                 }
@@ -53,16 +68,21 @@ pub fn simplex(c: &[f64], a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
 
         // Pivot
         let divisor = tableau[r][pivot_col];
-        for row_item in tableau[r].iter_mut().take(n + m + 1) {
-            *row_item /= divisor;
+        #[allow(clippy::needless_range_loop)]
+        for j in 0..=(n + m)
+        {
+            tableau[r][j] /= divisor;
         }
 
-        let pivot_row = tableau[r].clone();
-        for (i, row) in tableau.iter_mut().enumerate().take(m + 1) {
-            if i != r {
-                let multiplier = row[pivot_col];
-                for j in 0..=(n + m) {
-                    row[j] -= multiplier * pivot_row[j];
+        for i in 0..=m
+        {
+            if i != r
+            {
+                let multiplier = tableau[i][pivot_col];
+                #[allow(clippy::needless_range_loop)]
+                for j in 0..=(n + m)
+                {
+                    tableau[i][j] -= multiplier * tableau[r][j];
                 }
             }
         }
@@ -70,25 +90,37 @@ pub fn simplex(c: &[f64], a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
 
     // Extract solution
     let mut x = vec![0.0; n];
-    for (j, xj) in x.iter_mut().enumerate().take(n) {
+    #[allow(clippy::needless_range_loop)]
+    for j in 0..n
+    {
         let mut row_with_one = None;
         let mut is_basis = true;
-        for (i, row) in tableau.iter().enumerate().take(m) {
-            if (row[j] - 1.0).abs() < 1e-10 {
-                if row_with_one.is_none() {
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..m
+        {
+            if (tableau[i][j] - 1.0).abs() < 1e-10
+            {
+                if row_with_one.is_none()
+                {
                     row_with_one = Some(i);
-                } else {
+                }
+                else
+                {
                     is_basis = false;
                     break;
                 }
-            } else if row[j].abs() > 1e-10 {
+            }
+            else if tableau[i][j].abs() > 1e-10
+            {
                 is_basis = false;
                 break;
             }
         }
-        if let Some(row_idx) = row_with_one {
-            if is_basis && tableau[m][j].abs() < 1e-10 {
-                *xj = tableau[row_idx][n + m];
+        if is_basis && tableau[m][j].abs() < 1e-10
+        {
+            if let Some(idx) = row_with_one
+            {
+                x[j] = tableau[idx][n + m];
             }
         }
     }
@@ -97,7 +129,7 @@ pub fn simplex(c: &[f64], a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
 }
 
 /// Bregman Projection for KL divergence (used in pricing/prediction).
-/// Projects point `y` onto the simplex defined by `sum(x) = 1, x >= 0`.
+/// Projects point  onto the simplex defined by .
 pub fn bregman_projection_simplex(y: &[f64]) -> Vec<f64> {
     // For KL divergence, Bregman projection onto the simplex is just softmax
     // or normalized exponential if we use certain distance.
@@ -107,9 +139,12 @@ pub fn bregman_projection_simplex(y: &[f64]) -> Vec<f64> {
 
     let mut running_sum = 0.0;
     let mut rho = 0;
-    for (i, xi) in x.iter().enumerate() {
-        running_sum += *xi;
-        if *xi + (1.0 - running_sum) / ((i + 1) as f64) > 0.0 {
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..x.len()
+    {
+        running_sum += x[i];
+        if x[i] + (1.0 - running_sum) / ((i + 1) as f64) > 0.0
+        {
             rho = i + 1;
         }
     }
@@ -148,7 +183,8 @@ mod tests {
 
         let sum: f64 = x.iter().sum();
         assert!((sum - 1.0).abs() < 1e-10);
-        for &val in &x {
+        for &val in &x
+        {
             assert!(val >= 0.0);
         }
     }

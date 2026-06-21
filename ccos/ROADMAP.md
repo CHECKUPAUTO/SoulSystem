@@ -65,19 +65,46 @@ Prioritized roadmap from the audit. Effort: S/M/L.
 
 ---
 
+## ✅ Done — v0.3 Context Region Engine (spatial memory)
+
+- **Context regions** (`context_region`, `region_engine`) — the 1-D scored graph
+  is lifted into a spatial map: nodes are embedded in a 3-D context space
+  (structural / causal / temporal) and clustered into regions (connected
+  components of the cross-file causal-link graph) with a temperature and causal
+  density. Regions are hydrated as `ContextWindow`s instead of loading files.
+- **Dynamic admission policy** (`context_policy`) — the static `0.6` threshold
+  becomes a function of token pressure, task complexity, region temperature and
+  density.
+- **Event sourcing + deterministic replay** — `RegionCreated/Activated/Merged/
+  Evicted/ContextWindowGenerated` events; `replay_from` reconstructs regions
+  bit-for-bit from a rebuilt graph (proof + 10k-cycle no-drift test).
+- **Locality metrics** (`region_metrics`) + `scripts/region_benchmark.sh`: region
+  selection covers 97% of a task's causal neighbourhood vs 35% flat, ≈48% fewer
+  tokens; regions 95.5% internally connected.
+- **Docs**: `docs/context_regions.md` + an arXiv research paper in `docs/paper/`
+  (formal model, determinism theorem, falsifiable comparison protocol vs
+  RAG/GraphRAG/MemGPT/LangGraph). `ccos regions` CLI.
+
+---
+
 ## Remaining
 
 ### P0 — Correctness
 
-1. **`syn`-based AST parser.** (L) The line-based parser misses multi-line
-   signatures, nested-module bodies, grouped `use` and macros. Put it behind a
-   feature flag with the heuristic parser as a zero-dep fallback. *(top item)*
+- ✅ **`syn`-based AST parser** — *done.* Behind the `syn-parser` feature, the
+  parser builds a real Rust AST (nested-module bodies, multi-line signatures,
+  grouped `use`, impl methods), with the zero-dependency line-based heuristic as
+  the fallback (used when the feature is off or a file does not parse as valid
+  Rust). CI lints and tests both paths. See `src/parser.rs::syn_ast`.
 
 ### P1 — Depth
 
-2. **Canonical hash-chained log.** (M) Fold tamper-evidence into the primary
-   `EventLog` (or mirror every kernel event), so integrity covers *all* runs, not
-   just snapshots.
+- ✅ **Canonical hash-chained log** — *done.* The primary `EventLog` is now
+  tamper-evident: every `append` links the event into a SHA-256 chain over its
+  replayable content (sequence + type + payload, excluding the non-deterministic
+  `id`/`timestamp` so the chain stays reproducible). `EventLog::verify_integrity`
+  detects any payload tamper, reorder, insertion or deletion, and `ccos verify` /
+  `ccos replay` check it on every run. See `src/event_log.rs`.
 3. **Semantic edges.** (L) Call-graph and data-flow edges, not just
    containment/dependency — richer causal propagation.
 
@@ -101,6 +128,6 @@ Prioritized roadmap from the audit. Effort: S/M/L.
 
 ### Suggested order
 
-`P0.1 (syn)` → `P1.2 (canonical log)` → `P2.5 (benches)` →
+~~`P0.1 (syn)`~~ ✅ → ~~`P1.2 (canonical log)`~~ ✅ → **`P2.5 (benches)`** (next) →
 `P1.3 (semantic edges)` → polish. P2.4 and P3.7 are quick wins
 that can land anytime.

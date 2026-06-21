@@ -30,6 +30,27 @@
 //!   logs) to JSON for cross-session replay and verification.
 //! - [`query`] — read-only causal queries (impact/cause walks, hot set, GraphML
 //!   export) behind the `top`, `blame` and `export` subcommands.
+//! - [`trace`] — the dynamic layer: parse `cargo test` / panic / backtrace output
+//!   into the source locations a crash touched (a direct symptom→cause path), to
+//!   seed a *context page fault* instead of a diffuse structural walk.
+//! - [`agent_session`] — an event-sourced cognitive timeline: record an agent's
+//!   memory operations, replay the exact state at any step, and run *what-if*
+//!   recalls (time-travel debugging) — the deterministic/auditable angle RAG lacks.
+//! - [`external_memory`] — a documented façade ([`external_memory::ExternalMemory`]
+//!   / [`external_memory::CcosMemory`]) an agent uses to treat CCOS as external
+//!   working memory: ingest source, signal failures, recall a bounded causal
+//!   window, verify, and checkpoint.
+//! - [`mcp`] — a dependency-free [Model Context Protocol](https://modelcontextprotocol.io)
+//!   server (stdio JSON-RPC 2.0) that exposes the [`external_memory`] façade as MCP
+//!   tools, so any MCP-compatible agent can use CCOS as native working memory.
+//! - [`postmortem`] — an interactive **time-travel debugger** over an
+//!   [`agent_session::AgentSession`]: walk a recorded (or persisted) cognitive
+//!   timeline by hand, inspect how the recalled context window drifts, and diff two
+//!   points in the agent's history.
+//! - [`region_engine`] — the **Context Region Engine** (v0.3): clusters the
+//!   graph into spatial [`region_engine::ContextRegionEngine`] regions that are
+//!   hydrated as context windows, with a dynamic [`context_policy`] admission
+//!   policy and deterministic replay. See [`context_region`], [`region_metrics`].
 //!
 //! ## Invariants
 //!
@@ -40,16 +61,21 @@
 //! `HashMap` iteration order.
 
 pub mod adversarial;
+pub mod agent_session;
 pub mod consensus;
 pub mod distributed_event_log;
 pub mod event_log;
+pub mod external_memory;
 pub mod guard;
 pub mod incremental;
 pub mod llm;
+pub mod mcp;
 pub mod memory;
 pub mod parser;
 pub mod persist;
+pub mod postmortem;
 pub mod query;
+pub mod trace;
 pub mod util;
 
 // ── CCOS v0.3 — Autonomous Context Runtime ──────────────────────────
@@ -58,3 +84,11 @@ pub mod benchmark;
 pub mod persistence;
 pub mod scheduler;
 pub mod workspace;
+
+// ── CCOS v0.3 — Context Region Engine (spatial memory) ──────────────
+pub mod context_policy;
+pub mod context_region;
+pub mod eval;
+pub mod experiment;
+pub mod region_engine;
+pub mod region_metrics;

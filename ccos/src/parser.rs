@@ -61,10 +61,7 @@ impl ASTParser {
 
     pub fn parse_source(&self, file_path: &str, source_code: &str) -> ParseResult {
         let hash = Self::compute_hash(source_code);
-
-        let modules = Self::extract_modules(source_code);
-        let use_statements = Self::extract_uses(source_code);
-        let symbols = Self::extract_symbols(source_code);
+        let (modules, use_statements, symbols) = Self::extract_all(source_code);
 
         ParseResult {
             file_path: file_path.to_string(),
@@ -77,42 +74,97 @@ impl ASTParser {
         }
     }
 
-    pub fn update_memory_graph(&self, result: &ParseResult, graph: &mut MemoryGraph) {
+    /// Extract modules / `use` statements / symbols from source.
+    ///
+    /// With the `syn-parser` feature enabled, this parses a real Rust AST (which
+    /// captures nested-module bodies, multi-line signatures, grouped `use` and
+    /// impl methods). If the feature is off — or the source does not parse as
+    /// valid Rust — it falls back to the zero-dependency line-based heuristic.
+    fn extract_all(source: &str) -> (Vec<ModuleDecl>, Vec<UseStatement>, Vec<Symbol>) {
+        #[cfg(feature = "syn-parser")]
+        {
+            if let Some(parsed) = syn_ast::parse(source) {
+                return parsed;
+            }
+        }
+        (
+            Self::extract_modules(source),
+            Self::extract_uses(source),
+            Self::extract_symbols(source),
+        )
+    }
+
+    /// Build the causal graph for one file, storing **granular** content on every
+    /// node so recall never spends a whole file's budget on a single node (see
+    /// `docs/DESIGN_symbol_granularity.md`): the file node carries a *header*
+    /// (path + one signature line per symbol), each symbol node carries its own
+    /// source span, modules carry their declaration line, and `use` nodes the
+    /// import line. The whole-file source is kept by the caller (`ExternalMemory`)
+    /// for explicit retrieval, not duplicated into every node.
+    pub fn update_memory_graph(&self, result: &ParseResult, source: &str, graph: &mut MemoryGraph) {
+        let lines: Vec<&str> = source.lines().collect();
+        let line_at = |ln: usize| {
+            lines
+                .get(ln.saturating_sub(1))
+                .map(|l| l.trim().to_string())
+                .unwrap_or_default()
+        };
+
+        // File node = a thin header: the path and a signature line per symbol,
+        // capped at `header_symbol_cap()` lines so a huge file (syn's `item.rs` has
+        // ~88 symbols) does not spend a third of a recall budget on its index alone
+        // (see `docs/DESIGN_recall_budget.md`). Capped-out symbols are still their
+        // own span nodes; the header just teases the first N.
         let file_id = NodeId(format!("file:{}", result.file_path));
+        let cap = header_symbol_cap();
+        let mut header = format!(
+            "// {} — {} symbols\n",
+            result.file_path,
+            result.symbols.len()
+        );
+        let mut shown = 0usize;
+        for s in &result.symbols {
+            if shown >= cap {
+                break;
+            }
+            let sig = line_at(s.line);
+            if !sig.is_empty() {
+                header.push_str(&sig);
+                header.push('\n');
+                shown += 1;
+            }
+        }
+        if result.symbols.len() > shown {
+            header.push_str(&format!("// … (+{} more)\n", result.symbols.len() - shown));
+        }
         graph.upsert_node(
             file_id.clone(),
             result.file_path.clone(),
-            format!("Source file at {}", result.file_path),
+            header,
             NodeType::Module,
         );
 
-        // Add module nodes
+        // Module nodes = their declaration line only; the items inside become their
+        // own symbol nodes, so carrying the body here would just duplicate them.
         for module in &result.modules {
             let mod_id = NodeId(format!("mod:{}:{}", result.file_path, module.name));
             graph.upsert_node(
                 mod_id.clone(),
                 module.name.clone(),
-                format!(
-                    "{}module {} at line {}",
-                    if module.is_public { "pub " } else { "" },
-                    module.name,
-                    module.line
-                ),
+                line_at(module.line),
                 NodeType::Module,
             );
             graph.add_edge(file_id.clone(), mod_id.clone(), 0.9, EdgeType::Contains);
-
-            // Process nested modules
-            self.add_module_tree(graph, &mod_id, &module.children, &result.file_path);
+            self.add_module_tree(graph, &mod_id, &module.children, &result.file_path, &lines);
         }
 
-        // Add use statements as edges
+        // Use statements = the import line itself.
         for use_stmt in &result.use_statements {
             let use_id = NodeId(format!("use:{}:{}", result.file_path, use_stmt.full_path));
             graph.upsert_node(
                 use_id.clone(),
                 format!("use {}", use_stmt.full_path),
-                format!("Import: {} at line {}", use_stmt.full_path, use_stmt.line),
+                line_at(use_stmt.line),
                 NodeType::Symbol,
             );
             graph.add_edge(file_id.clone(), use_id.clone(), 0.5, EdgeType::DependsOn);
@@ -130,15 +182,12 @@ impl ASTParser {
             }
         }
 
-        // Add symbol nodes
+        // Symbol nodes = the symbol's own source span (the granular recall unit).
         for symbol in &result.symbols {
             let sym_id = NodeId(format!("sym:{}:{}", result.file_path, symbol.name));
-            graph.upsert_node(
-                sym_id.clone(),
-                symbol.name.clone(),
-                format!("{:?} {} at line {}", symbol.kind, symbol.name, symbol.line),
-                NodeType::Symbol,
-            );
+            let (start, end) = symbol_span(&lines, symbol.line);
+            let body = lines[start - 1..end].join("\n");
+            graph.upsert_node(sym_id.clone(), symbol.name.clone(), body, NodeType::Symbol);
             graph.add_edge(file_id.clone(), sym_id.clone(), 0.6, EdgeType::Contains);
         }
     }
@@ -149,20 +198,15 @@ impl ASTParser {
         parent_id: &NodeId,
         children: &[ModuleDecl],
         file_path: &str,
+        lines: &[&str],
     ) {
         for child in children {
             let child_id = NodeId(format!("mod:{}:{}", file_path, child.name));
-            graph.upsert_node(
-                child_id.clone(),
-                child.name.clone(),
-                format!(
-                    "{}module {} at line {}",
-                    if child.is_public { "pub " } else { "" },
-                    child.name,
-                    child.line
-                ),
-                NodeType::Module,
-            );
+            let decl = lines
+                .get(child.line.saturating_sub(1))
+                .map(|l| l.trim().to_string())
+                .unwrap_or_default();
+            graph.upsert_node(child_id.clone(), child.name.clone(), decl, NodeType::Module);
             graph.add_edge(
                 parent_id.clone(),
                 child_id.clone(),
@@ -171,7 +215,7 @@ impl ASTParser {
             );
 
             if !child.children.is_empty() {
-                self.add_module_tree(graph, &child_id, &child.children, file_path);
+                self.add_module_tree(graph, &child_id, &child.children, file_path, lines);
             }
         }
     }
@@ -546,6 +590,195 @@ impl Default for ASTParser {
     }
 }
 
+/// Max signature lines a file-header node lists. Default 24; override with
+/// `CCOS_HEADER_SYMBOLS`. Caps the header footprint of very large files so it
+/// cannot dominate a recall budget; the omitted symbols remain their own nodes.
+fn header_symbol_cap() -> usize {
+    std::env::var("CCOS_HEADER_SYMBOLS")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|x| *x >= 1)
+        .unwrap_or(24)
+}
+
+/// Inclusive 1-based `[start, end]` line span of the item beginning at
+/// `start_line`. Brace-matched for `{}`-bodied items (fn/struct/enum/trait/impl);
+/// semicolon-terminated for the rest (const/static/type/use); a lone start line
+/// otherwise. Capped at end-of-file. `//`-comment and string aware via
+/// [`strip_comments`]; braces inside strings and multi-line `/* … */` share the
+/// line parser's documented fragility — `--features syn-parser` parses exactly.
+fn symbol_span(lines: &[&str], start_line: usize) -> (usize, usize) {
+    let n = lines.len();
+    if start_line == 0 || start_line > n {
+        return (start_line.max(1), start_line.max(1));
+    }
+    let s0 = start_line - 1; // 0-based
+                             // Within a short signature window, find the body's opening brace — or a
+                             // semicolon that terminates a brace-less item (const/static/type/use).
+    let mut open = None;
+    for (off, line) in lines[s0..(s0 + 8).min(n)].iter().enumerate() {
+        let stripped = strip_comments(line);
+        if stripped.contains('{') {
+            open = Some(s0 + off);
+            break;
+        }
+        if stripped.trim_end().ends_with(';') {
+            return (start_line, s0 + off + 1);
+        }
+    }
+    let Some(open) = open else {
+        return (start_line, start_line);
+    };
+    let mut depth: i32 = 0;
+    for (i, line) in lines.iter().enumerate().skip(open) {
+        for c in strip_comments(line).chars() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return (start_line, i + 1);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    (start_line, n)
+}
+
+/// Real-AST parsing via `syn` (enabled by the `syn-parser` feature). Produces
+/// the same `(modules, uses, symbols)` triple as the heuristic parser, but
+/// accurately: it descends into nested-module bodies and impl blocks, expands
+/// grouped `use` trees, handles multi-line signatures, and ignores comments
+/// natively. Returns `None` on a syntax error so the caller can fall back.
+#[cfg(feature = "syn-parser")]
+mod syn_ast {
+    use super::{ModuleDecl, Symbol, SymbolKind, UseStatement};
+    use proc_macro2::Span;
+    use syn::spanned::Spanned;
+
+    pub fn parse(source: &str) -> Option<(Vec<ModuleDecl>, Vec<UseStatement>, Vec<Symbol>)> {
+        let file = syn::parse_file(source).ok()?;
+        let mut out = Collected::default();
+        walk(&file.items, &mut out);
+        Some((out.modules, out.uses, out.symbols))
+    }
+
+    #[derive(Default)]
+    struct Collected {
+        modules: Vec<ModuleDecl>,
+        uses: Vec<UseStatement>,
+        symbols: Vec<Symbol>,
+    }
+
+    /// 1-based source line; the `span-locations` feature guarantees real spans.
+    fn line_of(span: Span) -> usize {
+        span.start().line
+    }
+
+    fn is_pub(vis: &syn::Visibility) -> bool {
+        matches!(vis, syn::Visibility::Public(_))
+    }
+
+    fn push_sym(out: &mut Collected, ident: &syn::Ident, kind: SymbolKind) {
+        out.symbols.push(Symbol {
+            name: ident.to_string(),
+            line: line_of(ident.span()),
+            kind,
+        });
+    }
+
+    /// Walk a list of items at one scope. Nested modules become `children` of
+    /// their parent; symbols and `use`s from nested scopes are surfaced into the
+    /// flat lists (matching the line parser, which sees every line).
+    fn walk(items: &[syn::Item], out: &mut Collected) {
+        for item in items {
+            match item {
+                syn::Item::Mod(m) => {
+                    let mut child = Collected::default();
+                    if let Some((_, inner)) = &m.content {
+                        walk(inner, &mut child);
+                    }
+                    out.uses.append(&mut child.uses);
+                    out.symbols.append(&mut child.symbols);
+                    out.modules.push(ModuleDecl {
+                        name: m.ident.to_string(),
+                        line: line_of(m.ident.span()),
+                        is_public: is_pub(&m.vis),
+                        children: child.modules,
+                    });
+                }
+                syn::Item::Use(u) => {
+                    flatten_use(&u.tree, String::new(), line_of(u.span()), &mut out.uses);
+                }
+                syn::Item::Fn(f) => push_sym(out, &f.sig.ident, SymbolKind::Function),
+                syn::Item::Struct(s) => push_sym(out, &s.ident, SymbolKind::Struct),
+                syn::Item::Enum(e) => push_sym(out, &e.ident, SymbolKind::Enum),
+                syn::Item::Trait(t) => {
+                    push_sym(out, &t.ident, SymbolKind::Trait);
+                    for ti in &t.items {
+                        if let syn::TraitItem::Fn(method) = ti {
+                            push_sym(out, &method.sig.ident, SymbolKind::Function);
+                        }
+                    }
+                }
+                syn::Item::Const(c) => push_sym(out, &c.ident, SymbolKind::Const),
+                syn::Item::Static(s) => push_sym(out, &s.ident, SymbolKind::Static),
+                syn::Item::Type(t) => push_sym(out, &t.ident, SymbolKind::Type),
+                syn::Item::Macro(m) => {
+                    if let Some(ident) = &m.ident {
+                        push_sym(out, ident, SymbolKind::Macro);
+                    }
+                }
+                syn::Item::Impl(i) => {
+                    for ii in &i.items {
+                        if let syn::ImplItem::Fn(method) = ii {
+                            push_sym(out, &method.sig.ident, SymbolKind::Function);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Expand a (possibly grouped) `use` tree into one `UseStatement` per leaf
+    /// path, e.g. `use a::{b, c::d}` → `a::b` and `a::c::d`.
+    fn flatten_use(tree: &syn::UseTree, prefix: String, line: usize, out: &mut Vec<UseStatement>) {
+        let join = |p: &str, s: &str| {
+            if p.is_empty() {
+                s.to_string()
+            } else {
+                format!("{p}::{s}")
+            }
+        };
+        match tree {
+            syn::UseTree::Path(p) => {
+                flatten_use(&p.tree, join(&prefix, &p.ident.to_string()), line, out)
+            }
+            syn::UseTree::Name(n) => push_use(join(&prefix, &n.ident.to_string()), line, out),
+            syn::UseTree::Rename(r) => push_use(join(&prefix, &r.ident.to_string()), line, out),
+            syn::UseTree::Glob(_) => push_use(join(&prefix, "*"), line, out),
+            syn::UseTree::Group(g) => {
+                for t in &g.items {
+                    flatten_use(t, prefix.clone(), line, out);
+                }
+            }
+        }
+    }
+
+    fn push_use(full_path: String, line: usize, out: &mut Vec<UseStatement>) {
+        let components: Vec<String> = full_path.split("::").map(str::to_string).collect();
+        out.push(UseStatement {
+            full_path,
+            line,
+            is_import: true,
+            components,
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,7 +871,181 @@ mod tests {
         let parser = ASTParser::new();
         let result = parser.parse_source("test.rs", source);
         let mut graph = MemoryGraph::default();
-        parser.update_memory_graph(&result, &mut graph);
+        parser.update_memory_graph(&result, source, &mut graph);
         assert!(graph.node_count() > 3);
+    }
+
+    #[test]
+    fn file_header_caps_its_symbol_list() {
+        let mut src = String::new();
+        for i in 0..50 {
+            src.push_str(&format!("pub fn f{i}() {{}}\n"));
+        }
+        let parser = ASTParser::new();
+        let result = parser.parse_source("t.rs", &src);
+        let mut graph = MemoryGraph::default();
+        parser.update_memory_graph(&result, &src, &mut graph);
+        let header = &graph
+            .nodes
+            .get(&NodeId("file:t.rs".to_string()))
+            .expect("file node")
+            .content;
+        // Default cap is 24 lines + a "(+N more)" marker, not all 50 signatures.
+        assert!(
+            header.contains("(+26 more)"),
+            "header must note the omitted symbols: {header}"
+        );
+        assert!(
+            !header.contains("f49"),
+            "header must not list every symbol of a large file"
+        );
+    }
+
+    #[test]
+    fn symbol_span_brace_matches_multiline_and_single_line() {
+        let src = "pub fn a() {\n    let x = 1;\n    x\n}\nfn b() {}\nconst K: u8 = 3;";
+        let lines: Vec<&str> = src.lines().collect();
+        assert_eq!(
+            symbol_span(&lines, 1),
+            (1, 4),
+            "multi-line fn closes at its brace"
+        );
+        assert_eq!(
+            symbol_span(&lines, 5),
+            (5, 5),
+            "one-line fn is a single line"
+        );
+        assert_eq!(
+            symbol_span(&lines, 6),
+            (6, 6),
+            "a const ends at its semicolon line"
+        );
+    }
+
+    #[test]
+    fn symbol_span_keeps_nested_braces() {
+        let src = "fn f() {\n    if x { a(); }\n    loop { break; }\n}";
+        let lines: Vec<&str> = src.lines().collect();
+        assert_eq!(
+            symbol_span(&lines, 1),
+            (1, 4),
+            "nested braces must not close the span early"
+        );
+    }
+
+    #[test]
+    fn symbol_node_carries_its_span_and_file_node_is_a_header() {
+        let src = "pub fn small() -> u8 { 7 }\npub fn big() {\n    let _ = 1;\n    let _ = 2;\n}";
+        let parser = ASTParser::new();
+        let result = parser.parse_source("t.rs", src);
+        let mut graph = MemoryGraph::default();
+        parser.update_memory_graph(&result, src, &mut graph);
+
+        let small = graph
+            .nodes
+            .get(&NodeId("sym:t.rs:small".to_string()))
+            .expect("small symbol node");
+        assert_eq!(small.content, "pub fn small() -> u8 { 7 }");
+
+        let big = graph
+            .nodes
+            .get(&NodeId("sym:t.rs:big".to_string()))
+            .expect("big symbol node");
+        assert!(big.content.starts_with("pub fn big()") && big.content.contains("let _ = 2;"));
+
+        // The file node is a header (signatures), never the embedded bodies.
+        let file = graph
+            .nodes
+            .get(&NodeId("file:t.rs".to_string()))
+            .expect("file node");
+        assert!(
+            file.content.contains("pub fn small"),
+            "header lists signatures"
+        );
+        assert!(
+            !file.content.contains("let _ = 2;"),
+            "file header must not embed symbol bodies"
+        );
+    }
+}
+
+/// Tests exercising the real-AST path (only compiled with `--features syn-parser`).
+#[cfg(all(test, feature = "syn-parser"))]
+mod syn_tests {
+    use super::*;
+
+    #[test]
+    fn syn_captures_nested_module_tree() {
+        let src = "pub mod outer { mod inner { fn deep() {} } }";
+        let r = ASTParser::new().parse_source("t.rs", src);
+        let outer = r
+            .modules
+            .iter()
+            .find(|m| m.name == "outer")
+            .expect("outer module");
+        assert!(outer.is_public);
+        assert!(
+            outer.children.iter().any(|c| c.name == "inner"),
+            "nested module must be a child (heuristic parser cannot do this)"
+        );
+        // The deeply-nested function is still surfaced into the flat symbol list.
+        assert!(r.symbols.iter().any(|s| s.name == "deep"));
+    }
+
+    #[test]
+    fn syn_captures_multiline_signature() {
+        // The `fn` line does not end in `{`, so the line parser would miss it.
+        let src = "fn wide(\n    a: i32,\n    b: i32,\n) -> i32 {\n    a + b\n}";
+        let r = ASTParser::new().parse_source("t.rs", src);
+        assert!(r
+            .symbols
+            .iter()
+            .any(|s| s.name == "wide" && s.kind == SymbolKind::Function));
+    }
+
+    #[test]
+    fn syn_expands_grouped_use() {
+        let src = "use std::collections::{HashMap, HashSet};";
+        let r = ASTParser::new().parse_source("t.rs", src);
+        let paths: Vec<&str> = r
+            .use_statements
+            .iter()
+            .map(|u| u.full_path.as_str())
+            .collect();
+        assert!(paths.contains(&"std::collections::HashMap"));
+        assert!(paths.contains(&"std::collections::HashSet"));
+    }
+
+    #[test]
+    fn syn_captures_impl_methods() {
+        let src = "struct S;\nimpl S {\n    fn a(&self) {}\n    fn b(&self) {}\n}";
+        let r = ASTParser::new().parse_source("t.rs", src);
+        assert!(r
+            .symbols
+            .iter()
+            .any(|s| s.name == "S" && s.kind == SymbolKind::Struct));
+        assert!(r
+            .symbols
+            .iter()
+            .any(|s| s.name == "a" && s.kind == SymbolKind::Function));
+        assert!(r.symbols.iter().any(|s| s.name == "b"));
+    }
+
+    #[test]
+    fn syn_falls_back_on_invalid_syntax() {
+        // Not valid Rust → syn returns None → heuristic parser handles it, no panic.
+        let src = "fn broken( this is not rust {{{";
+        let r = ASTParser::new().parse_source("t.rs", src);
+        // Should not panic; result is whatever the heuristic produced.
+        let _ = r.symbols.len();
+    }
+
+    #[test]
+    fn syn_ignores_commented_out_code() {
+        let src = "fn real() {}\n// fn commented() {}\n/* fn blocked() {} */";
+        let r = ASTParser::new().parse_source("t.rs", src);
+        assert!(r.symbols.iter().any(|s| s.name == "real"));
+        assert!(!r.symbols.iter().any(|s| s.name == "commented"));
+        assert!(!r.symbols.iter().any(|s| s.name == "blocked"));
     }
 }

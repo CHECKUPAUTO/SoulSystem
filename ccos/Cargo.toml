@@ -13,6 +13,25 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 rand = "0.8"
 
+# Optional real-AST parser (ROADMAP P0.1). With the `syn-parser` feature, the
+# `parser` module uses `syn` for accurate parsing (nested-module bodies,
+# multi-line signatures, grouped `use`, impl methods); without it the
+# zero-dependency line-based heuristic parser is used. `proc-macro2`'s
+# span-locations supplies real line numbers. Both crates are already present in
+# the dependency tree transitively, so enabling this pulls no new download.
+syn = { version = "2", features = ["full"], optional = true }
+proc-macro2 = { version = "1", features = ["span-locations"], optional = true }
+
+# Optional drop-in global allocator for bare-metal benchmarking. CCOS is not
+# allocation-bound at its scale (the kernel is <1% of an agent loop dominated by
+# LLM inference), so this is an opt-in knob to *measure*, not a default win. See
+# docs/PERFORMANCE.md.
+mimalloc = { version = "0.1", optional = true }
+
+[features]
+syn-parser = ["dep:syn", "dep:proc-macro2"]
+mimalloc = ["dep:mimalloc"]
+
 [dev-dependencies]
 proptest = "1"
 criterion = "0.5"

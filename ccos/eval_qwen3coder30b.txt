@@ -1,0 +1,24 @@
+╔══════════════════════════════════════════════╗
+║  CCOS eval — real-LLM task success vs RAG    ║
+╚══════════════════════════════════════════════╝
+
+  provider: ollama · model: qwen3-coder:30b
+  seed=7  tasks=20  budget=600 tokens   (success = correct integer answer)
+
+  ── CLEAN query (names the target function) ──
+    strategy (success →)    d=1    d=2    d=3    d=4   cover  halluc  tokens
+    rag-dense          0.00   0.25   0.00   0.00      0%      0%     519
+    rag-hybrid         0.00   0.00   0.00   0.00      0%      5%     521
+    graphrag-1hop      1.00   0.00   0.00   0.00     40%      0%     270
+    graphrag-bfs       1.00   0.75   0.17   0.00    100%      0%     402
+    ccos-from-query    1.00   0.50   0.17   0.00    100%      0%     402
+    ccos-region        1.00   0.50   0.17   0.00    100%      0%     402
+
+  ── NOISY query (a decoy out-matches the target lexically) ──
+    strategy (success →)    d=1    d=2    d=3    d=4   cover  halluc  tokens
+    rag-dense          0.00   0.00   0.00   0.00      0%      0%     531
+    rag-hybrid         0.00   0.00   0.00   0.00      0%      5%     521
+    graphrag-1hop      0.00   0.00   0.00   0.00      0%      0%     165
+    graphrag-bfs       0.00   0.00   0.00   0.00      0%      0%     165
+    ccos-from-query    0.00   0.00   0.00   0.00      0%      0%     165
+    ccos-region        1.00   0.50   0.17   0.00    100%      0%     402

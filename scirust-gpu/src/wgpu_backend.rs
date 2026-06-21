@@ -1,364 +1,827 @@
-// scirust-gpu/src/wgpu_backend.rs
-//
-// WgpuBackend — backend portable via wgpu (Vulkan/Metal/DX12/WebGL).
-// Tourne sur :
-//   - GPU dédiés NVIDIA/AMD/Intel
-//   - GPU intégrés Apple Silicon (Metal)
-//   - Navigateur (WebGPU)
-//
-// Activation : --features wgpu
-//
-// Comme cuda_backend.rs : structure correcte + un kernel saxpy fonctionnel.
-// Les autres opérations délèguent au CPU pour l'instant — implémentation
-// progressive en suivant le même pattern.
+//! Real wgpu compute path (feature `wgpu`).
+//!
+//! Provides a general `f32` GEMM as a WGSL compute shader executed through wgpu
+//! (Vulkan/Metal/DX12/GL):
+//!
+//! ```text
+//! C = alpha * op(A) * op(B) + beta * C
+//! ```
+//!
+//! with optional transposes — the exact contract of
+//! [`scirust_core::autodiff::reverse::GpuEngine`], so the same kernel powers
+//! both the standalone [`crate::WgpuBackend`] and the autograd-tape engine
+//! ([`crate::WgpuEngine`], see `engine.rs`).
+//!
+//! Results are validated against the deterministic [`crate::CpuBackend`] oracle
+//! within a documented floating-point tolerance (GPU accumulation order is not
+//! bit-identical to the scalar CPU path). The path is exercised in CI on a
+//! software Vulkan adapter (Mesa *lavapipe*), satisfying "no claim without a
+//! test" without physical GPU hardware. See `docs/GPU.md` (P2.2).
 
-#![cfg(feature = "wgpu")]
+use std::borrow::Cow;
+use std::sync::mpsc;
 
-use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
 
-use scirust_core::matrix::backend::SimdBackend;
-use scirust_core::matrix::view::{MatrixShape, MatrixView, MatrixViewMut};
+use crate::{BackendError, BackendResult};
 
-// ------------------------------------------------------------------ //
-//  Shader WGSL — saxpy                                                //
-// ------------------------------------------------------------------ //
+/// General WGSL GEMM: `C = alpha·op(A)·op(B) + beta·C`, row-major, one
+/// invocation per output cell. `op(A)` is `m×k`, `op(B)` is `k×n`, `C` is `m×n`;
+/// `ta`/`tb` flag whether the *stored* `a`/`b` is the transpose of `op`.
+const GEMM_WGSL: &str = r#"
+struct P { m: u32, k: u32, n: u32, ta: u32, tb: u32, alpha: f32, beta: f32, _pad: u32, };
 
-const SAXPY_WGSL: &str = r#"
-struct Params {
-    alpha: f32,
-    n:     u32,
-}
+@group(0) @binding(0) var<storage, read>       a: array<f32>;
+@group(0) @binding(1) var<storage, read>       b: array<f32>;
+@group(0) @binding(2) var<storage, read_write> c: array<f32>;
+@group(0) @binding(3) var<uniform>             p: P;
 
-@group(0) @binding(0) var<storage, read>       x:      array<f32>;
-@group(0) @binding(1) var<storage, read_write> y:      array<f32>;
-@group(0) @binding(2) var<uniform>             params: Params;
-
-@compute @workgroup_size(64)
-fn saxpy(@builtin(global_invocation_id) gid: vec3<u32>) {
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
-    if (i >= params.n) { return; }
-    y[i] = params.alpha * x[i] + y[i];
+    let j = gid.y;
+    if (i >= p.m || j >= p.n) { return; }
+    var acc: f32 = 0.0;
+    for (var q: u32 = 0u; q < p.k; q = q + 1u) {
+        var av: f32;
+        var bv: f32;
+        if (p.ta == 1u) { av = a[q * p.m + i]; } else { av = a[i * p.k + q]; }
+        if (p.tb == 1u) { bv = b[j * p.k + q]; } else { bv = b[q * p.n + j]; }
+        acc = acc + av * bv;
+    }
+    let idx = i * p.n + j;
+    c[idx] = p.alpha * acc + p.beta * c[idx];
 }
 "#;
 
-const RELU_WGSL: &str = r#"
-@group(0) @binding(0) var<storage, read_write> data: array<f32>;
+/// Elementwise kernel: `op` selects `0=add`, `1=mul` (binary, `a` and `b`), or
+/// `2=relu` (unary, `b` ignored). One invocation per element.
+const EW_WGSL: &str = r#"
+struct P { n: u32, op: u32, _p0: u32, _p1: u32, };
+
+@group(0) @binding(0) var<storage, read>       a: array<f32>;
+@group(0) @binding(1) var<storage, read>       b: array<f32>;
+@group(0) @binding(2) var<storage, read_write> c: array<f32>;
+@group(0) @binding(3) var<uniform>             p: P;
 
 @compute @workgroup_size(64)
-fn relu(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
-    if (i >= arrayLength(&data)) { return; }
-    data[i] = max(data[i], 0.0);
+    if (i >= p.n) { return; }
+    if (p.op == 0u) { c[i] = a[i] + b[i]; }
+    else if (p.op == 1u) { c[i] = a[i] * b[i]; }
+    else { c[i] = max(a[i], 0.0); }
 }
 "#;
 
-// ------------------------------------------------------------------ //
-//  Contexte wgpu                                                       //
-// ------------------------------------------------------------------ //
-
-struct WgpuCtx {
+/// A wgpu device + compiled compute pipelines, created once and reused across
+/// calls (adapter/device acquisition and shader compilation are expensive).
+pub struct WgpuContext {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    saxpy_pipeline: wgpu::ComputePipeline,
-    saxpy_layout: wgpu::BindGroupLayout,
-    relu_pipeline: wgpu::ComputePipeline,
-    relu_layout: wgpu::BindGroupLayout,
+    pipeline: wgpu::ComputePipeline,
+    ew_pipeline: wgpu::ComputePipeline,
+    adapter_name: String,
 }
 
-static CTX: OnceLock<Option<WgpuCtx>> = OnceLock::new();
+/// A row-major `f32` matrix resident in GPU memory (a storage buffer + shape).
+///
+/// Produced by [`crate::GpuChain`] (`upload` / `matmul`); an intermediate stays
+/// in VRAM and feeds the next GEMM without a CPU round-trip.
+pub struct GpuMatrix {
+    buf: wgpu::Buffer,
+    rows: usize,
+    cols: usize,
+}
 
-fn try_ctx() -> Option<&'static WgpuCtx> {
-    CTX.get_or_init(|| {
-        // Initialisation bloquante via pollster pour rester sync
-        pollster::block_on(async {
-            let instance = wgpu::Instance::default();
-            let adapter = instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::HighPerformance,
-                    compatible_surface: None,
-                    force_fallback_adapter: false,
-                })
-                .await?;
+impl GpuMatrix {
+    /// Row count.
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
 
-            let (device, queue) = adapter
-                .request_device(&wgpu::DeviceDescriptor::default(), None)
-                .await
-                .ok()?;
+    /// Column count.
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+}
 
-            // Pipeline saxpy
-            let saxpy_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("saxpy"),
-                source: wgpu::ShaderSource::Wgsl(SAXPY_WGSL.into()),
-            });
-            let saxpy_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("saxpy_bgl"),
+impl WgpuContext {
+    /// Acquire an adapter/device and compile the GEMM pipeline. Returns
+    /// [`BackendError::Unavailable`] if no adapter is available (e.g. no Vulkan
+    /// driver) — never a silent fake.
+    pub fn new() -> BackendResult<Self> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::default(),
+            force_fallback_adapter: false,
+            compatible_surface: None,
+        }))
+        .ok_or(BackendError::Unavailable("wgpu"))?;
+        let adapter_name = adapter.get_info().name;
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("scirust-gpu"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults(),
+            },
+            None,
+        ))
+        .map_err(|_| BackendError::Unavailable("wgpu"))?;
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("gemm"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(GEMM_WGSL)),
+        });
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("gemm"),
+            layout: None,
+            module: &shader,
+            entry_point: "main",
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        });
+
+        let ew_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("ew"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(EW_WGSL)),
+        });
+        let ew_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("ew"),
+            layout: None,
+            module: &ew_shader,
+            entry_point: "main",
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        });
+
+        Ok(Self {
+            device,
+            queue,
+            pipeline,
+            ew_pipeline,
+            adapter_name,
+        })
+    }
+
+    /// Resident elementwise op: `op` is `0=add`, `1=mul` (binary), `2=relu`
+    /// (unary). For binary ops `a` and `b` must share a shape; the result stays
+    /// in VRAM. For relu, pass `b = a` (it is ignored).
+    pub fn ew_resident(&self, a: &GpuMatrix, b: &GpuMatrix, op: u32) -> BackendResult<GpuMatrix> {
+        if op < 2 && (a.rows != b.rows || a.cols != b.cols)
+        {
+            return Err(BackendError::ShapeMismatch(format!(
+                "elementwise: {}×{} vs {}×{}",
+                a.rows, a.cols, b.rows, b.cols
+            )));
+        }
+        let n = a.rows * a.cols;
+        let bytes = (n.max(1) * std::mem::size_of::<f32>()) as u64;
+        let c_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ew-c"),
+            size: bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        if n > 0
+        {
+            let params: [u32; 4] = [n as u32, op, 0, 0];
+            let p_buf = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("ew-params"),
+                    contents: bytemuck::cast_slice(&params),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("ew"),
+                layout: &self.ew_pipeline.get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
+                    wgpu::BindGroupEntry {
                         binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                        resource: a.buf.as_entire_binding(),
                     },
-                    wgpu::BindGroupLayoutEntry {
+                    wgpu::BindGroupEntry {
                         binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                        resource: b.buf.as_entire_binding(),
                     },
-                    wgpu::BindGroupLayoutEntry {
+                    wgpu::BindGroupEntry {
                         binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                        resource: c_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: p_buf.as_entire_binding(),
                     },
                 ],
             });
-            let saxpy_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("saxpy_pl"),
-                bind_group_layouts: &[&saxpy_layout],
-                push_constant_ranges: &[],
-            });
-            let saxpy_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("saxpy_pipe"),
-                layout: Some(&saxpy_pl),
-                module: &saxpy_module,
-                entry_point: "saxpy",
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-            // Pipeline relu
-            let relu_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("relu"),
-                source: wgpu::ShaderSource::Wgsl(RELU_WGSL.into()),
-            });
-            let relu_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("relu_bgl"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-            let relu_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("relu_pl"),
-                bind_group_layouts: &[&relu_layout],
-                push_constant_ranges: &[],
-            });
-            let relu_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("relu_pipe"),
-                layout: Some(&relu_pl),
-                module: &relu_module,
-                entry_point: "relu",
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-            Some(WgpuCtx {
-                device,
-                queue,
-                saxpy_pipeline,
-                saxpy_layout,
-                relu_pipeline,
-                relu_layout,
-            })
-        })
-    })
-    .as_ref()
-}
-
-// ------------------------------------------------------------------ //
-//  WgpuBackend                                                        //
-// ------------------------------------------------------------------ //
-
-pub struct WgpuBackend;
-
-impl WgpuBackend {
-    pub fn try_init() -> Option<Self> {
-        try_ctx().map(|_| Self)
-    }
-}
-
-impl SimdBackend for WgpuBackend {
-    fn name(&self) -> &'static str {
-        "wgpu"
-    }
-
-    fn saxpy_f32(&self, alpha: f32, x: &[f32], y: &mut [f32]) {
-        let ctx = match try_ctx() {
-            Some(c) => c,
-            None => {
-                // Fallback CPU si init wgpu a échoué
-                for (yi, xi) in y.iter_mut().zip(x.iter()) {
-                    *yi += alpha * xi;
-                }
-                return;
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("ew") });
+            {
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("ew"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&self.ew_pipeline);
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.dispatch_workgroups((n as u32).div_ceil(64), 1, 1);
             }
-        };
+            self.queue.submit(Some(encoder.finish()));
+        }
+        Ok(GpuMatrix {
+            buf: c_buf,
+            rows: a.rows,
+            cols: a.cols,
+        })
+    }
 
-        let n = x.len() as u32;
+    /// Access to the raw wgpu Device (for tensor, fusion, conv_gpu modules).
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
 
-        // Buffers
-        let x_buf = ctx
+    /// Access to the raw wgpu Queue.
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    /// Name of the underlying adapter (e.g. `"llvmpipe (LLVM 20, 256 bits)"`).
+    pub fn adapter_name(&self) -> &str {
+        &self.adapter_name
+    }
+
+    /// Download a storage buffer back to CPU.
+    pub fn download_buffer(
+        &self,
+        buf: &wgpu::Buffer,
+        elems: usize,
+        bytes: u64,
+    ) -> BackendResult<Vec<f32>> {
+        if elems == 0
+        {
+            return Ok(Vec::new());
+        }
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("download"),
+            size: bytes,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("download"),
+            });
+        encoder.copy_buffer_to_buffer(buf, 0, &staging, 0, bytes);
+        self.queue.submit(Some(encoder.finish()));
+
+        let slice = staging.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = tx.send(res);
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.recv()
+            .map_err(|_| BackendError::Unavailable("wgpu"))?
+            .map_err(|_| BackendError::Unavailable("wgpu"))?;
+        let data = slice.get_mapped_range();
+        let out: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+        drop(data);
+        staging.unmap();
+        Ok(out)
+    }
+
+    /// Encode + submit one GEMM dispatch (public for tensor.rs / fusion.rs).
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_gemm(
+        &self,
+        a_buf: &wgpu::Buffer,
+        b_buf: &wgpu::Buffer,
+        c_buf: &wgpu::Buffer,
+        m: usize,
+        k: usize,
+        n: usize,
+        ta: bool,
+        tb: bool,
+        alpha: f32,
+        beta: f32,
+    ) {
+        // Reuse the private encode_gemm logic
+        self._encode_gemm(a_buf, b_buf, c_buf, m, k, n, ta, tb, alpha, beta)
+    }
+
+    /// Elementwise resident op that takes GpuTensor-compatible buffers.
+    pub fn ew_resident_tensor(
+        &self,
+        a: &crate::tensor::GpuTensor,
+        b: &crate::tensor::GpuTensor,
+        op: u32,
+    ) -> BackendResult<crate::tensor::GpuTensor> {
+        if op < 2 && (a.rows != b.rows || a.cols != b.cols)
+        {
+            return Err(BackendError::ShapeMismatch(format!(
+                "elementwise shape mismatch: {}×{} vs {}×{}",
+                a.rows, a.cols, b.rows, b.cols
+            )));
+        }
+        let n = a.elems;
+        let bytes = (n.max(1) * std::mem::size_of::<f32>()) as u64;
+        let c_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ew-c"),
+            size: bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        if n > 0
+        {
+            let params: [u32; 4] = [n as u32, op, 0, 0];
+            let p_buf = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("ew-params"),
+                    contents: bytemuck::cast_slice(&params),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("ew"),
+                layout: &self.ew_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: a.buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: b.buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: c_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: p_buf.as_entire_binding(),
+                    },
+                ],
+            });
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("ew") });
+            {
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("ew"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&self.ew_pipeline);
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.dispatch_workgroups((n as u32).div_ceil(64), 1, 1);
+            }
+            self.queue.submit(Some(encoder.finish()));
+        }
+        Ok(crate::tensor::GpuTensor {
+            buf: std::sync::Arc::new(c_buf),
+            rows: a.rows,
+            cols: a.cols,
+            elems: n,
+        })
+    }
+
+    /// `C = alpha·op(A)·op(B) + beta·C`, writing the result back into `c`.
+    ///
+    /// `op(A)` is `m×k`, `op(B)` is `k×n`, `C` is `m×n`. When `ta`/`tb` is set,
+    /// the stored `a`/`b` buffer is the transpose of the corresponding operand.
+    #[allow(clippy::too_many_arguments)]
+    pub fn gemm(
+        &self,
+        alpha: f32,
+        a: &[f32],
+        b: &[f32],
+        beta: f32,
+        c: &mut [f32],
+        m: usize,
+        k: usize,
+        n: usize,
+        ta: bool,
+        tb: bool,
+    ) -> BackendResult<()> {
+        if m == 0 || n == 0
+        {
+            return Ok(());
+        }
+        if k == 0
+        {
+            // No contraction: C = beta·C (handled on the host, no GPU work).
+            for v in c.iter_mut()
+            {
+                *v *= beta;
+            }
+            return Ok(());
+        }
+
+        let bytes = (m * n * std::mem::size_of::<f32>()) as u64;
+        let a_buf = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("x_buf"),
-                contents: bytemuck::cast_slice(x),
+                label: Some("a"),
+                contents: bytemuck::cast_slice(a),
                 usage: wgpu::BufferUsages::STORAGE,
             });
-        let y_buf = ctx
+        let b_buf = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("y_buf"),
-                contents: bytemuck::cast_slice(y),
+                label: Some("b"),
+                contents: bytemuck::cast_slice(b),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+        let c_buf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("c"),
+                contents: bytemuck::cast_slice(c),
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             });
-        #[repr(C)]
-        #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-        struct Params {
-            alpha: f32,
-            n: u32,
-            _pad: [u32; 2],
-        }
-        let params = Params {
-            alpha,
-            n,
-            _pad: [0; 2],
-        };
-        let params_buf = ctx
+        let params: [u32; 8] = [
+            m as u32,
+            k as u32,
+            n as u32,
+            ta as u32,
+            tb as u32,
+            alpha.to_bits(),
+            beta.to_bits(),
+            0,
+        ];
+        let p_buf = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("params"),
-                contents: bytemuck::bytes_of(&params),
+                contents: bytemuck::cast_slice(&params),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("staging"),
+            size: bytes,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
-        let bind = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("saxpy_bg"),
-            layout: &ctx.saxpy_layout,
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gemm"),
+            layout: &self.pipeline.get_bind_group_layout(0),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: x_buf.as_entire_binding(),
+                    resource: a_buf.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: y_buf.as_entire_binding(),
+                    resource: b_buf.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: params_buf.as_entire_binding(),
+                    resource: c_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: p_buf.as_entire_binding(),
                 },
             ],
         });
 
-        // Encode + submit
-        let mut enc = ctx.device.create_command_encoder(&Default::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("gemm"),
+            });
         {
-            let mut pass = enc.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&ctx.saxpy_pipeline);
-            pass.set_bind_group(0, &bind, &[]);
-            let groups = (n + 63) / 64;
-            pass.dispatch_workgroups(groups, 1, 1);
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("gemm"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.dispatch_workgroups((m as u32).div_ceil(8), (n as u32).div_ceil(8), 1);
         }
+        encoder.copy_buffer_to_buffer(&c_buf, 0, &staging, 0, bytes);
+        self.queue.submit(Some(encoder.finish()));
 
-        // Read back
-        let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("staging"),
-            size: (y.len() * 4) as u64,
+        let slice = staging.slice(..);
+        let (tx, rx) = mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = tx.send(res);
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.recv()
+            .map_err(|_| BackendError::Unavailable("wgpu"))?
+            .map_err(|_| BackendError::Unavailable("wgpu"))?;
+
+        let data = slice.get_mapped_range();
+        c.copy_from_slice(bytemuck::cast_slice(&data));
+        drop(data);
+        staging.unmap();
+        Ok(())
+    }
+
+    /// Upload a row-major `rows×cols` matrix to a resident GPU storage buffer.
+    pub fn upload(&self, data: &[f32], rows: usize, cols: usize) -> GpuMatrix {
+        // wgpu rejects zero-sized buffers; back an empty matrix with a 4-byte
+        // placeholder so the handle stays valid (`download` short-circuits empties).
+        let buf = if data.is_empty()
+        {
+            self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("resident-empty"),
+                size: 4,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            })
+        }
+        else
+        {
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("resident"),
+                    contents: bytemuck::cast_slice(data),
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                })
+        };
+        GpuMatrix { buf, rows, cols }
+    }
+
+    /// `C = op(A)·op(B)` with both operands already resident; the result **stays
+    /// in VRAM** (no download). `ta`/`tb` request a transpose of `a`/`b`. This
+    /// is what keeps activations device-resident across a chain of GEMMs.
+    pub fn gemm_resident(
+        &self,
+        a: &GpuMatrix,
+        b: &GpuMatrix,
+        ta: bool,
+        tb: bool,
+    ) -> BackendResult<GpuMatrix> {
+        let m = if ta { a.cols } else { a.rows };
+        let k = if ta { a.rows } else { a.cols };
+        let n = if tb { b.rows } else { b.cols };
+        let kb = if tb { b.cols } else { b.rows };
+        if k != kb
+        {
+            return Err(BackendError::ShapeMismatch(format!(
+                "inner dims disagree: op(A) is {m}×{k}, op(B) is {kb}×{n}"
+            )));
+        }
+        // Never create a zero-sized buffer (wgpu rejects it). For a degenerate
+        // result (`m`/`n`/`k == 0`) the zero-initialised buffer already holds
+        // the correct empty/all-zeros matrix, so we skip the dispatch entirely.
+        let elems = m * n;
+        let bytes = (elems.max(1) * std::mem::size_of::<f32>()) as u64;
+        let c_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("resident-c"),
+            size: bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        // Fresh result: alpha=1, beta=0. wgpu zero-initialises c_buf, so the
+        // `beta·C` term reads valid zeros.
+        if m != 0 && n != 0 && k != 0
+        {
+            self._encode_gemm(&a.buf, &b.buf, &c_buf, m, k, n, ta, tb, 1.0, 0.0);
+        }
+        Ok(GpuMatrix {
+            buf: c_buf,
+            rows: m,
+            cols: n,
+        })
+    }
+
+    /// Download a resident matrix back to a CPU `Vec<f32>` (row-major).
+    pub fn download(&self, mat: &GpuMatrix) -> BackendResult<Vec<f32>> {
+        let elems = mat.rows * mat.cols;
+        if elems == 0
+        {
+            return Ok(Vec::new());
+        }
+        let bytes = (elems * std::mem::size_of::<f32>()) as u64;
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("download"),
+            size: bytes,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        enc.copy_buffer_to_buffer(&y_buf, 0, &staging, 0, (y.len() * 4) as u64);
-        ctx.queue.submit(Some(enc.finish()));
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("download"),
+            });
+        encoder.copy_buffer_to_buffer(&mat.buf, 0, &staging, 0, bytes);
+        self.queue.submit(Some(encoder.finish()));
 
-        // Map + lecture (bloquant via pollster)
         let slice = staging.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r);
+        let (tx, rx) = mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = tx.send(res);
         });
-        ctx.device.poll(wgpu::Maintain::Wait);
-        rx.recv().unwrap().expect("map_async");
-
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.recv()
+            .map_err(|_| BackendError::Unavailable("wgpu"))?
+            .map_err(|_| BackendError::Unavailable("wgpu"))?;
         let data = slice.get_mapped_range();
-        y.copy_from_slice(bytemuck::cast_slice(&data));
+        let out: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
         drop(data);
         staging.unmap();
+        Ok(out)
     }
 
-    // Les méthodes restantes : fallback CPU pour l'instant.
-    // À implémenter en suivant le pattern saxpy ci-dessus.
-    fn daxpy_f64(&self, alpha: f64, x: &[f64], y: &mut [f64]) {
-        for (yi, xi) in y.iter_mut().zip(x.iter()) {
-            *yi += alpha * xi;
-        }
-    }
-    fn sdot_f32(&self, x: &[f32], y: &[f32]) -> f32 {
-        x.iter().zip(y.iter()).map(|(a, b)| a * b).sum()
-    }
-    fn ddot_f64(&self, x: &[f64], y: &[f64]) -> f64 {
-        x.iter().zip(y.iter()).map(|(a, b)| a * b).sum()
-    }
-    fn sgemv_f32(&self, alpha: f32, a: MatrixView<f32>, x: &[f32], beta: f32, y: &mut [f32]) {
-        let (m, _) = a.shape();
-        for i in 0..m {
-            let row = a.row_slice(i).expect("row_slice");
-            let dot: f32 = row.iter().zip(x.iter()).map(|(a, b)| a * b).sum();
-            y[i] = alpha * dot + beta * y[i];
-        }
-    }
-    fn sgemm_f32(
+    /// Encode + submit one GEMM dispatch into the given buffers (no download).
+    #[allow(clippy::too_many_arguments)]
+    fn _encode_gemm(
         &self,
+        a_buf: &wgpu::Buffer,
+        b_buf: &wgpu::Buffer,
+        c_buf: &wgpu::Buffer,
+        m: usize,
+        k: usize,
+        n: usize,
+        ta: bool,
+        tb: bool,
         alpha: f32,
-        a: MatrixView<f32>,
-        b: MatrixView<f32>,
         beta: f32,
-        mut c: MatrixViewMut<f32>,
     ) {
-        let (m, k) = a.shape();
-        let (_, n) = b.shape();
-        for i in 0..m {
-            for j in 0..n {
-                let mut acc = 0.0f32;
-                for p in 0..k {
-                    acc += a[(i, p)] * b[(p, j)];
-                }
-                c[(i, j)] = alpha * acc + beta * c[(i, j)];
-            }
+        let params: [u32; 8] = [
+            m as u32,
+            k as u32,
+            n as u32,
+            ta as u32,
+            tb as u32,
+            alpha.to_bits(),
+            beta.to_bits(),
+            0,
+        ];
+        let p_buf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("params"),
+                contents: bytemuck::cast_slice(&params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gemm"),
+            layout: &self.pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: a_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: b_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: c_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: p_buf.as_entire_binding(),
+                },
+            ],
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("gemm"),
+            });
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("gemm"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.dispatch_workgroups((m as u32).div_ceil(8), (n as u32).div_ceil(8), 1);
         }
-    }
-    fn relu_f32(&self, v: &mut [f32]) {
-        // NOTE : utiliser le pipeline relu_pipeline déjà créé
-        for x in v.iter_mut() {
-            *x = x.max(0.0);
-        }
+        self.queue.submit(Some(encoder.finish()));
     }
 }
 
-#[cfg(not(feature = "wgpu"))]
-pub struct WgpuBackend;
-#[cfg(not(feature = "wgpu"))]
-impl WgpuBackend {
-    pub fn try_init() -> Option<Self> {
-        None
+/// One-shot row-major `C = A·B`. Acquires a fresh [`WgpuContext`]; for repeated
+/// calls (e.g. an autograd backward pass) prefer a cached [`crate::WgpuEngine`].
+pub fn wgpu_gemm(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> BackendResult<Vec<f32>> {
+    if m == 0 || n == 0
+    {
+        return Ok(Vec::new());
+    }
+    let mut c = vec![0.0f32; m * n];
+    if k == 0
+    {
+        return Ok(c);
+    }
+    WgpuContext::new()?.gemm(1.0, a, b, 0.0, &mut c, m, k, n, false, false)?;
+    Ok(c)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{CpuBackend, GpuAccelerator, RawComputeBackend, WgpuBackend};
+
+    /// Maximum |gpu - cpu| relative to the CPU Frobenius norm. GPU accumulation
+    /// is not bit-identical to the scalar oracle, so we assert a tolerance.
+    fn rel_err(gpu: &[f32], cpu: &[f32]) -> f32 {
+        let num: f32 = gpu
+            .iter()
+            .zip(cpu)
+            .map(|(g, c)| (g - c) * (g - c))
+            .sum::<f32>()
+            .sqrt();
+        let den: f32 = cpu.iter().map(|c| c * c).sum::<f32>().sqrt().max(1e-30);
+        num / den
+    }
+
+    /// If no adapter is available in this environment, skip rather than fail —
+    /// CI provides a software Vulkan adapter (lavapipe) so the assertion path
+    /// is actually exercised there.
+    fn run_or_skip(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Option<Vec<f32>> {
+        match super::wgpu_gemm(a, b, m, k, n)
+        {
+            Ok(v) => Some(v),
+            Err(crate::BackendError::Unavailable(_)) =>
+            {
+                eprintln!("wgpu: no adapter available, skipping");
+                None
+            },
+            Err(e) => panic!("unexpected error: {e:?}"),
+        }
+    }
+
+    #[test]
+    fn wgpu_gemm_matches_cpu_oracle() {
+        // A (3×4) · B (4×2), values chosen to be non-trivial.
+        let a: Vec<f32> = (0..12).map(|i| (i as f32 * 0.5 - 2.0).sin()).collect();
+        let b: Vec<f32> = (0..8).map(|i| (i as f32 * 0.3 + 1.0).cos()).collect();
+        if let Some(gpu) = run_or_skip(&a, &b, 3, 4, 2)
+        {
+            let cpu = CpuBackend.gemm_f32(&a, &b, 3, 4, 2).unwrap();
+            assert_eq!(gpu.len(), cpu.len());
+            assert!(rel_err(&gpu, &cpu) < 1e-4, "gpu={gpu:?} cpu={cpu:?}");
+        }
+    }
+
+    #[test]
+    fn wgpu_gemm_identity_roundtrip() {
+        let a = [1.0f32, 2.0, 3.0, 4.0]; // 2×2
+        let id = [1.0f32, 0.0, 0.0, 1.0];
+        if let Some(gpu) = run_or_skip(&a, &id, 2, 2, 2)
+        {
+            assert!(rel_err(&gpu, &a) < 1e-5);
+        }
+    }
+
+    #[test]
+    fn wgpu_backend_wired_under_feature() {
+        // With the feature on, the WgpuBackend dispatches to the real path:
+        // either a correct result (adapter present) or an honest Unavailable.
+        let a = [1.0f32, 2.0, 3.0, 4.0];
+        let id = [1.0f32, 0.0, 0.0, 1.0];
+        match WgpuBackend.gemm_f32(&a, &id, 2, 2, 2)
+        {
+            Ok(v) =>
+            {
+                let cpu = CpuBackend.gemm_f32(&a, &id, 2, 2, 2).unwrap();
+                assert!(rel_err(&v, &cpu) < 1e-5);
+                assert_eq!(GpuAccelerator::Wgpu(WgpuBackend).device_name(), "wgpu");
+            },
+            Err(crate::BackendError::Unavailable("wgpu")) =>
+            {},
+            Err(e) => panic!("unexpected: {e:?}"),
+        }
+    }
+
+    /// The general kernel must honour transpose + alpha/beta, matching a hand
+    /// computation. C = 2·Aᵀ·B + 0.5·C0.
+    #[test]
+    fn wgpu_gemm_transpose_alpha_beta() {
+        let ctx = match super::WgpuContext::new()
+        {
+            Ok(c) => c,
+            Err(_) =>
+            {
+                eprintln!("wgpu: no adapter, skipping");
+                return;
+            },
+        };
+        // op(A) = Aᵀ where stored A is k×m. Take A stored as 2×2 → op(A) 2×2.
+        // stored a (k×m = 2×2) = [[1,2],[3,4]] → op(A)=Aᵀ=[[1,3],[2,4]]
+        // b (k×n = 2×2) = [[1,0],[0,1]] (identity) → op(A)·op(B) = op(A)
+        let a = [1.0f32, 2.0, 3.0, 4.0];
+        let b = [1.0f32, 0.0, 0.0, 1.0];
+        let mut c = [10.0f32, 20.0, 30.0, 40.0];
+        ctx.gemm(2.0, &a, &b, 0.5, &mut c, 2, 2, 2, true, false)
+            .unwrap();
+        // 2·[[1,3],[2,4]] + 0.5·[[10,20],[30,40]] = [[7,16],[19,28]]
+        let expected = [7.0f32, 16.0, 19.0, 28.0];
+        let err: f32 = c
+            .iter()
+            .zip(expected.iter())
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0, f32::max);
+        assert!(err < 1e-3, "got {c:?}");
     }
 }

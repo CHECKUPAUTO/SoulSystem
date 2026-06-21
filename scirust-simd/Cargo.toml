@@ -1,13 +1,15 @@
 [package]
 name = "scirust-simd"
-version = "0.6.0"
+version = "0.1.0"
 edition = "2021"
+publish = false
 authors = ["SciRust Team"]
 description = "SIMD auto-vectorization primitives for SciRust"
-license = "MIT OR Apache-2.0"
+license-file = "../LICENSE.md"
 
 [dependencies]
 scirust-simd-macros = { path = "../scirust-simd-macros" }
+libc = "0.2"
 
 [features]
 portable-simd = []

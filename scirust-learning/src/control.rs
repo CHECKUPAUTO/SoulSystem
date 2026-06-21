@@ -25,19 +25,23 @@ impl PidController {
     /// Update the PID controller with the current error and current time.
     /// Returns the control output.
     pub fn update(&mut self, error: f64, current_time: f64) -> f64 {
-        let dt = match self.prev_time {
+        let dt = match self.prev_time
+        {
             Some(t) => current_time - t,
             None => 0.0,
         };
 
-        if dt > 0.0 {
+        if dt > 0.0
+        {
             self.integral += error * dt;
             let derivative = (error - self.prev_error) / dt;
             let output = self.kp * error + self.ki * self.integral + self.kd * derivative;
             self.prev_error = error;
             self.prev_time = Some(current_time);
             output
-        } else {
+        }
+        else
+        {
             self.prev_time = Some(current_time);
             self.prev_error = error;
             self.kp * error
@@ -82,7 +86,7 @@ impl KalmanFilter1D {
     /// Update step with a new measurement
     pub fn update(&mut self, z: f64) {
         let k = self.p / (self.p + self.r);
-        self.x += k * (z - self.x);
+        self.x = self.x + k * (z - self.x);
         self.p *= 1.0 - k;
     }
 
@@ -126,33 +130,51 @@ impl KalmanFilter {
         // x = F * x
         let n = self.x.len();
         let mut new_x = vec![0.0; n];
-        for (i, new_xi) in new_x.iter_mut().enumerate() {
-            for (j, xj) in self.x.iter().enumerate() {
-                *new_xi += self.f[i][j] * *xj;
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n
+        {
+            #[allow(clippy::needless_range_loop)]
+            for j in 0..n
+            {
+                new_x[i] += self.f[i][j] * self.x[j];
             }
         }
         self.x = new_x;
 
         // P = F * P * F^T + Q
         let mut fp = vec![vec![0.0; n]; n];
-        for (i, row) in fp.iter_mut().enumerate() {
-            for (j, fpij) in row.iter_mut().enumerate() {
-                for k in 0..n {
-                    *fpij += self.f[i][k] * self.p[k][j];
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n
+        {
+            #[allow(clippy::needless_range_loop)]
+            for j in 0..n
+            {
+                for k in 0..n
+                {
+                    fp[i][j] += self.f[i][k] * self.p[k][j];
                 }
             }
         }
         let mut fpf_t = vec![vec![0.0; n]; n];
-        for (i, row) in fpf_t.iter_mut().enumerate() {
-            for (j, fpf_tij) in row.iter_mut().enumerate() {
-                for (k, fpik) in fp[i].iter().enumerate().take(n) {
-                    *fpf_tij += *fpik * self.f[j][k]; // F^T means f[j][k] instead of f[k][j]
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n
+        {
+            #[allow(clippy::needless_range_loop)]
+            for j in 0..n
+            {
+                for k in 0..n
+                {
+                    fpf_t[i][j] += fp[i][k] * self.f[j][k]; // F^T means f[j][k] instead of f[k][j]
                 }
             }
         }
-        for (i, row) in self.p.iter_mut().enumerate() {
-            for (j, pij) in row.iter_mut().enumerate() {
-                *pij = fpf_t[i][j] + self.q[i][j];
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n
+        {
+            #[allow(clippy::needless_range_loop)]
+            for j in 0..n
+            {
+                self.p[i][j] = fpf_t[i][j] + self.q[i][j];
             }
         }
     }
@@ -164,66 +186,95 @@ impl KalmanFilter {
 
         // y = z - H * x (innovation)
         let mut y = vec![0.0; m];
-        for (i, yi) in y.iter_mut().enumerate() {
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..m
+        {
             let mut hx = 0.0;
-            for (j, xj) in self.x.iter().enumerate() {
-                hx += self.h[i][j] * *xj;
+            #[allow(clippy::needless_range_loop)]
+            for j in 0..n
+            {
+                hx += self.h[i][j] * self.x[j];
             }
-            *yi = z[i] - hx;
+            y[i] = z[i] - hx;
         }
 
         // S = H * P * H^T + R
         let mut hp = vec![vec![0.0; n]; m];
-        for (i, row) in hp.iter_mut().enumerate() {
-            for (j, hpij) in row.iter_mut().enumerate() {
-                for k in 0..n {
-                    *hpij += self.h[i][k] * self.p[k][j];
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..m
+        {
+            #[allow(clippy::needless_range_loop)]
+            for j in 0..n
+            {
+                for k in 0..n
+                {
+                    hp[i][j] += self.h[i][k] * self.p[k][j];
                 }
             }
         }
         let mut s = vec![vec![0.0; m]; m];
-        for (i, row) in s.iter_mut().enumerate() {
-            for (j, sij) in row.iter_mut().enumerate() {
-                for (k, hpik) in hp[i].iter().enumerate().take(n) {
-                    *sij += *hpik * self.h[j][k];
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..m
+        {
+            for j in 0..m
+            {
+                for k in 0..n
+                {
+                    s[i][j] += hp[i][k] * self.h[j][k];
                 }
-                *sij += self.r[i][j];
+                s[i][j] += self.r[i][j];
             }
         }
 
         // K = P * H^T * S^-1
         // For simplicity in this implementation, we only support 1D measurements for now or simple inversion
-        if m == 1 {
+        if m == 1
+        {
             let s_inv = 1.0 / s[0][0];
             let mut k = vec![0.0; n];
-            for (i, ki) in k.iter_mut().enumerate() {
+            #[allow(clippy::needless_range_loop)]
+            for i in 0..n
+            {
                 let mut ph_t = 0.0;
-                for (j, pj) in self.p[i].iter().enumerate() {
-                    ph_t += *pj * self.h[0][j];
+                #[allow(clippy::needless_range_loop)]
+                for j in 0..n
+                {
+                    ph_t += self.p[i][j] * self.h[0][j];
                 }
-                *ki = ph_t * s_inv;
+                k[i] = ph_t * s_inv;
             }
 
             // x = x + K * y
-            for (i, xi) in self.x.iter_mut().enumerate() {
-                *xi += k[i] * y[0];
+            #[allow(clippy::needless_range_loop)]
+            for i in 0..n
+            {
+                self.x[i] += k[i] * y[0];
             }
 
             // P = (I - K * H) * P
             let mut kh = vec![vec![0.0; n]; n];
-            for (i, row) in kh.iter_mut().enumerate() {
-                for (j, khij) in row.iter_mut().enumerate() {
-                    *khij = k[i] * self.h[0][j];
+            #[allow(clippy::needless_range_loop)]
+            for i in 0..n
+            {
+                #[allow(clippy::needless_range_loop)]
+                for j in 0..n
+                {
+                    kh[i][j] = k[i] * self.h[0][j];
                 }
             }
             let mut new_p = vec![vec![0.0; n]; n];
-            for (i, row) in new_p.iter_mut().enumerate() {
-                for (j, new_pij) in row.iter_mut().enumerate() {
+            #[allow(clippy::needless_range_loop)]
+            for i in 0..n
+            {
+                #[allow(clippy::needless_range_loop)]
+                for j in 0..n
+                {
                     let mut khp = 0.0;
-                    for (k_idx, khik) in kh[i].iter().enumerate().take(n) {
-                        khp += *khik * self.p[k_idx][j];
+                    for k_idx in 0..n
+                    {
+                        khp += kh[i][k_idx] * self.p[k_idx][j];
                     }
-                    *new_pij = self.p[i][j] - khp;
+                    new_p[i][j] = self.p[i][j] - khp;
                 }
             }
             self.p = new_p;
@@ -261,7 +312,8 @@ mod tests {
         assert!(state1 > 0.0 && state1 < 10.0);
 
         // After many measurements, state should approach 10.0
-        for _ in 0..100 {
+        for _ in 0..100
+        {
             kf.predict();
             kf.update(10.0);
         }

@@ -1,50 +1,68 @@
-//! SciRust Core — scientific computing engine for SoulLink ecosystem.
-//!
-//! # Modules
-//! - **autodiff** — reverse-mode (Tensor, Tape) and forward-mode (Dual) automatic differentiation
-//! - **matrix** — SIMD backend trait, matrix views with zero-copy slicing
+#![cfg_attr(feature = "portable-simd", feature(portable_simd))]
 
-#![allow(unused_variables)]
-//! - **embed** — text embedding engine (random-projection LSH)
-//! - **symbolic** — expression parsing, simplification, evaluation, proving
-//! - **learning** — polynomial fitting, pattern discovery
-//! - **nn** — neural network building blocks (mini LLM, transformers)
-//! - **solve** — linear/quadratic solvers, optimizer
-//! - **pattern** — pattern memory for experience replay
+pub mod io;
+pub mod nn;
+// Local cache-aware SIMD tiling kernels. This module lives at
+// `scirust-core/src/simd/` and is referenced as `crate::simd::tiling::matmul_tiled_f32`
+// by `tensor/tiling.rs`; it must be declared here or the crate fails to build.
+pub mod simd;
+pub use scirust_autodiff::*;
+pub use scirust_macros::autodiff;
+pub use scirust_simd::*;
+
+pub mod matrix {
+    pub mod backend;
+    pub mod csr;
+    pub mod soft;
+    pub mod view;
+}
 
 pub mod autodiff;
-pub mod dispatch;
+pub mod optim;
+
+pub mod data;
 pub mod embed;
-pub mod learning;
-pub mod matrix;
-pub mod nn;
-pub mod pattern;
-pub mod simd;
-pub mod solve;
+pub mod tensor;
+pub mod tn;
+
+#[cfg(test)]
+mod tests;
+
+pub mod error;
+
+// Symbolic math facade (added for soullink-node integration)
+pub mod prelude;
 pub mod symbolic;
 
-// ── Re-exports at crate root for ergonomic access ───────────────────────────
+pub use symbolic::{
+    Expr, NaturalCommand, Optimizer, PatternMemory, Pipeline, PipelineOutput, apply_trig_identity,
+    derivative_1d, diff, discover_patterns, eval, gradient_2d, gradient_3d, linear_regression, ops,
+    parse, parse_natural, polynomial_fit, prove_equal, simd_add_one, simplify, solve_linear,
+    solve_quadratic, to_rust_code,
+};
 
-pub use autodiff::forward::Dual;
-pub use autodiff::reverse::{Tape, Tensor};
-pub use embed::EmbeddingEngine;
-pub use learning::{discover_patterns, polynomial_fit};
-pub use pattern::PatternMemory;
-pub use simd::simd_add_one;
-pub use solve::{solve_linear, solve_quadratic, Optimizer};
-pub use symbolic::{eval, parse, prove_equal, simplify, Expr};
-
-/// Items commonly used together.
-pub mod prelude {
-    pub use crate::autodiff::forward::Dual;
-    pub use crate::autodiff::reverse::{Tape, Tensor};
-    pub use crate::embed::EmbeddingEngine;
-    pub use crate::learning::{discover_patterns, linear_regression, polynomial_fit};
-    pub use crate::pattern::PatternMemory;
-    pub use crate::simd::{add_f32, add_f64, mul_f32, mul_f64};
-    pub use crate::solve::{solve_linear, solve_quadratic, Optimizer};
-    pub use crate::symbolic::{diff, eval, parse, parse_natural, prove_equal, simplify, Expr};
-
-    #[cfg(feature = "gpu")]
-    pub use crate::dispatch::gpu_or_cpu;
+pub mod dispatch {
+    /// GPU or CPU fallback — dispatches work sequentially (rayon optional).
+    /// When rayon is available, use par_chunks_mut for parallel execution.
+    pub fn gpu_or_cpu<F>(data: &mut [f32], kernel: F)
+    where
+        F: Fn(&mut [f32]),
+    {
+        kernel(data);
+    }
 }
+pub mod aot;
+pub mod checkpoint;
+pub mod compute_backend;
+pub mod homomorphic;
+pub mod lazy;
+pub mod quantization;
+pub mod quantum;
+pub mod xai;
+
+pub mod amp;
+pub mod distributed;
+pub mod dp;
+pub mod logging;
+pub mod pruning;
+pub mod reproducible;

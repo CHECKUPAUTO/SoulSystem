@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::visit_mut::VisitMut;
-use syn::{parse_macro_input, Expr, ExprLit, FnArg, Ident, ItemFn, Lit, Pat, PatType, Type};
+use syn::{Expr, ExprLit, FnArg, Ident, ItemFn, Lit, Pat, PatType, Type, parse_macro_input};
 
 /// Visitor that replaces argument identifiers with their `_dual` counterpart.
 struct ArgReplacer {
@@ -10,10 +10,13 @@ struct ArgReplacer {
 
 impl VisitMut for ArgReplacer {
     fn visit_expr_mut(&mut self, expr: &mut Expr) {
-        if let Expr::Path(expr_path) = expr {
-            if expr_path.path.leading_colon.is_none() && expr_path.path.segments.len() == 1 {
+        if let Expr::Path(expr_path) = expr
+        {
+            if expr_path.path.leading_colon.is_none() && expr_path.path.segments.len() == 1
+            {
                 let ident = &expr_path.path.segments[0].ident;
-                if let Some(new_ident) = self.arg_map.get(ident) {
+                if let Some(new_ident) = self.arg_map.get(ident)
+                {
                     expr_path.path = syn::parse_quote!(#new_ident);
                     return;
                 }
@@ -25,7 +28,8 @@ impl VisitMut for ArgReplacer {
             ..
         }) = expr
         {
-            if let Ok(val) = lit_float.base10_parse::<f64>() {
+            if let Ok(val) = lit_float.base10_parse::<f64>()
+            {
                 *expr = syn::parse_quote! {
                     scirust_autodiff::Dual::primal(#val)
                 };
@@ -50,16 +54,24 @@ pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // Collect argument info: (ident, type_is_f64)
     let mut arg_names = Vec::new();
-    for arg in &sig.inputs {
-        match arg {
-            FnArg::Typed(PatType { pat, ty, .. }) => {
-                if let Pat::Ident(pat_ident) = pat.as_ref() {
-                    let is_f64 = if let Type::Path(type_path) = ty.as_ref() {
+    for arg in &sig.inputs
+    {
+        match arg
+        {
+            FnArg::Typed(PatType { pat, ty, .. }) =>
+            {
+                if let Pat::Ident(pat_ident) = pat.as_ref()
+                {
+                    let is_f64 = if let Type::Path(type_path) = ty.as_ref()
+                    {
                         type_path.path.is_ident("f64")
-                    } else {
+                    }
+                    else
+                    {
                         false
                     };
-                    if !is_f64 {
+                    if !is_f64
+                    {
                         return syn::Error::new_spanned(
                             ty,
                             "autodiff currently only supports f64 arguments",
@@ -68,7 +80,9 @@ pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
                         .into();
                     }
                     arg_names.push(pat_ident.ident.clone());
-                } else {
+                }
+                else
+                {
                     return syn::Error::new_spanned(
                         pat,
                         "autodiff only supports simple identifier arguments",
@@ -76,16 +90,18 @@ pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     .to_compile_error()
                     .into();
                 }
-            }
-            FnArg::Receiver(_) => {
+            },
+            FnArg::Receiver(_) =>
+            {
                 return syn::Error::new_spanned(arg, "autodiff does not support `self` parameters")
                     .to_compile_error()
                     .into();
-            }
+            },
         }
     }
 
-    if arg_names.is_empty() {
+    if arg_names.is_empty()
+    {
         return syn::Error::new_spanned(&sig.ident, "autodiff requires at least one argument")
             .to_compile_error()
             .into();
@@ -99,12 +115,14 @@ pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
         .collect();
 
     let mut arg_map = std::collections::HashMap::new();
-    for (name, dual) in arg_names.iter().zip(dual_names.iter()) {
+    for (name, dual) in arg_names.iter().zip(dual_names.iter())
+    {
         arg_map.insert(name.clone(), dual.clone());
     }
 
     let mut transformed_bodies = Vec::new();
-    for i in 0..arg_names.len() {
+    for i in 0..arg_names.len()
+    {
         let mut replacer = ArgReplacer {
             arg_map: arg_map.clone(),
         };
@@ -113,9 +131,12 @@ pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
         let dual_inits = dual_names.iter().enumerate().map(|(j, dname)| {
             let aname = &arg_names[j];
-            if i == j {
+            if i == j
+            {
                 quote! { let #dname = scirust_autodiff::Dual::var(#aname); }
-            } else {
+            }
+            else
+            {
                 quote! { let #dname = scirust_autodiff::Dual::primal(#aname); }
             }
         });
@@ -130,16 +151,22 @@ pub fn autodiff(_attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     let inputs = &sig.inputs;
-    let return_type = if arg_names.len() == 1 {
+    let return_type = if arg_names.len() == 1
+    {
         quote! { f64 }
-    } else {
+    }
+    else
+    {
         let types = vec![quote! { f64 }; arg_names.len()];
         quote! { (#(#types),*) }
     };
 
-    let return_value = if arg_names.len() == 1 {
+    let return_value = if arg_names.len() == 1
+    {
         quote! { #(#transformed_bodies)* }
-    } else {
+    }
+    else
+    {
         quote! { (#(#transformed_bodies),*) }
     };
 

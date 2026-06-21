@@ -1,21 +1,21 @@
 [package]
 name = "scirust-gpu"
-version = "0.6.0"
+version = "0.1.0"
 edition = "2021"
-
-[dependencies]
-rayon = { version = "1.10", optional = true }
-wgpu = { version = "0.20", optional = true }
-pollster = { version = "0.3", optional = true }
-bytemuck = { version = "1.16", optional = true }
-half = "2.5"
-scirust-core = { path = "../scirust-core", optional = true }
-libc = "0.2"
+publish = false
 
 [features]
-default = ["cpu-fallback"]
-cpu-fallback = ["rayon"]
+default = ["std"]
+std = []
 cuda = []
-gpu-cuda = ["cuda"]
-gpu-uma = ["gpu-cuda"]
-wgpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck", "dep:scirust-core"]
+# Portable GPU compute via wgpu (Vulkan/Metal/DX12/GL). Testable in CI with a
+# software Vulkan adapter (Mesa lavapipe). See docs/GPU.md (P2.2).
+# Pulls in scirust-core to implement its autograd-tape `GpuEngine` hook.
+wgpu = ["std", "dep:wgpu", "dep:pollster", "dep:bytemuck", "dep:scirust-core"]
+
+[dependencies]
+scirust-gpu-macros = { path = "../scirust-gpu-macros" }
+scirust-core = { path = "../scirust-core", optional = true }
+wgpu = { version = "0.20", optional = true }
+pollster = { version = "0.3", optional = true }
+bytemuck = { version = "1", optional = true }

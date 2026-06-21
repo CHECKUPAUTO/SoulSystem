@@ -44,6 +44,7 @@ pub trait SimdBackend: Send + Sync {
 
     /// Décomposition de Cholesky : A = L * L^T (A doit être symétrique définie positive)
     /// Remplace A par sa partie triangulaire inférieure L.
+    #[allow(clippy::needless_range_loop)]
     fn cholesky_f64(&self, a: &mut [Vec<f64>]) -> Option<()>;
 
     fn name(&self) -> &'static str;
@@ -92,7 +93,8 @@ impl SimdBackend for BlasBackend {
         assert_eq!(y.len(), m);
 
         // BLAS needs contiguous storage.
-        if a.col_stride() == 1 {
+        if a.col_stride() == 1
+        {
             unsafe {
                 blas::sgemv(
                     b'T',
@@ -108,7 +110,9 @@ impl SimdBackend for BlasBackend {
                     1,
                 );
             }
-        } else {
+        }
+        else
+        {
             // Fallback for non-contiguous views
             ScalarBackend.sgemv_f32(alpha, a, x, beta, y);
         }
@@ -127,7 +131,8 @@ impl SimdBackend for BlasBackend {
         assert_eq!(k, _k);
         assert_eq!(c.shape(), (m, n));
 
-        if a.col_stride() == 1 && b.col_stride() == 1 && c.col_stride() == 1 {
+        if a.col_stride() == 1 && b.col_stride() == 1 && c.col_stride() == 1
+        {
             unsafe {
                 blas::sgemm(
                     b'N',
@@ -145,19 +150,24 @@ impl SimdBackend for BlasBackend {
                     c.row_stride() as i32,
                 );
             }
-        } else {
+        }
+        else
+        {
             ScalarBackend.sgemm_f32(alpha, a, b, beta, c);
         }
     }
 
     fn relu_f32(&self, v: &mut [f32]) {
-        for x in v.iter_mut() {
-            if *x < 0.0 {
+        for x in v.iter_mut()
+        {
+            if *x < 0.0
+            {
                 *x = 0.0;
             }
         }
     }
 
+    #[allow(clippy::needless_range_loop)]
     fn cholesky_f64(&self, a: &mut [Vec<f64>]) -> Option<()> {
         ScalarBackend.cholesky_f64(a)
     }
@@ -176,14 +186,16 @@ impl SimdBackend for ScalarBackend {
 
     #[inline]
     fn saxpy_f32(&self, alpha: f32, x: &[f32], y: &mut [f32]) {
-        for (yi, xi) in y.iter_mut().zip(x.iter()) {
+        for (yi, xi) in y.iter_mut().zip(x.iter())
+        {
             *yi += alpha * xi;
         }
     }
 
     #[inline]
     fn daxpy_f64(&self, alpha: f64, x: &[f64], y: &mut [f64]) {
-        for (yi, xi) in y.iter_mut().zip(x.iter()) {
+        for (yi, xi) in y.iter_mut().zip(x.iter())
+        {
             *yi += alpha * xi;
         }
     }
@@ -202,9 +214,11 @@ impl SimdBackend for ScalarBackend {
         let (m, k) = a.shape();
         assert_eq!(x.len(), k);
         assert_eq!(y.len(), m);
-        for i in 0..m {
+        for i in 0..m
+        {
             let mut acc = 0.0f32;
-            for j in 0..k {
+            for j in 0..k
+            {
                 acc += a[(i, j)] * x[j];
             }
             y[i] = alpha * acc + beta * y[i];
@@ -230,7 +244,8 @@ impl SimdBackend for ScalarBackend {
 
             // Safety check for parallelization:
             // We need to ensure c is contiguous for the simple pointer arithmetic used.
-            if c.col_stride() == 1 {
+            if c.col_stride() == 1
+            {
                 // Wrap MatrixView to ensure they are moved and accessible
                 #[derive(Copy, Clone)]
                 struct SendView<'a>(MatrixView<'a, f32>);
@@ -247,9 +262,11 @@ impl SimdBackend for ScalarBackend {
                     let b = view_b.0;
                     unsafe {
                         let row_c_ptr = (ptr_c_raw as *mut f32).add(i * row_stride_c);
-                        for j in 0..n {
+                        for j in 0..n
+                        {
                             let mut acc = 0.0f32;
-                            for p in 0..k {
+                            for p in 0..k
+                            {
                                 acc += a[(i, p)] * b[(p, j)];
                             }
                             let val_c = row_c_ptr.add(j);
@@ -262,10 +279,13 @@ impl SimdBackend for ScalarBackend {
         }
 
         // Sequential fallback
-        for i in 0..m {
-            for j in 0..n {
+        for i in 0..m
+        {
+            for j in 0..n
+            {
                 let mut acc = 0.0f32;
-                for p in 0..k {
+                for p in 0..k
+                {
                     acc += a[(i, p)] * b[(p, j)];
                 }
                 c[(i, j)] = alpha * acc + beta * c[(i, j)];
@@ -274,37 +294,45 @@ impl SimdBackend for ScalarBackend {
     }
 
     fn relu_f32(&self, v: &mut [f32]) {
-        for x in v.iter_mut() {
+        for x in v.iter_mut()
+        {
             *x = x.max(0.0);
         }
     }
 
+    #[allow(clippy::needless_range_loop)]
     fn cholesky_f64(&self, a: &mut [Vec<f64>]) -> Option<()> {
         let n = a.len();
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..n {
-            for j in 0..=i {
+        for i in 0..n
+        {
+            for j in 0..=i
+            {
                 let mut sum = a[i][j];
-                #[allow(clippy::needless_range_loop)]
-                for k in 0..j {
+                for k in 0..j
+                {
                     sum -= a[i][k] * a[j][k];
                 }
 
-                if i == j {
-                    if sum <= 0.0 {
+                if i == j
+                {
+                    if sum <= 0.0
+                    {
                         return None; // Non définie positive
                     }
                     a[i][j] = sum.sqrt();
-                } else {
+                }
+                else
+                {
                     a[i][j] = sum / a[j][j];
                 }
             }
         }
-        // Nettoyage de la partie supérieure : L est triangulaire inférieure,
-        // donc on annule a[i][j] pour j > i (au-dessus de la diagonale).
-        for (i, a_row) in a.iter_mut().enumerate() {
-            for x in a_row.iter_mut().skip(i + 1) {
-                *x = 0.0;
+        // Nettoyage de la partie supérieure
+        for i in 0..n
+        {
+            for j in (i + 1)..n
+            {
+                a[i][j] = 0.0;
             }
         }
         Some(())
@@ -327,19 +355,22 @@ impl SimdBackend for PortableSimdBackend {
     #[inline]
     fn saxpy_f32(&self, alpha: f32, x: &[f32], y: &mut [f32]) {
         // y += alpha * x, vectorisé
-        use std::simd::f32x8;
+        use std::simd::{StdFloat, f32x8};
         let splat = f32x8::splat(alpha);
         let (pre_x, mid_x, suf_x) = x.as_simd::<8>();
         let (pre_y, mid_y, suf_y) = y.as_simd_mut::<8>();
 
-        for (yi, xi) in pre_y.iter_mut().zip(pre_x.iter()) {
+        for (yi, xi) in pre_y.iter_mut().zip(pre_x.iter())
+        {
             *yi += alpha * xi;
         }
-        for (vy, vx) in mid_y.iter_mut().zip(mid_x.iter()) {
+        for (vy, vx) in mid_y.iter_mut().zip(mid_x.iter())
+        {
             *vy = splat.mul_add(*vx, *vy);
         }
         let offset = pre_x.len() + mid_x.len() * 8;
-        for (yi, xi) in suf_y.iter_mut().zip(suf_x.iter()) {
+        for (yi, xi) in suf_y.iter_mut().zip(suf_x.iter())
+        {
             *yi += alpha * xi;
         }
         let _ = offset; // silence unused
@@ -347,19 +378,22 @@ impl SimdBackend for PortableSimdBackend {
 
     #[inline]
     fn daxpy_f64(&self, alpha: f64, x: &[f64], y: &mut [f64]) {
-        use std::simd::f64x4;
+        use std::simd::{StdFloat, f64x4};
         let splat = f64x4::splat(alpha);
         let (pre_x, mid_x, _) = x.as_simd::<4>();
         let (pre_y, mid_y, suf_y) = y.as_simd_mut::<4>();
 
-        for (yi, xi) in pre_y.iter_mut().zip(pre_x.iter()) {
+        for (yi, xi) in pre_y.iter_mut().zip(pre_x.iter())
+        {
             *yi += alpha * xi;
         }
-        for (vy, vx) in mid_y.iter_mut().zip(mid_x.iter()) {
+        for (vy, vx) in mid_y.iter_mut().zip(mid_x.iter())
+        {
             *vy = splat.mul_add(*vx, *vy);
         }
         let offset = pre_x.len() + mid_x.len() * 4;
-        for (yi, xi) in suf_y.iter_mut().zip(x[offset..].iter()) {
+        for (yi, xi) in suf_y.iter_mut().zip(x[offset..].iter())
+        {
             *yi += alpha * xi;
         }
     }
@@ -377,7 +411,8 @@ impl SimdBackend for PortableSimdBackend {
     fn sgemv_f32(&self, alpha: f32, a: MatrixView<f32>, x: &[f32], beta: f32, y: &mut [f32]) {
         // Chaque ligne de A est un produit scalaire avec x
         let (m, _) = a.shape();
-        for i in 0..m {
+        for i in 0..m
+        {
             let row = a.row_slice(i).expect("row_slice nécessite col_stride=1");
             let dot = self.sdot_f32(row, x);
             y[i] = alpha * dot + beta * y[i];
@@ -400,9 +435,12 @@ impl SimdBackend for PortableSimdBackend {
         assert_eq!(k, _k);
 
         // Pré-scale C par beta
-        for i in 0..m {
-            if let Some(row) = c.row_slice_mut(i) {
-                for x in row.iter_mut() {
+        for i in 0..m
+        {
+            if let Some(row) = c.row_slice_mut(i)
+            {
+                for x in row.iter_mut()
+                {
                     *x *= beta;
                 }
             }
@@ -410,17 +448,22 @@ impl SimdBackend for PortableSimdBackend {
 
         // Boucle tuilée : i-p-j avec SIMD sur la dimension intérieure j
         let mut i = 0;
-        while i < m {
+        while i < m
+        {
             let ib = (i + BLOCK).min(m);
             let mut p = 0;
-            while p < k {
+            while p < k
+            {
                 let pb = (p + BLOCK).min(k);
                 let mut j = 0;
-                while j < n {
+                while j < n
+                {
                     let jb = (j + BLOCK).min(n);
                     // Bloc (ib-i) × (jb-j) de C accumulé depuis A[:,p:pb] * B[p:pb,:]
-                    for ii in i..ib {
-                        for jj in j..jb {
+                    for ii in i..ib
+                    {
+                        for jj in j..jb
+                        {
                             let a_row = &a.row_slice(ii).unwrap()[p..pb];
                             // Colonne jj de B : accès non contigu — tampon local
                             let b_col: Vec<f32> = (p..pb).map(|pp| b[(pp, jj)]).collect();
@@ -436,20 +479,24 @@ impl SimdBackend for PortableSimdBackend {
     }
 
     fn relu_f32(&self, v: &mut [f32]) {
-        use std::simd::{f32x8, SimdFloat};
+        use std::simd::{f32x8, num::SimdFloat};
         let zero = f32x8::splat(0.0);
         let (pre, mid, suf) = v.as_simd_mut::<8>();
-        for x in pre.iter_mut() {
+        for x in pre.iter_mut()
+        {
             *x = x.max(0.0);
         }
-        for vx in mid.iter_mut() {
+        for vx in mid.iter_mut()
+        {
             *vx = vx.simd_max(zero);
         }
-        for x in suf.iter_mut() {
+        for x in suf.iter_mut()
+        {
             *x = x.max(0.0);
         }
     }
 
+    #[allow(clippy::needless_range_loop)]
     fn cholesky_f64(&self, a: &mut [Vec<f64>]) -> Option<()> {
         ScalarBackend.cholesky_f64(a)
     }
@@ -501,7 +548,7 @@ mod tests {
     fn test_sgemv() {
         // A = [[1,2],[3,4]], x = [1,1], y = [0,0]
         let a_data = vec![1.0f32, 2.0, 3.0, 4.0];
-        let a = MatrixView::new(&a_data, 2, 2);
+        let a = MatrixView::from_slice(&a_data, 2, 2);
         let x = vec![1.0f32, 1.0];
         let mut y = vec![0.0f32; 2];
         backend().sgemv_f32(1.0, a, &x, 0.0, &mut y);
@@ -514,9 +561,9 @@ mod tests {
         let id = vec![1.0f32, 0.0, 0.0, 1.0]; // 2x2 identité
         let a = vec![3.0f32, 4.0, 5.0, 6.0];
         let mut c = vec![0.0f32; 4];
-        let ia = MatrixView::new(&id, 2, 2);
-        let av = MatrixView::new(&a, 2, 2);
-        let cv = MatrixViewMut::new(&mut c, 2, 2);
+        let ia = MatrixView::from_slice(&id, 2, 2);
+        let av = MatrixView::from_slice(&a, 2, 2);
+        let cv = MatrixViewMut::from_slice(&mut c, 2, 2);
         backend().sgemm_f32(1.0, ia, av, 0.0, cv);
         assert!((c[0] - 3.0).abs() < 1e-6);
         assert!((c[3] - 6.0).abs() < 1e-6);

@@ -1638,6 +1638,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base16ct"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
+
+[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1801,6 +1807,16 @@ dependencies = [
  "blas-sys",
  "libc",
  "num-complex",
+]
+
+[[package]]
+name = "blas-src"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b95e83dc868db96e69795c0213143095f03de9dd3252f205d4ac716e4076a7e0"
+dependencies = [
+ "intel-mkl-src",
+ "openblas-src",
 ]
 
 [[package]]
@@ -4213,6 +4229,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "getset"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6cf442baaabe4213ce7d1239afc26c039180b6456da2cededa316ae2c8a77a77"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "ghash"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5076,6 +5103,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0242819d153cba4b4b05a5a8f2a7e9bbf97b6055b2a002b395c96b5ff3c0222"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "intel-mkl-src"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ee70586cd5b3e772a8739a1bd43eaa90d4f4bf0fb2a4edc202e979937ee7f5e"
+dependencies = [
+ "anyhow",
+ "intel-mkl-tool",
+ "ocipkg",
+]
+
+[[package]]
+name = "intel-mkl-tool"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "887a16b4537d82227af54d3372971cfa5e0cde53322e60f57584056c16ada1b4"
+dependencies = [
+ "anyhow",
+ "log",
+ "walkdir",
 ]
 
 [[package]]
@@ -6523,6 +6572,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "oci-spec"
+version = "0.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bdf88ddc01cc6bccbe1044adb6a29057333f523deadcb4953c011a73158cfa5e"
+dependencies = [
+ "derive_builder",
+ "getset",
+ "serde",
+ "serde_json",
+ "strum 0.26.3",
+ "strum_macros 0.26.4",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "ocipkg"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9bb3293021f06540803301af45e7ab81693d50e89a7398a3420bdab139e7ba5e"
+dependencies = [
+ "base16ct",
+ "base64 0.22.1",
+ "chrono",
+ "directories",
+ "flate2",
+ "lazy_static",
+ "log",
+ "oci-spec",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "thiserror 1.0.69",
+ "toml 0.8.23",
+ "ureq 2.12.1",
+ "url",
+ "uuid",
+ "walkdir",
+]
+
+[[package]]
 name = "oid-registry"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6558,6 +6649,32 @@ name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
+
+[[package]]
+name = "openblas-build"
+version = "0.10.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb9c85e9e7dd5acdc67b9f3f0c99656b550df716bc63540c6a224a920754a5c2"
+dependencies = [
+ "anyhow",
+ "cc",
+ "flate2",
+ "tar",
+ "thiserror 2.0.18",
+ "ureq 3.3.0",
+]
+
+[[package]]
+name = "openblas-src"
+version = "0.10.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1a81a5e467f1861ad6ac32d5ec1690ad097d19854753b7424250fe27da46b98"
+dependencies = [
+ "dirs",
+ "openblas-build",
+ "pkg-config",
+ "vcpkg",
+]
 
 [[package]]
 name = "openssl"
@@ -8606,20 +8723,24 @@ dependencies = [
 
 [[package]]
 name = "scirust-autodiff"
-version = "0.6.0"
+version = "0.1.0"
 
 [[package]]
 name = "scirust-core"
 version = "0.1.0"
 dependencies = [
+ "approx",
  "blas",
+ "blas-src",
  "half",
+ "libc",
  "matrixmultiply",
+ "nalgebra",
  "ndarray 0.16.1",
  "num-bigint",
  "num-traits",
- "num_cpus",
- "rand 0.9.4",
+ "rand 0.8.6",
+ "rand_distr",
  "rayon",
  "scirust-autodiff",
  "scirust-gpu-macros",
@@ -8633,7 +8754,7 @@ dependencies = [
 
 [[package]]
 name = "scirust-gpu-macros"
-version = "0.6.0"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8642,16 +8763,18 @@ dependencies = [
 
 [[package]]
 name = "scirust-learning"
-version = "0.6.0"
+version = "0.1.0"
 dependencies = [
  "fastrand",
+ "rand 0.8.6",
+ "scirust-core",
  "serde",
  "serde_json",
 ]
 
 [[package]]
 name = "scirust-macros"
-version = "0.6.0"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8660,21 +8783,22 @@ dependencies = [
 
 [[package]]
 name = "scirust-reasoning"
-version = "0.6.0"
+version = "0.1.0"
 dependencies = [
  "scirust-symbolic",
 ]
 
 [[package]]
 name = "scirust-simd"
-version = "0.6.0"
+version = "0.1.0"
 dependencies = [
+ "libc",
  "scirust-simd-macros",
 ]
 
 [[package]]
 name = "scirust-simd-macros"
-version = "0.6.0"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8683,7 +8807,7 @@ dependencies = [
 
 [[package]]
 name = "scirust-symbolic"
-version = "0.6.0"
+version = "0.1.0"
 dependencies = [
  "ndarray 0.16.1",
  "serde",
@@ -12622,11 +12746,13 @@ dependencies = [
  "log",
  "native-tls",
  "percent-encoding",
+ "rustls 0.23.40",
  "rustls-pki-types",
  "socks",
  "ureq-proto",
  "utf8-zero",
  "webpki-root-certs",
+ "webpki-roots 1.0.8",
 ]
 
 [[package]]

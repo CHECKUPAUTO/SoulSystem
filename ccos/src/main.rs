@@ -1,14 +1,31 @@
 mod commands_demo;
 mod commands_runtime;
 
+// Optional drop-in allocator for bare-metal benchmarking (off by default; build
+// with `--features mimalloc`). CCOS is not allocation-bound at its scale, so this
+// is a knob to *measure*, not a default win — see docs/PERFORMANCE.md.
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use ccos::adversarial::{AdversarialEngine, AdversarialMode};
+use ccos::agent_session::AgentSession;
+use ccos::context_policy::ContextPolicy;
+use ccos::context_region::file_of;
 use ccos::distributed_event_log::DistributedEventLog;
+use ccos::eval::{run_eval, EvalConfig};
 use ccos::event_log::{EventLog, EventPayload, EventReplayer, EventType, GraphReconstructor};
+use ccos::experiment::{run_experiment, ExperimentConfig};
+use ccos::external_memory::{CcosMemory, ExternalMemory, Recall, RecallWindow};
 use ccos::guard::{GuardConfig, GuardLayer};
 use ccos::incremental::IncrementalGraphEngine;
-use ccos::memory::{MemoryGraph, NodeId};
+use ccos::memory::{MemoryGraph, NodeId, ScoringWeights};
 use ccos::persist::KernelSnapshot;
 use ccos::query;
+use ccos::region_engine::{ContextRegionEngine, RegionQuery};
+use ccos::region_metrics;
+use ccos::trace::parse_cargo_test_output;
+use ccos::trace::ExecutionTrace;
 use ccos::util::sha256_hex;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -40,10 +57,33 @@ async fn main() {
             rest.get(1).map(String::as_str),
         ),
         "failure" => run_failure(&FailureOpts::parse(rest)),
+        "focus" => run_focus(&FocusOpts::parse(rest)),
         "chaos" => run_chaos(&ChaosOpts::parse(rest)),
         "top" => run_top(&TopOpts::parse(rest)),
         "blame" => run_blame(&BlameOpts::parse(rest)),
         "export" => run_export(&ExportOpts::parse(rest)),
+        "regions" => run_regions(&RegionsOpts::parse(rest)),
+        "experiment" => run_experiment_cmd(rest),
+        "eval" => run_eval_cmd(rest).await,
+        "memory" => run_memory_cmd(rest),
+        "trace" => run_trace_cmd(),
+        "mcp" => {
+            // Optional positional workspace path (else $CCOS_MCP_WORKSPACE, else
+            // a purely in-memory session).
+            let workspace = rest
+                .first()
+                .filter(|a| !a.starts_with("--"))
+                .map(PathBuf::from)
+                .or_else(|| std::env::var("CCOS_MCP_WORKSPACE").ok().map(PathBuf::from));
+            match ccos::mcp::serve_workspace(workspace) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("ccos mcp: {e}");
+                    1
+                }
+            }
+        }
+        "postmortem" => run_postmortem(rest),
         // ── CCOS v0.3 — Autonomous Context Runtime ──────────────────
         "scan" => commands_runtime::run_scan(rest).await,
         "agents" => commands_runtime::run_agents(rest).await,
@@ -145,6 +185,9 @@ fn run_analyze(opts: &AnalyzeOpts) -> i32 {
     }
 
     let mut graph = MemoryGraph::new(0.2, opts.max_nodes);
+    // Honour scoring-weight overrides (CCOS_W_*) so the validation harness can
+    // re-score the ingest under a trial's hyperparameters without recompiling.
+    graph.set_scoring_weights(ScoringWeights::from_env());
     let mut engine = IncrementalGraphEngine::new();
     let mut event_log = EventLog::new(Uuid::new_v4().to_string());
     let mut dist_log = DistributedEventLog::new();
@@ -187,6 +230,10 @@ fn run_analyze(opts: &AnalyzeOpts) -> i32 {
         }
     }
 
+    // Resolve intra-crate imports into file→file edges so failure propagation,
+    // regions and the working set see the real cross-file causal structure.
+    let cross_edges = graph.link_module_imports();
+
     // Integrity: the graph must never hold edges to evicted/absent nodes.
     let dangling = graph.prune_dangling_edges();
     let cycles = if opts.cycles || opts.json {
@@ -220,6 +267,7 @@ fn run_analyze(opts: &AnalyzeOpts) -> i32 {
             "files_ingested": files.len() - read_errors,
             "nodes": graph.node_count(),
             "edges": graph.edge_count(),
+            "cross_file_edges": cross_edges,
             "dangling_edges": dangling,
             "orphan_nodes": orphans,
             "dependency_cycles": cycles.len(),
@@ -232,6 +280,7 @@ fn run_analyze(opts: &AnalyzeOpts) -> i32 {
         println!("  Files ingested:  {}", files.len() - read_errors);
         println!("  Graph nodes:     {}", graph.node_count());
         println!("  Graph edges:     {}", graph.edge_count());
+        println!("  Cross-file edges:{cross_edges} (resolved imports)");
         println!("  Mutations:       {}", engine.total_mutations());
         println!("  Events logged:   {}", event_log.event_count());
         println!("  Dangling edges:  {dangling} (must be 0)");
@@ -306,6 +355,7 @@ fn run_verify(file: Option<&str>) -> i32 {
     };
 
     let integrity = snapshot.dist_log.verify_integrity();
+    let log_integrity = snapshot.event_log.verify_integrity();
     let mut graph = snapshot.graph.clone();
     let dangling = graph.prune_dangling_edges();
 
@@ -321,14 +371,21 @@ fn run_verify(file: Option<&str>) -> i32 {
     println!("  Dangling edges:    {dangling} (must be 0)");
     println!("  Event-log events:  {}", snapshot.event_log.event_count());
     println!(
-        "  Hash-chain links:  {} | valid: {}",
+        "  Dist-log chain:    {} links | valid: {}",
         integrity.verified_events, integrity.valid
     );
     for err in integrity.errors.iter().take(10) {
         println!("    ! {err}");
     }
+    println!(
+        "  Event-log chain:   {} verified | valid: {}",
+        log_integrity.verified_events, log_integrity.valid
+    );
+    for err in log_integrity.errors.iter().take(10) {
+        println!("    ! {err}");
+    }
 
-    if integrity.valid && dangling == 0 {
+    if integrity.valid && log_integrity.valid && dangling == 0 {
         println!("\n  ✓ snapshot verified");
         0
     } else {
@@ -392,8 +449,12 @@ fn run_replay(file: Option<&str>) -> i32 {
     }
 
     let integrity = snapshot.dist_log.verify_integrity();
-    println!("  Hash-chain valid: {}", integrity.valid);
-    if integrity.valid {
+    let log_integrity = snapshot.event_log.verify_integrity();
+    println!(
+        "  Hash-chain valid: {} (dist-log) · {} (event-log, {} links)",
+        integrity.valid, log_integrity.valid, log_integrity.verified_events
+    );
+    if integrity.valid && log_integrity.valid {
         0
     } else {
         1
@@ -474,11 +535,22 @@ struct FailureOpts {
     snapshot: Option<String>,
     node: Option<String>,
     depth: u32,
+    /// Re-page the graph to this node budget K after injection, exposing the
+    /// surviving WorkingSet_K (the proxy-coverage measurement of the harness).
+    max_nodes: Option<usize>,
+    /// Emit a machine-readable working set instead of the human report.
+    json: bool,
+    /// Propagate failure pressure in both edge directions (reach upstream causes
+    /// as well as downstream dependencies).
+    bidirectional: bool,
 }
 
 impl FailureOpts {
     fn parse(args: &[String]) -> Self {
         let (mut snapshot, mut node, mut depth) = (None, None, 3u32);
+        let mut max_nodes = None;
+        let mut json = false;
+        let mut bidirectional = false;
         let mut positional = 0;
         let mut i = 0;
         while i < args.len() {
@@ -489,6 +561,12 @@ impl FailureOpts {
                         depth = n;
                     }
                 }
+                "--max-nodes" => {
+                    i += 1;
+                    max_nodes = args.get(i).and_then(|v| v.parse().ok());
+                }
+                "--json" => json = true,
+                "--bidirectional" => bidirectional = true,
                 s if !s.starts_with("--") => {
                     if positional == 0 {
                         snapshot = Some(s.to_string());
@@ -505,16 +583,29 @@ impl FailureOpts {
             snapshot,
             node,
             depth,
+            max_nodes,
+            json,
+            bidirectional,
         }
     }
 }
 
-/// `ccos failure <snapshot.json> <node-id> [--depth N]` — inject a fault at a
-/// node and propagate it across the causal graph, reporting the affected
-/// neighborhood ranked by resulting failure relevance.
+/// `ccos failure <snapshot.json> <node-id> [--depth N] [--max-nodes K]
+/// [--bidirectional] [--json]` — inject a fault at a node and propagate it across
+/// the causal graph, reporting the affected neighborhood ranked by failure
+/// relevance. `--bidirectional` also reaches upstream causes (callers/importers).
+///
+/// With `--max-nodes K` the graph is re-paged to the budget *after* injection,
+/// so the survivors are the bounded **WorkingSet_K**; with `--json` that working
+/// set is emitted as a machine-readable object. Together they are the Phase-1/2
+/// hook the causal-validation harness drives: inject a mined fault, then measure
+/// `R_cov = |F_target ∩ WorkingSet_K| / |F_target|`. Honours `CCOS_W_*` /
+/// `CCOS_FAILURE_DECAY` so a hyperparameter trial re-scores without recompiling.
 fn run_failure(opts: &FailureOpts) -> i32 {
     let (Some(file), Some(node_id)) = (opts.snapshot.as_deref(), opts.node.as_deref()) else {
-        eprintln!("usage: ccos failure <snapshot.json> <node-id> [--depth N]");
+        eprintln!(
+            "usage: ccos failure <snapshot.json> <node-id> [--depth N] [--max-nodes K] [--bidirectional] [--json]"
+        );
         return 2;
     };
     let snapshot = match KernelSnapshot::load(file) {
@@ -525,6 +616,8 @@ fn run_failure(opts: &FailureOpts) -> i32 {
         }
     };
     let mut graph = snapshot.graph;
+    // Re-score under any trial weights before injection/eviction.
+    graph.set_scoring_weights(ScoringWeights::from_env());
     let origin = NodeId(node_id.to_string());
     if !graph.nodes.contains_key(&origin) {
         eprintln!(
@@ -534,12 +627,21 @@ fn run_failure(opts: &FailureOpts) -> i32 {
         return 1;
     }
 
-    println!("╔══════════════════════════════════════════════╗");
-    println!("║  CCOS failure propagation                    ║");
-    println!("╚══════════════════════════════════════════════╝\n");
-
+    let nodes_before = graph.node_count();
     graph.set_failure_relevance(&origin, 0.95);
-    graph.propagate_failure(&origin, 0, opts.depth);
+    if opts.bidirectional {
+        graph.propagate_failure_bidirectional(&origin, 0, opts.depth);
+    } else {
+        graph.propagate_failure(&origin, 0, opts.depth);
+    }
+
+    // Optionally constrain the working set to the top-K by score (failure
+    // pressure has just lifted the causally-relevant subgraph, so eviction keeps
+    // it preferentially). This is the WorkingSet_K the proxy metric scores.
+    if let Some(k) = opts.max_nodes {
+        graph.max_in_memory_nodes = k;
+        graph.enforce_paging();
+    }
 
     let mut affected: Vec<(String, f64)> = graph
         .nodes
@@ -553,8 +655,45 @@ fn run_failure(opts: &FailureOpts) -> i32 {
             .then_with(|| a.0.cmp(&b.0))
     });
 
+    if opts.json {
+        let mut working_set: Vec<&NodeId> = graph.nodes.keys().collect();
+        working_set.sort();
+        let w = graph.scoring_weights;
+        let report = serde_json::json!({
+            "origin": node_id,
+            "severity": 0.95,
+            "depth": opts.depth,
+            "max_nodes": opts.max_nodes,
+            "nodes_before": nodes_before,
+            "working_set_size": working_set.len(),
+            "working_set": working_set.iter().map(|id| &id.0).collect::<Vec<_>>(),
+            "affected": affected
+                .iter()
+                .map(|(id, fr)| serde_json::json!({ "id": id, "failure_relevance": fr }))
+                .collect::<Vec<_>>(),
+            "weights": {
+                "w_base": w.w_base,
+                "w_failure": w.w_failure,
+                "w_recency": w.w_recency,
+                "w_access": w.w_access,
+                "failure_decay": w.failure_decay,
+            },
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        return 0;
+    }
+
+    println!("╔══════════════════════════════════════════════╗");
+    println!("║  CCOS failure propagation                    ║");
+    println!("╚══════════════════════════════════════════════╝\n");
     println!("  Origin:   {}", truncate(node_id, 40));
     println!("  Severity: 0.95   depth: {}", opts.depth);
+    if let Some(k) = opts.max_nodes {
+        println!(
+            "  WorkingSet_K: {} survivors of {nodes_before} (K={k})",
+            graph.node_count()
+        );
+    }
     println!("  Affected: {} nodes", affected.len());
     if !affected.is_empty() {
         println!("\n  Causal neighborhood (by failure relevance):");
@@ -950,6 +1089,918 @@ fn run_export(opts: &ExportOpts) -> i32 {
     }
 }
 
+/// Options for `ccos regions`.
+struct RegionsOpts {
+    path: String,
+    json: bool,
+    activate: Option<String>,
+    metrics: Option<String>,
+    radius: u32,
+    max_nodes: usize,
+}
+
+impl RegionsOpts {
+    fn parse(args: &[String]) -> Self {
+        let mut opts = Self {
+            path: ".".to_string(),
+            json: false,
+            activate: None,
+            metrics: None,
+            radius: 2,
+            max_nodes: 5000,
+        };
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--json" => opts.json = true,
+                "--activate" => {
+                    i += 1;
+                    opts.activate = args.get(i).cloned();
+                }
+                "--metrics" => {
+                    i += 1;
+                    opts.metrics = args.get(i).cloned();
+                }
+                "--radius" => {
+                    i += 1;
+                    if let Some(n) = args.get(i).and_then(|v| v.parse().ok()) {
+                        opts.radius = n;
+                    }
+                }
+                "--max-nodes" => {
+                    i += 1;
+                    if let Some(n) = args.get(i).and_then(|v| v.parse().ok()) {
+                        opts.max_nodes = n;
+                    }
+                }
+                s if !s.starts_with("--") => opts.path = s.to_string(),
+                other => eprintln!("ccos: ignoring unknown flag '{other}'"),
+            }
+            i += 1;
+        }
+        opts
+    }
+}
+
+/// `ccos regions <path> [--activate ID] [--metrics ID] [--radius N] [--json]` —
+/// cluster the causal graph into spatial regions; optionally activate one
+/// (hydrate a context window) or print the flat-vs-region locality comparison.
+fn run_regions(opts: &RegionsOpts) -> i32 {
+    let graph = match build_graph_from_path(&opts.path, opts.max_nodes) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("ccos: {e}");
+            return 1;
+        }
+    };
+    let mut engine = ContextRegionEngine::new();
+    let mut log = EventLog::new(Uuid::new_v4().to_string());
+    engine.initialize_regions(&graph, &mut log);
+
+    // ── metrics mode: flat vs region locality for a target node ──
+    if let Some(target) = &opts.metrics {
+        let Some(report) = region_metrics::locality_report(&graph, target, opts.radius) else {
+            eprintln!("ccos: node '{target}' not found in graph");
+            return 1;
+        };
+        if opts.json {
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            return 0;
+        }
+        println!("╔══════════════════════════════════════════════╗");
+        println!("║  CCOS regions — locality metrics             ║");
+        println!("╚══════════════════════════════════════════════╝\n");
+        println!("  Target:            {}", truncate(target, 40));
+        println!(
+            "  Causal nbhd (r={}): {} nodes",
+            report.radius, report.neighborhood_size
+        );
+        println!(
+            "  flat   : precision {:.2}  recall {:.2}  ({} nodes)",
+            report.flat.causal_precision, report.flat.causal_recall, report.flat.nodes_selected
+        );
+        println!(
+            "  region : precision {:.2}  recall {:.2}  ({} nodes)",
+            report.region.causal_precision,
+            report.region.causal_recall,
+            report.region.nodes_selected
+        );
+        println!("  Precision gain:    {:+.2}", report.precision_gain);
+        println!(
+            "  Tokens to cover Nk: flat {} vs region {}  (saving {:+.0}%)",
+            report.flat_tokens_to_cover,
+            report.region_tokens_to_cover,
+            report.token_saving_ratio * 100.0
+        );
+        return 0;
+    }
+
+    // ── activate mode: hydrate a context window from a region ──
+    if let Some(target) = &opts.activate {
+        let policy = ContextPolicy::default();
+        let Some(win) = engine.activate_region(
+            &graph,
+            &RegionQuery::Node(target.clone()),
+            &policy,
+            &mut log,
+        ) else {
+            eprintln!("ccos: node '{target}' not found in any region");
+            return 1;
+        };
+        if opts.json {
+            let report = serde_json::json!({
+                "region": win.region,
+                "files": win.files,
+                "tokens_estimated": win.tokens_estimated,
+                "region_score": win.region_score,
+                "reason": win.reason,
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            return 0;
+        }
+        println!("╔══════════════════════════════════════════════╗");
+        println!("║  CCOS regions — context window               ║");
+        println!("╚══════════════════════════════════════════════╝\n");
+        println!("  Region:  {}", truncate(&win.region, 38));
+        println!("  Score:   {:.3}", win.region_score);
+        println!("  Tokens:  ~{}", win.tokens_estimated);
+        println!("  Reason:  {}", win.reason);
+        println!("\n  Files ({}):", win.files.len());
+        for f in win.files.iter().take(20) {
+            println!("    • {}", truncate(f, 44));
+        }
+        return 0;
+    }
+
+    // ── default: region map summary ──
+    let mut regions: Vec<_> = engine.regions.values().collect();
+    regions.sort_by(|a, b| {
+        b.temperature
+            .partial_cmp(&a.temperature)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    if opts.json {
+        let rows: Vec<_> = regions
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.id,
+                    "center": r.center,
+                    "members": r.member_count(),
+                    "temperature": r.temperature,
+                    "causal_density": r.causal_density,
+                })
+            })
+            .collect();
+        let report = serde_json::json!({
+            "path": opts.path,
+            "nodes": graph.node_count(),
+            "edges": graph.edge_count(),
+            "regions": engine.region_count(),
+            "map": rows,
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        return 0;
+    }
+
+    println!("╔══════════════════════════════════════════════╗");
+    println!("║  CCOS regions — {:<29}║", truncate(&opts.path, 29));
+    println!("╚══════════════════════════════════════════════╝\n");
+    println!(
+        "  {} nodes / {} edges → {} regions\n",
+        graph.node_count(),
+        graph.edge_count(),
+        engine.region_count()
+    );
+    println!("    {:>5}  {:>7}  {:>7}  REGION", "MEMB", "TEMP", "DENS");
+    for r in regions.iter().take(20) {
+        println!(
+            "    {:>5}  {:>7.4}  {:>7.3}  {}",
+            r.member_count(),
+            r.temperature,
+            r.causal_density,
+            truncate(&r.id, 40)
+        );
+    }
+    0
+}
+
+/// `ccos experiment [--tasks N] [--seed S] [--budget B] [--json]` — run the
+/// LLM-free hypothesis simulation: regional causal memory vs. RAG / GraphRAG
+/// baselines on synthetic multi-file causal tasks of growing diameter.
+fn run_experiment_cmd(args: &[String]) -> i32 {
+    let mut cfg = ExperimentConfig::default();
+    let mut json = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => json = true,
+            "--tasks" => {
+                i += 1;
+                if let Some(n) = args.get(i).and_then(|v| v.parse().ok()) {
+                    cfg.tasks = n;
+                }
+            }
+            "--seed" => {
+                i += 1;
+                if let Some(n) = args.get(i).and_then(|v| v.parse().ok()) {
+                    cfg.seed = n;
+                }
+            }
+            "--budget" => {
+                i += 1;
+                if let Some(n) = args.get(i).and_then(|v| v.parse().ok()) {
+                    cfg.budget = n;
+                }
+            }
+            other => eprintln!("ccos: ignoring unknown flag '{other}'"),
+        }
+        i += 1;
+    }
+
+    // Run both scenarios: clean (query points at the target) and noisy (a trap
+    // decoy out-scores the target lexically).
+    let clean = run_experiment(&ExperimentConfig {
+        noisy: false,
+        ..cfg.clone()
+    });
+    let noisy = run_experiment(&ExperimentConfig {
+        noisy: true,
+        ..cfg.clone()
+    });
+
+    if json {
+        let out = serde_json::json!({ "clean": clean, "noisy": noisy });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+        return 0;
+    }
+
+    let strategies = [
+        "rag-dense",
+        "rag-hybrid",
+        "graphrag-1hop",
+        "graphrag-bfs",
+        "ccos-from-query",
+        "ccos-region",
+    ];
+    let print_table = |report: &ccos::experiment::ExperimentReport, title: &str| {
+        println!("  ── {title} ──");
+        println!(
+            "    {:<16} {:>6} {:>6} {:>6} {:>6}",
+            "strategy", "d=1", "d=2", "d=3", "d=4"
+        );
+        for strat in strategies {
+            let cell = |d: u32| -> String {
+                report
+                    .per_diameter
+                    .iter()
+                    .find(|(dd, _)| *dd == d)
+                    .and_then(|(_, row)| row.iter().find(|r| r.strategy == strat))
+                    .map(|r| format!("{:.2}", r.success_rate))
+                    .unwrap_or_else(|| "  – ".into())
+            };
+            println!(
+                "    {:<16} {:>6} {:>6} {:>6} {:>6}",
+                strat,
+                cell(1),
+                cell(2),
+                cell(3),
+                cell(4)
+            );
+        }
+    };
+
+    println!("╔══════════════════════════════════════════════╗");
+    println!("║  CCOS experiment — regional memory vs RAG    ║");
+    println!("╚══════════════════════════════════════════════╝\n");
+    println!(
+        "  seed={}  tasks={}  budget={} tokens   (success = required causal set ⊆ window)\n",
+        clean.seed, clean.n_tasks, clean.budget_tokens
+    );
+    print_table(&clean, "CLEAN query (points at the target)");
+    println!();
+    print_table(
+        &noisy,
+        "NOISY query (a decoy out-scores the target lexically)",
+    );
+    println!(
+        "\n  Reading: lexical RAG fails on cross-file tasks; structure-aware methods\n  \
+         (graph-BFS, CCOS) tie when the query is clean — but under a misleading query\n  \
+         only `ccos-region`, which anchors on the workspace signal (not the query),\n  \
+         survives. The differentiator is the anchor, not the region machinery."
+    );
+    0
+}
+
+/// `ccos trace` — read `cargo test` / panic / backtrace text on **stdin** and
+/// emit the project source locations the crash touched as JSON (`message`,
+/// `files`, `hits`). The seed set for a trace-driven context page fault.
+fn run_trace_cmd() -> i32 {
+    use std::io::Read;
+    let mut input = String::new();
+    if std::io::stdin().read_to_string(&mut input).is_err() {
+        eprintln!("ccos: failed to read stdin");
+        return 1;
+    }
+    let trace = parse_cargo_test_output(&input);
+    let hits: Vec<_> = trace
+        .hits
+        .iter()
+        .map(
+            |h| serde_json::json!({ "file": h.file, "line": h.line, "frame_depth": h.frame_depth }),
+        )
+        .collect();
+    let report = serde_json::json!({
+        "message": trace.message,
+        "files": trace.files(),
+        "hits": hits,
+    });
+    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    0
+}
+
+/// Options for `ccos focus` — the human "attentional shield".
+struct FocusOpts {
+    path: String,
+    budget: usize,
+    json: bool,
+    input: Option<String>,
+    /// Reuse/persist a workspace checkpoint so only *changed* files are re-parsed
+    /// (O(Δ) freshness for an editor calling `focus` on every run). `--workspace`
+    /// with no path defaults to `workspace.ccos`.
+    workspace: Option<String>,
+}
+
+impl FocusOpts {
+    fn parse(args: &[String]) -> Self {
+        let mut path = None;
+        let mut budget = 2048usize;
+        let mut json = false;
+        let mut input = None;
+        let mut workspace = None;
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--budget" => {
+                    i += 1;
+                    if let Some(n) = args.get(i).and_then(|v| v.parse().ok()) {
+                        budget = n;
+                    }
+                }
+                "--input" => {
+                    i += 1;
+                    input = args.get(i).cloned();
+                }
+                "--workspace" => {
+                    // Optional path; default when the next token is another flag/absent.
+                    let p = match args.get(i + 1) {
+                        Some(v) if !v.starts_with("--") => {
+                            i += 1;
+                            v.clone()
+                        }
+                        _ => "workspace.ccos".to_string(),
+                    };
+                    workspace = Some(p);
+                }
+                "--json" => json = true,
+                s if !s.starts_with("--") => {
+                    if path.is_none() {
+                        path = Some(s.to_string());
+                    }
+                }
+                other => eprintln!("ccos: ignoring unknown flag '{other}'"),
+            }
+            i += 1;
+        }
+        Self {
+            path: path.unwrap_or_else(|| "src".to_string()),
+            budget,
+            json,
+            input,
+            workspace,
+        }
+    }
+}
+
+/// A file's role in the focused view, relative to the failing trace.
+#[derive(Debug, PartialEq, Eq)]
+enum FocusRole {
+    /// A file the trace itself names — where the failure *manifests*.
+    Symptom,
+    /// The top file pulled in *causally* (not in the trace) — the likely root.
+    Cause,
+    /// Another file in the causal region.
+    Context,
+}
+
+/// One file in the focused view: the highest-scored window node from that file.
+struct FocusEntry {
+    file: String,
+    content: String,
+    score: f64,
+    role: FocusRole,
+}
+
+/// Reduce a recall window to one entry per file (highest score first), tagging the
+/// trace's own files as the *symptom* and the top causally-pulled file as the likely
+/// *cause* — the "skip to the root" signal a raw backtrace buries. Pure + testable.
+fn focus_view(window: &RecallWindow, trace: &ExecutionTrace) -> Vec<FocusEntry> {
+    let symptom_files: std::collections::BTreeSet<String> = trace.files().into_iter().collect();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out: Vec<FocusEntry> = Vec::new();
+    let mut cause_assigned = false;
+    for it in &window.items {
+        let file = file_of(&it.uri).to_string();
+        if file.is_empty() || !seen.insert(file.clone()) {
+            continue;
+        }
+        let role = if symptom_files.contains(&file) {
+            FocusRole::Symptom
+        } else if !cause_assigned {
+            cause_assigned = true;
+            FocusRole::Cause
+        } else {
+            FocusRole::Context
+        };
+        out.push(FocusEntry {
+            file,
+            content: it.content.clone(),
+            score: it.score,
+            role,
+        });
+    }
+    out
+}
+
+/// Crate-relative path in the form `cargo` reports (`src/…`): the tail from the last
+/// `src/` segment, so an absolute ingest path still matches a crate-relative trace path.
+fn crate_relative(p: &Path) -> String {
+    let s = p.to_string_lossy().replace('\\', "/");
+    match s.rfind("src/") {
+        Some(i) => s[i..].to_string(),
+        None => s,
+    }
+}
+
+/// `ccos focus [src] [--budget N] [--input FILE] [--json]` — the attentional shield.
+/// Pipe `cargo test` / panic output in; CCOS ingests the tree, page-faults on the
+/// trace, and shows the **causal region** (the likely root cause + its direct
+/// dependencies), hiding the backtrace noise and the unrelated files. The host can
+/// be a human (terminal) or an editor (`--json`).
+fn run_focus(opts: &FocusOpts) -> i32 {
+    let root = Path::new(&opts.path);
+    if !root.exists() {
+        eprintln!("ccos: path '{}' does not exist", opts.path);
+        return 1;
+    }
+    let mut files: Vec<PathBuf> = Vec::new();
+    if root.is_dir() {
+        collect_rs_files(root, &mut files);
+    } else if root.extension().and_then(|e| e.to_str()) == Some("rs") {
+        files.push(root.to_path_buf());
+    }
+    files.sort();
+    if files.is_empty() {
+        eprintln!("ccos: no .rs files under '{}'", opts.path);
+        return 1;
+    }
+
+    // Ingest under crate-relative URIs (`src/…`), matching how `cargo` reports paths
+    // in the trace — so a fault on `src/writer.rs` anchors regardless of whether the
+    // user passed `src` or an absolute path. With `--workspace`, reuse the persisted
+    // checkpoint and `sync` (re-parse only changed files — O(Δ) for an editor); without
+    // it, a fresh ephemeral session ingesting the whole tree.
+    let mut session = match &opts.workspace {
+        Some(ws) => match AgentSession::open(ws) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("ccos: cannot open workspace '{ws}': {e}");
+                return 1;
+            }
+        },
+        None => AgentSession::new(),
+    };
+    let mut reparsed = 0usize;
+    for f in &files {
+        if let Ok(src) = std::fs::read_to_string(f) {
+            let uri = crate_relative(f);
+            if opts.workspace.is_some() {
+                if session.sync(&uri, &src) {
+                    reparsed += 1;
+                }
+            } else {
+                session.ingest(&uri, &src);
+            }
+        }
+    }
+
+    let output = match &opts.input {
+        Some(p) => std::fs::read_to_string(p).unwrap_or_default(),
+        None => {
+            use std::io::Read;
+            let mut s = String::new();
+            let _ = std::io::stdin().read_to_string(&mut s);
+            s
+        }
+    };
+
+    let trace = parse_cargo_test_output(&output);
+    let window = session.page_fault(&output, opts.budget);
+    let view = focus_view(&window, &trace);
+
+    // Persist the synced graph + this page-fault so the next `--workspace` run is O(Δ).
+    if opts.workspace.is_some() {
+        if let Err(e) = session.checkpoint() {
+            eprintln!("ccos focus: checkpoint failed: {e}");
+        }
+    }
+
+    if opts.json {
+        let entries: Vec<_> = view
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "file": e.file,
+                    "role": format!("{:?}", e.role).to_lowercase(),
+                    "score": e.score,
+                    "content": e.content,
+                })
+            })
+            .collect();
+        let report = serde_json::json!({
+            "message": trace.message,
+            "symptom_files": trace.files(),
+            "workspace_files": files.len(),
+            "reparsed_files": reparsed,
+            "tokens": window.tokens,
+            "entries": entries,
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        return 0;
+    }
+
+    render_focus_human(
+        &trace,
+        &view,
+        files.len(),
+        window.tokens,
+        opts.workspace.as_deref(),
+        reparsed,
+    );
+    0
+}
+
+/// Render the focused view for a human terminal — the cause first, noise hidden.
+fn render_focus_human(
+    trace: &ExecutionTrace,
+    view: &[FocusEntry],
+    total_files: usize,
+    tokens: usize,
+    workspace: Option<&str>,
+    reparsed: usize,
+) {
+    let delta = match workspace {
+        Some(_) => format!(", {reparsed} re-parsed (Δ)"),
+        None => String::new(),
+    };
+    println!(
+        "⚡ CCOS focus — {} files in workspace → {} in view (~{} tokens{})\n",
+        total_files,
+        view.len(),
+        tokens,
+        delta
+    );
+    if !trace.message.is_empty() {
+        println!("  panicked: {}", truncate(trace.message.trim(), 76));
+    }
+    if let Some(h) = trace.hits.first() {
+        println!("  symptom:  {}:{}", h.file, h.line);
+    }
+    println!();
+
+    for e in view {
+        let tag = match e.role {
+            FocusRole::Cause => "◀ likely cause (pulled in causally)",
+            FocusRole::Symptom => "· symptom site",
+            FocusRole::Context => "· related",
+        };
+        println!("  ▸ {}   {tag}   [{:.2}]", e.file, e.score);
+        for line in e.content.lines().take(6) {
+            println!("      {line}");
+        }
+        if e.content.lines().count() > 6 {
+            println!("      …");
+        }
+        println!();
+    }
+
+    let hidden = total_files.saturating_sub(view.len());
+    if hidden > 0 {
+        println!("  hidden: {hidden} unrelated file(s) + the rest of the backtrace");
+    }
+}
+
+/// `ccos memory [--path FILE]` — drive the [`CcosMemory`] external-memory façade
+/// over **stdin JSON Lines**: one request object per line, one JSON response per
+/// line. Loads `FILE` (default `workspace.ccos`), applies each request, and
+/// checkpoints back if any mutation occurred — scriptable from any language.
+///
+/// Requests: `{"op":"ingest","uri":..,"source":..}`,
+/// `{"op":"failure","node":..,"depth":N}`,
+/// `{"op":"recall","strategy":"around|task|working_set",..,"budget":N}`,
+/// `{"op":"impact|causes","node":..,"depth":N}`, `{"op":"verify"}`,
+/// `{"op":"stats"}`.
+fn run_memory_cmd(args: &[String]) -> i32 {
+    use std::io::BufRead;
+    let mut path = "workspace.ccos".to_string();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--path" => {
+                i += 1;
+                if let Some(p) = args.get(i) {
+                    path = p.clone();
+                }
+            }
+            other => eprintln!("ccos: ignoring unknown flag '{other}'"),
+        }
+        i += 1;
+    }
+
+    let mut mem = match CcosMemory::open(&path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("ccos: cannot open memory '{path}': {e}");
+            return 1;
+        }
+    };
+
+    let err = |msg: String| serde_json::json!({ "error": msg });
+    let mut dirty = false;
+    let mut had_error = false;
+    let stdin = std::io::stdin();
+    for line in stdin.lock().lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => break,
+        };
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let req: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{}", err(format!("invalid JSON: {e}")));
+                had_error = true;
+                continue;
+            }
+        };
+        let s = |k: &str| req[k].as_str().unwrap_or("").to_string();
+        let op = req["op"].as_str().unwrap_or("").to_string();
+        let resp: serde_json::Value = match op.as_str() {
+            "ingest" => {
+                let (uri, src) = (s("uri"), s("source"));
+                if uri.is_empty() {
+                    had_error = true;
+                    err("ingest requires 'uri' and 'source'".into())
+                } else {
+                    dirty = true;
+                    serde_json::to_value(mem.ingest_source(&uri, &src)).unwrap()
+                }
+            }
+            "failure" => {
+                let depth = req["depth"].as_u64().unwrap_or(3) as u32;
+                match mem.signal_failure(&s("node"), depth) {
+                    Ok(n) => {
+                        dirty = true;
+                        serde_json::json!({ "affected": n })
+                    }
+                    Err(e) => {
+                        had_error = true;
+                        err(e.to_string())
+                    }
+                }
+            }
+            "recall" => {
+                let budget = req["budget"].as_u64().unwrap_or(2048) as usize;
+                let recall = match req["strategy"].as_str().unwrap_or("working_set") {
+                    "around" => Recall::around(s("anchor")),
+                    "task" => Recall::task(s("text")),
+                    _ => Recall::working_set(),
+                };
+                serde_json::to_value(mem.recall(&recall, budget)).unwrap()
+            }
+            "impact" | "causes" => {
+                let depth = req["depth"].as_u64().unwrap_or(2) as u32;
+                let reached = if op == "impact" {
+                    mem.impact(&s("node"), depth)
+                } else {
+                    mem.causes(&s("node"), depth)
+                };
+                let arr: Vec<_> = reached
+                    .iter()
+                    .map(|r| {
+                        serde_json::json!({ "id": r.id.0, "distance": r.distance, "score": r.score })
+                    })
+                    .collect();
+                serde_json::json!({ "reached": arr })
+            }
+            "verify" => serde_json::to_value(mem.verify()).unwrap(),
+            "stats" => serde_json::to_value(mem.stats()).unwrap(),
+            "" => {
+                had_error = true;
+                err("missing 'op'".into())
+            }
+            other => {
+                had_error = true;
+                err(format!("unknown op '{other}'"))
+            }
+        };
+        println!("{}", serde_json::to_string(&resp).unwrap());
+    }
+
+    if dirty {
+        if let Err(e) = mem.checkpoint() {
+            eprintln!("ccos: checkpoint failed: {e}");
+            return 1;
+        }
+    }
+    i32::from(had_error)
+}
+
+/// `ccos postmortem [workspace.ccos] [--json]` — open the interactive **time-travel
+/// debugger** over an agent session's recorded timeline. With a workspace path it
+/// loads the persisted op-log (`<workspace>.oplog` written by `ccos mcp`);
+/// with none it walks a built-in session that drifts. Reads REPL commands on
+/// stdin (`timeline`, `goto N`, `recall`, `diff A B`, `help`, `quit`). With
+/// `--json` it dumps the field record (stats / integrity / timeline / working set)
+/// as JSON and exits — for archiving / fleet collection (see `scripts/fleet_collect.sh`).
+fn run_postmortem(args: &[String]) -> i32 {
+    let as_json = args.iter().any(|a| a == "--json");
+    let path = args.iter().find(|a| !a.starts_with("--"));
+    let session = match path {
+        Some(p) => match ccos::agent_session::AgentSession::open(p) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("ccos: cannot open session '{p}': {e}");
+                return 1;
+            }
+        },
+        None => ccos::postmortem::demo_session(),
+    };
+    if as_json {
+        let ws = path.map(String::as_str).unwrap_or("(built-in demo)");
+        let record = ccos::postmortem::export(&session, ws, 4096);
+        println!("{}", serde_json::to_string_pretty(&record).unwrap());
+        return 0;
+    }
+    ccos::postmortem::serve(session);
+    0
+}
+
+/// `ccos eval [--tasks N] [--seed S] [--budget T] [--model M] [--json]` — the
+/// **real-LLM** evaluation (clean + noisy). Configure a model with
+/// `ANTHROPIC_API_KEY` (+`ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`), `OPENAI_API_KEY`
+/// (+`OPENAI_BASE_URL`, `OPENAI_MODEL`) or `OLLAMA_ENDPOINT`; with none set it
+/// runs an offline stub (every answer wrong) to exercise the pipeline. `--model`
+/// overrides the active provider's model (defaulting to a local Ollama server if
+/// no provider env is set).
+async fn run_eval_cmd(args: &[String]) -> i32 {
+    let mut cfg = EvalConfig::default();
+    let mut json = false;
+    let mut model: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--json" => json = true,
+            "--model" => {
+                i += 1;
+                model = args.get(i).cloned();
+            }
+            "--tasks" => {
+                i += 1;
+                if let Some(n) = args.get(i).and_then(|v| v.parse().ok()) {
+                    cfg.tasks = n;
+                }
+            }
+            "--seed" => {
+                i += 1;
+                if let Some(n) = args.get(i).and_then(|v| v.parse().ok()) {
+                    cfg.seed = n;
+                }
+            }
+            "--budget" => {
+                i += 1;
+                if let Some(n) = args.get(i).and_then(|v| v.parse().ok()) {
+                    cfg.budget_tokens = n;
+                }
+            }
+            other => eprintln!("ccos: ignoring unknown flag '{other}'"),
+        }
+        i += 1;
+    }
+
+    // `--model M` overrides the model for whichever provider is active; with no
+    // provider env set, default to a local Ollama server (the common case).
+    if let Some(m) = model {
+        if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+            std::env::set_var("ANTHROPIC_MODEL", &m);
+        } else if std::env::var("OPENAI_API_KEY").is_ok() {
+            std::env::set_var("OPENAI_MODEL", &m);
+        } else {
+            if std::env::var("OLLAMA_ENDPOINT").is_err() {
+                std::env::set_var("OLLAMA_ENDPOINT", "http://localhost:11434");
+            }
+            std::env::set_var("OLLAMA_MODEL", &m);
+        }
+    }
+
+    let clean = run_eval(&EvalConfig {
+        noisy: false,
+        ..cfg.clone()
+    })
+    .await;
+    let noisy = run_eval(&EvalConfig {
+        noisy: true,
+        ..cfg.clone()
+    })
+    .await;
+
+    if json {
+        let out = serde_json::json!({ "clean": clean, "noisy": noisy });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+        return 0;
+    }
+
+    let strategies = [
+        "rag-dense",
+        "rag-hybrid",
+        "graphrag-1hop",
+        "graphrag-bfs",
+        "ccos-from-query",
+        "ccos-region",
+    ];
+    let table = |report: &ccos::eval::EvalReport, title: &str| {
+        println!("  ── {title} ──");
+        println!(
+            "    {:<16} {:>6} {:>6} {:>6} {:>6}  {:>6} {:>7} {:>7}",
+            "strategy (success →)", "d=1", "d=2", "d=3", "d=4", "cover", "halluc", "tokens"
+        );
+        for strat in strategies {
+            let cell = |d: u32| -> String {
+                report
+                    .per_diameter
+                    .iter()
+                    .find(|(dd, _)| *dd == d)
+                    .and_then(|(_, row)| row.iter().find(|r| r.strategy == strat))
+                    .map(|r| format!("{:.2}", r.success_rate))
+                    .unwrap_or_else(|| "  – ".into())
+            };
+            let ov = report.overall.iter().find(|r| r.strategy == strat);
+            let (cov, h, t) = ov
+                .map(|r| (r.mean_coverage, r.hallucination_rate, r.mean_input_tokens))
+                .unwrap_or((0.0, 0.0, 0.0));
+            println!(
+                "    {:<16} {:>6} {:>6} {:>6} {:>6}  {:>5.0}% {:>6.0}% {:>7.0}",
+                strat,
+                cell(1),
+                cell(2),
+                cell(3),
+                cell(4),
+                cov * 100.0,
+                h * 100.0,
+                t
+            );
+        }
+    };
+
+    println!("╔══════════════════════════════════════════════╗");
+    println!("║  CCOS eval — real-LLM task success vs RAG    ║");
+    println!("╚══════════════════════════════════════════════╝\n");
+    println!("  provider: {} · model: {}", clean.provider, clean.model);
+    println!(
+        "  seed={}  tasks={}  budget={} tokens   (success = correct integer answer)\n",
+        clean.seed, clean.n_tasks, clean.budget_tokens
+    );
+    if clean.provider.starts_with("none") {
+        println!(
+            "  ⚠  No LLM configured — set ANTHROPIC_API_KEY (+ ANTHROPIC_BASE_URL,\n     \
+             ANTHROPIC_MODEL), OPENAI_API_KEY, or OLLAMA_ENDPOINT, and allowlist the host.\n     \
+             Running the offline stub: every answer is wrong (pipeline check, NOT a result).\n"
+        );
+    }
+    table(&clean, "CLEAN query (names the target function)");
+    println!();
+    table(
+        &noisy,
+        "NOISY query (a decoy out-matches the target lexically)",
+    );
+    0
+}
+
 /// Recursively collect `.rs` files, skipping `target/`, VCS and hidden dirs.
 fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let entries = match std::fs::read_dir(dir) {
@@ -996,13 +2047,30 @@ COMMANDS:\n\
     verify <snapshot.json>     Re-check a saved snapshot's hash chain & integrity\n\
     replay <snapshot.json>     Deterministically replay a saved event log\n\
     diff <a.json> <b.json>     Structural diff between two snapshots (+ score drift)\n\
-    failure <snap> <node-id>   Inject a fault at a node and propagate it (--depth N)\n\
+    failure <snap> <node-id>   Inject a fault at a node and propagate it (--depth N,\n\
+    \x20                          --max-nodes K, --bidirectional, --json)\n\
+    focus [src]                Pipe `cargo test` output in → show the causal region\n\
+    \x20                          (likely root cause + deps), hiding the noise (--budget,\n\
+    \x20                          --input FILE, --json, --workspace [ws] for O(Δ) reuse)\n\
     chaos [--iters N]          Fuzz the guard with adversarial payloads\n\
 \n\
   Inspection & export:\n\
     top <path> [--limit N]     Show the hottest nodes by causal score (--json)\n\
     blame <snap> <node-id>     Causes (upstream) + blast radius (downstream) (--depth N, --json)\n\
     export <snap> [--out F]    Export the causal graph as GraphML (default ccos.graphml)\n\
+\n\
+  Context Region Engine (spatial memory):\n\
+    regions <path>             Cluster the causal graph into context regions (--json)\n\
+        --activate <node-id>   Hydrate the context window for a node's region\n\
+        --metrics <node-id>    Flat-vs-region locality comparison (--radius N)\n\
+    experiment [--tasks N]     Hypothesis test: regional memory vs RAG/GraphRAG (--json)\n\
+    eval [--tasks N] [--model M]  Real-LLM eval (ANTHROPIC/OPENAI_API_KEY or OLLAMA_ENDPOINT)\n\
+    memory [--path FILE]       External-memory façade over stdin JSON Lines (ingest/recall/verify)\n\
+    trace                      Parse cargo-test/panic/backtrace (stdin) into the crash's source files\n\
+    mcp [workspace.ccos]       Serve memory as MCP tools + resources over stdio JSON-RPC\n\
+    \x20                          (persistent if a workspace path is given; for MCP-compatible agents)\n\
+    postmortem [workspace] [--json]  Time-travel debugger over a session timeline; --json\n\
+    \x20                          dumps the field record (stats/timeline/integrity) and exits\n\
 \n\
   CCOS v0.3 — Autonomous Context Runtime:\n\
     scan <path>                Scan a real workspace and ingest the delta\n\
@@ -1026,4 +2094,55 @@ EXAMPLES:\n\
     ccos benchmark --cycles 100000\n",
         env!("CARGO_PKG_VERSION")
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ccos::external_memory::RecallItem;
+    use ccos::trace::TraceHit;
+
+    #[test]
+    fn focus_view_tags_symptom_and_likely_cause() {
+        // The trace blames writer.rs (the symptom). The window (around writer.rs) holds
+        // writer.rs and config.rs; config.rs is not in the trace → the causally-pulled
+        // likely cause. One entry per file, symptom first, cause next.
+        let trace = ExecutionTrace {
+            message: "index out of bounds".to_string(),
+            hits: vec![TraceHit {
+                file: "src/writer.rs".to_string(),
+                line: 3,
+                frame_depth: 0,
+            }],
+        };
+        let item = |uri: &str, score: f64, content: &str| RecallItem {
+            uri: uri.to_string(),
+            score,
+            kind: "Module".to_string(),
+            content: content.to_string(),
+        };
+        let window = RecallWindow {
+            strategy: "region".to_string(),
+            items: vec![
+                item("file:src/writer.rs", 0.90, "pub fn render() {}"),
+                item(
+                    "sym:src/config.rs:buffer_size",
+                    0.60,
+                    "pub fn buffer_size() -> usize { 0 }",
+                ),
+                item("file:src/config.rs", 0.55, "// header"),
+            ],
+            tokens: 30,
+        };
+        let view = focus_view(&window, &trace);
+        assert_eq!(view.len(), 2, "one entry per distinct file");
+        assert_eq!(view[0].file, "src/writer.rs");
+        assert_eq!(view[0].role, FocusRole::Symptom);
+        assert_eq!(view[1].file, "src/config.rs");
+        assert_eq!(
+            view[1].role,
+            FocusRole::Cause,
+            "the top file not named by the trace is the likely cause"
+        );
+    }
 }
