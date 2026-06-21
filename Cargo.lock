@@ -431,6 +431,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloca"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5a7d05ea6aea7e9e64d25b9156ba2fee3fdd659e34e41063cd2fc7cd020d7f4"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2091,7 +2100,7 @@ name = "ccos"
 version = "0.3.0"
 dependencies = [
  "chrono",
- "criterion",
+ "criterion 0.5.1",
  "mimalloc",
  "proc-macro2",
  "proptest",
@@ -2818,7 +2827,7 @@ dependencies = [
  "cast",
  "ciborium",
  "clap",
- "criterion-plot",
+ "criterion-plot 0.5.0",
  "futures",
  "is-terminal",
  "itertools 0.10.5",
@@ -2837,6 +2846,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "criterion"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "950046b2aa2492f9a536f5f4f9a3de7b9e2476e575e05bd6c333371add4d98f3"
+dependencies = [
+ "alloca",
+ "anes",
+ "cast",
+ "ciborium",
+ "clap",
+ "criterion-plot 0.8.2",
+ "itertools 0.13.0",
+ "num-traits",
+ "oorandom",
+ "page_size",
+ "regex",
+ "serde",
+ "serde_json",
+ "tinytemplate",
+ "walkdir",
+]
+
+[[package]]
 name = "criterion-plot"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2844,6 +2876,16 @@ checksum = "6b50826342786a51a89e2da3a28f1c32b06e387201bc2d19791f622c673706b1"
 dependencies = [
  "cast",
  "itertools 0.10.5",
+]
+
+[[package]]
+name = "criterion-plot"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8d80a2f4f5b554395e47b5d8305bc3d27813bacb73493eb1001e8f76dae29ea"
+dependencies = [
+ "cast",
+ "itertools 0.13.0",
 ]
 
 [[package]]
@@ -6839,6 +6881,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
+name = "page_size"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "palette"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9350,6 +9402,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "slha-kernel"
+version = "0.2.0"
+dependencies = [
+ "criterion 0.8.2",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9531,7 +9590,7 @@ dependencies = [
  "ccos",
  "chrono",
  "colored 2.2.0",
- "criterion",
+ "criterion 0.5.1",
  "serde",
  "serde_json",
  "soul-error-unifier",
@@ -10098,7 +10157,7 @@ dependencies = [
 name = "soul_scheduler"
 version = "0.1.0"
 dependencies = [
- "criterion",
+ "criterion 0.5.1",
  "lazy_static",
  "libc",
  "prometheus",
@@ -10785,7 +10844,7 @@ name = "soullink-shm"
 version = "13.5.0"
 dependencies = [
  "anyhow",
- "criterion",
+ "criterion 0.5.1",
  "nix 0.29.0",
  "serde",
  "serde_json",
@@ -10798,7 +10857,7 @@ dependencies = [
 name = "soullink-simd"
 version = "13.5.0"
 dependencies = [
- "criterion",
+ "criterion 0.5.1",
  "rayon",
  "wide",
 ]

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "octasoma",
+    "slha-kernel",
     "soullink-brain/soullink-octasoma-backend",
     # ── CCOS (Causal Context Operating System) ─────────────────────────
     "ccos",
