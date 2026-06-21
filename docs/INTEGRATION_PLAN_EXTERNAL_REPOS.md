@@ -22,6 +22,37 @@
 
 Each phase is independently shippable and independently testable.
 
+> **Status update (this session):** CCOS, OctaSoma, and SLHA (Phase A) are
+> integrated and tested (PR: "Integrate CCOS v0.3 + OctaSoma + SLHA kernel").
+> The injection-scanner/approval-gate security wiring, which a prior refactor
+> (`c69a095`) had silently dropped, was also restored.
+>
+> **Corrected scirust finding:** the earlier "nightly blocker" was wrong. The
+> external scirust only needs nightly when the `portable-simd` *feature* is
+> enabled (`#![cfg_attr(feature = "portable-simd", feature(portable_simd))]`),
+> and that feature is **off by default** — `cargo +stable build -p scirust-core`
+> succeeds. The real blocker is a **name + API clash**: the external workspace's
+> `scirust-core`, `scirust-simd`, `scirust-autodiff`, `scirust-symbolic`, … are
+> the *same package names* as our existing, older, divergent vendored copies,
+> which live consumers depend on (`soul-neural`, `synergie`, `scirust-trading-*`,
+> `scirust_affective_core`, `semantic_firewall`, `semantic_neuromodulator`).
+> So scirust is a **migration**, not an additive vendor — it needs a go/no-go.
+>
+> **Recommended scirust migration (needs decision):**
+> 1. Bring the external scirust in under a distinct prefix (e.g. vendor as
+>    `scirust2/` with packages `scirust2-core`, …) so it coexists with the old
+>    family instead of clashing — *additive*, no consumer breakage.
+> 2. Add a new SoulSystem adapter crate that exposes the high-value v0.14
+>    capabilities (quantization suite, Sophia/GaLore/Muon optimizers, SSM layers,
+>    verifiable/deterministic inference) against `scirust2-*`.
+> 3. Migrate consumers off the old `scirust-*` to `scirust2-*` one at a time,
+>    `cargo check`ing after each; delete the old family only once nothing uses it.
+> 4. Keep `portable-simd` (and `gpu`/`blas`) behind off-by-default features so the
+>    default workspace build stays stable.
+> The alternative — in-place replacement of the old `scirust-*` family — is
+> higher risk (simultaneous API breaks across all consumers) and **not**
+> recommended.
+
 ---
 
 ## 1. CCOS — causal context manager for the agent
