@@ -21,6 +21,7 @@ members = [
 
     # ── SoulLink brain (inference + memory + reasoning) ──────────────────
     "soullink-brain/soullink-inference",
+    "soullink-brain/soullink-octasoma-backend",
     "soullink-brain/soullink-nvml",
     "soullink-brain/soullink-memory-hierarchy",
     "soullink-brain/soullink-memory",

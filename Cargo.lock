@@ -10557,6 +10557,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "soullink-octasoma-backend"
+version = "13.5.0"
+dependencies = [
+ "octasoma",
+]
+
+[[package]]
 name = "soullink-orchestrator"
 version = "13.5.0"
 dependencies = [
