@@ -177,7 +177,6 @@ impl GoalError {
     /// Calculate goal error between target and actual results.
     pub fn calculate(target: &str, result: &str) -> Self {
         let similarity = PredictionError::cosine_similarity(target, result);
-        let error = 1.0 - similarity;
 
         Self {
             target_goal: target.to_string(),

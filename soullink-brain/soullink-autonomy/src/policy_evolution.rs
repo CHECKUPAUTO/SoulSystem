@@ -419,7 +419,7 @@ impl PolicyMetrics {
                     acc
                 });
 
-            for (_, sum) in &mut avg_params {
+            for sum in avg_params.values_mut() {
                 *sum /= history_len as f64;
             }
 
@@ -450,7 +450,7 @@ impl PolicyMetrics {
                     .parameters
                     .iter()
                     .zip(last_state.parameters.iter())
-                    .map(|((key, first_val), (_, last_val))| (first_val - last_val).abs())
+                    .map(|((_, first_val), (_, last_val))| (first_val - last_val).abs())
                     .sum();
 
                 adaptation_rate = param_changes / first_state.parameters.len() as f64;
@@ -487,7 +487,7 @@ mod tests {
     #[test]
     fn test_policy_evolution_creation() {
         let weights = PolicyWeights::default();
-        let mut policy = PolicyEvolution::new(0.01, weights);
+        let policy = PolicyEvolution::new(0.01, weights);
 
         assert!(!policy.get_policy().is_empty());
         assert_eq!(policy.learning_rate, 0.01);
