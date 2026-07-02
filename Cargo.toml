@@ -4,6 +4,7 @@ members = [
     # ── CCOS (Causal Context Operating System) ─────────────────────────
     "ccos",
     "octasoma",
+    "slha-kernel",
 
     # ── SciRust core (local, replaces /root/scirust subtree) ─────────────
     "scirust-core",
