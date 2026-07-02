@@ -2106,21 +2106,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ccos"
-version = "0.3.0"
-source = "git+https://github.com/CHECKUPAUTO/CCOS#f80c95a15bc07bd76f6bb8aaf97063eea5ef871c"
-dependencies = [
- "chrono",
- "rand 0.8.6",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "cexpr"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6638,15 +6623,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "octacore"
-version = "0.1.0"
-dependencies = [
- "ccos 0.3.0 (git+https://github.com/CHECKUPAUTO/CCOS)",
- "octasoma",
- "scirust",
-]
-
-[[package]]
 name = "octasoma"
 version = "0.4.0"
 dependencies = [
@@ -8763,11 +8739,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "scirust"
-version = "0.2.0"
-source = "git+https://github.com/CHECKUPAUTO/SLHAv2#0893598262b2bdf145ec31e184c30ddae5ee68da"
-
-[[package]]
 name = "scirust-autodiff"
 version = "0.1.0"
 
@@ -9558,6 +9529,7 @@ name = "soul_agent_core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "ccos",
  "chrono",
  "colored 2.2.0",
  "criterion",
@@ -9687,7 +9659,7 @@ dependencies = [
 name = "soul_cognitive"
 version = "0.1.0"
 dependencies = [
- "ccos 0.3.0",
+ "ccos",
  "chrono",
  "octasoma",
  "serde",
@@ -10979,7 +10951,7 @@ dependencies = [
  "axum 0.8.9",
  "bound-system",
  "bus",
- "ccos 0.3.0",
+ "ccos",
  "chrono",
  "clap",
  "clawd",

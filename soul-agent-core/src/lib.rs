@@ -39,6 +39,7 @@ pub mod traits;
 use crate::finetune::{DpoPair, FineTuneLoop};
 use crate::router::LlmRouter;
 use crate::strategy::{StrategyOutcome, StrategySelector, StrategyType};
+use ccos::external_memory::{CcosMemory, ExternalMemory, Recall, RecallWindow};
 use chrono::Utc;
 use soul_error_unifier::ErrorUnifier;
 use soul_intrinsic_motivation::IntrinsicMotivation;
@@ -197,6 +198,10 @@ pub struct AutonomousAgent {
     /// Outbound policy gate: the single decision point for tool calls, with
     /// persistent allow/deny memory and execution modes.
     gate: ApprovalGate,
+    /// Causal context memory (CCOS): files the agent reads are ingested into a
+    /// causal graph; failures inject pressure; recall yields a bounded,
+    /// causally-coherent working set for long sessions.
+    pub ccos: CcosMemory,
 }
 
 impl AutonomousAgent {
@@ -272,6 +277,7 @@ impl AutonomousAgent {
             ft_loop: Arc::new(FineTuneLoop::new(Default::default())),
             scanner: InjectionScanner::new(),
             gate: ApprovalGate::new(ExecutionMode::Autonomous),
+            ccos: CcosMemory::new(),
         }
     }
 
@@ -344,6 +350,7 @@ impl AutonomousAgent {
             ft_loop: Arc::new(FineTuneLoop::new(Default::default())),
             scanner: InjectionScanner::new(),
             gate: ApprovalGate::new(ExecutionMode::Autonomous),
+            ccos: CcosMemory::new(),
         }
     }
 
@@ -414,6 +421,80 @@ impl AutonomousAgent {
         if let Some(tx) = &self.event_tx {
             let _ = tx.send(event);
         }
+    }
+
+    // ── CCOS causal context memory ──────────────────────────────────────
+
+    /// Fold a tool outcome into the CCOS causal graph. File-read tool results
+    /// (those carrying a path + source) are ingested so the right code can be
+    /// recalled later; failures inject pressure on the implicated file so its
+    /// causal neighborhood stays hot.
+    fn ccos_observe_tool(&mut self, name: &str, args: &serde_json::Value, output: &str, ok: bool) {
+        let path = args
+            .get("path")
+            .or_else(|| args.get("file"))
+            .or_else(|| args.get("filename"))
+            .and_then(|v| v.as_str());
+
+        if let Some(p) = path {
+            let uri = format!("file:{p}");
+            if ok && !output.is_empty() {
+                let _ = self.ccos.ingest_source(&uri, output);
+            } else if !ok {
+                let _ = self.ccos.signal_failure(&uri, 3);
+            }
+        } else if !ok && (output.contains("error[") || output.contains("test failed")) {
+            if let Some(node) = self.ccos.hottest_failure_node() {
+                let _ = self.ccos.signal_failure(&node, 2);
+            }
+        }
+        let _ = name;
+    }
+
+    /// Recall a bounded, causally-coherent context window for `task` (highest
+    /// causal score first). Public so callers/tests can inspect what CCOS would
+    /// keep in context.
+    pub fn ccos_recall(&self, task: &str, budget_tokens: usize) -> RecallWindow {
+        self.ccos.recall(&Recall::task(task), budget_tokens)
+    }
+
+    /// Current CCOS graph stats (nodes/edges/events/files/clock).
+    pub fn ccos_stats(&self) -> ccos::external_memory::MemoryStats {
+        self.ccos.stats()
+    }
+
+    /// Append the CCOS causal working set to the chat context as a bounded
+    /// system note, so files the session causally depends on survive text
+    /// compaction. No-op when CCOS has ingested nothing.
+    fn inject_ccos_working_set(&mut self) {
+        if self.ccos.stats().files == 0 {
+            return;
+        }
+        let window = self.ccos.recall(&Recall::working_set(), 3000);
+        if window.items.is_empty() {
+            return;
+        }
+        let mut block = String::from("[CCOS causal working set — code this session depends on]\n");
+        for item in window.items.iter().take(8) {
+            block.push_str(&format!(
+                "\n=== {} (causal score {:.2}) ===\n{}\n",
+                item.uri,
+                item.score,
+                truncate_output(&item.content, 600)
+            ));
+        }
+        self.chat_session.messages.push(soul_llm::ChatMessage {
+            role: soul_llm::Role::System,
+            content: block,
+            tool_calls: None,
+            tool_call_id: None,
+        });
+        self.emit_event(AgentEvent::SafetyWarning {
+            message: format!(
+                "CCOS re-injected {} causal file(s) after compaction",
+                window.items.len().min(8)
+            ),
+        });
     }
 
     /// Screen untrusted tool output for indirect prompt injection before it is
@@ -780,7 +861,10 @@ impl AutonomousAgent {
                                 (e, false)
                             }
                         };
-                        let _ = tool_ok;
+
+                        // Feed the causal context memory: ingest any file the
+                        // tool surfaced, and inject failure pressure on errors.
+                        self.ccos_observe_tool(&name, &args, &result, tool_ok);
 
                         self.planner.history.record(
                             format!("{}({})", name, truncate_output(&args.to_string(), 100)),
@@ -1203,6 +1287,11 @@ N. Final step"#,
                     stats.tokens_after * 4,
                     stats.savings_pct()
                 );
+
+                // CCOS enrichment: text compaction is blind to causal structure
+                // and may evict code the session still depends on. Re-inject the
+                // causal working set (bounded) so the right files stay in context.
+                self.inject_ccos_working_set();
             }
             Err(e) => {
                 tracing::warn!("Compaction failed, truncating oldest messages: {e}");
@@ -1804,6 +1893,64 @@ mod tests {
             gate.evaluate("execute_shell", "rm -rf /", &destr).await,
             GateDecision::Deny(_)
         ));
+    }
+
+    // ── CCOS causal context memory ──────────────────────────────────────
+
+    #[test]
+    fn ccos_ingests_file_reads_and_recalls_causal_window() {
+        let mut agent = make_test_agent();
+        let chain = [
+            (
+                "src/main.rs",
+                "use crate::handler;\nfn main() { handler::handle(); }\n",
+            ),
+            (
+                "src/handler.rs",
+                "use crate::db;\npub fn handle() { db::query(); }\n",
+            ),
+            ("src/db.rs", "pub fn query() -> i64 { 0 }\n"),
+        ];
+        for (p, src) in chain {
+            let args = serde_json::json!({ "path": p });
+            agent.ccos_observe_tool("read_file", &args, src, true);
+        }
+        assert!(agent.ccos_stats().files >= 3, "files should be ingested");
+
+        let window = agent.ccos_recall("fix the query() bug in db.rs", 4096);
+        let uris: Vec<&str> = window.items.iter().map(|i| i.uri.as_str()).collect();
+        assert!(
+            uris.iter().any(|u| u.contains("db.rs")),
+            "recall window must contain db.rs, got {uris:?}"
+        );
+    }
+
+    #[test]
+    fn ccos_failure_signal_is_safe_when_unknown() {
+        let mut agent = make_test_agent();
+        let args = serde_json::json!({ "path": "src/missing.rs" });
+        agent.ccos_observe_tool("edit_file", &args, "error[E0001]: boom", false);
+        assert!(agent.ccos.verify().valid);
+    }
+
+    #[test]
+    fn ccos_injects_causal_working_set_into_context() {
+        let mut agent = make_test_agent();
+        let before = agent.chat_session.messages.len();
+        agent.inject_ccos_working_set();
+        assert_eq!(agent.chat_session.messages.len(), before);
+
+        for (p, src) in [
+            ("src/a.rs", "use crate::b;\npub fn a() { b::b(); }\n"),
+            ("src/b.rs", "pub fn b() -> i64 { 0 }\n"),
+        ] {
+            let args = serde_json::json!({ "path": p });
+            agent.ccos_observe_tool("read_file", &args, src, true);
+        }
+        agent.inject_ccos_working_set();
+        let last = agent.chat_session.messages.last().unwrap();
+        assert!(last.content.contains("CCOS causal working set"));
+        assert!(last.content.contains(".rs"));
     }
 
     // ── Mock helpers ────────────────────────────────────────────────────
