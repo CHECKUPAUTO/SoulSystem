@@ -4,7 +4,6 @@ members = [
     # ── CCOS (Causal Context Operating System) ─────────────────────────
     "ccos",
     "octasoma",
-    "octasoma/octacore",
 
     # ── SciRust core (local, replaces /root/scirust subtree) ─────────────
     "scirust-core",
@@ -202,6 +201,7 @@ members = [
 ]
 
 exclude = [
+    "octasoma/octacore",
     # Heavy CUDA / external subtrees — kept in repo, built on demand
     "soul-neural",
     "soullink-node",
