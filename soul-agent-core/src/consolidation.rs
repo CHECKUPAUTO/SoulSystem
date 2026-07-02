@@ -143,11 +143,7 @@ impl VectorConsolidator {
 
     /// Cluster memories using cosine similarity with the given threshold.
     /// Returns clusters of memory indices.
-    pub fn cluster_memories(
-        &self,
-        memories: &[VectorMemory],
-        threshold: f32,
-    ) -> Vec<Vec<usize>> {
+    pub fn cluster_memories(&self, memories: &[VectorMemory], threshold: f32) -> Vec<Vec<usize>> {
         if memories.is_empty() {
             return Vec::new();
         }
@@ -213,10 +209,7 @@ impl VectorConsolidator {
         let mut clusters = Vec::new();
 
         for (cluster_id, indices) in cluster_indices.iter().enumerate() {
-            let members: Vec<String> = indices
-                .iter()
-                .map(|&i| self.buffer[i].id.clone())
-                .collect();
+            let members: Vec<String> = indices.iter().map(|&i| self.buffer[i].id.clone()).collect();
 
             let embeddings: Vec<&[f32]> = indices
                 .iter()
@@ -244,7 +237,12 @@ impl VectorConsolidator {
             };
 
             // Detect dominant theme from member texts
-            let theme = self.detect_theme(&indices.iter().map(|&i| &self.buffer[i].text).collect::<Vec<_>>());
+            let theme = self.detect_theme(
+                &indices
+                    .iter()
+                    .map(|&i| &self.buffer[i].text)
+                    .collect::<Vec<_>>(),
+            );
 
             clusters.push(MemoryCluster {
                 id: format!("cluster_{}", cluster_id),
@@ -267,7 +265,11 @@ impl VectorConsolidator {
         }
 
         // Count word frequency across all texts
-        let all_text: String = texts.iter().map(|t| t.as_str()).collect::<Vec<_>>().join(" ");
+        let all_text: String = texts
+            .iter()
+            .map(|t| t.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
         let words: Vec<&str> = all_text
             .split_whitespace()
             .filter(|w| w.len() > 3)
@@ -279,7 +281,9 @@ impl VectorConsolidator {
         }
 
         // Find most common meaningful word
-        let stopwords = ["this", "that", "with", "from", "have", "been", "were", "they", "will"];
+        let stopwords = [
+            "this", "that", "with", "from", "have", "been", "were", "they", "will",
+        ];
 
         let mut top_word: Option<(&str, usize)> = None;
         for (word, count) in freq.iter() {
@@ -323,10 +327,8 @@ impl VectorConsolidator {
             .count();
 
         // Decay original episodic memories in consolidated clusters
-        let consolidated_ids: std::collections::HashSet<String> = clusters
-            .iter()
-            .flat_map(|c| c.members.clone())
-            .collect();
+        let consolidated_ids: std::collections::HashSet<String> =
+            clusters.iter().flat_map(|c| c.members.clone()).collect();
         self.buffer.retain(|m| !consolidated_ids.contains(&m.id));
 
         ConsolidationResult {
