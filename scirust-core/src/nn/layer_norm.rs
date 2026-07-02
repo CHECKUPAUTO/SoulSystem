@@ -67,24 +67,20 @@ impl Module for LayerNorm {
 
     fn parameter_indices(&self) -> Vec<usize> {
         let mut v = Vec::new();
-        if let Some(i) = self.last_g_idx
-        {
+        if let Some(i) = self.last_g_idx {
             v.push(i);
         }
-        if let Some(i) = self.last_b_idx
-        {
+        if let Some(i) = self.last_b_idx {
             v.push(i);
         }
         v
     }
 
     fn sync(&mut self, tape: &Tape) {
-        if let Some(i) = self.last_g_idx
-        {
+        if let Some(i) = self.last_g_idx {
             self.gamma = tape.value(i);
         }
-        if let Some(i) = self.last_b_idx
-        {
+        if let Some(i) = self.last_b_idx {
             self.beta = tape.value(i);
         }
     }
@@ -103,8 +99,7 @@ impl Module for LayerNorm {
         let b = sd
             .get(&format!("{}/beta", self.name))
             .ok_or_else(|| format!("missing key: {}/beta", self.name))?;
-        if g.shape() != (1, self.gamma.cols)
-        {
+        if g.shape() != (1, self.gamma.cols) {
             crate::bail!("gamma shape mismatch");
         }
         self.gamma = g.clone();

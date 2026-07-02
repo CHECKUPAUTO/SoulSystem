@@ -38,14 +38,11 @@ impl SimpleTokenizer {
     /// Construit un vocabulaire à partir d'un corpus de textes.
     pub fn build(texts: &[&str], min_freq: usize) -> Self {
         let mut counts = HashMap::new();
-        for text in texts
-        {
+        for text in texts {
             let cleaned = Self::clean_text(text);
-            for word in cleaned.split_whitespace()
-            {
+            for word in cleaned.split_whitespace() {
                 let clean_word: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
-                if !clean_word.is_empty()
-                {
+                if !clean_word.is_empty() {
                     *counts.entry(clean_word).or_insert(0) += 1;
                 }
             }
@@ -61,8 +58,7 @@ impl SimpleTokenizer {
             .collect();
         entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
-        for (id, (word, _)) in (2..).zip(entries)
-        {
+        for (id, (word, _)) in (2..).zip(entries) {
             vocab.insert(word, id);
         }
 

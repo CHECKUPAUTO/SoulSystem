@@ -82,8 +82,7 @@ impl NdDecoderLM {
         let tok = self.tok.forward(tape, tokens);
         let pos = self.pos.forward(tape, &positions);
         let mut x = tok.add(pos); // (seq, d_model)
-        for b in &mut self.blocks
-        {
+        for b in &mut self.blocks {
             x = b.forward(tape, x);
         }
         self.ln_f.forward(tape, x) // (seq, d_model)
@@ -145,8 +144,7 @@ impl NdDecoderLM {
     pub fn sgd_step(&mut self, grads: &[TensorND], lr: f32) {
         self.tok.sgd_step(grads, lr);
         self.pos.sgd_step(grads, lr);
-        for b in &mut self.blocks
-        {
+        for b in &mut self.blocks {
             b.sgd_step(grads, lr);
         }
         self.ln_f.sgd_step(grads, lr);
@@ -160,8 +158,7 @@ impl NdDecoderLM {
     pub fn parameters(&mut self) -> Vec<NdParam<'_>> {
         let mut params = self.tok.parameters();
         params.extend(self.pos.parameters());
-        for b in &mut self.blocks
-        {
+        for b in &mut self.blocks {
             params.extend(b.parameters());
         }
         params.extend(self.ln_f.parameters());
@@ -180,10 +177,8 @@ impl NdDecoderLM {
             .map(|r| {
                 let row = &lv.data[r * vocab..(r + 1) * vocab];
                 let mut best = 0usize;
-                for (c, &v) in row.iter().enumerate()
-                {
-                    if v > row[best]
-                    {
+                for (c, &v) in row.iter().enumerate() {
+                    if v > row[best] {
                         best = c;
                     }
                 }
@@ -207,8 +202,7 @@ impl NdDecoderLM {
             "prompt + n_new exceeds max_seq"
         );
         let mut seq = prompt.to_vec();
-        for _ in 0..n_new
-        {
+        for _ in 0..n_new {
             let tape = NdTape::new();
             let next = *self.predict(&tape, &seq).last().unwrap();
             seq.push(next);
@@ -242,16 +236,14 @@ pub fn generate_speculative(
     let mut seq = prompt.to_vec();
     let mut target_forwards = 0usize;
 
-    while seq.len() - prompt.len() < n_new
-    {
+    while seq.len() - prompt.len() < n_new {
         let remaining = n_new - (seq.len() - prompt.len());
         let kk = k.min(remaining);
 
         // 1. Draft proposes kk tokens greedily.
         let mut proposed = Vec::with_capacity(kk);
         let mut dseq = seq.clone();
-        for _ in 0..kk
-        {
+        for _ in 0..kk {
             let tape = NdTape::new();
             let nt = *draft.predict(&tape, &dseq).last().unwrap();
             proposed.push(nt);
@@ -268,23 +260,18 @@ pub fn generate_speculative(
         // 3. Accept the matching prefix; correct the first mismatch.
         let base = seq.len() - 1; // preds[base] is the token after `seq`
         let mut accepted = 0;
-        for (i, &pi) in proposed.iter().enumerate()
-        {
+        for (i, &pi) in proposed.iter().enumerate() {
             let tok = preds[base + i];
-            if tok == pi
-            {
+            if tok == pi {
                 seq.push(pi);
                 accepted += 1;
-            }
-            else
-            {
+            } else {
                 seq.push(tok); // target's correction (== greedy's choice here)
                 break;
             }
         }
         // 4. All accepted ⇒ a free bonus token (target's argmax at the end).
-        if accepted == proposed.len() && seq.len() - prompt.len() < n_new
-        {
+        if accepted == proposed.len() && seq.len() - prompt.len() < n_new {
             seq.push(preds[base + proposed.len()]);
         }
     }
@@ -296,10 +283,8 @@ pub fn generate_speculative(
 /// Argmax of a logit row (first index on ties).
 fn argmax_row(row: &[f32]) -> usize {
     let mut best = 0usize;
-    for (c, &v) in row.iter().enumerate()
-    {
-        if v > row[best]
-        {
+    for (c, &v) in row.iter().enumerate() {
+        if v > row[best] {
             best = c;
         }
     }
@@ -335,8 +320,7 @@ impl MedusaHeads {
     /// Trainable parameters of every head, in order.
     pub fn parameters(&mut self) -> Vec<NdParam<'_>> {
         let mut params = Vec::new();
-        for head in &mut self.heads
-        {
+        for head in &mut self.heads {
             params.extend(head.parameters());
         }
         params
@@ -368,30 +352,25 @@ impl MedusaHeads {
         let h = model.forward_hidden(&tape0, seq);
         let hidden_val = tape0.value(h).clone();
         let mut opt = NdAdam::with_lr(lr);
-        for _ in 0..steps
-        {
+        for _ in 0..steps {
             let tape = NdTape::new();
             let hin = tape.input(hidden_val.clone()); // constant (L, d_model)
             let mut total: Option<NdVar> = None;
-            for (j, head) in self.heads.iter_mut().enumerate()
-            {
+            for (j, head) in self.heads.iter_mut().enumerate() {
                 let o = j + 2;
-                if l <= o
-                {
+                if l <= o {
                     continue;
                 }
                 let logits = head.forward(&tape, hin); // (L, vocab)
                 let rows: Vec<usize> = (0..l - o).collect();
                 let sub = logits.gather(&rows); // (L-o, vocab)
                 let ce = sub.cross_entropy(&seq[o..l]);
-                total = Some(match total
-                {
+                total = Some(match total {
                     None => ce,
                     Some(t) => t.add(ce),
                 });
             }
-            if let Some(loss) = total
-            {
+            if let Some(loss) = total {
                 let grads = tape.backward(loss);
                 let mut params = self.parameters();
                 opt.step(&mut params, &grads);
@@ -425,8 +404,7 @@ pub fn generate_medusa(
     let mut seq = prompt.to_vec();
     let mut forwards = 0usize;
 
-    while seq.len() - prompt.len() < n_new
-    {
+    while seq.len() - prompt.len() < n_new {
         let remaining = n_new - (seq.len() - prompt.len());
 
         // 1. One base forward → next-token logits + hidden state; build the draft
@@ -455,22 +433,17 @@ pub fn generate_medusa(
         // 3. Accept the matching prefix; the base token always matches greedy.
         let base = seq.len() - 1;
         let mut accepted = 0;
-        for (i, &bi) in block.iter().enumerate()
-        {
-            if preds[base + i] == bi
-            {
+        for (i, &bi) in block.iter().enumerate() {
+            if preds[base + i] == bi {
                 seq.push(bi);
                 accepted += 1;
-            }
-            else
-            {
+            } else {
                 seq.push(preds[base + i]); // greedy correction
                 break;
             }
         }
         // 4. All accepted ⇒ a bonus greedy token after the block.
-        if accepted == block.len() && seq.len() - prompt.len() < n_new
-        {
+        if accepted == block.len() && seq.len() - prompt.len() < n_new {
             seq.push(preds[base + block.len()]);
         }
     }
@@ -523,8 +496,7 @@ impl EagleHead {
     pub fn train(&mut self, model: &mut NdDecoderLM, seq: &[usize], steps: usize, lr: f32) {
         let l = seq.len();
         let dm = self.d_model;
-        if l < 2
-        {
+        if l < 2 {
             return;
         }
         // Frozen base features, then build (feature, next-embed) → next-feature.
@@ -533,15 +505,13 @@ impl EagleHead {
         let hval = tape0.value(h).clone(); // (L, d_model)
         let mut x = Vec::with_capacity((l - 1) * 2 * dm);
         let mut y = Vec::with_capacity((l - 1) * dm);
-        for i in 0..l - 1
-        {
+        for i in 0..l - 1 {
             x.extend_from_slice(&hval.data[i * dm..(i + 1) * dm]);
             x.extend_from_slice(&model.token_embedding(seq[i + 1]));
             y.extend_from_slice(&hval.data[(i + 1) * dm..(i + 2) * dm]);
         }
         let mut opt = NdAdam::with_lr(lr);
-        for _ in 0..steps
-        {
+        for _ in 0..steps {
             let tape = NdTape::new();
             let xv = tape.input(TensorND::new(x.clone(), vec![l - 1, 2 * dm]));
             let yv = tape.input(TensorND::new(y.clone(), vec![l - 1, dm]));
@@ -581,8 +551,7 @@ pub fn generate_eagle(
     let mut seq = prompt.to_vec();
     let mut forwards = 0usize;
 
-    while seq.len() - prompt.len() < n_new
-    {
+    while seq.len() - prompt.len() < n_new {
         let remaining = n_new - (seq.len() - prompt.len());
 
         // 1. One base forward → next token + last feature; autoregress the draft.
@@ -599,8 +568,7 @@ pub fn generate_eagle(
 
         let mut block = vec![base_next];
         let mut tok = base_next;
-        for _ in 1..k
-        {
+        for _ in 1..k {
             let emb = model.token_embedding(tok);
             feature = eagle.predict_feature(&feature, &emb);
             tok = argmax_row(&model.head_logits(&feature));
@@ -618,22 +586,17 @@ pub fn generate_eagle(
         // 3. Accept the matching prefix; correct the first mismatch.
         let base = seq.len() - 1;
         let mut accepted = 0;
-        for (i, &bi) in block.iter().enumerate()
-        {
-            if preds[base + i] == bi
-            {
+        for (i, &bi) in block.iter().enumerate() {
+            if preds[base + i] == bi {
                 seq.push(bi);
                 accepted += 1;
-            }
-            else
-            {
+            } else {
                 seq.push(preds[base + i]);
                 break;
             }
         }
         // 4. All accepted ⇒ a bonus greedy token.
-        if accepted == block.len() && seq.len() - prompt.len() < n_new
-        {
+        if accepted == block.len() && seq.len() - prompt.len() < n_new {
             seq.push(preds[base + block.len()]);
         }
     }
@@ -670,13 +633,11 @@ mod tests {
 
         let mut first = f32::NAN;
         let mut last = f32::NAN;
-        for step in 0..300
-        {
+        for step in 0..300 {
             let t = NdTape::new();
             let loss_v = lm.loss(&t, &seq);
             let loss = t.value(loss_v).data[0];
-            if step == 0
-            {
+            if step == 0 {
                 first = loss;
             }
             last = loss;
@@ -734,13 +695,11 @@ mod tests {
 
         let mut first = f32::NAN;
         let mut last = f32::NAN;
-        for step in 0..150
-        {
+        for step in 0..150 {
             let t = NdTape::new();
             let loss_v = lm.loss(&t, &seq);
             let loss = t.value(loss_v).data[0];
-            if step == 0
-            {
+            if step == 0 {
                 first = loss;
             }
             last = loss;
@@ -845,8 +804,7 @@ mod tests {
         // Overfit the base model on the sequence.
         let mut model = NdDecoderLM::new(cfg, &mut PcgEngine::new(1));
         let mut opt = NdAdam::with_lr(0.05);
-        for _ in 0..300
-        {
+        for _ in 0..300 {
             let t = NdTape::new();
             let loss = model.loss(&t, &seq);
             let lv = t.value(loss);
@@ -915,8 +873,7 @@ mod tests {
 
         let mut model = NdDecoderLM::new(cfg, &mut PcgEngine::new(1));
         let mut opt = NdAdam::with_lr(0.05);
-        for _ in 0..300
-        {
+        for _ in 0..300 {
             let t = NdTape::new();
             let loss = model.loss(&t, &seq);
             let grads = t.backward(loss);

@@ -2116,7 +2116,11 @@ fn run_shield(args: &[String]) -> i32 {
                 println!("{}", serde_json::to_string_pretty(&skeleton).unwrap());
             } else {
                 println!("{}", skeleton.text);
-                eprintln!("// estimated tokens: {} (raw file: ~{}k)", skeleton.estimated_tokens, skeleton.total_lines * 35 / 1000);
+                eprintln!(
+                    "// estimated tokens: {} (raw file: ~{}k)",
+                    skeleton.estimated_tokens,
+                    skeleton.total_lines * 35 / 1000
+                );
                 eprintln!("// use 'ccos page-fault <path> <anchor-name>' to load full body");
             }
             0

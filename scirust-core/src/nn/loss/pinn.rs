@@ -83,8 +83,7 @@ fn perturb_col(t: &Tensor, col: usize, h: f32) -> Tensor {
     let mut data = t.data.clone();
     let cols = t.cols;
     let mut i = col;
-    while i < data.len()
-    {
+    while i < data.len() {
         data[i] += h;
         i += cols;
     }

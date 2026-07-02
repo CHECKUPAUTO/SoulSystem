@@ -29,16 +29,13 @@ pub fn matmul_silu(
 ) -> Vec<f32> {
     let mut output = vec![0.0f32; batch * out_features];
 
-    for b in 0..batch
-    {
+    for b in 0..batch {
         let x_off = b * in_features;
         let o_off = b * out_features;
 
-        for o in 0..out_features
-        {
+        for o in 0..out_features {
             let mut acc = bias[o];
-            for k in 0..in_features
-            {
+            for k in 0..in_features {
                 acc += x[x_off + k] * w[k * out_features + o];
             }
             acc *= 1.0 / (1.0 + (-acc).exp());
@@ -59,16 +56,13 @@ pub fn matmul_relu(
 ) -> Vec<f32> {
     let mut output = vec![0.0f32; batch * out_features];
 
-    for b in 0..batch
-    {
+    for b in 0..batch {
         let x_off = b * in_features;
         let o_off = b * out_features;
 
-        for o in 0..out_features
-        {
+        for o in 0..out_features {
             let mut acc = bias[o];
-            for k in 0..in_features
-            {
+            for k in 0..in_features {
                 acc += x[x_off + k] * w[k * out_features + o];
             }
             output[o_off + o] = acc.max(0.0);
@@ -89,16 +83,13 @@ pub fn matmul_gelu(
     let mut output = vec![0.0f32; batch * out_features];
     let sqrt_2_pi = 0.797_884_6_f32;
 
-    for b in 0..batch
-    {
+    for b in 0..batch {
         let x_off = b * in_features;
         let o_off = b * out_features;
 
-        for o in 0..out_features
-        {
+        for o in 0..out_features {
             let mut acc = bias[o];
-            for k in 0..in_features
-            {
+            for k in 0..in_features {
                 acc += x[x_off + k] * w[k * out_features + o];
             }
             let cubed = acc * acc * acc;
@@ -125,40 +116,34 @@ pub fn matmul_layernorm(
 ) -> Vec<f32> {
     let mut output = vec![0.0f32; batch * out_features];
 
-    for b in 0..batch
-    {
+    for b in 0..batch {
         let x_off = b * in_features;
         let o_off = b * out_features;
 
         let mut intermediate = vec![0.0f32; out_features];
-        for o in 0..out_features
-        {
+        for o in 0..out_features {
             let mut acc = bias[o];
-            for k in 0..in_features
-            {
+            for k in 0..in_features {
                 acc += x[x_off + k] * w[k * out_features + o];
             }
             intermediate[o] = acc;
         }
 
         let mut mean = 0.0f32;
-        for &v in &intermediate
-        {
+        for &v in &intermediate {
             mean += v;
         }
         mean /= out_features as f32;
 
         let mut var = 0.0f32;
-        for &v in &intermediate
-        {
+        for &v in &intermediate {
             let d = v - mean;
             var += d * d;
         }
         var /= out_features as f32;
         let std = (var + eps).sqrt();
 
-        for i in 0..out_features
-        {
+        for i in 0..out_features {
             output[o_off + i] = (intermediate[i] - mean) / std * gamma[i] + beta[i];
         }
     }
@@ -183,17 +168,14 @@ pub fn matmul_silu_layernorm(
 ) -> Vec<f32> {
     let mut output = vec![0.0f32; batch * out_features];
 
-    for b in 0..batch
-    {
+    for b in 0..batch {
         let x_off = b * in_features;
         let o_off = b * out_features;
 
         let mut hidden = vec![0.0f32; hidden_features];
-        for h in 0..hidden_features
-        {
+        for h in 0..hidden_features {
             let mut acc = b1[h];
-            for k in 0..in_features
-            {
+            for k in 0..in_features {
                 acc += x[x_off + k] * w1[k * hidden_features + h];
             }
             acc *= 1.0 / (1.0 + (-acc).exp());
@@ -201,33 +183,28 @@ pub fn matmul_silu_layernorm(
         }
 
         let mut intermediate = vec![0.0f32; out_features];
-        for o in 0..out_features
-        {
+        for o in 0..out_features {
             let mut acc = b2[o];
-            for h in 0..hidden_features
-            {
+            for h in 0..hidden_features {
                 acc += hidden[h] * w2[h * out_features + o];
             }
             intermediate[o] = acc;
         }
 
         let mut mean = 0.0f32;
-        for &v in &intermediate
-        {
+        for &v in &intermediate {
             mean += v;
         }
         mean /= out_features as f32;
 
         let mut var = 0.0f32;
-        for &v in &intermediate
-        {
+        for &v in &intermediate {
             let d = v - mean;
             var += d * d;
         }
         var /= out_features as f32;
         let std = (var + eps).sqrt();
-        for i in 0..out_features
-        {
+        for i in 0..out_features {
             output[o_off + i] = (intermediate[i] - mean) / std * gamma[i] + beta[i];
         }
     }
@@ -245,16 +222,13 @@ pub fn matmul_scale(
 ) -> Vec<f32> {
     let mut output = vec![0.0f32; batch * out_features];
 
-    for b in 0..batch
-    {
+    for b in 0..batch {
         let x_off = b * in_features;
         let o_off = b * out_features;
 
-        for o in 0..out_features
-        {
+        for o in 0..out_features {
             let mut acc = 0.0f32;
-            for k in 0..in_features
-            {
+            for k in 0..in_features {
                 acc += x[x_off + k] * w[k * out_features + o];
             }
             output[o_off + o] = acc * scale[o];

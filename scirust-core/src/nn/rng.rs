@@ -60,8 +60,7 @@ mod tests {
     fn deterministic_with_same_seed() {
         let mut a = PcgEngine::new(42);
         let mut b = PcgEngine::new(42);
-        for _ in 0..100
-        {
+        for _ in 0..100 {
             assert_eq!(a.next_u32(), b.next_u32());
         }
     }
@@ -69,8 +68,7 @@ mod tests {
     #[test]
     fn float_in_unit_range() {
         let mut rng = PcgEngine::new(123);
-        for _ in 0..1000
-        {
+        for _ in 0..1000 {
             let x = rng.float();
             assert!((0.0..1.0).contains(&x), "float out of range: {x}");
         }
@@ -82,8 +80,7 @@ mod tests {
         let n = 10000;
         let mut sum = 0.0_f32;
         let mut sq = 0.0_f32;
-        for _ in 0..n
-        {
+        for _ in 0..n {
             let x = rng.normal(0.0, 1.0);
             sum += x;
             sq += x * x;
@@ -98,8 +95,7 @@ mod tests {
     #[test]
     fn float_signed_in_range() {
         let mut rng = PcgEngine::new(99);
-        for _ in 0..1000
-        {
+        for _ in 0..1000 {
             let x = rng.float_signed();
             assert!((-1.0..1.0).contains(&x), "float_signed out of range: {x}");
         }

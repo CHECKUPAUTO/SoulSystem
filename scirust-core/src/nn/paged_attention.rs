@@ -75,8 +75,7 @@ impl PagedKvCache {
     pub fn append(&mut self, k: &[f32], v: &[f32]) {
         assert_eq!(k.len(), self.d, "append: key must be length d");
         assert_eq!(v.len(), self.d, "append: value must be length d");
-        if self.len % self.block_size == 0
-        {
+        if self.len % self.block_size == 0 {
             // New logical block → grab the next physical slot from the pool.
             let phys = self.pool_k.len();
             self.pool_k.push(vec![0.0f32; self.block_size * self.d]);
@@ -109,8 +108,7 @@ impl PagedKvCache {
     /// Reconstruct the contiguous `len×d` key matrix by walking the block table.
     pub fn gather_keys(&self) -> Vec<f32> {
         let mut out = vec![0.0f32; self.len * self.d];
-        for t in 0..self.len
-        {
+        for t in 0..self.len {
             out[t * self.d..(t + 1) * self.d].copy_from_slice(self.key_at(t));
         }
         out
@@ -119,8 +117,7 @@ impl PagedKvCache {
     /// Reconstruct the contiguous `len×d` value matrix.
     pub fn gather_values(&self) -> Vec<f32> {
         let mut out = vec![0.0f32; self.len * self.d];
-        for t in 0..self.len
-        {
+        for t in 0..self.len {
             out[t * self.d..(t + 1) * self.d].copy_from_slice(self.value_at(t));
         }
         out
@@ -172,45 +169,37 @@ fn attention_core<'a>(
     q: &[f32],
 ) -> Vec<f32> {
     let mut out = vec![0.0f32; d];
-    if n == 0
-    {
+    if n == 0 {
         return out;
     }
     let scale = 1.0 / (d as f32).sqrt();
     // Scores qᵀkₜ / √d.
     let mut scores = vec![0.0f32; n];
-    for (t, st) in scores.iter_mut().enumerate()
-    {
+    for (t, st) in scores.iter_mut().enumerate() {
         let k = key_at(t);
         let mut s = 0.0f32;
-        for c in 0..d
-        {
+        for c in 0..d {
             s += q[c] * k[c];
         }
         *st = s * scale;
     }
     // Stable softmax.
     let mut mx = scores[0];
-    for &s in &scores[1..]
-    {
-        if s > mx
-        {
+    for &s in &scores[1..] {
+        if s > mx {
             mx = s;
         }
     }
     let mut denom = 0.0f32;
-    for st in scores.iter_mut()
-    {
+    for st in scores.iter_mut() {
         *st = (*st - mx).exp();
         denom += *st;
     }
     // Weighted sum of values.
-    for (t, &score) in scores.iter().enumerate()
-    {
+    for (t, &score) in scores.iter().enumerate() {
         let p = score / denom;
         let v = value_at(t);
-        for c in 0..d
-        {
+        for c in 0..d {
             out[c] += p * v[c];
         }
     }
@@ -238,11 +227,9 @@ mod tests {
         let (n, d, bs) = (10usize, 3usize, 4usize);
         let (keys, values) = random_kv(n, d, 1);
         let mut cache = PagedKvCache::new(d, bs);
-        for t in 0..n
-        {
+        for t in 0..n {
             // Fragment the pool before each new logical block.
-            if t % bs == 0
-            {
+            if t % bs == 0 {
                 cache.reserve_decoy();
             }
             cache.append(&keys[t * d..(t + 1) * d], &values[t * d..(t + 1) * d]);
@@ -273,10 +260,8 @@ mod tests {
         let q: Vec<f32> = (0..d).map(|_| rng.float_signed()).collect();
 
         let mut cache = PagedKvCache::new(d, bs);
-        for t in 0..n
-        {
-            if t % bs == 0
-            {
+        for t in 0..n {
+            if t % bs == 0 {
                 cache.reserve_decoy(); // force non-contiguous physical blocks
             }
             cache.append(&keys[t * d..(t + 1) * d], &values[t * d..(t + 1) * d]);
@@ -306,8 +291,7 @@ mod tests {
 
         let (keys, values) = random_kv(8, d, 3); // exactly 2 full blocks
         let mut cache = PagedKvCache::new(d, bs);
-        for t in 0..8
-        {
+        for t in 0..8 {
             cache.append(&keys[t * d..(t + 1) * d], &values[t * d..(t + 1) * d]);
         }
         assert_eq!(cache.num_blocks(), 2);

@@ -21,10 +21,8 @@ pub struct CharTokenizer {
 impl CharTokenizer {
     pub fn new(texts: &[&str]) -> Self {
         let mut chars = BTreeMap::new();
-        for t in texts
-        {
-            for c in t.chars()
-            {
+        for t in texts {
+            for c in t.chars() {
                 *chars.entry(c).or_insert(0) += 1;
             }
         }
@@ -34,8 +32,7 @@ impl CharTokenizer {
         rev.insert(0, '\0');
         vocab.insert('�', 1);
         rev.insert(1, '�');
-        for (i, c) in chars.keys().enumerate()
-        {
+        for (i, c) in chars.keys().enumerate() {
             let id = i + 2;
             vocab.insert(*c, id);
             rev.insert(id, *c);
@@ -140,8 +137,7 @@ impl MiniLLM {
 
         // Input [seq_len, 1] — chaque ligne = un token index
         let mut data = vec![0.0f32; seq_len];
-        for (i, &id) in input_ids.iter().enumerate()
-        {
+        for (i, &id) in input_ids.iter().enumerate() {
             data[i] = id as f32;
         }
         let t = tape.input(Tensor::from_vec(data, seq_len, 1));
@@ -167,17 +163,12 @@ impl MiniLLM {
         let nrows = r.min(seq_len);
         let mut out = Tensor::zeros(nrows.max(1), self.config.vocab_size);
         let vals = tape.value(logits_var.idx());
-        for i in 0..nrows
-        {
-            for j in 0..self.config.vocab_size.min(c)
-            {
+        for i in 0..nrows {
+            for j in 0..self.config.vocab_size.min(c) {
                 let idx = i * c + j;
-                let v = if idx < vals.data.len()
-                {
+                let v = if idx < vals.data.len() {
                     vals.data[idx]
-                }
-                else
-                {
+                } else {
                     0.0
                 };
                 out.data[i * self.config.vocab_size + j] = if v.is_finite() { v } else { 0.0 };
@@ -193,8 +184,7 @@ impl MiniLLM {
         let tape = Tape::new();
 
         let mut data = vec![0.0f32; seq_len];
-        for (i, &id) in input_ids.iter().enumerate()
-        {
+        for (i, &id) in input_ids.iter().enumerate() {
             data[i] = id as f32;
         }
         let t = tape.input(Tensor::from_vec(data, seq_len, 1));
@@ -210,17 +200,12 @@ impl MiniLLM {
         let nrows = r.min(seq_len);
         let mut out = Tensor::zeros(nrows.max(1), self.config.d_model);
         let vals = tape.value(n.idx());
-        for i in 0..nrows
-        {
-            for j in 0..self.config.d_model.min(c)
-            {
+        for i in 0..nrows {
+            for j in 0..self.config.d_model.min(c) {
                 let idx = i * c + j;
-                let v = if idx < vals.data.len()
-                {
+                let v = if idx < vals.data.len() {
                     vals.data[idx]
-                }
-                else
-                {
+                } else {
                     0.0
                 };
                 out.data[i * self.config.d_model + j] = if v.is_finite() { v } else { 0.0 };
@@ -244,29 +229,22 @@ impl MiniLLM {
     pub fn generate_ids(&mut self, prompt_ids: &[usize], max_tokens: usize) -> Vec<usize> {
         let mut ids = prompt_ids.to_vec();
         let half = self.config.max_seq_len / 2;
-        for _ in 0..max_tokens
-        {
-            if ids.len() >= self.config.max_seq_len
-            {
+        for _ in 0..max_tokens {
+            if ids.len() >= self.config.max_seq_len {
                 break;
             }
-            let ctx: Vec<usize> = if ids.len() > half
-            {
+            let ctx: Vec<usize> = if ids.len() > half {
                 ids[ids.len() - half..].to_vec()
-            }
-            else
-            {
+            } else {
                 ids.clone()
             };
             let logits = self.forward(&ctx);
-            if logits.nrows() == 0
-            {
+            if logits.nrows() == 0 {
                 break;
             }
             let next = argmax_row(&logits, logits.nrows() - 1, self.config.vocab_size);
             ids.push(next);
-            if next == 0
-            {
+            if next == 0 {
                 break;
             }
         }
@@ -275,8 +253,7 @@ impl MiniLLM {
 
     /// Clear every attention layer's KV-cache (call before a fresh generation).
     pub fn reset_kv_cache(&mut self) {
-        for block in self.encoder.blocks.iter_mut()
-        {
+        for block in self.encoder.blocks.iter_mut() {
             block.mha.kv_cache.replace(None);
         }
     }
@@ -305,28 +282,23 @@ impl MiniLLM {
         self.reset_kv_cache();
         let vocab = self.config.vocab_size;
         let mut ids = prompt_ids.to_vec();
-        if ids.is_empty()
-        {
+        if ids.is_empty() {
             return ids;
         }
         // Prime the cache with the prompt; keep the last token's logits.
         let prompt: Vec<usize> = ids.clone();
         let mut logits = self.step_logits(prompt[0], 0);
-        for (pos, &id) in prompt.iter().enumerate().skip(1)
-        {
+        for (pos, &id) in prompt.iter().enumerate().skip(1) {
             logits = self.step_logits(id, pos);
         }
-        for _ in 0..max_tokens
-        {
+        for _ in 0..max_tokens {
             let pos = ids.len();
-            if pos >= self.config.max_seq_len
-            {
+            if pos >= self.config.max_seq_len {
                 break;
             }
             let next = argmax_row(&logits, 0, vocab);
             ids.push(next);
-            if next == 0
-            {
+            if next == 0 {
                 break;
             }
             logits = self.step_logits(next, pos);
@@ -348,28 +320,23 @@ impl MiniLLM {
         let mut rng = crate::nn::rng::PcgEngine::new(seed);
         let vocab = self.config.vocab_size;
         let mut ids = prompt_ids.to_vec();
-        if ids.is_empty()
-        {
+        if ids.is_empty() {
             return ids;
         }
         let prompt: Vec<usize> = ids.clone();
         let mut logits = self.step_logits(prompt[0], 0);
-        for (pos, &id) in prompt.iter().enumerate().skip(1)
-        {
+        for (pos, &id) in prompt.iter().enumerate().skip(1) {
             logits = self.step_logits(id, pos);
         }
-        for _ in 0..max_tokens
-        {
+        for _ in 0..max_tokens {
             let pos = ids.len();
-            if pos >= self.config.max_seq_len
-            {
+            if pos >= self.config.max_seq_len {
                 break;
             }
             let row = &logits.data[..vocab.min(logits.data.len())];
             let next = crate::nn::sampling::sample_token(row, cfg, &mut rng);
             ids.push(next);
-            if next == 0
-            {
+            if next == 0 {
                 break;
             }
             logits = self.step_logits(next, pos);
@@ -444,8 +411,7 @@ mod tests {
         };
         let mut m = MiniLLM::new(cfg, tok);
         let logits = m.forward(&[2, 3, 4]);
-        for &v in &logits.data
-        {
+        for &v in &logits.data {
             assert!(!v.is_nan(), "NaN in logits");
         }
     }

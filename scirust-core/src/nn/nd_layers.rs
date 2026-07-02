@@ -63,17 +63,13 @@ impl NdLinear {
     /// Apply `param -= lr · grad` for the weight and bias using the gradients
     /// returned by [`NdTape::backward`] (must follow a `forward` on that tape).
     pub fn sgd_step(&mut self, grads: &[TensorND], lr: f32) {
-        if let Some(i) = self.w_idx
-        {
-            for (p, &g) in self.weight.data.iter_mut().zip(&grads[i].data)
-            {
+        if let Some(i) = self.w_idx {
+            for (p, &g) in self.weight.data.iter_mut().zip(&grads[i].data) {
                 *p -= lr * g;
             }
         }
-        if let Some(i) = self.b_idx
-        {
-            for (p, &g) in self.bias.data.iter_mut().zip(&grads[i].data)
-            {
+        if let Some(i) = self.b_idx {
+            for (p, &g) in self.bias.data.iter_mut().zip(&grads[i].data) {
                 *p -= lr * g;
             }
         }
@@ -94,15 +90,13 @@ impl NdLinear {
     /// Call after a `forward` on the tape being differentiated.
     pub fn parameters(&mut self) -> Vec<NdParam<'_>> {
         let mut params = Vec::new();
-        if let Some(i) = self.w_idx
-        {
+        if let Some(i) = self.w_idx {
             params.push(NdParam {
                 value: &mut self.weight,
                 grad_idx: i,
             });
         }
-        if let Some(i) = self.b_idx
-        {
+        if let Some(i) = self.b_idx {
             params.push(NdParam {
                 value: &mut self.bias,
                 grad_idx: i,
@@ -143,10 +137,8 @@ impl NdEmbedding {
 
     /// SGD-update the table from a `backward` result.
     pub fn sgd_step(&mut self, grads: &[TensorND], lr: f32) {
-        if let Some(i) = self.idx
-        {
-            for (p, &g) in self.table.data.iter_mut().zip(&grads[i].data)
-            {
+        if let Some(i) = self.idx {
+            for (p, &g) in self.table.data.iter_mut().zip(&grads[i].data) {
                 *p -= lr * g;
             }
         }
@@ -161,8 +153,7 @@ impl NdEmbedding {
     /// an optimizer. Call after a `forward` on the tape being differentiated.
     pub fn parameters(&mut self) -> Vec<NdParam<'_>> {
         let mut params = Vec::new();
-        if let Some(i) = self.idx
-        {
+        if let Some(i) = self.idx {
             params.push(NdParam {
                 value: &mut self.table,
                 grad_idx: i,
@@ -178,12 +169,9 @@ impl NdEmbedding {
 /// `-1e9` (rather than `-inf`) keeps the softmax numerically safe.
 fn causal_mask(seq: usize) -> TensorND {
     let mut data = vec![0.0f32; seq * seq];
-    for i in 0..seq
-    {
-        for (j, slot) in data[i * seq..(i + 1) * seq].iter_mut().enumerate()
-        {
-            if j > i
-            {
+    for i in 0..seq {
+        for (j, slot) in data[i * seq..(i + 1) * seq].iter_mut().enumerate() {
+            if j > i {
                 *slot = -1e9;
             }
         }
@@ -210,12 +198,9 @@ pub fn alibi_slopes(n_heads: usize) -> Vec<f32> {
 pub fn alibi_bias(slopes: &[f32], seq: usize) -> TensorND {
     let h = slopes.len();
     let mut data = vec![0.0f32; h * seq * seq];
-    for (head, &m) in slopes.iter().enumerate()
-    {
-        for i in 0..seq
-        {
-            for j in 0..seq
-            {
+    for (head, &m) in slopes.iter().enumerate() {
+        for i in 0..seq {
+            for j in 0..seq {
                 data[(head * seq + i) * seq + j] = if j > i { -1e9 } else { -m * (i - j) as f32 };
             }
         }
@@ -334,8 +319,7 @@ impl NdMultiHeadAttention {
         let v = self.w_v.forward(tape, x);
         let v = self.split_heads(v, seq, self.num_kv_heads);
 
-        if self.rope
-        {
+        if self.rope {
             // Rotate Q and K per head over (heads, seq, d_head); attention then
             // depends only on relative position.
             q = q.rope(ROPE_BASE);
@@ -348,23 +332,17 @@ impl NdMultiHeadAttention {
         ));
         let group = self.n_heads / self.num_kv_heads;
 
-        let ctx = if group == 1
-        {
+        let ctx = if group == 1 {
             // Standard multi-head path: (n_heads, seq, d_head).
             let mut scores = q.bmm(k.transpose_last2()).mul(scale);
-            if self.alibi
-            {
+            if self.alibi {
                 // ALiBi: per-head linear-distance bias (already includes the mask).
                 scores = scores.add(tape.input(alibi_bias(&alibi_slopes(self.n_heads), seq)));
-            }
-            else if self.causal
-            {
+            } else if self.causal {
                 scores = scores.add(tape.input(causal_mask(seq)));
             }
             scores.softmax().bmm(v)
-        }
-        else
-        {
+        } else {
             // GQA: q (kv_heads, group, seq, d_head) vs k/v (kv_heads, 1, …) — the
             // size-1 group axis broadcasts, sharing each kv head across `group`
             // query heads. Then fold the group axis back into the head axis.
@@ -373,8 +351,7 @@ impl NdMultiHeadAttention {
             let kg = k.reshape(&[kvh, 1, seq, self.d_head]);
             let vg = v.reshape(&[kvh, 1, seq, self.d_head]);
             let mut scores = qg.bmm(kg.transpose_last2()).mul(scale); // (kvh, group, seq, seq)
-            if self.causal
-            {
+            if self.causal {
                 scores = scores.add(tape.input(causal_mask(seq)));
             }
             scores
@@ -439,17 +416,13 @@ impl NdLayerNorm {
 
     /// SGD-update `γ` and `β`.
     pub fn sgd_step(&mut self, grads: &[TensorND], lr: f32) {
-        if let Some(i) = self.g_idx
-        {
-            for (p, &gv) in self.gamma.data.iter_mut().zip(&grads[i].data)
-            {
+        if let Some(i) = self.g_idx {
+            for (p, &gv) in self.gamma.data.iter_mut().zip(&grads[i].data) {
                 *p -= lr * gv;
             }
         }
-        if let Some(i) = self.b_idx
-        {
-            for (p, &gv) in self.beta.data.iter_mut().zip(&grads[i].data)
-            {
+        if let Some(i) = self.b_idx {
+            for (p, &gv) in self.beta.data.iter_mut().zip(&grads[i].data) {
                 *p -= lr * gv;
             }
         }
@@ -458,15 +431,13 @@ impl NdLayerNorm {
     /// Trainable parameters (gamma, beta) with their gradient indices.
     pub fn parameters(&mut self) -> Vec<NdParam<'_>> {
         let mut params = Vec::new();
-        if let Some(i) = self.g_idx
-        {
+        if let Some(i) = self.g_idx {
             params.push(NdParam {
                 value: &mut self.gamma,
                 grad_idx: i,
             });
         }
-        if let Some(i) = self.b_idx
-        {
+        if let Some(i) = self.b_idx {
             params.push(NdParam {
                 value: &mut self.beta,
                 grad_idx: i,
@@ -504,10 +475,8 @@ impl NdRmsNorm {
 
     /// SGD-update `γ`.
     pub fn sgd_step(&mut self, grads: &[TensorND], lr: f32) {
-        if let Some(i) = self.g_idx
-        {
-            for (p, &gv) in self.gamma.data.iter_mut().zip(&grads[i].data)
-            {
+        if let Some(i) = self.g_idx {
+            for (p, &gv) in self.gamma.data.iter_mut().zip(&grads[i].data) {
                 *p -= lr * gv;
             }
         }
@@ -516,8 +485,7 @@ impl NdRmsNorm {
     /// Trainable parameter (`γ`) with its gradient index.
     pub fn parameters(&mut self) -> Vec<NdParam<'_>> {
         let mut params = Vec::new();
-        if let Some(i) = self.g_idx
-        {
+        if let Some(i) = self.g_idx {
             params.push(NdParam {
                 value: &mut self.gamma,
                 grad_idx: i,
@@ -711,8 +679,7 @@ pub fn delta_rule<'t>(
     let (seq, d) = (qs[0], qs[1]);
     let mut s = tape.input(TensorND::zeros(&[d, d])); // fast-weight memory S_0 = 0
     let mut outs: Vec<NdVar<'t>> = Vec::with_capacity(seq);
-    for t in 0..seq
-    {
+    for t in 0..seq {
         let k_col = k.gather(&[t]).reshape(&[d, 1]);
         let k_row = k.gather(&[t]).reshape(&[1, d]);
         let v_col = v.gather(&[t]).reshape(&[d, 1]);
@@ -797,8 +764,7 @@ pub fn selective_scan<'t>(
     let neg1 = tape.input(TensorND::new(vec![-1.0f32], vec![1, 1]));
     let mut h = tape.input(TensorND::zeros(&[d, n])); // h_0 = 0
     let mut outs: Vec<NdVar<'t>> = Vec::with_capacity(seq);
-    for t in 0..seq
-    {
+    for t in 0..seq {
         let dt_col = delta.gather(&[t]).reshape(&[d, 1]); // Δ_t   (d,1)
         let x_col = x.gather(&[t]).reshape(&[d, 1]); //      x_t   (d,1)
         let b_row = b.gather(&[t]).reshape(&[1, n]); //      B_t   (1,n)
@@ -835,10 +801,8 @@ impl NdMamba {
     pub fn new(d_model: usize, d_inner: usize, n: usize, rng: &mut PcgEngine) -> Self {
         // S4D-real init: A[:,j] = −(j+1) ⇒ a_log[:,j] = ln(j+1).
         let mut a_log = vec![0f32; d_inner * n];
-        for i in 0..d_inner
-        {
-            for j in 0..n
-            {
+        for i in 0..d_inner {
+            for j in 0..n {
                 a_log[i * n + j] = ((j + 1) as f32).ln();
             }
         }
@@ -878,15 +842,13 @@ impl NdMamba {
         params.extend(self.b_proj.parameters());
         params.extend(self.c_proj.parameters());
         params.extend(self.out_proj.parameters());
-        if let Some(i) = a_idx
-        {
+        if let Some(i) = a_idx {
             params.push(NdParam {
                 value: &mut self.a_log,
                 grad_idx: i,
             });
         }
-        if let Some(i) = d_idx
-        {
+        if let Some(i) = d_idx {
             params.push(NdParam {
                 value: &mut self.d_skip,
                 grad_idx: i,
@@ -924,8 +886,7 @@ pub fn s4_scan<'t>(
     let bbar = dt.mul(b); // Δ⊙B              (d,n)
     let mut h = tape.input(TensorND::zeros(&[d, n])); // h_0 = 0
     let mut outs: Vec<NdVar<'t>> = Vec::with_capacity(seq);
-    for t in 0..seq
-    {
+    for t in 0..seq {
         let x_col = x.gather(&[t]).reshape(&[d, 1]); // x_t   (d,1)
         let bx = bbar.mul(x_col); // B̄⊙x_t (d,n)
         h = abar.mul(h).add(bx); // (d,n)
@@ -959,10 +920,8 @@ impl NdS4 {
     pub fn new(d_model: usize, d: usize, n: usize, rng: &mut PcgEngine) -> Self {
         // HiPPO-style diagonal (S4D-Lin) init: A[:,j] = −(j+1) ⇒ a_log = ln(j+1).
         let mut a_log = vec![0f32; d * n];
-        for i in 0..d
-        {
-            for j in 0..n
-            {
+        for i in 0..d {
+            for j in 0..n {
                 a_log[i * n + j] = ((j + 1) as f32).ln();
             }
         }
@@ -1023,10 +982,8 @@ impl NdS4 {
             (c_idx, &mut self.c),
             (dt_idx, &mut self.log_dt),
             (skip_idx, &mut self.d_skip),
-        ]
-        {
-            if let Some(i) = idx
-            {
+        ] {
+            if let Some(i) = idx {
                 params.push(NdParam { value, grad_idx: i });
             }
         }
@@ -1109,15 +1066,13 @@ impl LoraLinear {
     pub fn parameters(&mut self) -> Vec<NdParam<'_>> {
         let (a_idx, b_idx) = (self.a_idx, self.b_idx);
         let mut params = Vec::new();
-        if let Some(i) = a_idx
-        {
+        if let Some(i) = a_idx {
             params.push(NdParam {
                 value: &mut self.a,
                 grad_idx: i,
             });
         }
-        if let Some(i) = b_idx
-        {
+        if let Some(i) = b_idx {
             params.push(NdParam {
                 value: &mut self.b,
                 grad_idx: i,
@@ -1153,8 +1108,7 @@ pub fn retention<'t>(
     let g = tape.input(TensorND::new(vec![gamma], vec![1, 1]));
     let mut s = tape.input(TensorND::zeros(&[d, d])); // S_0 = 0
     let mut outs: Vec<NdVar<'t>> = Vec::with_capacity(seq);
-    for t in 0..seq
-    {
+    for t in 0..seq {
         let k_col = k.gather(&[t]).reshape(&[d, 1]); // (d,1)
         let v_row = v.gather(&[t]).reshape(&[1, d]); // (1,d)
         let q_row = q.gather(&[t]).reshape(&[1, d]); // (1,d)
@@ -1224,8 +1178,7 @@ pub fn gated_linear_attention<'t>(
     let (seq, d) = (qs[0], qs[1]);
     let mut s = tape.input(TensorND::zeros(&[d, d])); // S_0 = 0
     let mut outs: Vec<NdVar<'t>> = Vec::with_capacity(seq);
-    for t in 0..seq
-    {
+    for t in 0..seq {
         let a_col = alpha.gather(&[t]).reshape(&[d, 1]); // (d,1) per-key-channel gate
         let k_col = k.gather(&[t]).reshape(&[d, 1]);
         let v_row = v.gather(&[t]).reshape(&[1, d]);
@@ -1294,8 +1247,7 @@ pub fn hgrn<'t>(tape: &'t NdTape, c: NdVar<'t>, f: NdVar<'t>) -> NdVar<'t> {
     let ones = tape.input(TensorND::new(vec![1.0f32; d], vec![1, d]));
     let mut h = tape.input(TensorND::zeros(&[1, d])); // h_0 = 0
     let mut outs: Vec<NdVar<'t>> = Vec::with_capacity(seq);
-    for t in 0..seq
-    {
+    for t in 0..seq {
         let f_t = f.gather(&[t]); // (1,d)
         let c_t = c.gather(&[t]); // (1,d)
         let one_minus_f = ones.sub(f_t); // (1 − fₜ)
@@ -1371,8 +1323,7 @@ pub fn rwkv_wkv<'t>(
     let mut a = tape.input(TensorND::zeros(&[1, d])); // numerator state
     let mut b = tape.input(TensorND::zeros(&[1, d])); // denominator state
     let mut outs: Vec<NdVar<'t>> = Vec::with_capacity(seq);
-    for t in 0..seq
-    {
+    for t in 0..seq {
         let k_t = k.gather(&[t]); // (1,d)
         let v_t = v.gather(&[t]); // (1,d)
         let ek = k_t.exp(); // e^{k_t}
@@ -1444,15 +1395,13 @@ impl NdRwkv {
         params.extend(self.k_proj.parameters());
         params.extend(self.v_proj.parameters());
         params.extend(self.o_proj.parameters());
-        if let Some(i) = self.wd_idx
-        {
+        if let Some(i) = self.wd_idx {
             params.push(NdParam {
                 value: &mut self.w_decay,
                 grad_idx: i,
             });
         }
-        if let Some(i) = self.ub_idx
-        {
+        if let Some(i) = self.ub_idx {
             params.push(NdParam {
                 value: &mut self.u_bonus,
                 grad_idx: i,
@@ -1500,8 +1449,7 @@ pub fn slstm_scan<'t>(
     let mut c = tape.input(TensorND::zeros(&[1, d])); // cell state c_0 = 0
     let mut n = tape.input(TensorND::zeros(&[1, d])); // normaliser n_0 = 0
     let mut outs: Vec<NdVar<'t>> = Vec::with_capacity(seq);
-    for t in 0..seq
-    {
+    for t in 0..seq {
         let i_t = i_pre.gather(&[t]).exp(); // exponential input gate
         let f_t = f_pre.gather(&[t]).sigmoid(); // forget gate ∈ (0,1)
         let z_t = z_pre.gather(&[t]).mul(two).sigmoid().mul(two).sub(one); // tanh
@@ -1544,8 +1492,7 @@ pub fn mlstm_scan<'t>(
     let mut cmat = tape.input(TensorND::zeros(&[d, d])); // C_0 = 0
     let mut n = tape.input(TensorND::zeros(&[1, d])); // n_0 = 0
     let mut outs: Vec<NdVar<'t>> = Vec::with_capacity(seq);
-    for t in 0..seq
-    {
+    for t in 0..seq {
         let q_t = q.gather(&[t]); // (1,d)
         let k_t = k.gather(&[t]); // (1,d)
         let v_t = v.gather(&[t]); // (1,d)
@@ -1626,12 +1573,10 @@ pub fn hyena_long_conv<'t>(tape: &'t NdTape, u: NdVar<'t>, h: NdVar<'t>) -> NdVa
     let us = u.shape();
     let (seq, d) = (us[0], us[1]);
     let mut y = tape.input(TensorND::zeros(&[seq, d]));
-    for tau in 0..seq
-    {
+    for tau in 0..seq {
         // Sτ : (seq×seq), Sτ[t, t−τ] = 1 ⇒ (Sτ·u)[t] = u[t−τ] (0 for t<τ).
         let mut sdata = vec![0f32; seq * seq];
-        for t in tau..seq
-        {
+        for t in tau..seq {
             sdata[t * seq + (t - tau)] = 1.0;
         }
         let s = tape.input(TensorND::new(sdata, vec![seq, seq]));
@@ -1670,21 +1615,17 @@ impl HyenaFilter {
     fn forward<'t>(&mut self, tape: &'t NdTape, seq: usize) -> NdVar<'t> {
         // Fixed positional encoding: [1, t̄, sin(2πf t̄), cos(2πf t̄), …].
         let mut pe = vec![0f32; seq * self.pos_dim];
-        for t in 0..seq
-        {
+        for t in 0..seq {
             let tb = t as f32 / seq.max(1) as f32;
             pe[t * self.pos_dim] = 1.0;
-            if self.pos_dim > 1
-            {
+            if self.pos_dim > 1 {
                 pe[t * self.pos_dim + 1] = tb;
             }
             let (mut col, mut freq) = (2usize, 1.0f32);
-            while col < self.pos_dim
-            {
+            while col < self.pos_dim {
                 pe[t * self.pos_dim + col] = (std::f32::consts::TAU * freq * tb).sin();
                 col += 1;
-                if col < self.pos_dim
-                {
+                if col < self.pos_dim {
                     pe[t * self.pos_dim + col] = (std::f32::consts::TAU * freq * tb).cos();
                     col += 1;
                 }
@@ -1695,8 +1636,7 @@ impl HyenaFilter {
         let hraw = self.mlp2.forward(tape, self.mlp1.forward(tape, pev).relu()); // (seq,d_model)
         // Window: exp(−γ·t̄), γ = exp(log_decay) per channel.
         let mut tvec = vec![0f32; seq];
-        for (t, tv) in tvec.iter_mut().enumerate()
-        {
+        for (t, tv) in tvec.iter_mut().enumerate() {
             *tv = t as f32 / seq.max(1) as f32;
         }
         let tv = tape.input(TensorND::new(tvec, vec![seq, 1]));
@@ -1711,8 +1651,7 @@ impl HyenaFilter {
         let dec_idx = self.decay_idx;
         let mut params = self.mlp1.parameters();
         params.extend(self.mlp2.parameters());
-        if let Some(i) = dec_idx
-        {
+        if let Some(i) = dec_idx {
             params.push(NdParam {
                 value: &mut self.log_decay,
                 grad_idx: i,
@@ -1816,10 +1755,8 @@ pub fn ssd_dual<'t>(
     // Lower-triangular **inclusive** ones (i ≥ j): serves both as the prefix-sum
     // operator (cumlogᵢ = Σ_{k≤i} a_logₖ) and the causal mask.
     let mut tri = vec![0f32; seq * seq];
-    for i in 0..seq
-    {
-        for j in 0..=i
-        {
+    for i in 0..seq {
+        for j in 0..=i {
             tri[i * seq + j] = 1.0;
         }
     }
@@ -1895,15 +1832,13 @@ impl NdMamba2 {
         params.extend(self.c_proj.parameters());
         params.extend(self.dt_proj.parameters());
         params.extend(self.out_proj.parameters());
-        if let Some(i) = a_idx
-        {
+        if let Some(i) = a_idx {
             params.push(NdParam {
                 value: &mut self.a_raw,
                 grad_idx: i,
             });
         }
-        if let Some(i) = d_idx
-        {
+        if let Some(i) = d_idx {
             params.push(NdParam {
                 value: &mut self.d_skip,
                 grad_idx: i,
@@ -1938,8 +1873,7 @@ pub fn s5_scan<'t>(
     let n = a_diag.shape()[1];
     let mut h = tape.input(TensorND::zeros(&[1, n])); // h_0 = 0
     let mut outs: Vec<NdVar<'t>> = Vec::with_capacity(seq);
-    for t in 0..seq
-    {
+    for t in 0..seq {
         let u = x.gather(&[t]).matmul(b); // xₜ·B  (1,n)
         h = a_diag.mul(h).add(u); // hₜ = Ā⊙hₜ₋₁ + xₜ·B
         outs.push(h.matmul(c)); // yₜ = hₜ·C  (1,m)
@@ -1957,22 +1891,18 @@ pub fn s5_scan<'t>(
 /// (tested), which is what licenses the parallelisation.
 pub fn s5_parallel_scan(a: &[Vec<f32>], u: &[Vec<f32>]) -> Vec<Vec<f32>> {
     let seq = a.len();
-    if seq == 0
-    {
+    if seq == 0 {
         return Vec::new();
     }
     let n = a[0].len();
     let mut pa: Vec<Vec<f32>> = a.to_vec();
     let mut pu: Vec<Vec<f32>> = u.to_vec();
     let mut d = 1usize;
-    while d < seq
-    {
+    while d < seq {
         let (mut na, mut nu) = (pa.clone(), pu.clone());
-        for t in d..seq
-        {
+        for t in d..seq {
             // combine(prefix[t−d] (earlier), prefix[t] (later)): apply earlier then later.
-            for j in 0..n
-            {
+            for j in 0..n {
                 na[t][j] = pa[t][j] * pa[t - d][j];
                 nu[t][j] = pa[t][j] * pu[t - d][j] + pu[t][j];
             }
@@ -2052,10 +1982,8 @@ impl NdS5 {
             (b_idx, &mut self.b),
             (c_idx, &mut self.c),
             (skip_idx, &mut self.d_skip),
-        ]
-        {
-            if let Some(i) = idx
-            {
+        ] {
+            if let Some(i) = idx {
                 params.push(NdParam { value, grad_idx: i });
             }
         }
@@ -2083,31 +2011,24 @@ mod tests {
     ) -> Vec<f32> {
         let mut s = vec![0f32; d * d];
         let mut out = vec![0f32; seq * d];
-        for t in 0..seq
-        {
+        for t in 0..seq {
             // S_{t-1} k_t
             let mut sk = vec![0f32; d];
-            for i in 0..d
-            {
-                for j in 0..d
-                {
+            for i in 0..d {
+                for j in 0..d {
                     sk[i] += s[i * d + j] * k[t * d + j];
                 }
             }
             // S_t = S_{t-1} + β_t (v_t − S_{t-1} k_t) k_tᵀ
-            for i in 0..d
-            {
-                for j in 0..d
-                {
+            for i in 0..d {
+                for j in 0..d {
                     s[i * d + j] += beta[t] * (v[t * d + i] - sk[i]) * k[t * d + j];
                 }
             }
             // o_t = S_t q_t
-            for i in 0..d
-            {
+            for i in 0..d {
                 let mut acc = 0f32;
-                for j in 0..d
-                {
+                for j in 0..d {
                     acc += s[i * d + j] * q[t * d + j];
                 }
                 out[t * d + i] = acc;
@@ -2135,8 +2056,7 @@ mod tests {
         let bv = tape.input(TensorND::new(beta, vec![seq, 1]));
         let out = tape.value(delta_rule(&tape, qv, kv, vv, bv));
         assert_eq!(out.shape, vec![seq, d]);
-        for (got, w) in out.data.iter().zip(&want)
-        {
+        for (got, w) in out.data.iter().zip(&want) {
             assert!((got - w).abs() < 1e-5, "delta_rule mismatch: {got} vs {w}");
         }
     }
@@ -2178,8 +2098,7 @@ mod tests {
 
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -2211,16 +2130,14 @@ mod tests {
             let target: Vec<f32> = (0..seq * d).map(|i| (i as f32 * 0.2).cos()).collect();
             let mut opt = NdAdam::with_lr(0.05);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..120
-            {
+            for step in 0..120 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![seq, d]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![seq, d]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;
@@ -2254,23 +2171,18 @@ mod tests {
     ) -> Vec<f32> {
         let mut h = vec![0f32; d * n];
         let mut out = vec![0f32; seq * d];
-        for t in 0..seq
-        {
-            for i in 0..d
-            {
-                for j in 0..n
-                {
+        for t in 0..seq {
+            for i in 0..d {
+                for j in 0..n {
                     let a = -(a_log[i * n + j].exp()); // A = −exp(a_log)
                     let da = (delta[t * d + i] * a).exp();
                     let dbx = delta[t * d + i] * b[t * n + j] * x[t * d + i];
                     h[i * n + j] = da * h[i * n + j] + dbx;
                 }
             }
-            for i in 0..d
-            {
+            for i in 0..d {
                 let mut acc = 0f32;
-                for j in 0..n
-                {
+                for j in 0..n {
                     acc += h[i * n + j] * c[t * n + j];
                 }
                 out[t * d + i] = acc;
@@ -2300,8 +2212,7 @@ mod tests {
         let cv = tape.input(TensorND::new(c, vec![seq, n]));
         let y = tape.value(selective_scan(&tape, xv, dv, av, bv, cv));
         assert_eq!(y.shape, vec![seq, d]);
-        for (got, w) in y.data.iter().zip(&want)
-        {
+        for (got, w) in y.data.iter().zip(&want) {
             assert!(
                 (got - w).abs() < 1e-5,
                 "selective_scan mismatch: {got} vs {w}"
@@ -2348,8 +2259,7 @@ mod tests {
         );
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -2384,16 +2294,14 @@ mod tests {
             let target: Vec<f32> = (0..seq * d_model).map(|i| (i as f32 * 0.2).cos()).collect();
             let mut opt = NdAdam::with_lr(0.05);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..120
-            {
+            for step in 0..120 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![seq, d_model]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![seq, d_model]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;
@@ -2446,8 +2354,7 @@ mod tests {
         );
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -2482,16 +2389,14 @@ mod tests {
             let target: Vec<f32> = (0..seq * d_model).map(|i| (i as f32 * 0.2).cos()).collect();
             let mut opt = NdAdam::with_lr(0.05);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..120
-            {
+            for step in 0..120 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![seq, d_model]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![seq, d_model]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;
@@ -2545,8 +2450,7 @@ mod tests {
         );
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -2580,32 +2484,25 @@ mod tests {
         let mut cmat = vec![0f32; d * d];
         let mut n = vec![0f32; d];
         let mut out = vec![0f32; seq * d];
-        for t in 0..seq
-        {
+        for t in 0..seq {
             let it = ip[t].exp();
             let ft = 1.0 / (1.0 + (-fp[t]).exp());
-            for a in 0..d
-            {
-                for b in 0..d
-                {
+            for a in 0..d {
+                for b in 0..d {
                     cmat[a * d + b] = ft * cmat[a * d + b] + it * v[t * d + a] * k[t * d + b];
                 }
             }
-            for (b, nb) in n.iter_mut().enumerate()
-            {
+            for (b, nb) in n.iter_mut().enumerate() {
                 *nb = ft * *nb + it * k[t * d + b];
             }
             let mut dot = 0f32;
-            for b in 0..d
-            {
+            for b in 0..d {
                 dot += n[b] * q[t * d + b];
             }
             let denom = dot.abs().max(1.0);
-            for a in 0..d
-            {
+            for a in 0..d {
                 let mut hr = 0f32;
-                for b in 0..d
-                {
+                for b in 0..d {
                     hr += cmat[a * d + b] * q[t * d + b];
                 }
                 out[t * d + a] = hr / denom;
@@ -2634,8 +2531,7 @@ mod tests {
         let iv = t.input(TensorND::new(ip, vec![seq, 1]));
         let fv = t.input(TensorND::new(fp, vec![seq, 1]));
         let got = t.value(mlstm_scan(&t, qv, kv, vv, iv, fv));
-        for (g, w) in got.data.iter().zip(&want)
-        {
+        for (g, w) in got.data.iter().zip(&want) {
             assert!((g - w).abs() < 1e-4, "mlstm forward: got {g}, want {w}");
         }
     }
@@ -2685,8 +2581,7 @@ mod tests {
         );
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -2721,16 +2616,14 @@ mod tests {
             let target: Vec<f32> = (0..seq * d_model).map(|i| (i as f32 * 0.2).cos()).collect();
             let mut opt = NdAdam::with_lr(0.05);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..150
-            {
+            for step in 0..150 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![seq, d_model]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![seq, d_model]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;
@@ -2749,13 +2642,10 @@ mod tests {
     /// Plain-`Vec` reference for the per-channel causal convolution.
     fn hyena_conv_reference(u: &[f32], h: &[f32], seq: usize, d: usize) -> Vec<f32> {
         let mut out = vec![0f32; seq * d];
-        for t in 0..seq
-        {
-            for c in 0..d
-            {
+        for t in 0..seq {
+            for c in 0..d {
                 let mut acc = 0f32;
-                for tau in 0..=t
-                {
+                for tau in 0..=t {
                     acc += h[tau * d + c] * u[(t - tau) * d + c];
                 }
                 out[t * d + c] = acc;
@@ -2775,8 +2665,7 @@ mod tests {
         let uv = t.input(TensorND::new(u, vec![seq, d]));
         let hv = t.input(TensorND::new(h, vec![seq, d]));
         let got = t.value(hyena_long_conv(&t, uv, hv));
-        for (g, w) in got.data.iter().zip(&want)
-        {
+        for (g, w) in got.data.iter().zip(&want) {
             assert!((g - w).abs() < 1e-5, "hyena conv: got {g}, want {w}");
         }
     }
@@ -2803,8 +2692,7 @@ mod tests {
         let (gu, gh) = (grads[uv.idx()].clone(), grads[hv.idx()].clone());
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -2836,16 +2724,14 @@ mod tests {
             let target: Vec<f32> = (0..seq * d_model).map(|i| (i as f32 * 0.2).cos()).collect();
             let mut opt = NdAdam::with_lr(0.03);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..150
-            {
+            for step in 0..150 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![seq, d_model]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![seq, d_model]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;
@@ -2874,21 +2760,16 @@ mod tests {
     ) -> Vec<f32> {
         let mut h = vec![0f32; d * n]; // state (d,n)
         let mut out = vec![0f32; seq * d];
-        for t in 0..seq
-        {
+        for t in 0..seq {
             let a_t = a_log[t].exp();
-            for k in 0..d
-            {
-                for i in 0..n
-                {
+            for k in 0..d {
+                for i in 0..n {
                     h[k * n + i] = a_t * h[k * n + i] + x[t * d + k] * b[t * n + i];
                 }
             }
-            for k in 0..d
-            {
+            for k in 0..d {
                 let mut acc = 0f32;
-                for i in 0..n
-                {
+                for i in 0..n {
                     acc += h[k * n + i] * c[t * n + i];
                 }
                 out[t * d + k] = acc;
@@ -2915,8 +2796,7 @@ mod tests {
         let cv = t.input(TensorND::new(c, vec![seq, n]));
         let av = t.input(TensorND::new(a_log, vec![seq, 1]));
         let got = t.value(ssd_dual(&t, xv, bv, cv, av));
-        for (g, w) in got.data.iter().zip(&want)
-        {
+        for (g, w) in got.data.iter().zip(&want) {
             assert!((g - w).abs() < 1e-4, "ssd duality: got {g}, want {w}");
         }
     }
@@ -2955,8 +2835,7 @@ mod tests {
         );
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -2990,16 +2869,14 @@ mod tests {
             let target: Vec<f32> = (0..seq * d_model).map(|i| (i as f32 * 0.2).cos()).collect();
             let mut opt = NdAdam::with_lr(0.05);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..120
-            {
+            for step in 0..120 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![seq, d_model]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![seq, d_model]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;
@@ -3042,20 +2919,16 @@ mod tests {
         // Sequential reference hₜ = aₜ⊙hₜ₋₁ + uₜ.
         let mut h = vec![0f32; n];
         let mut seq_states = Vec::with_capacity(seq);
-        for t in 0..seq
-        {
-            for j in 0..n
-            {
+        for t in 0..seq {
+            for j in 0..n {
                 h[j] = a[t][j] * h[j] + u[t][j];
             }
             seq_states.push(h.clone());
         }
         let par = s5_parallel_scan(&a, &u);
         assert_eq!(par.len(), seq);
-        for (ps, ss) in par.iter().zip(&seq_states)
-        {
-            for (p, s) in ps.iter().zip(ss)
-            {
+        for (ps, ss) in par.iter().zip(&seq_states) {
+            for (p, s) in ps.iter().zip(ss) {
                 assert!((p - s).abs() < 1e-5, "parallel scan: {p} vs sequential {s}");
             }
         }
@@ -3075,25 +2948,19 @@ mod tests {
     ) -> Vec<f32> {
         let mut h = vec![0f32; n];
         let mut out = vec![0f32; seq * m];
-        for t in 0..seq
-        {
+        for t in 0..seq {
             let mut u = vec![0f32; n];
-            for (j, uj) in u.iter_mut().enumerate()
-            {
-                for i in 0..h_in
-                {
+            for (j, uj) in u.iter_mut().enumerate() {
+                for i in 0..h_in {
                     *uj += x[t * h_in + i] * b[i * n + j];
                 }
             }
-            for j in 0..n
-            {
+            for j in 0..n {
                 h[j] = a[j] * h[j] + u[j];
             }
-            for k in 0..m
-            {
+            for k in 0..m {
                 let mut acc = 0f32;
-                for j in 0..n
-                {
+                for j in 0..n {
                     acc += h[j] * c[j * m + k];
                 }
                 out[t * m + k] = acc;
@@ -3121,8 +2988,7 @@ mod tests {
         let bv = t.input(TensorND::new(b, vec![h_in, n]));
         let cv = t.input(TensorND::new(c, vec![n, m]));
         let got = t.value(s5_scan(&t, xv, av, bv, cv));
-        for (g, w) in got.data.iter().zip(&want)
-        {
+        for (g, w) in got.data.iter().zip(&want) {
             assert!((g - w).abs() < 1e-4, "s5_scan: got {g}, want {w}");
         }
     }
@@ -3163,8 +3029,7 @@ mod tests {
         );
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -3197,16 +3062,14 @@ mod tests {
             let target: Vec<f32> = (0..seq * d_model).map(|i| (i as f32 * 0.2).cos()).collect();
             let mut opt = NdAdam::with_lr(0.05);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..120
-            {
+            for step in 0..120 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![seq, d_model]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![seq, d_model]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;
@@ -3233,18 +3096,14 @@ mod tests {
         d: usize,
     ) -> Vec<f32> {
         let mut out = vec![0f32; seq * d];
-        for n in 0..seq
-        {
-            for m in 0..=n
-            {
+        for n in 0..seq {
+            for m in 0..=n {
                 let mut qk = 0f32;
-                for i in 0..d
-                {
+                for i in 0..d {
                     qk += q[n * d + i] * k[m * d + i];
                 }
                 let w = gamma.powi((n - m) as i32) * qk;
-                for j in 0..d
-                {
+                for j in 0..d {
                     out[n * d + j] += w * v[m * d + j];
                 }
             }
@@ -3269,8 +3128,7 @@ mod tests {
         let vv = tape.input(TensorND::new(v, vec![seq, d]));
         let out = tape.value(retention(&tape, qv, kv, vv, gamma));
         assert_eq!(out.shape, vec![seq, d]);
-        for (got, w) in out.data.iter().zip(&want)
-        {
+        for (got, w) in out.data.iter().zip(&want) {
             assert!((got - w).abs() < 1e-4, "retention mismatch: {got} vs {w}");
         }
     }
@@ -3306,8 +3164,7 @@ mod tests {
         );
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -3337,16 +3194,14 @@ mod tests {
             let target: Vec<f32> = (0..seq * d).map(|i| (i as f32 * 0.2).cos()).collect();
             let mut opt = NdAdam::with_lr(0.05);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..120
-            {
+            for step in 0..120 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![seq, d]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![seq, d]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;
@@ -3369,20 +3224,15 @@ mod tests {
     fn gla_reference(q: &[f32], k: &[f32], v: &[f32], a: &[f32], seq: usize, d: usize) -> Vec<f32> {
         let mut s = vec![0f32; d * d];
         let mut out = vec![0f32; seq * d];
-        for t in 0..seq
-        {
-            for i in 0..d
-            {
-                for j in 0..d
-                {
+        for t in 0..seq {
+            for i in 0..d {
+                for j in 0..d {
                     s[i * d + j] = a[t * d + i] * s[i * d + j] + k[t * d + i] * v[t * d + j];
                 }
             }
-            for j in 0..d
-            {
+            for j in 0..d {
                 let mut acc = 0f32;
-                for i in 0..d
-                {
+                for i in 0..d {
                     acc += q[t * d + i] * s[i * d + j];
                 }
                 out[t * d + j] = acc;
@@ -3412,8 +3262,7 @@ mod tests {
         let av = tape.input(TensorND::new(a, vec![seq, d]));
         let out = tape.value(gated_linear_attention(&tape, qv, kv, vv, av));
         assert_eq!(out.shape, vec![seq, d]);
-        for (got, w) in out.data.iter().zip(&want)
-        {
+        for (got, w) in out.data.iter().zip(&want) {
             assert!((got - w).abs() < 1e-4, "GLA mismatch: {got} vs {w}");
         }
     }
@@ -3453,8 +3302,7 @@ mod tests {
         );
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -3485,16 +3333,14 @@ mod tests {
             let target: Vec<f32> = (0..seq * d).map(|i| (i as f32 * 0.2).cos()).collect();
             let mut opt = NdAdam::with_lr(0.05);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..150
-            {
+            for step in 0..150 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![seq, d]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![seq, d]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;
@@ -3514,10 +3360,8 @@ mod tests {
     fn hgrn_reference(c: &[f32], f: &[f32], seq: usize, d: usize) -> Vec<f32> {
         let mut h = vec![0f32; d];
         let mut out = vec![0f32; seq * d];
-        for t in 0..seq
-        {
-            for j in 0..d
-            {
+        for t in 0..seq {
+            for j in 0..d {
                 h[j] = f[t * d + j] * h[j] + (1.0 - f[t * d + j]) * c[t * d + j];
                 out[t * d + j] = h[j];
             }
@@ -3540,8 +3384,7 @@ mod tests {
         let fv = tape.input(TensorND::new(f, vec![seq, d]));
         let out = tape.value(hgrn(&tape, cv, fv));
         assert_eq!(out.shape, vec![seq, d]);
-        for (got, w) in out.data.iter().zip(&want)
-        {
+        for (got, w) in out.data.iter().zip(&want) {
             assert!((got - w).abs() < 1e-5, "HGRN mismatch: {got} vs {w}");
         }
     }
@@ -3568,8 +3411,7 @@ mod tests {
         let (gc, gf) = (grads[cv.idx()].clone(), grads[fv.idx()].clone());
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -3598,16 +3440,14 @@ mod tests {
             let target: Vec<f32> = (0..seq * d).map(|i| (i as f32 * 0.2).cos()).collect();
             let mut opt = NdAdam::with_lr(0.05);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..150
-            {
+            for step in 0..150 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![seq, d]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![seq, d]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;
@@ -3633,13 +3473,10 @@ mod tests {
         d: usize,
     ) -> Vec<f32> {
         let mut out = vec![0f32; seq * d];
-        for j in 0..d
-        {
-            for t in 0..seq
-            {
+        for j in 0..d {
+            for t in 0..seq {
                 let (mut num, mut den) = (0f32, 0f32);
-                for i in 0..t
-                {
+                for i in 0..t {
                     let wgt = decay[j].powi((t - 1 - i) as i32) * k[i * d + j].exp();
                     num += wgt * v[i * d + j];
                     den += wgt;
@@ -3670,8 +3507,7 @@ mod tests {
         let bv = tape.input(TensorND::new(bonus, vec![1, d]));
         let out = tape.value(rwkv_wkv(&tape, kv, vv, dv, bv));
         assert_eq!(out.shape, vec![seq, d]);
-        for (got, w) in out.data.iter().zip(&want)
-        {
+        for (got, w) in out.data.iter().zip(&want) {
             assert!((got - w).abs() < 1e-5, "RWKV mismatch: {got} vs {w}");
         }
     }
@@ -3709,8 +3545,7 @@ mod tests {
         );
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -3741,16 +3576,14 @@ mod tests {
             let target: Vec<f32> = (0..seq * d).map(|i| (i as f32 * 0.2).cos()).collect();
             let mut opt = NdAdam::with_lr(0.05);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..150
-            {
+            for step in 0..150 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![seq, d]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![seq, d]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;
@@ -3774,8 +3607,7 @@ mod tests {
         let s = alibi_slopes(h);
         let ratio = 2f32.powf(-8.0 / h as f32);
         assert!((s[0] - ratio).abs() < 1e-6);
-        for k in 1..h
-        {
+        for k in 1..h {
             assert!((s[k] / s[k - 1] - ratio).abs() < 1e-5, "ratio at {k}");
             assert!(s[k] < s[k - 1], "not decreasing at {k}");
         }
@@ -3793,17 +3625,14 @@ mod tests {
         let m = 0.5f32;
         let bias = alibi_bias(&[m], seq);
         let at = |i: usize, j: usize| bias.data[i * seq + j]; // single head
-        for i in 0..seq
-        {
-            for j in 0..=i
-            {
+        for i in 0..seq {
+            for j in 0..=i {
                 assert!(
                     (at(i, j) - (-m * (i - j) as f32)).abs() < 1e-6,
                     "bias({i},{j})"
                 );
             }
-            for j in (i + 1)..seq
-            {
+            for j in (i + 1)..seq {
                 assert!(at(i, j) < -1e8, "not masked ({i},{j})");
             }
         }
@@ -3827,8 +3656,7 @@ mod tests {
         let exps: Vec<f32> = row.iter().map(|&z| (z - mx).exp()).collect();
         let z: f32 = exps.iter().sum();
         let w: Vec<f32> = exps.iter().map(|&e| e / z).collect();
-        for j in 0..i
-        {
+        for j in 0..i {
             assert!(w[j] < w[j + 1], "weight not decaying at j={j}");
         }
         assert!(
@@ -3873,13 +3701,10 @@ mod tests {
         let t0 = NdTape::new();
         let xv = t0.input(TensorND::new(x.clone(), vec![2, in_f]));
         let y = t0.value(lora.forward(&t0, xv));
-        for b in 0..2
-        {
-            for o in 0..out_f
-            {
+        for b in 0..2 {
+            for o in 0..out_f {
                 let mut base = 0f32;
-                for i in 0..in_f
-                {
+                for i in 0..in_f {
                     base += x[b * in_f + i] * w[i * out_f + o];
                 }
                 assert!(
@@ -3893,8 +3718,7 @@ mod tests {
         // Gradient check on A and B (perturb after a few updates so B ≠ 0).
         let a0 = lora.a.data.clone();
         let mut b0 = lora.b.data.clone();
-        for v in b0.iter_mut()
-        {
+        for v in b0.iter_mut() {
             *v = 0.1; // make B non-trivial for the check
         }
         let loss_of = |aa: &[f32], bb: &[f32]| -> f32 {
@@ -3919,8 +3743,7 @@ mod tests {
         );
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for k in 0..base.len()
-            {
+            for k in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[k] += eps;
@@ -3963,8 +3786,7 @@ mod tests {
         let gx = grads[xv.idx()].clone();
 
         let eps = 1e-3f32;
-        for k in 0..x.len()
-        {
+        for k in 0..x.len() {
             let mut up = x.clone();
             let mut dn = x.clone();
             up[k] += eps;
@@ -3992,8 +3814,7 @@ mod tests {
 
         let mut first = f32::NAN;
         let mut last = f32::NAN;
-        for step in 0..40
-        {
+        for step in 0..40 {
             let t = NdTape::new();
             let x = t.input(TensorND::new(xs.clone(), vec![6, 4]));
             let target = t.input(TensorND::new(ts.clone(), vec![6, 3]));
@@ -4001,8 +3822,7 @@ mod tests {
             let y = l2.forward(&t, h);
             let loss_v = mse(y, target);
             let loss = t.value(loss_v).data[0];
-            if step == 0
-            {
+            if step == 0 {
                 first = loss;
             }
             last = loss;
@@ -4065,8 +3885,7 @@ mod tests {
         let gx = grads[xv.idx()].clone();
 
         let eps = 1e-3f32;
-        for k in 0..x.len()
-        {
+        for k in 0..x.len() {
             let mut up = x.clone();
             let mut dn = x.clone();
             up[k] += eps;
@@ -4095,8 +3914,7 @@ mod tests {
             .map(|i| (i as f32 * 0.21 - 0.7).sin())
             .collect();
         let mut perturbed = base.clone();
-        for v in perturbed[(seq - 1) * d_model..].iter_mut()
-        {
+        for v in perturbed[(seq - 1) * d_model..].iter_mut() {
             *v += 0.5; // move only the last position's features
         }
 
@@ -4110,10 +3928,8 @@ mod tests {
         let a = run(&base, &mut attn);
         let b = run(&perturbed, &mut attn);
 
-        for i in 0..seq - 1
-        {
-            for c in 0..d_model
-            {
+        for i in 0..seq - 1 {
+            for c in 0..d_model {
                 let k = i * d_model + c;
                 assert_eq!(
                     a[k], b[k],
@@ -4159,8 +3975,7 @@ mod tests {
         let gx = grads[xv.idx()].clone();
 
         let eps = 1e-3f32;
-        for k in 0..x.len()
-        {
+        for k in 0..x.len() {
             let mut up = x.clone();
             let mut dn = x.clone();
             up[k] += eps;
@@ -4181,8 +3996,7 @@ mod tests {
     #[test]
     fn nd_gqa_gradient_check() {
         let (d_model, n_heads, seq) = (8usize, 4, 3);
-        for num_kv_heads in [2usize, 1]
-        {
+        for num_kv_heads in [2usize, 1] {
             let mut rng = PcgEngine::new(8);
             let mut attn =
                 NdMultiHeadAttention::new_gqa(d_model, n_heads, num_kv_heads, true, &mut rng);
@@ -4210,8 +4024,7 @@ mod tests {
             let gx = grads[xv.idx()].clone();
 
             let eps = 1e-3f32;
-            for k in 0..x.len()
-            {
+            for k in 0..x.len() {
                 let mut up = x.clone();
                 let mut dn = x.clone();
                 up[k] += eps;
@@ -4245,16 +4058,14 @@ mod tests {
 
         let mut first = f32::NAN;
         let mut last = f32::NAN;
-        for step in 0..80
-        {
+        for step in 0..80 {
             let t = NdTape::new();
             let x = t.input(TensorND::new(xs.clone(), vec![seq, d_model]));
             let target = t.input(TensorND::new(ts.clone(), vec![seq, d_model]));
             let y = block.forward(&t, x);
             let loss_v = mse(y, target);
             let loss = t.value(loss_v).data[0];
-            if step == 0
-            {
+            if step == 0 {
                 first = loss;
             }
             last = loss;
@@ -4294,8 +4105,7 @@ mod tests {
         let gx = grads[xv.idx()].clone();
 
         let eps = 1e-3f32;
-        for k in 0..x.len()
-        {
+        for k in 0..x.len() {
             let mut up = x.clone();
             let mut dn = x.clone();
             up[k] += eps;
@@ -4340,8 +4150,7 @@ mod tests {
         let gx = grads[xv.idx()].clone();
 
         let eps = 1e-3f32;
-        for k in 0..x.len()
-        {
+        for k in 0..x.len() {
             let mut up = x.clone();
             let mut dn = x.clone();
             up[k] += eps;
@@ -4373,16 +4182,14 @@ mod tests {
 
         let mut first = f32::NAN;
         let mut last = f32::NAN;
-        for step in 0..80
-        {
+        for step in 0..80 {
             let t = NdTape::new();
             let x = t.input(TensorND::new(xs.clone(), vec![seq, d_model]));
             let target = t.input(TensorND::new(ts.clone(), vec![seq, d_model]));
             let y = block.forward(&t, x);
             let loss_v = mse(y, target);
             let loss = t.value(loss_v).data[0];
-            if step == 0
-            {
+            if step == 0 {
                 first = loss;
             }
             last = loss;

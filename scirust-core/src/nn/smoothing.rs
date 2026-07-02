@@ -32,8 +32,7 @@ fn ln_gamma(x: f64) -> f64 {
     let mut y = x;
     let tmp = x + 5.5 - (x + 0.5) * (x + 5.5).ln();
     let mut ser = 1.000000000190015;
-    for &c in COF.iter()
-    {
+    for &c in COF.iter() {
         y += 1.0;
         ser += c / y;
     }
@@ -50,45 +49,38 @@ fn betacf(a: f64, b: f64, x: f64) -> f64 {
     let qam = a - 1.0;
     let mut c = 1.0;
     let mut d = 1.0 - qab * x / qap;
-    if d.abs() < FPMIN
-    {
+    if d.abs() < FPMIN {
         d = FPMIN;
     }
     d = 1.0 / d;
     let mut h = d;
-    for m in 1..=MAXIT
-    {
+    for m in 1..=MAXIT {
         let m = m as f64;
         let m2 = 2.0 * m;
         let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
         d = 1.0 + aa * d;
-        if d.abs() < FPMIN
-        {
+        if d.abs() < FPMIN {
             d = FPMIN;
         }
         c = 1.0 + aa / c;
-        if c.abs() < FPMIN
-        {
+        if c.abs() < FPMIN {
             c = FPMIN;
         }
         d = 1.0 / d;
         h *= d * c;
         let aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
         d = 1.0 + aa * d;
-        if d.abs() < FPMIN
-        {
+        if d.abs() < FPMIN {
             d = FPMIN;
         }
         c = 1.0 + aa / c;
-        if c.abs() < FPMIN
-        {
+        if c.abs() < FPMIN {
             c = FPMIN;
         }
         d = 1.0 / d;
         let del = d * c;
         h *= del;
-        if (del - 1.0).abs() < EPS
-        {
+        if (del - 1.0).abs() < EPS {
             break;
         }
     }
@@ -97,21 +89,16 @@ fn betacf(a: f64, b: f64, x: f64) -> f64 {
 
 /// Regularized incomplete beta `Iₓ(a, b)` — the CDF of the Beta(a,b) law.
 fn betai(a: f64, b: f64, x: f64) -> f64 {
-    if x <= 0.0
-    {
+    if x <= 0.0 {
         return 0.0;
     }
-    if x >= 1.0
-    {
+    if x >= 1.0 {
         return 1.0;
     }
     let bt = (ln_gamma(a + b) - ln_gamma(a) - ln_gamma(b) + a * x.ln() + b * (1.0 - x).ln()).exp();
-    if x < (a + 1.0) / (a + b + 2.0)
-    {
+    if x < (a + 1.0) / (a + b + 2.0) {
         bt * betacf(a, b, x) / a
-    }
-    else
-    {
+    } else {
         1.0 - bt * betacf(b, a, 1.0 - x) / b
     }
 }
@@ -119,24 +106,18 @@ fn betai(a: f64, b: f64, x: f64) -> f64 {
 /// Inverse of [`betai`] in `x`: the `p`-quantile of Beta(a,b), by bisection
 /// (monotone CDF, so 60 steps give ~`2⁻⁶⁰` precision).
 fn beta_inv(p: f64, a: f64, b: f64) -> f64 {
-    if p <= 0.0
-    {
+    if p <= 0.0 {
         return 0.0;
     }
-    if p >= 1.0
-    {
+    if p >= 1.0 {
         return 1.0;
     }
     let (mut lo, mut hi) = (0.0f64, 1.0f64);
-    for _ in 0..60
-    {
+    for _ in 0..60 {
         let mid = 0.5 * (lo + hi);
-        if betai(a, b, mid) < p
-        {
+        if betai(a, b, mid) < p {
             lo = mid;
-        }
-        else
-        {
+        } else {
             hi = mid;
         }
     }
@@ -150,8 +131,7 @@ fn beta_inv(p: f64, a: f64, b: f64) -> f64 {
 pub fn clopper_pearson_lower(k: usize, n: usize, alpha: f64) -> f64 {
     assert!(k <= n, "clopper_pearson_lower: k must be ≤ n");
     assert!(alpha > 0.0 && alpha < 1.0, "alpha must be in (0,1)");
-    if k == 0
-    {
+    if k == 0 {
         return 0.0;
     }
     beta_inv(alpha, k as f64, (n - k + 1) as f64)
@@ -190,29 +170,22 @@ pub fn inv_normal_cdf(p: f64) -> f64 {
         3.754408661907416e+00,
     ];
     const P_LOW: f64 = 0.02425;
-    if p <= 0.0
-    {
+    if p <= 0.0 {
         return f64::NEG_INFINITY;
     }
-    if p >= 1.0
-    {
+    if p >= 1.0 {
         return f64::INFINITY;
     }
-    if p < P_LOW
-    {
+    if p < P_LOW {
         let q = (-2.0 * p.ln()).sqrt();
         (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
             / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
-    }
-    else if p <= 1.0 - P_LOW
-    {
+    } else if p <= 1.0 - P_LOW {
         let q = p - 0.5;
         let r = q * q;
         (((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * q
             / (((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1.0)
-    }
-    else
-    {
+    } else {
         let q = (-2.0 * (1.0 - p).ln()).sqrt();
         -(((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
             / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
@@ -257,10 +230,8 @@ impl SmoothedClassifier {
     ) -> Vec<usize> {
         let mut counts = vec![0usize; num_classes];
         let mut buf = vec![0.0f32; x.len()];
-        for _ in 0..n
-        {
-            for (b, &xi) in buf.iter_mut().zip(x)
-            {
+        for _ in 0..n {
+            for (b, &xi) in buf.iter_mut().zip(x) {
                 *b = xi + rng.normal(0.0, self.sigma);
             }
             counts[f(&buf)] += 1;
@@ -271,10 +242,8 @@ impl SmoothedClassifier {
     /// Index of the largest count (ties → lower index, deterministic).
     fn argmax(counts: &[usize]) -> usize {
         let mut best = 0usize;
-        for (i, &c) in counts.iter().enumerate().skip(1)
-        {
-            if c > counts[best]
-            {
+        for (i, &c) in counts.iter().enumerate().skip(1) {
+            if c > counts[best] {
                 best = i;
             }
         }
@@ -310,17 +279,14 @@ impl SmoothedClassifier {
         let counts = self.vote_counts(f, x, n, num_classes, rng);
         let class = Self::argmax(&counts);
         let p_a_lower = clopper_pearson_lower(counts[class], n, alpha);
-        if p_a_lower <= 0.5
-        {
+        if p_a_lower <= 0.5 {
             Certificate {
                 class,
                 radius: 0.0,
                 p_a_lower: p_a_lower as f32,
                 abstained: true,
             }
-        }
-        else
-        {
+        } else {
             let radius = self.sigma * inv_normal_cdf(p_a_lower) as f32;
             Certificate {
                 class,
@@ -394,8 +360,7 @@ mod tests {
         };
 
         // Radius ≈ d (conservative ⇒ within [0.8 d, 1.02 d]); class is 1.
-        for &d in &[0.5f32, 1.0, 1.5]
-        {
+        for &d in &[0.5f32, 1.0, 1.5] {
             let c = certify_at(d, 1.0);
             assert_eq!(c.class, 1);
             assert!(!c.abstained);

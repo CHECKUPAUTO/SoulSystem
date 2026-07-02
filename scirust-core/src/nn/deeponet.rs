@@ -75,16 +75,13 @@ impl DeepONet {
         let phis: Vec<Vec<f32>> = ys.iter().map(|&y| self.trunk(y)).collect();
         let inv_s = 1.0 / s as f32;
         let mut mse = 0.0f32;
-        for _ in 0..steps
-        {
+        for _ in 0..steps {
             let mut grad = vec![0.0f32; self.branch.len()];
             mse = 0.0;
-            for ((u, phi), &t) in us.iter().zip(&phis).zip(targets)
-            {
+            for ((u, phi), &t) in us.iter().zip(&phis).zip(targets) {
                 // pred = Σ_{k,i} B[k][i]·u[i]·phi[k].
                 let mut pred = 0.0f32;
-                for (k, &pk) in phi.iter().enumerate()
-                {
+                for (k, &pk) in phi.iter().enumerate() {
                     let row = &self.branch[k * self.m..(k + 1) * self.m];
                     let bk: f32 = row.iter().zip(u).map(|(&b, &ui)| b * ui).sum();
                     pred += bk * pk;
@@ -92,19 +89,16 @@ impl DeepONet {
                 let e = pred - t;
                 mse += e * e;
                 let ge = 2.0 * e * inv_s;
-                for (k, &pk) in phi.iter().enumerate()
-                {
+                for (k, &pk) in phi.iter().enumerate() {
                     let gphi = ge * pk;
                     let grow = &mut grad[k * self.m..(k + 1) * self.m];
-                    for (g, &ui) in grow.iter_mut().zip(u)
-                    {
+                    for (g, &ui) in grow.iter_mut().zip(u) {
                         *g += gphi * ui;
                     }
                 }
             }
             mse *= inv_s;
-            for (b, g) in self.branch.iter_mut().zip(&grad)
-            {
+            for (b, g) in self.branch.iter_mut().zip(&grad) {
                 *b -= lr * g;
             }
         }
@@ -128,8 +122,7 @@ mod tests {
     ) -> (Vec<Vec<f32>>, Vec<f32>, Vec<f32>) {
         let kmax = 4usize;
         let (mut us, mut yy, mut tt) = (Vec::new(), Vec::new(), Vec::new());
-        for _ in 0..n_funcs
-        {
+        for _ in 0..n_funcs {
             let a: Vec<f32> = (0..kmax).map(|_| rng.float_signed()).collect();
             let u: Vec<f32> = (0..m)
                 .map(|i| {
@@ -140,8 +133,7 @@ mod tests {
                         .sum()
                 })
                 .collect();
-            for &y in ys
-            {
+            for &y in ys {
                 let g: f32 = a
                     .iter()
                     .enumerate()

@@ -33,7 +33,7 @@
 
 #[cfg(feature = "portable-simd")]
 pub mod simd_ops {
-    use std::simd::{StdFloat, f32x8, f64x4, num::SimdFloat};
+    use std::simd::{f32x8, f64x4, num::SimdFloat, StdFloat};
 
     // ------------------------------------------------------------------ //
     //  ADDITION                                                            //
@@ -53,14 +53,12 @@ pub mod simd_ops {
         // so the pairing is correct regardless of the slices' runtime alignment.
         let mut dc = dst.chunks_exact_mut(8);
         let mut sc = src.chunks_exact(8);
-        for (d, s) in dc.by_ref().zip(sc.by_ref())
-        {
+        for (d, s) in dc.by_ref().zip(sc.by_ref()) {
             let mut vd = f32x8::from_slice(d);
             vd += f32x8::from_slice(s);
             vd.copy_to_slice(d);
         }
-        for (d, s) in dc.into_remainder().iter_mut().zip(sc.remainder())
-        {
+        for (d, s) in dc.into_remainder().iter_mut().zip(sc.remainder()) {
             *d += s;
         }
     }
@@ -72,14 +70,12 @@ pub mod simd_ops {
 
         let mut dc = dst.chunks_exact_mut(4);
         let mut sc = src.chunks_exact(4);
-        for (d, s) in dc.by_ref().zip(sc.by_ref())
-        {
+        for (d, s) in dc.by_ref().zip(sc.by_ref()) {
             let mut vd = f64x4::from_slice(d);
             vd += f64x4::from_slice(s);
             vd.copy_to_slice(d);
         }
-        for (d, s) in dc.into_remainder().iter_mut().zip(sc.remainder())
-        {
+        for (d, s) in dc.into_remainder().iter_mut().zip(sc.remainder()) {
             *d += s;
         }
     }
@@ -93,16 +89,13 @@ pub mod simd_ops {
     pub fn scale_f32(v: &mut [f32], alpha: f32) {
         let splat = f32x8::splat(alpha);
         let (pre, mid, suf) = v.as_simd_mut::<8>();
-        for x in pre.iter_mut()
-        {
+        for x in pre.iter_mut() {
             *x *= alpha;
         }
-        for vx in mid.iter_mut()
-        {
+        for vx in mid.iter_mut() {
             *vx *= splat;
         }
-        for x in suf.iter_mut()
-        {
+        for x in suf.iter_mut() {
             *x *= alpha;
         }
     }
@@ -111,16 +104,13 @@ pub mod simd_ops {
     pub fn scale_f64(v: &mut [f64], alpha: f64) {
         let splat = f64x4::splat(alpha);
         let (pre, mid, suf) = v.as_simd_mut::<4>();
-        for x in pre.iter_mut()
-        {
+        for x in pre.iter_mut() {
             *x *= alpha;
         }
-        for vx in mid.iter_mut()
-        {
+        for vx in mid.iter_mut() {
             *vx *= splat;
         }
-        for x in suf.iter_mut()
-        {
+        for x in suf.iter_mut() {
             *x *= alpha;
         }
     }
@@ -138,13 +128,11 @@ pub mod simd_ops {
         let mut acc = f32x8::splat(0.0);
         let mut ac = a.chunks_exact(8);
         let mut bc = b.chunks_exact(8);
-        for (ca, cb) in ac.by_ref().zip(bc.by_ref())
-        {
+        for (ca, cb) in ac.by_ref().zip(bc.by_ref()) {
             acc += f32x8::from_slice(ca) * f32x8::from_slice(cb);
         }
         let mut scalar_acc = 0.0f32;
-        for (x, y) in ac.remainder().iter().zip(bc.remainder())
-        {
+        for (x, y) in ac.remainder().iter().zip(bc.remainder()) {
             scalar_acc += x * y;
         }
         // Réduction horizontale du vecteur SIMD.
@@ -158,13 +146,11 @@ pub mod simd_ops {
         let mut acc = f64x4::splat(0.0);
         let mut ac = a.chunks_exact(4);
         let mut bc = b.chunks_exact(4);
-        for (ca, cb) in ac.by_ref().zip(bc.by_ref())
-        {
+        for (ca, cb) in ac.by_ref().zip(bc.by_ref()) {
             acc += f64x4::from_slice(ca) * f64x4::from_slice(cb);
         }
         let mut scalar_acc = 0.0f64;
-        for (x, y) in ac.remainder().iter().zip(bc.remainder())
-        {
+        for (x, y) in ac.remainder().iter().zip(bc.remainder()) {
             scalar_acc += x * y;
         }
         scalar_acc + acc.reduce_sum()
@@ -199,8 +185,7 @@ pub mod simd_ops {
             bc.remainder(),
             cc.remainder(),
         );
-        for (i, d) in dr.iter_mut().enumerate()
-        {
+        for (i, d) in dr.iter_mut().enumerate() {
             *d = ar[i] * br[i] + cr[i];
         }
     }
@@ -212,8 +197,7 @@ pub mod simd_ops {
     /// Normalise un vecteur en norme L2 in-place.
     pub fn normalize_f32(v: &mut [f32]) {
         let norm = dot_f32(v, v).sqrt();
-        if norm > f32::EPSILON
-        {
+        if norm > f32::EPSILON {
             scale_f32(v, 1.0 / norm);
         }
     }
@@ -227,16 +211,13 @@ pub mod simd_ops {
     pub fn relu_f32(v: &mut [f32]) {
         let zero = f32x8::splat(0.0);
         let (pre, mid, suf) = v.as_simd_mut::<8>();
-        for x in pre.iter_mut()
-        {
+        for x in pre.iter_mut() {
             *x = x.max(0.0);
         }
-        for vx in mid.iter_mut()
-        {
+        for vx in mid.iter_mut() {
             *vx = vx.simd_max(zero);
         }
-        for x in suf.iter_mut()
-        {
+        for x in suf.iter_mut() {
             *x = x.max(0.0);
         }
     }
@@ -249,29 +230,25 @@ pub mod simd_ops {
 pub mod simd_ops {
     #[inline]
     pub fn add_f32_inplace(dst: &mut [f32], src: &[f32]) {
-        for (d, s) in dst.iter_mut().zip(src.iter())
-        {
+        for (d, s) in dst.iter_mut().zip(src.iter()) {
             *d += s;
         }
     }
     #[inline]
     pub fn add_f64_inplace(dst: &mut [f64], src: &[f64]) {
-        for (d, s) in dst.iter_mut().zip(src.iter())
-        {
+        for (d, s) in dst.iter_mut().zip(src.iter()) {
             *d += s;
         }
     }
     #[inline]
     pub fn scale_f32(v: &mut [f32], alpha: f32) {
-        for x in v.iter_mut()
-        {
+        for x in v.iter_mut() {
             *x *= alpha;
         }
     }
     #[inline]
     pub fn scale_f64(v: &mut [f64], alpha: f64) {
-        for x in v.iter_mut()
-        {
+        for x in v.iter_mut() {
             *x *= alpha;
         }
     }
@@ -285,26 +262,22 @@ pub mod simd_ops {
     }
     #[inline]
     pub fn fma_f32(dst: &mut [f32], a: &[f32], b: &[f32], c: &[f32]) {
-        for i in 0..dst.len()
-        {
+        for i in 0..dst.len() {
             dst[i] = a[i] * b[i] + c[i];
         }
     }
     #[inline]
     pub fn normalize_f32(v: &mut [f32]) {
         let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm > f32::EPSILON
-        {
-            for x in v.iter_mut()
-            {
+        if norm > f32::EPSILON {
+            for x in v.iter_mut() {
                 *x /= norm;
             }
         }
     }
     #[inline]
     pub fn relu_f32(v: &mut [f32]) {
-        for x in v.iter_mut()
-        {
+        for x in v.iter_mut() {
             *x = x.max(0.0);
         }
     }
@@ -322,8 +295,7 @@ mod tests {
         let mut dst = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
         let src = vec![0.5f32; 9];
         add_f32_inplace(&mut dst, &src);
-        for (i, x) in dst.iter().enumerate()
-        {
+        for (i, x) in dst.iter().enumerate() {
             assert!((x - (i as f32 + 1.5)).abs() < 1e-6, "add_f32 failed at {i}");
         }
     }
@@ -336,10 +308,8 @@ mod tests {
     #[test]
     fn simd_kernels_correct_under_any_alignment() {
         let n = 40usize;
-        for d_off in 0..9
-        {
-            for s_off in 0..9
-            {
+        for d_off in 0..9 {
+            for s_off in 0..9 {
                 let mut dbuf: Vec<f32> = (0..n + d_off).map(|i| (i as f32 * 0.7).sin()).collect();
                 let sbuf: Vec<f32> = (0..n + s_off).map(|i| (i as f32 * 0.3).cos()).collect();
                 let cbuf: Vec<f32> = (0..n + s_off).map(|i| (i as f32 * 0.11) - 0.5).collect();
@@ -347,8 +317,7 @@ mod tests {
                 // add_f32_inplace: dst += src.
                 let d0: Vec<f32> = dbuf[d_off..d_off + n].to_vec();
                 add_f32_inplace(&mut dbuf[d_off..d_off + n], &sbuf[s_off..s_off + n]);
-                for k in 0..n
-                {
+                for k in 0..n {
                     let want = d0[k] + sbuf[s_off + k];
                     assert!(
                         (dbuf[d_off + k] - want).abs() < 1e-6,
@@ -372,8 +341,7 @@ mod tests {
                     &sbuf[s_off..s_off + n],
                     &cbuf[s_off..s_off + n],
                 );
-                for k in 0..n
-                {
+                for k in 0..n {
                     let want = dbuf[d_off + k] * sbuf[s_off + k] + cbuf[s_off + k];
                     assert!(
                         (fbuf[d_off + k] - want).abs() < 1e-5,

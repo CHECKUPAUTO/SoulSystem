@@ -52,8 +52,7 @@ impl StatisticalGuard {
     /// The guard verdict for a probability vector.
     pub fn decide(&self, probs: &[f32]) -> GuardVerdict {
         let set = self.clf.predict_set(probs);
-        match set.len()
-        {
+        match set.len() {
             0 => GuardVerdict::Reject,
             1 => GuardVerdict::Accept(set[0]),
             _ => GuardVerdict::Abstain,
@@ -84,8 +83,7 @@ mod tests {
     fn sample(rng: &mut PcgEngine) -> (Vec<f32>, usize) {
         let y = (rng.next_u32() % 3) as usize;
         let mut logits = [0.0f32; 3];
-        for l in logits.iter_mut()
-        {
+        for l in logits.iter_mut() {
             *l = rng.float_signed();
         }
         logits[y] += 1.5;
@@ -104,11 +102,9 @@ mod tests {
             let guard = StatisticalGuard::calibrate(&cal_probs, &cal_labels, alpha);
             let mut covered = 0usize;
             let n = 5000;
-            for _ in 0..n
-            {
+            for _ in 0..n {
                 let (p, y) = sample(&mut rng);
-                if guard.covers(&p, y)
-                {
+                if guard.covers(&p, y) {
                     covered += 1;
                 }
             }

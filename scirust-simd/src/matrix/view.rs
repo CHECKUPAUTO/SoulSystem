@@ -26,8 +26,7 @@ impl<'a, T: Copy> MatrixView<'a, T> {
     }
 
     pub fn row_slice(&self, i: usize) -> Option<&[T]> {
-        if i >= self.rows
-        {
+        if i >= self.rows {
             return None;
         }
         let start = i * self.cols * self.col_stride;

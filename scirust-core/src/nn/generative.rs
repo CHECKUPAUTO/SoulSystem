@@ -45,8 +45,7 @@ impl VAE {
         let std = logvar.scale(0.5).exp();
         let (rows, cols) = mu.shape();
         let mut eps_data = vec![0.0f32; rows * cols];
-        for e in &mut eps_data
-        {
+        for e in &mut eps_data {
             *e = self.rng.normal(0.0, 1.0);
         }
 

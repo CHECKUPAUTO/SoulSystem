@@ -39,23 +39,18 @@ impl LSTM {
         let scale = (1.0 / hidden_size as f32).sqrt(); // Xavier standard pour LSTM
         let mut w_ih = Tensor::zeros(4 * hidden_size, input_size);
         let mut w_hh = Tensor::zeros(4 * hidden_size, hidden_size);
-        for x in w_ih.data.iter_mut()
-        {
+        for x in w_ih.data.iter_mut() {
             *x = rng.float_signed() * scale;
         }
-        for x in w_hh.data.iter_mut()
-        {
+        for x in w_hh.data.iter_mut() {
             *x = rng.float_signed() * scale;
         }
-        let (b_ih, b_hh) = if bias
-        {
+        let (b_ih, b_hh) = if bias {
             (
                 Some(Tensor::zeros(1, 4 * hidden_size)),
                 Some(Tensor::zeros(1, 4 * hidden_size)),
             )
-        }
-        else
-        {
+        } else {
             (None, None)
         };
         Self {
@@ -111,8 +106,7 @@ impl LSTM {
 
         let mut outputs: Vec<Var<'t>> = Vec::with_capacity(seq_len);
 
-        for t in 0..seq_len
-        {
+        for t in 0..seq_len {
             let x_t = input
                 .try_slice_rows(t * batch_size, (t + 1) * batch_size)
                 .unwrap();
@@ -123,12 +117,10 @@ impl LSTM {
                 .unwrap()
                 .try_add(h.try_matmul(w_hh_t).unwrap())
                 .unwrap();
-            if let Some(ref bi) = b_ih
-            {
+            if let Some(ref bi) = b_ih {
                 gates = gates.try_add_bias(*bi).unwrap();
             }
-            if let Some(ref bh) = b_hh
-            {
+            if let Some(ref bh) = b_hh {
                 gates = gates.try_add_bias(*bh).unwrap();
             }
 
@@ -155,40 +147,32 @@ impl LSTM {
 
     pub fn parameter_indices(&self) -> Vec<usize> {
         let mut v = Vec::new();
-        if let Some(i) = self.last_w_ih
-        {
+        if let Some(i) = self.last_w_ih {
             v.push(i);
         }
-        if let Some(i) = self.last_w_hh
-        {
+        if let Some(i) = self.last_w_hh {
             v.push(i);
         }
-        if let Some(i) = self.last_b_ih
-        {
+        if let Some(i) = self.last_b_ih {
             v.push(i);
         }
-        if let Some(i) = self.last_b_hh
-        {
+        if let Some(i) = self.last_b_hh {
             v.push(i);
         }
         v
     }
 
     pub fn sync(&mut self, tape: &Tape) {
-        if let Some(i) = self.last_w_ih
-        {
+        if let Some(i) = self.last_w_ih {
             self.w_ih = tape.value(i);
         }
-        if let Some(i) = self.last_w_hh
-        {
+        if let Some(i) = self.last_w_hh {
             self.w_hh = tape.value(i);
         }
-        if let Some(i) = self.last_b_ih
-        {
+        if let Some(i) = self.last_b_ih {
             self.b_ih = Some(tape.value(i));
         }
-        if let Some(i) = self.last_b_hh
-        {
+        if let Some(i) = self.last_b_hh {
             self.b_hh = Some(tape.value(i));
         }
     }

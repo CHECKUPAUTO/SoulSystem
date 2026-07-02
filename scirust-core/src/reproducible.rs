@@ -25,21 +25,17 @@ fn fsum_canonical(mut vals: Vec<f64>) -> f64 {
     // Non-overlapping expansion: `partials` always sum (exactly) to the running
     // total, with no two members overlapping in significance.
     let mut partials: Vec<f64> = Vec::new();
-    for xi in vals
-    {
+    for xi in vals {
         let mut x = xi;
         let mut i = 0;
-        for k in 0..partials.len()
-        {
+        for k in 0..partials.len() {
             let mut y = partials[k];
-            if x.abs() < y.abs()
-            {
+            if x.abs() < y.abs() {
                 core::mem::swap(&mut x, &mut y);
             }
             let hi = x + y;
             let lo = y - (hi - x); // exact rounding error of x + y (|x| ≥ |y|)
-            if lo != 0.0
-            {
+            if lo != 0.0 {
                 partials[i] = lo;
                 i += 1;
             }
@@ -59,8 +55,7 @@ pub fn reproducible_sum(xs: &[f32]) -> f32 {
 
 /// Reproducible mean (0.0 for an empty slice).
 pub fn reproducible_mean(xs: &[f32]) -> f32 {
-    if xs.is_empty()
-    {
+    if xs.is_empty() {
         return 0.0;
     }
     (fsum_canonical(xs.iter().map(|&x| x as f64).collect()) / xs.len() as f64) as f32
@@ -85,8 +80,7 @@ mod tests {
 
     fn shuffled(xs: &[f32], rng: &mut PcgEngine) -> Vec<f32> {
         let mut v = xs.to_vec();
-        for i in (1..v.len()).rev()
-        {
+        for i in (1..v.len()).rev() {
             let j = ((rng.float() * (i as f32 + 1.0)) as usize).min(i);
             v.swap(i, j);
         }
@@ -102,8 +96,7 @@ mod tests {
             .collect();
         let reference = reproducible_sum(&xs);
         let mut rng = PcgEngine::new(99);
-        for _ in 0..50
-        {
+        for _ in 0..50 {
             let s = reproducible_sum(&shuffled(&xs, &mut rng));
             assert_eq!(
                 s.to_bits(),
@@ -141,8 +134,7 @@ mod tests {
         // Permuting both operands in lock-step keeps the multiset of products.
         let mut rng = PcgEngine::new(7);
         let mut idx: Vec<usize> = (0..a.len()).collect();
-        for i in (1..idx.len()).rev()
-        {
+        for i in (1..idx.len()).rev() {
             let j = ((rng.float() * (i as f32 + 1.0)) as usize).min(i);
             idx.swap(i, j);
         }

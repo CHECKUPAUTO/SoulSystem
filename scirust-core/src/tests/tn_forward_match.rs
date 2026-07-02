@@ -33,15 +33,12 @@ fn ttlinear_matches_linear_full_rank() {
         &crate::nn::init::Zeros,
         &mut rng,
     );
-    for i in 0..in_features
-    {
-        for j in 0..out_features
-        {
+    for i in 0..in_features {
+        for j in 0..out_features {
             linear.weight.data[i * out_features + j] = ((i * 7 + j * 3) as f32).sin();
         }
     }
-    for j in 0..out_features
-    {
+    for j in 0..out_features {
         linear.bias.data[j] = (j as f32) * 0.01;
     }
 
@@ -94,10 +91,8 @@ fn ttlinear_compression_reports() {
         &mut rng,
     );
     // Synthetic low-rank weight: 2 outer products
-    for i in 0..in_features
-    {
-        for j in 0..out_features
-        {
+    for i in 0..in_features {
+        for j in 0..out_features {
             linear.weight.data[i * out_features + j] =
                 (i as f32).sin() * (j as f32).cos() + (i as f32 + j as f32) * 0.001;
         }

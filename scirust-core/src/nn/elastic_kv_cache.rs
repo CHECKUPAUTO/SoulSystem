@@ -28,12 +28,9 @@ const QMAX_INT4: f32 = 7.0;
 /// `[-7, 7]`. Returns the codes and the scale (deterministic).
 pub fn quantize_int4(x: &[f32]) -> (Vec<i8>, f32) {
     let maxabs = x.iter().fold(0.0f32, |a, &v| a.max(v.abs()));
-    let scale = if maxabs == 0.0
-    {
+    let scale = if maxabs == 0.0 {
         1.0
-    }
-    else
-    {
+    } else {
         maxabs / QMAX_INT4
     };
     let codes = x
@@ -61,8 +58,7 @@ pub fn quantize_int4_grouped(x: &[f32], group_size: usize) -> (Vec<i8>, Vec<f32>
     let g = group_size.clamp(1, x.len().max(1));
     let mut codes = Vec::with_capacity(x.len());
     let mut scales = Vec::with_capacity(x.len().div_ceil(g));
-    for chunk in x.chunks(g)
-    {
+    for chunk in x.chunks(g) {
         let (c, s) = quantize_int4(chunk);
         codes.extend(c);
         scales.push(s);
@@ -74,8 +70,7 @@ pub fn quantize_int4_grouped(x: &[f32], group_size: usize) -> (Vec<i8>, Vec<f32>
 pub fn dequantize_int4_grouped(codes: &[i8], scales: &[f32], group_size: usize) -> Vec<f32> {
     let g = group_size.clamp(1, codes.len().max(1));
     let mut out = Vec::with_capacity(codes.len());
-    for (chunk, &s) in codes.chunks(g).zip(scales)
-    {
+    for (chunk, &s) in codes.chunks(g).zip(scales) {
         out.extend(dequantize_int4(chunk, s));
     }
     out
@@ -87,14 +82,12 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let mut dot = 0.0f32;
     let mut na = 0.0f32;
     let mut nb = 0.0f32;
-    for (&x, &y) in a.iter().zip(b)
-    {
+    for (&x, &y) in a.iter().zip(b) {
         dot += x * y;
         na += x * x;
         nb += y * y;
     }
-    if na == 0.0 || nb == 0.0
-    {
+    if na == 0.0 || nb == 0.0 {
         return 0.0;
     }
     dot / (na.sqrt() * nb.sqrt())
@@ -217,8 +210,7 @@ impl ElasticKvCache {
         assert_eq!(v.len(), self.d, "append: value length must be d");
         self.tiles
             .push_back(KvTile::compress_grouped(k, v, self.group_size));
-        if self.budget != 0 && self.tiles.len() > self.budget
-        {
+        if self.budget != 0 && self.tiles.len() > self.budget {
             self.tiles.pop_front();
             self.evicted += 1;
         }
@@ -251,8 +243,7 @@ impl ElasticKvCache {
         let n = self.tiles.len();
         let mut keys = Vec::with_capacity(n * self.d);
         let mut values = Vec::with_capacity(n * self.d);
-        for t in &self.tiles
-        {
+        for t in &self.tiles {
             keys.extend(t.key());
             values.extend(t.value());
         }
@@ -304,8 +295,7 @@ mod tests {
         let mut rng = PcgEngine::new(5);
         // Moderate, heterogeneous per-group magnitudes (every channel still matters).
         let mut k = vec![0.0f32; d];
-        for (i, ki) in k.iter_mut().enumerate()
-        {
+        for (i, ki) in k.iter_mut().enumerate() {
             let mag = [0.3f32, 0.6, 1.5, 3.0][(i / 32) % 4];
             *ki = mag * rng.float_signed();
         }
@@ -339,8 +329,7 @@ mod tests {
         let (d, n, mut rng) = (64usize, 40usize, PcgEngine::new(2));
         let mut cache = ElasticKvCache::new(d, 0); // unbounded
         let (mut keys, mut values) = (Vec::new(), Vec::new());
-        for _ in 0..n
-        {
+        for _ in 0..n {
             let k = rand_vec(d, &mut rng);
             let v = rand_vec(d, &mut rng);
             cache.append(&k, &v);
@@ -359,8 +348,7 @@ mod tests {
     fn compression_ratio_is_significant() {
         let (d, n, mut rng) = (128usize, 64usize, PcgEngine::new(3));
         let mut cache = ElasticKvCache::new(d, 0);
-        for _ in 0..n
-        {
+        for _ in 0..n {
             cache.append(&rand_vec(d, &mut rng), &rand_vec(d, &mut rng));
         }
         let raw = n * 2 * d * std::mem::size_of::<f32>(); // f32 key + value
@@ -379,8 +367,7 @@ mod tests {
         let run = || -> (usize, usize, Vec<f32>) {
             let mut rng = PcgEngine::new(7);
             let mut cache = ElasticKvCache::new(d, budget);
-            for _ in 0..total
-            {
+            for _ in 0..total {
                 cache.append(&rand_vec(d, &mut rng), &rand_vec(d, &mut rng));
                 assert!(cache.len() <= budget, "budget exceeded");
             }

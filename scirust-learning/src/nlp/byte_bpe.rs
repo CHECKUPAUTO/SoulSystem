@@ -39,19 +39,15 @@ impl ByteBpeTokenizer {
             .map(|t| t.bytes().map(|b| vec![b]).collect())
             .collect();
 
-        while id_to_bytes.len() < target
-        {
+        while id_to_bytes.len() < target {
             // Count adjacent token pairs across the corpus.
             let mut counts: HashMap<(Vec<u8>, Vec<u8>), usize> = HashMap::new();
-            for w in &words
-            {
-                for i in 0..w.len().saturating_sub(1)
-                {
+            for w in &words {
+                for i in 0..w.len().saturating_sub(1) {
                     *counts.entry((w[i].clone(), w[i + 1].clone())).or_insert(0) += 1;
                 }
             }
-            if counts.is_empty()
-            {
+            if counts.is_empty() {
                 break;
             }
             // Most frequent pair; ties broken deterministically (smallest pair).
@@ -66,8 +62,7 @@ impl ByteBpeTokenizer {
             id_to_bytes.push(merged.clone());
             merges.push((p1.clone(), p2.clone()));
 
-            for w in &mut words
-            {
+            for w in &mut words {
                 *w = apply_merge(w, &p1, &p2, &merged);
             }
         }
@@ -82,8 +77,7 @@ impl ByteBpeTokenizer {
     /// Encode any string to token ids (lossless; never fails).
     pub fn encode(&self, text: &str) -> Vec<u32> {
         let mut toks: Vec<Vec<u8>> = text.bytes().map(|b| vec![b]).collect();
-        for (p1, p2) in &self.merges
-        {
+        for (p1, p2) in &self.merges {
             let mut merged = p1.clone();
             merged.extend_from_slice(p2);
             toks = apply_merge(&toks, p1, p2, &merged);
@@ -97,10 +91,8 @@ impl ByteBpeTokenizer {
     /// uses lossy UTF-8 for arbitrary (e.g. model-generated) id streams.
     pub fn decode(&self, ids: &[u32]) -> String {
         let mut bytes = Vec::new();
-        for &id in ids
-        {
-            if let Some(b) = self.id_to_bytes.get(id as usize)
-            {
+        for &id in ids {
+            if let Some(b) = self.id_to_bytes.get(id as usize) {
                 bytes.extend_from_slice(b);
             }
         }
@@ -122,15 +114,11 @@ impl ByteBpeTokenizer {
 fn apply_merge(tokens: &[Vec<u8>], p1: &[u8], p2: &[u8], merged: &[u8]) -> Vec<Vec<u8>> {
     let mut out = Vec::with_capacity(tokens.len());
     let mut i = 0;
-    while i < tokens.len()
-    {
-        if i + 1 < tokens.len() && tokens[i] == p1 && tokens[i + 1] == p2
-        {
+    while i < tokens.len() {
+        if i + 1 < tokens.len() && tokens[i] == p1 && tokens[i + 1] == p2 {
             out.push(merged.to_vec());
             i += 2;
-        }
-        else
-        {
+        } else {
             out.push(tokens[i].clone());
             i += 1;
         }
@@ -152,8 +140,7 @@ mod tests {
             "完全に未知",        // never-seen script
             "",                  // empty
             "\t\n\0 mixed",      // control bytes
-        ]
-        {
+        ] {
             assert_eq!(tok.decode(&tok.encode(s)), s, "round-trip failed for {s:?}");
         }
     }
@@ -165,11 +152,10 @@ mod tests {
         let s = "🦀";
         assert_eq!(tok.decode(&tok.encode(s)), s);
         // Every id is a valid base byte or a learned merge (< vocab_size).
-        assert!(
-            tok.encode(s)
-                .iter()
-                .all(|&id| (id as usize) < tok.vocab_size())
-        );
+        assert!(tok
+            .encode(s)
+            .iter()
+            .all(|&id| (id as usize) < tok.vocab_size()));
     }
 
     #[test]
@@ -178,8 +164,7 @@ mod tests {
         let reference = ByteBpeTokenizer::train(&corpus, 320);
         let probe = "a banana in panama";
         let expected = reference.encode(probe);
-        for _ in 0..5
-        {
+        for _ in 0..5 {
             assert_eq!(
                 ByteBpeTokenizer::train(&corpus, 320).encode(probe),
                 expected

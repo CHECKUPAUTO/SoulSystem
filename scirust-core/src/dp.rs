@@ -91,8 +91,7 @@ impl MomentsAccountant {
     pub fn step(&mut self) {
         // Compute Rényi divergence for each order α
         // Using the tight bound from Abadi et al. (2016)
-        for (i, &alpha) in self.orders.iter().enumerate()
-        {
+        for (i, &alpha) in self.orders.iter().enumerate() {
             let moment = compute_log_moment(alpha, self.q, self.sigma);
             self.log_moments[i] += moment;
         }
@@ -107,11 +106,9 @@ impl MomentsAccountant {
     fn compute_epsilon(&self) -> f64 {
         let mut best_eps = f64::INFINITY;
 
-        for (i, &alpha) in self.orders.iter().enumerate()
-        {
+        for (i, &alpha) in self.orders.iter().enumerate() {
             let eps = self.log_moments[i] - (self.delta.ln() / alpha);
-            if eps < best_eps
-            {
+            if eps < best_eps {
                 best_eps = eps;
             }
         }
@@ -124,8 +121,7 @@ impl MomentsAccountant {
 fn compute_log_moment(alpha: f64, q: f64, sigma: f64) -> f64 {
     // Simplified bound for Gaussian mechanism with subsampling
     // From Abadi et al. 2016, Theorem 2 (with simplifications)
-    if q == 0.0 || sigma == 0.0
-    {
+    if q == 0.0 || sigma == 0.0 {
         return 0.0;
     }
 
@@ -168,12 +164,10 @@ pub fn rdp_gaussian_epsilon(steps: usize, sigma: f64, delta: f64) -> (f64, f64) 
     let mut alphas: Vec<f64> = (1..20).map(|i| 1.0 + i as f64 * 0.05).collect();
     alphas.extend((2..=256).map(|a| a as f64));
     let mut best = (f64::INFINITY, 0.0);
-    for &alpha in &alphas
-    {
+    for &alpha in &alphas {
         let total_rdp = steps as f64 * gaussian_rdp(alpha, sigma);
         let eps = rdp_to_dp(total_rdp, alpha, delta);
-        if eps < best.0
-        {
+        if eps < best.0 {
             best = (eps, alpha);
         }
     }
@@ -187,11 +181,9 @@ pub fn clip_gradients(grads: &mut [f32], l2_norm_clip: f32) {
     let norm_sq: f32 = grads.iter().map(|&g| g * g).sum();
     let norm = norm_sq.sqrt();
 
-    if norm > l2_norm_clip && norm > 1e-12
-    {
+    if norm > l2_norm_clip && norm > 1e-12 {
         let scale = l2_norm_clip / norm;
-        for g in grads.iter_mut()
-        {
+        for g in grads.iter_mut() {
             *g *= scale;
         }
     }
@@ -201,8 +193,7 @@ pub fn clip_gradients(grads: &mut [f32], l2_norm_clip: f32) {
 ///
 /// σ = noise_multiplier * l2_norm_clip (should match clip_gradients).
 pub fn add_noise(grads: &mut [f32], noise_stddev: f32, rng: &mut PcgEngine) {
-    for g in grads.iter_mut()
-    {
+    for g in grads.iter_mut() {
         *g += rng.normal(0.0, noise_stddev);
     }
 }
@@ -256,8 +247,7 @@ mod tests {
         let mut acc = MomentsAccountant::new(1e-5, 0.01, 1.1);
 
         // 1000 steps
-        for _ in 0..1000
-        {
+        for _ in 0..1000 {
             acc.step();
         }
 

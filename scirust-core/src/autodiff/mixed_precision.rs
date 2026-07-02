@@ -32,8 +32,7 @@ impl MixedPrecisionTrainer {
 
     /// Remplacer les poids du modèle par la version FP16 avant le forward
     pub fn before_forward(&mut self) {
-        for (master, fp16) in self.master_weights.iter_mut().zip(&self.fp16_weights)
-        {
+        for (master, fp16) in self.master_weights.iter_mut().zip(&self.fp16_weights) {
             *master = fp16.clone();
         }
     }
@@ -44,19 +43,16 @@ impl MixedPrecisionTrainer {
         let mut any_overflow = false;
         let mut scaled_grads = Vec::with_capacity(grads.len());
 
-        for grad in grads
-        {
+        for grad in grads {
             let unscaled = unscale_tensor(grad, 1.0 / self.loss_scale);
-            if has_nan_or_inf(&unscaled)
-            {
+            if has_nan_or_inf(&unscaled) {
                 any_overflow = true;
                 break;
             }
             scaled_grads.push(unscaled);
         }
 
-        if any_overflow
-        {
+        if any_overflow {
             self.loss_scale *= self.scale_backoff_factor;
             return Err(format!(
                 "Overflow detected, loss scale reduced to {}",
@@ -70,16 +66,14 @@ impl MixedPrecisionTrainer {
 
     /// Croissance périodique du loss scale
     pub fn maybe_grow_scale(&mut self) {
-        if self.step_counter % self.growth_interval == 0
-        {
+        if self.step_counter % self.growth_interval == 0 {
             self.loss_scale = (self.loss_scale * self.scale_growth_factor).min(self.max_scale);
         }
     }
 
     /// Cast master FP32 → FP16 pour le prochain forward
     pub fn update_fp16_from_master(&mut self) {
-        for (fp16, master) in self.fp16_weights.iter_mut().zip(&self.master_weights)
-        {
+        for (fp16, master) in self.fp16_weights.iter_mut().zip(&self.master_weights) {
             *fp16 = cast_to_fp16(master);
         }
     }
@@ -87,8 +81,7 @@ impl MixedPrecisionTrainer {
 
 fn cast_to_fp16(t: &Tensor) -> Tensor {
     let mut out = Tensor::zeros(t.rows, t.cols);
-    for (dst, &src) in out.data.iter_mut().zip(&t.data)
-    {
+    for (dst, &src) in out.data.iter_mut().zip(&t.data) {
         let half = half::f16::from_f32(src);
         *dst = half.to_f32();
     }
@@ -97,8 +90,7 @@ fn cast_to_fp16(t: &Tensor) -> Tensor {
 
 fn unscale_tensor(t: &Tensor, scale: f32) -> Tensor {
     let mut out = Tensor::zeros(t.rows, t.cols);
-    for (dst, &src) in out.data.iter_mut().zip(&t.data)
-    {
+    for (dst, &src) in out.data.iter_mut().zip(&t.data) {
         let half = half::f16::from_f32(src);
         *dst = half.to_f32() * scale;
     }
@@ -140,8 +132,7 @@ mod tests {
         let params = vec![Tensor::zeros(10, 20)];
         let mut trainer = MixedPrecisionTrainer::new(&params, 1.0);
         trainer.growth_interval = 5;
-        for _ in 0..5
-        {
+        for _ in 0..5 {
             let grads = vec![Tensor::zeros(10, 20)];
             let _ = trainer.after_backward(&grads);
         }

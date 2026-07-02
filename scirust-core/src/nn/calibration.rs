@@ -20,8 +20,7 @@ fn softmax_t(row: &[f32], t: f32) -> Vec<f32> {
     let mut exps: Vec<f32> = row.iter().map(|&z| ((z - m) * inv).exp()).collect();
     let s: f32 = exps.iter().sum();
     let inv_s = 1.0 / s;
-    for e in exps.iter_mut()
-    {
+    for e in exps.iter_mut() {
         *e *= inv_s;
     }
     exps
@@ -33,8 +32,7 @@ pub fn nll(logits: &[f32], labels: &[usize], n: usize, classes: usize, t: f32) -
     assert_eq!(logits.len(), n * classes, "nll: logits size");
     assert_eq!(labels.len(), n, "nll: one label per row");
     let mut acc = 0.0f32;
-    for i in 0..n
-    {
+    for i in 0..n {
         let p = softmax_t(&logits[i * classes..(i + 1) * classes], t);
         acc -= (p[labels[i]].max(1e-12)).ln();
     }
@@ -56,14 +54,11 @@ pub fn expected_calibration_error(
     let mut bin_conf = vec![0.0f32; n_bins];
     let mut bin_acc = vec![0.0f32; n_bins];
     let mut bin_cnt = vec![0usize; n_bins];
-    for i in 0..n
-    {
+    for i in 0..n {
         let p = softmax_t(&logits[i * classes..(i + 1) * classes], t);
         let (mut arg, mut conf) = (0usize, p[0]);
-        for (c, &pc) in p.iter().enumerate()
-        {
-            if pc > conf
-            {
+        for (c, &pc) in p.iter().enumerate() {
+            if pc > conf {
                 conf = pc;
                 arg = c;
             }
@@ -75,10 +70,8 @@ pub fn expected_calibration_error(
         bin_cnt[b] += 1;
     }
     let mut ece = 0.0f32;
-    for b in 0..n_bins
-    {
-        if bin_cnt[b] == 0
-        {
+    for b in 0..n_bins {
+        if bin_cnt[b] == 0 {
             continue;
         }
         let cnt = bin_cnt[b] as f32;
@@ -99,18 +92,14 @@ pub fn temperature_scale(logits: &[f32], labels: &[usize], n: usize, classes: us
     let mut d = a + (b - a) * inv_phi;
     let mut fc = nll(logits, labels, n, classes, c);
     let mut fd = nll(logits, labels, n, classes, d);
-    for _ in 0..60
-    {
-        if fc < fd
-        {
+    for _ in 0..60 {
+        if fc < fd {
             b = d;
             d = c;
             fd = fc;
             c = b - (b - a) * inv_phi;
             fc = nll(logits, labels, n, classes, c);
-        }
-        else
-        {
+        } else {
             a = c;
             c = d;
             fc = fd;
@@ -132,22 +121,17 @@ mod tests {
     fn overconfident(rng: &mut PcgEngine, n: usize, classes: usize) -> (Vec<f32>, Vec<usize>) {
         let mut logits = vec![0f32; n * classes];
         let mut labels = vec![0usize; n];
-        for i in 0..n
-        {
+        for i in 0..n {
             let true_c = (rng.float() * classes as f32) as usize % classes;
-            for c in 0..classes
-            {
+            for c in 0..classes {
                 logits[i * classes + c] = 0.5 * rng.float_signed();
             }
             // Make the predicted class very peaked (over-confident).
             logits[i * classes + true_c] += 6.0;
             // Corrupt ~30% of labels so confidence overstates accuracy.
-            labels[i] = if rng.float() < 0.3
-            {
+            labels[i] = if rng.float() < 0.3 {
                 (true_c + 1) % classes
-            }
-            else
-            {
+            } else {
                 true_c
             };
         }

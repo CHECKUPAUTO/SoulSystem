@@ -58,29 +58,23 @@ impl BatchNorm2d {
     ) -> (Vec<f32>, Vec<f32>) {
         let inv_n = 1.0 / n_spatial as f32;
         let mut mean = vec![0.0f32; c];
-        for i in 0..n_spatial
-        {
-            for j in 0..c
-            {
+        for i in 0..n_spatial {
+            for j in 0..c {
                 mean[j] += input_data[i * c + j];
             }
         }
-        for v in mean.iter_mut()
-        {
+        for v in mean.iter_mut() {
             *v *= inv_n;
         }
 
         let mut var = vec![0.0f32; c];
-        for i in 0..n_spatial
-        {
-            for j in 0..c
-            {
+        for i in 0..n_spatial {
+            for j in 0..c {
                 let d = input_data[i * c + j] - mean[j];
                 var[j] += d * d;
             }
         }
-        for v in var.iter_mut()
-        {
+        for v in var.iter_mut() {
             *v *= inv_n;
         }
         (mean, var)
@@ -88,8 +82,7 @@ impl BatchNorm2d {
 
     fn update_running_stats(&mut self, batch_mean: &[f32], batch_var: &[f32]) {
         let alpha = self.momentum;
-        for j in 0..self.num_channels
-        {
+        for j in 0..self.num_channels {
             self.running_mean.data[j] =
                 (1.0 - alpha) * self.running_mean.data[j] + alpha * batch_mean[j];
             self.running_var.data[j] =
@@ -118,8 +111,7 @@ impl Module for BatchNorm2d {
         self.last_g_idx = Some(gamma_v.idx());
         self.last_b_idx = Some(beta_v.idx());
 
-        if self.training
-        {
+        if self.training {
             let input_t = tape.value(reshaped.idx());
             let (batch_mean, batch_var) =
                 self.compute_batch_stats(&input_t.data, n_spatial, self.num_channels);
@@ -142,9 +134,7 @@ impl Module for BatchNorm2d {
             let out = scaled.try_add_broadcast(beta_v).unwrap();
             // Reshape back
             out.reshape(&[n, total_features])
-        }
-        else
-        {
+        } else {
             let rmean_v = tape.input(self.running_mean.clone());
             let centered = reshaped.try_add_broadcast(rmean_v.neg()).unwrap();
             let eps_t = tape.input(Tensor::from_vec(
@@ -163,24 +153,20 @@ impl Module for BatchNorm2d {
 
     fn parameter_indices(&self) -> Vec<usize> {
         let mut v = Vec::new();
-        if let Some(i) = self.last_g_idx
-        {
+        if let Some(i) = self.last_g_idx {
             v.push(i);
         }
-        if let Some(i) = self.last_b_idx
-        {
+        if let Some(i) = self.last_b_idx {
             v.push(i);
         }
         v
     }
 
     fn sync(&mut self, tape: &Tape) {
-        if let Some(i) = self.last_g_idx
-        {
+        if let Some(i) = self.last_g_idx {
             self.gamma = tape.value(i);
         }
-        if let Some(i) = self.last_b_idx
-        {
+        if let Some(i) = self.last_b_idx {
             self.beta = tape.value(i);
         }
     }

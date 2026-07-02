@@ -77,13 +77,14 @@ impl PolicyEvolution {
     /// Update policy based on error and performance metrics.
     pub fn update_policy(
         &mut self,
-        q_value: f64,           // Q-value of current action
-        goal_alignment: f64,    // Alignment with goals (0.0 to 1.0)
-        error: f64,             // Global error
-        uncertainty: f64,       // Current uncertainty
-        social_factor: f64,     // Social learning factor
+        q_value: f64,        // Q-value of current action
+        goal_alignment: f64, // Alignment with goals (0.0 to 1.0)
+        error: f64,          // Global error
+        uncertainty: f64,    // Current uncertainty
+        social_factor: f64,  // Social learning factor
     ) {
-        let gradient = self.calculate_gradient(q_value, goal_alignment, error, uncertainty, social_factor);
+        let gradient =
+            self.calculate_gradient(q_value, goal_alignment, error, uncertainty, social_factor);
 
         // Update policy parameters using gradient descent
         for (param_name, grad) in gradient {
@@ -122,20 +123,38 @@ impl PolicyEvolution {
         let mut gradient = HashMap::new();
 
         // Q-value gradient - encourage high Q-values
-        gradient.insert("exploration_rate".to_string(), self.weights.weight_q_value * q_value);
-        gradient.insert("exploitation_rate".to_string(), self.weights.weight_q_value * q_value);
+        gradient.insert(
+            "exploration_rate".to_string(),
+            self.weights.weight_q_value * q_value,
+        );
+        gradient.insert(
+            "exploitation_rate".to_string(),
+            self.weights.weight_q_value * q_value,
+        );
 
         // Goal alignment gradient - encourage goal alignment
-        gradient.insert("curiosity_factor".to_string(), self.weights.weight_goal_alignment * goal_alignment);
+        gradient.insert(
+            "curiosity_factor".to_string(),
+            self.weights.weight_goal_alignment * goal_alignment,
+        );
 
         // Error gradient - reduce error (negative)
-        gradient.insert("risk_tolerance".to_string(), -self.weights.weight_error * error);
+        gradient.insert(
+            "risk_tolerance".to_string(),
+            -self.weights.weight_error * error,
+        );
 
         // Uncertainty gradient - higher uncertainty = more exploration
-        gradient.insert("exploration_rate".to_string(), self.weights.weight_uncertainty * uncertainty);
+        gradient.insert(
+            "exploration_rate".to_string(),
+            self.weights.weight_uncertainty * uncertainty,
+        );
 
         // Social gradient - encourage social learning
-        gradient.insert("exploitation_rate".to_string(), self.weights.weight_social * social_factor);
+        gradient.insert(
+            "exploitation_rate".to_string(),
+            self.weights.weight_social * social_factor,
+        );
 
         gradient
     }
@@ -258,15 +277,15 @@ impl ActionSelector {
 
         // Normalize Q-values for policy update
         let normalized_q = if max_q > min_q {
-            (max_q - min_q).max(0.001)  // Avoid division by zero
+            (max_q - min_q).max(0.001) // Avoid division by zero
         } else {
             1.0
         };
 
         // Update policy based on current state and global error
         self.policy.update_policy(
-            max_q / normalized_q,                    // Normalized Q-value
-            1.0 - (global_error / 2.0).min(1.0),     // Goal alignment (inverted error)
+            max_q / normalized_q,                // Normalized Q-value
+            1.0 - (global_error / 2.0).min(1.0), // Goal alignment (inverted error)
             global_error,
             uncertainty,
             social_factor,
@@ -274,12 +293,8 @@ impl ActionSelector {
 
         // Choose action based on current policy and exploration strategy
         match self.exploration_strategy {
-            ExplorationStrategy::EpsilonGreedy => {
-                self.select_epsilon_greedy(available_actions)
-            }
-            ExplorationStrategy::UCB1 => {
-                self.select_ucb1(available_actions)
-            }
+            ExplorationStrategy::EpsilonGreedy => self.select_epsilon_greedy(available_actions),
+            ExplorationStrategy::UCB1 => self.select_ucb1(available_actions),
             ExplorationStrategy::ThompsonSampling => {
                 self.select_thompson_sampling(available_actions)
             }
@@ -428,15 +443,14 @@ impl PolicyMetrics {
             // Calculate adaptation rate
             if policy_evolution.policy_history.len() >= 2 {
                 let first_state = &policy_evolution.policy_history[0];
-                let last_state = &policy_evolution.policy_history[policy_evolution.policy_history.len() - 1];
+                let last_state =
+                    &policy_evolution.policy_history[policy_evolution.policy_history.len() - 1];
 
                 let param_changes: f64 = first_state
                     .parameters
                     .iter()
                     .zip(last_state.parameters.iter())
-                    .map(|((key, first_val), (_, last_val))| {
-                        (first_val - last_val).abs()
-                    })
+                    .map(|((key, first_val), (_, last_val))| (first_val - last_val).abs())
                     .sum();
 
                 adaptation_rate = param_changes / first_state.parameters.len() as f64;

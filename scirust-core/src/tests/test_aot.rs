@@ -14,8 +14,7 @@ mod tests {
         ];
         let weights = vec![0.1f32, 0.2, 0.3, 0.4, 0.5, 0.6];
         let mut bytes = Vec::new();
-        for w in weights
-        {
+        for w in weights {
             bytes.extend_from_slice(&w.to_le_bytes());
         }
 

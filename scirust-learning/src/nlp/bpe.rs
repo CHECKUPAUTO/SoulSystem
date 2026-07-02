@@ -31,13 +31,10 @@ impl BpeTokenizer {
         // Initial characters as base vocabulary
         let mut current_vocab_size = 2;
         let mut char_counts = HashMap::new();
-        for text in texts
-        {
-            for c in text.chars()
-            {
+        for text in texts {
+            for c in text.chars() {
                 let s = c.to_string();
-                if !vocab.contains_key(&s) && current_vocab_size < vocab_size
-                {
+                if !vocab.contains_key(&s) && current_vocab_size < vocab_size {
                     vocab.insert(s.clone(), current_vocab_size as u32);
                     current_vocab_size += 1;
                 }
@@ -52,20 +49,16 @@ impl BpeTokenizer {
             .map(|t| t.chars().map(|c| c.to_string()).collect())
             .collect();
 
-        while vocab.len() < vocab_size
-        {
+        while vocab.len() < vocab_size {
             let mut pair_counts = HashMap::new();
-            for word in &words
-            {
-                for i in 0..word.len().saturating_sub(1)
-                {
+            for word in &words {
+                for i in 0..word.len().saturating_sub(1) {
                     let pair = (word[i].clone(), word[i + 1].clone());
                     *pair_counts.entry(pair).or_insert(0) += 1;
                 }
             }
 
-            if pair_counts.is_empty()
-            {
+            if pair_counts.is_empty() {
                 break;
             }
 
@@ -78,35 +71,27 @@ impl BpeTokenizer {
                 .max_by_key(|(pair, count)| (*count, Reverse(pair.clone())))
                 .map(|(pair, _)| pair);
 
-            if let Some((p1, p2)) = best_pair
-            {
+            if let Some((p1, p2)) = best_pair {
                 let new_token = format!("{}{}", p1, p2);
                 merges.push((p1.clone(), p2.clone()));
                 vocab.insert(new_token.clone(), vocab.len() as u32);
 
                 // Apply merge
-                for word in &mut words
-                {
+                for word in &mut words {
                     let mut new_word = Vec::new();
                     let mut i = 0;
-                    while i < word.len()
-                    {
-                        if i + 1 < word.len() && word[i] == p1 && word[i + 1] == p2
-                        {
+                    while i < word.len() {
+                        if i + 1 < word.len() && word[i] == p1 && word[i + 1] == p2 {
                             new_word.push(new_token.clone());
                             i += 2;
-                        }
-                        else
-                        {
+                        } else {
                             new_word.push(word[i].clone());
                             i += 1;
                         }
                     }
                     *word = new_word;
                 }
-            }
-            else
-            {
+            } else {
                 break;
             }
         }
@@ -128,20 +113,15 @@ impl Tokenizer for BpeTokenizer {
     fn tokenize(&self, text: &str) -> Vec<u32> {
         let mut tokens: Vec<String> = text.chars().map(|c| c.to_string()).collect();
 
-        for (p1, p2) in &self.merges
-        {
+        for (p1, p2) in &self.merges {
             let new_token = format!("{}{}", p1, p2);
             let mut new_tokens = Vec::new();
             let mut i = 0;
-            while i < tokens.len()
-            {
-                if i + 1 < tokens.len() && tokens[i] == *p1 && tokens[i + 1] == *p2
-                {
+            while i < tokens.len() {
+                if i + 1 < tokens.len() && tokens[i] == *p1 && tokens[i + 1] == *p2 {
                     new_tokens.push(new_token.clone());
                     i += 2;
-                }
-                else
-                {
+                } else {
                     new_tokens.push(tokens[i].clone());
                     i += 1;
                 }
@@ -174,8 +154,7 @@ mod tests {
         let corpus = ["low lower lowest", "newer newest wider"];
         let tok = BpeTokenizer::train(&corpus, 50);
         // Text drawn from the corpus round-trips exactly.
-        for s in ["low", "lower", "newest", "wider"]
-        {
+        for s in ["low", "lower", "newest", "wider"] {
             assert_eq!(tok.decode(&tok.tokenize(s)), s, "round-trip failed for {s}");
         }
     }
@@ -188,8 +167,7 @@ mod tests {
         let reference = BpeTokenizer::train(&corpus, 40);
         let probe = "a banana in panama";
         let expected = reference.tokenize(probe);
-        for _ in 0..5
-        {
+        for _ in 0..5 {
             let again = BpeTokenizer::train(&corpus, 40);
             assert_eq!(again.tokenize(probe), expected, "BPE training diverged");
         }

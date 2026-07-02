@@ -33,10 +33,8 @@ pub fn is_green(seed: u64, prev_token: usize, token: usize, gamma: f32) -> bool 
 /// caller samples from the biased logits as usual — this is the only change a
 /// watermarked generator makes.
 pub fn apply_green_bias(logits: &mut [f32], seed: u64, prev_token: usize, gamma: f32, delta: f32) {
-    for (token, l) in logits.iter_mut().enumerate()
-    {
-        if is_green(seed, prev_token, token, gamma)
-        {
+    for (token, l) in logits.iter_mut().enumerate() {
+        if is_green(seed, prev_token, token, gamma) {
             *l += delta;
         }
     }
@@ -48,8 +46,7 @@ pub fn apply_green_bias(logits: &mut [f32], seed: u64, prev_token: usize, gamma:
 /// one-sided p-value `Φ(−z)`) is strong evidence the text was watermarked — **no
 /// model access required**.
 pub fn detect_z(seed: u64, tokens: &[usize], gamma: f32) -> f32 {
-    if tokens.len() < 2
-    {
+    if tokens.len() < 2 {
         return 0.0;
     }
     let n = (tokens.len() - 1) as f32;
@@ -71,12 +68,9 @@ mod tests {
     fn green_fraction_matches_gamma() {
         let (seed, gamma, vocab) = (1u64, 0.3f32, 200usize);
         let (mut green, mut total) = (0usize, 0usize);
-        for prev in 0..vocab
-        {
-            for token in 0..vocab
-            {
-                if is_green(seed, prev, token, gamma)
-                {
+        for prev in 0..vocab {
+            for token in 0..vocab {
+                if is_green(seed, prev, token, gamma) {
                     green += 1;
                 }
                 total += 1;
@@ -95,14 +89,10 @@ mod tests {
         let (seed, gamma, prev, vocab) = (3u64, 0.25f32, 11usize, 64usize);
         let mut logits = vec![0.0f32; vocab];
         apply_green_bias(&mut logits, seed, prev, gamma, 2.0);
-        for (token, &l) in logits.iter().enumerate()
-        {
-            if is_green(seed, prev, token, gamma)
-            {
+        for (token, &l) in logits.iter().enumerate() {
+            if is_green(seed, prev, token, gamma) {
                 assert!((l - 2.0).abs() < 1e-6, "green token {token} not lifted");
-            }
-            else
-            {
+            } else {
                 assert!(l.abs() < 1e-6, "red token {token} changed");
             }
         }
@@ -128,12 +118,10 @@ mod tests {
         // by sampling a (diverse) green token at each step.
         let mut draw = PcgEngine::new(99);
         let mut wm = vec![5usize];
-        for _ in 0..600
-        {
+        for _ in 0..600 {
             let prev = *wm.last().unwrap();
             let mut t = (draw.float() * vocab as f32) as usize % vocab;
-            while !is_green(seed, prev, t, gamma)
-            {
+            while !is_green(seed, prev, t, gamma) {
                 t = (draw.float() * vocab as f32) as usize % vocab;
             }
             wm.push(t);

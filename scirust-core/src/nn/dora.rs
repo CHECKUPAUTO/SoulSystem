@@ -28,13 +28,10 @@ const DORA_EPS: f32 = 1e-12;
 /// `B(d×r) · A(r×k) → (d×k)`, row-major.
 fn matmul(b: &[f32], a: &[f32], d: usize, r: usize, k: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; d * k];
-    for i in 0..d
-    {
-        for p in 0..r
-        {
+    for i in 0..d {
+        for p in 0..r {
             let bip = b[i * r + p];
-            for j in 0..k
-            {
+            for j in 0..k {
                 out[i * k + j] += bip * a[p * k + j];
             }
         }
@@ -56,27 +53,22 @@ fn effective_weight(
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     let ba = matmul(b, a, d, r, k);
     let mut v = vec![0.0f32; d * k];
-    for i in 0..d * k
-    {
+    for i in 0..d * k {
         v[i] = w0[i] + ba[i];
     }
     // Column L2 norms.
     let mut norm = vec![0.0f32; k];
-    for j in 0..k
-    {
+    for j in 0..k {
         let mut s = 0.0f32;
-        for i in 0..d
-        {
+        for i in 0..d {
             s += v[i * k + j] * v[i * k + j];
         }
         norm[j] = s.sqrt().max(DORA_EPS);
     }
     // W'[i,j] = m_j · V[i,j] / norm_j.
     let mut w = vec![0.0f32; d * k];
-    for i in 0..d
-    {
-        for j in 0..k
-        {
+    for i in 0..d {
+        for j in 0..k {
             w[i * k + j] = m[j] * v[i * k + j] / norm[j];
         }
     }
@@ -110,11 +102,9 @@ impl DoraLinear {
     pub fn new(w0: &[f32], d: usize, k: usize, rank: usize, rng: &mut PcgEngine) -> Self {
         assert_eq!(w0.len(), d * k, "DoRA: w0 must be d*k");
         let mut m = vec![0.0f32; k];
-        for j in 0..k
-        {
+        for j in 0..k {
             let mut s = 0.0f32;
-            for i in 0..d
-            {
+            for i in 0..d {
                 s += w0[i * k + j] * w0[i * k + j];
             }
             m[j] = s.sqrt();
@@ -144,11 +134,9 @@ impl DoraLinear {
         assert_eq!(x.len(), self.k, "DoRA forward: x must be length k");
         let w = self.effective_weight();
         let mut y = vec![0.0f32; self.d];
-        for i in 0..self.d
-        {
+        for i in 0..self.d {
             let mut s = 0.0f32;
-            for j in 0..self.k
-            {
+            for j in 0..self.k {
                 s += w[i * self.k + j] * x[j];
             }
             y[i] = s;
@@ -167,47 +155,37 @@ impl DoraLinear {
         let (_, v, norm) = effective_weight(&self.w0, &self.a, &self.b, &self.m, d, k, r);
         // u = V / norm (column-normalised), s_j = Σ_i gw·u, dm_j = s_j.
         let mut dm = vec![0.0f32; k];
-        for j in 0..k
-        {
+        for j in 0..k {
             let mut s = 0.0f32;
-            for i in 0..d
-            {
+            for i in 0..d {
                 s += gw[i * k + j] * v[i * k + j] / norm[j];
             }
             dm[j] = s;
         }
         // dV[i,j] = (m_j/norm_j)·(gw[i,j] − u[i,j]·s_j).
         let mut dv = vec![0.0f32; d * k];
-        for i in 0..d
-        {
-            for j in 0..k
-            {
+        for i in 0..d {
+            for j in 0..k {
                 let u = v[i * k + j] / norm[j];
                 dv[i * k + j] = (self.m[j] / norm[j]) * (gw[i * k + j] - u * dm[j]);
             }
         }
         // dB = dV·Aᵀ (d×r); dA = Bᵀ·dV (r×k).
         let mut db = vec![0.0f32; d * r];
-        for i in 0..d
-        {
-            for p in 0..r
-            {
+        for i in 0..d {
+            for p in 0..r {
                 let mut s = 0.0f32;
-                for j in 0..k
-                {
+                for j in 0..k {
                     s += dv[i * k + j] * self.a[p * k + j];
                 }
                 db[i * r + p] = s;
             }
         }
         let mut da = vec![0.0f32; r * k];
-        for p in 0..r
-        {
-            for j in 0..k
-            {
+        for p in 0..r {
+            for j in 0..k {
                 let mut s = 0.0f32;
-                for i in 0..d
-                {
+                for i in 0..d {
                     s += self.b[i * r + p] * dv[i * k + j];
                 }
                 da[p * k + j] = s;
@@ -231,15 +209,13 @@ mod tests {
         let w0: Vec<f32> = (0..d * k).map(|_| rng.float_signed()).collect();
         let dora = DoraLinear::new(&w0, d, k, r, &mut rng);
         let w = dora.effective_weight();
-        for (a, b) in w.iter().zip(&w0)
-        {
+        for (a, b) in w.iter().zip(&w0) {
             assert!((a - b).abs() < 1e-5, "init weight {a} ≠ base {b}");
         }
         // And the forward map matches the base linear map.
         let x: Vec<f32> = (0..k).map(|i| i as f32 - 1.0).collect();
         let y = dora.forward(&x);
-        for (i, &yi) in y.iter().enumerate()
-        {
+        for (i, &yi) in y.iter().enumerate() {
             let want: f32 = (0..k).map(|j| w0[i * k + j] * x[j]).sum();
             assert!((yi - want).abs() < 1e-5);
         }
@@ -276,8 +252,7 @@ mod tests {
 
         let eps = 1e-3f32;
         let check = |analytic: &[f32], base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -320,8 +295,7 @@ mod tests {
             };
             let init = loss(&dora);
             let lr = 0.2f32;
-            for _ in 0..4000
-            {
+            for _ in 0..4000 {
                 let w = dora.effective_weight();
                 let gw: Vec<f32> = w
                     .iter()
@@ -329,16 +303,13 @@ mod tests {
                     .map(|(&wi, &ti)| 2.0 * (wi - ti))
                     .collect();
                 let (dm, da, db) = dora.grads(&gw);
-                for (mi, g) in dora.m.iter_mut().zip(&dm)
-                {
+                for (mi, g) in dora.m.iter_mut().zip(&dm) {
                     *mi -= lr * g;
                 }
-                for (ai, g) in dora.a.iter_mut().zip(&da)
-                {
+                for (ai, g) in dora.a.iter_mut().zip(&da) {
                     *ai -= lr * g;
                 }
-                for (bi, g) in dora.b.iter_mut().zip(&db)
-                {
+                for (bi, g) in dora.b.iter_mut().zip(&db) {
                     *bi -= lr * g;
                 }
             }

@@ -254,16 +254,11 @@ impl Dual {
     pub fn abs(self) -> Dual {
         Dual {
             value: self.value.abs(),
-            deriv: if self.value > 0.0
-            {
+            deriv: if self.value > 0.0 {
                 self.deriv
-            }
-            else if self.value < 0.0
-            {
+            } else if self.value < 0.0 {
                 -self.deriv
-            }
-            else
-            {
+            } else {
                 0.0
             },
         }
@@ -313,18 +308,15 @@ impl Tape {
 
     pub fn backward(&self, out_idx: usize) {
         let mut nodes = self.nodes.borrow_mut();
-        for node in nodes.iter_mut()
-        {
+        for node in nodes.iter_mut() {
             node.grad = 0.0;
         }
         nodes[out_idx].grad = 1.0;
 
-        for i in (0..nodes.len()).rev()
-        {
+        for i in (0..nodes.len()).rev() {
             let grad = nodes[i].grad;
             let deps = nodes[i].deps.clone();
-            for (dep_idx, partial) in deps
-            {
+            for (dep_idx, partial) in deps {
                 nodes[dep_idx].grad += grad * partial;
             }
         }

@@ -73,18 +73,14 @@ impl RandomFlipH {
 
 impl Transform for RandomFlipH {
     fn apply(&self, img: &mut [f32], dims: ImageDims, rng: &mut PcgEngine) {
-        if rng.float() >= self.p
-        {
+        if rng.float() >= self.p {
             return;
         }
-        for c in 0..dims.c
-        {
+        for c in 0..dims.c {
             let c_off = c * dims.h * dims.w;
-            for y in 0..dims.h
-            {
+            for y in 0..dims.h {
                 let row_off = c_off + y * dims.w;
-                for x in 0..dims.w / 2
-                {
+                for x in 0..dims.w / 2 {
                     let a = row_off + x;
                     let b = row_off + (dims.w - 1 - x);
                     img.swap(a, b);
@@ -108,19 +104,15 @@ impl RandomFlipV {
 
 impl Transform for RandomFlipV {
     fn apply(&self, img: &mut [f32], dims: ImageDims, rng: &mut PcgEngine) {
-        if rng.float() >= self.p
-        {
+        if rng.float() >= self.p {
             return;
         }
-        for c in 0..dims.c
-        {
+        for c in 0..dims.c {
             let c_off = c * dims.h * dims.w;
-            for y in 0..dims.h / 2
-            {
+            for y in 0..dims.h / 2 {
                 let row_a = c_off + y * dims.w;
                 let row_b = c_off + (dims.h - 1 - y) * dims.w;
-                for x in 0..dims.w
-                {
+                for x in 0..dims.w {
                     img.swap(row_a + x, row_b + x);
                 }
             }
@@ -163,14 +155,11 @@ impl Transform for RandomCrop {
         let padded_w = dims.w + 2 * self.pad;
         let mut padded = vec![0.0f32; dims.c * padded_h * padded_w];
 
-        for c in 0..dims.c
-        {
+        for c in 0..dims.c {
             let c_in = c * dims.h * dims.w;
             let c_out = c * padded_h * padded_w;
-            for y in 0..dims.h
-            {
-                for x in 0..dims.w
-                {
+            for y in 0..dims.h {
+                for x in 0..dims.w {
                     let py = y + self.pad;
                     let px = x + self.pad;
                     padded[c_out + py * padded_w + px] = img[c_in + y * dims.w + x];
@@ -181,14 +170,11 @@ impl Transform for RandomCrop {
         let top = (rng.next_u32() as usize) % (padded_h - self.crop_h + 1);
         let left = (rng.next_u32() as usize) % (padded_w - self.crop_w + 1);
 
-        for c in 0..dims.c
-        {
+        for c in 0..dims.c {
             let c_img = c * self.crop_h * self.crop_w;
             let c_pad = c * padded_h * padded_w;
-            for y in 0..self.crop_h
-            {
-                for x in 0..self.crop_w
-                {
+            for y in 0..self.crop_h {
+                for x in 0..self.crop_w {
                     let src = c_pad + (top + y) * padded_w + (left + x);
                     img[c_img + y * self.crop_w + x] = padded[src];
                 }
@@ -220,11 +206,9 @@ impl Transform for Normalize {
     fn apply(&self, img: &mut [f32], dims: ImageDims, _rng: &mut PcgEngine) {
         assert_eq!(self.mean.len(), dims.c);
         assert_eq!(self.std.len(), dims.c);
-        for c in 0..dims.c
-        {
+        for c in 0..dims.c {
             let c_off = c * dims.h * dims.w;
-            for i in 0..(dims.h * dims.w)
-            {
+            for i in 0..(dims.h * dims.w) {
                 img[c_off + i] = (img[c_off + i] - self.mean[c]) / self.std[c];
             }
         }
@@ -246,8 +230,7 @@ impl AddGaussianNoise {
 
 impl Transform for AddGaussianNoise {
     fn apply(&self, img: &mut [f32], _dims: ImageDims, rng: &mut PcgEngine) {
-        for x in img.iter_mut()
-        {
+        for x in img.iter_mut() {
             *x += rng.normal(0.0, self.std);
         }
     }
@@ -285,8 +268,7 @@ impl Default for Compose {
 
 impl Transform for Compose {
     fn apply(&self, img: &mut [f32], dims: ImageDims, rng: &mut PcgEngine) {
-        for t in &self.transforms
-        {
+        for t in &self.transforms {
             t.apply(img, dims, rng);
         }
     }
@@ -363,8 +345,7 @@ impl AugmentedDataset {
                 let (x, _y) = base.sample(i);
                 let mut x_aug = x.to_vec();
                 let mut rng = PcgEngine::new(per_sample_seed(seed, i));
-                for t in transforms
-                {
+                for t in transforms {
                     t.apply(&mut x_aug, dims, &mut rng);
                 }
                 x_aug
@@ -386,8 +367,7 @@ impl AugmentedDataset {
         let (x, y) = self.base.sample(idx);
         let mut x_aug = x.to_vec();
         let mut rng = PcgEngine::new(per_sample_seed(self.seed, idx));
-        for t in &self.transforms
-        {
+        for t in &self.transforms {
             t.apply(&mut x_aug, self.dims, &mut rng);
         }
         (x_aug, y)
@@ -502,13 +482,11 @@ mod tests {
         let crop = RandomCrop::new(2, 2, 1);
         let base = vec![1.0, 2.0, 3.0, 4.0];
         let mut changed = false;
-        for seed in 0..8
-        {
+        for seed in 0..8 {
             let mut img = base.clone();
             let mut r = PcgEngine::new(seed);
             crop.apply(&mut img, dims, &mut r);
-            if img != base
-            {
+            if img != base {
                 changed = true;
             }
         }

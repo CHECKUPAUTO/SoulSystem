@@ -32,8 +32,7 @@ where
     // Scalar constants live on the tape (their gradient is simply ignored).
     let sc = |c: f32| tape.input(TensorND::new(vec![c], vec![1]));
     let mut y = y0;
-    for _ in 0..steps
-    {
+    for _ in 0..steps {
         let k1 = f(y);
         let k2 = f(y.add(k1.mul(sc(dt * 0.5))));
         let k3 = f(y.add(k2.mul(sc(dt * 0.5))));
@@ -105,12 +104,9 @@ impl NeuralOde {
             (&mut self.b1, self.idx[1]),
             (&mut self.w2, self.idx[2]),
             (&mut self.b2, self.idx[3]),
-        ]
-        {
-            if let Some(i) = idx
-            {
-                for (p, &g) in param.data.iter_mut().zip(&grads[i].data)
-                {
+        ] {
+            if let Some(i) = idx {
+                for (p, &g) in param.data.iter_mut().zip(&grads[i].data) {
                     *p -= lr * g;
                 }
             }
@@ -121,29 +117,25 @@ impl NeuralOde {
     pub fn parameters(&mut self) -> Vec<NdParam<'_>> {
         let mut out = Vec::new();
         // Disjoint field borrows, pushed in a fixed order.
-        if let Some(i) = self.idx[0]
-        {
+        if let Some(i) = self.idx[0] {
             out.push(NdParam {
                 value: &mut self.w1,
                 grad_idx: i,
             });
         }
-        if let Some(i) = self.idx[1]
-        {
+        if let Some(i) = self.idx[1] {
             out.push(NdParam {
                 value: &mut self.b1,
                 grad_idx: i,
             });
         }
-        if let Some(i) = self.idx[2]
-        {
+        if let Some(i) = self.idx[2] {
             out.push(NdParam {
                 value: &mut self.w2,
                 grad_idx: i,
             });
         }
-        if let Some(i) = self.idx[3]
-        {
+        if let Some(i) = self.idx[3] {
             out.push(NdParam {
                 value: &mut self.b2,
                 grad_idx: i,
@@ -203,8 +195,7 @@ mod tests {
         let gy = grads[yv.idx()].clone();
 
         let eps = 1e-3f32;
-        for k in 0..y0.len()
-        {
+        for k in 0..y0.len() {
             let mut up = y0;
             let mut dn = y0;
             up[k] += eps;
@@ -231,16 +222,14 @@ mod tests {
 
         let mut first = f32::NAN;
         let mut last = f32::NAN;
-        for step in 0..200
-        {
+        for step in 0..200 {
             let t = NdTape::new();
             let yv = t.input(TensorND::new(y0.to_vec(), vec![1, 2]));
             let tv = t.input(TensorND::new(target.to_vec(), vec![1, 2]));
             let yf = ode.integrate(&t, yv, steps, dt);
             let loss_v = mse(yf, tv);
             let loss = t.value(loss_v).data[0];
-            if step == 0
-            {
+            if step == 0 {
                 first = loss;
             }
             last = loss;

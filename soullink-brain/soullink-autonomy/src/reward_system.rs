@@ -58,10 +58,9 @@ impl AgentReward {
 
     /// Calculate total reward from individual components.
     pub fn calculate(&mut self) {
-        self.total_reward =
-            self.weights.weight_action * self.action_reward +
-            self.weights.weight_social * self.social_reward +
-            self.weights.weight_information * self.information_reward;
+        self.total_reward = self.weights.weight_action * self.action_reward
+            + self.weights.weight_social * self.social_reward
+            + self.weights.weight_information * self.information_reward;
     }
 
     /// Update action reward.
@@ -156,10 +155,10 @@ pub struct SocialReward {
 impl SocialReward {
     /// Calculate social reward from social learning.
     pub fn calculate(
-        performance_improvement: f64,  // Relative to other agents
-        risk_avoidance: f64,           // 0.0 to 1.0
-        knowledge_gain: f64,           // Amount of new knowledge gained
-        collaboration_score: f64,      // 0.0 to 1.0
+        performance_improvement: f64, // Relative to other agents
+        risk_avoidance: f64,          // 0.0 to 1.0
+        knowledge_gain: f64,          // Amount of new knowledge gained
+        collaboration_score: f64,     // 0.0 to 1.0
     ) -> Self {
         Self {
             performance_improvement,
@@ -171,10 +170,10 @@ impl SocialReward {
 
     /// Get total social reward.
     pub fn total(&self) -> f64 {
-        self.performance_improvement +
-        self.risk_avoidance +
-        self.knowledge_gain +
-        self.collaboration_score
+        self.performance_improvement
+            + self.risk_avoidance
+            + self.knowledge_gain
+            + self.collaboration_score
     }
 }
 
@@ -210,9 +209,7 @@ impl InformationReward {
 
     /// Get total information reward.
     pub fn total(&self) -> f64 {
-        self.uncertainty_reduction +
-        self.performance_improvement +
-        self.novelty_score
+        self.uncertainty_reduction + self.performance_improvement + self.novelty_score
     }
 }
 
@@ -235,9 +232,9 @@ pub struct SocialLearningReward {
 impl SocialLearningReward {
     /// Calculate social learning reward.
     pub fn calculate(
-        quality: f64,          // 0.0 to 1.0
-        impact: f64,           // 0.0 to 1.0
-        learning_value: f64,   // 0.0 to 1.0
+        quality: f64,        // 0.0 to 1.0
+        impact: f64,         // 0.0 to 1.0
+        learning_value: f64, // 0.0 to 1.0
     ) -> Self {
         let social_reward_score = (quality * 0.4 + impact * 0.3 + learning_value * 0.3).min(1.0);
 
@@ -279,10 +276,10 @@ mod tests {
     #[test]
     fn test_action_reward_calculation() {
         let action_reward = ActionReward::calculate(
-            true,   // completed successfully
-            0.9,    // quality score
-            5.0,    // execution time
-            10.0,   // max time
+            true, // completed successfully
+            0.9,  // quality score
+            5.0,  // execution time
+            10.0, // max time
         );
         assert!(action_reward.total() >= 0.0);
     }
@@ -290,10 +287,10 @@ mod tests {
     #[test]
     fn test_social_reward_calculation() {
         let social_reward = SocialReward::calculate(
-            0.8,    // performance improvement
-            0.7,    // risk avoidance
-            0.9,    // knowledge gain
-            0.8,    // collaboration score
+            0.8, // performance improvement
+            0.7, // risk avoidance
+            0.9, // knowledge gain
+            0.8, // collaboration score
         );
         assert!(social_reward.total() >= 0.0);
     }
@@ -301,10 +298,10 @@ mod tests {
     #[test]
     fn test_information_reward_calculation() {
         let info_reward = InformationReward::calculate(
-            0.8,    // uncertainty before
-            0.3,    // uncertainty after
-            0.7,    // performance improvement
-            0.9,    // novelty score
+            0.8, // uncertainty before
+            0.3, // uncertainty after
+            0.7, // performance improvement
+            0.9, // novelty score
         );
         assert!(info_reward.total() >= 0.0);
     }
@@ -312,9 +309,9 @@ mod tests {
     #[test]
     fn test_social_learning_reward_calculation() {
         let social_reward = SocialLearningReward::calculate(
-            0.9,    // quality
-            0.8,    // impact
-            0.7,    // learning value
+            0.9, // quality
+            0.8, // impact
+            0.7, // learning value
         );
         assert!(social_reward.total() >= 0.0);
     }

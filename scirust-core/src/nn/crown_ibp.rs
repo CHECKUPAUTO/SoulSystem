@@ -46,8 +46,7 @@ impl CrownIbpMlp {
         assert!(dims.len() >= 2, "CrownIbpMlp: need at least in/out dims");
         let mut weights = Vec::new();
         let mut biases = Vec::new();
-        for l in 0..dims.len() - 1
-        {
+        for l in 0..dims.len() - 1 {
             let (din, dout) = (dims[l], dims[l + 1]);
             let scale = (1.0 / din as f32).sqrt();
             let w: Vec<f32> = (0..din * dout)
@@ -70,8 +69,7 @@ impl CrownIbpMlp {
     fn input_params<'t>(&mut self, tape: &'t NdTape) -> (Vec<NdVar<'t>>, Vec<NdVar<'t>>) {
         let mut ws = Vec::with_capacity(self.weights.len());
         let mut bs = Vec::with_capacity(self.biases.len());
-        for l in 0..self.weights.len()
-        {
+        for l in 0..self.weights.len() {
             let w = tape.input(self.weights[l].clone());
             self.w_idx[l] = Some(w.idx());
             ws.push(w);
@@ -99,21 +97,17 @@ impl CrownIbpMlp {
         let mut center = x;
         let mut radius = tape.input(TensorND::new(vec![eps; batch * din0], vec![batch, din0]));
         let nl = ws.len();
-        for l in 0..nl
-        {
+        for l in 0..nl {
             let absw = ws[l].relu().add(ws[l].mul(neg1).relu()); // |W| = relu(W)+relu(−W)
             let nc = center.matmul(ws[l]).add(bs[l]); // centre·W + b
             let nr = radius.matmul(absw); // radius·|W|
-            if l + 1 < nl
-            {
+            if l + 1 < nl {
                 // ReLU on the interval [c−r, c+r] → [relu(lo), relu(hi)].
                 let lo = nc.sub(nr).relu();
                 let hi = nc.add(nr).relu();
                 center = lo.add(hi).mul(half);
                 radius = hi.sub(lo).mul(half);
-            }
-            else
-            {
+            } else {
                 center = nc;
                 radius = nr;
             }
@@ -137,8 +131,7 @@ impl CrownIbpMlp {
         // Robust logits: zₜ = cₜ − rₜ (true class at its lower bound), z_j = c_j + r_j.
         let (batch, k) = (center.shape()[0], center.shape()[1]);
         let mut s = vec![1.0f32; batch * k];
-        for (i, &t) in targets.iter().enumerate()
-        {
+        for (i, &t) in targets.iter().enumerate() {
             s[i * k + t] = -1.0;
         }
         let smask = tape.input(TensorND::new(s, vec![batch, k]));
@@ -169,15 +162,13 @@ impl CrownIbpMlp {
             .zip(&self.w_idx)
             .zip(&self.b_idx)
         {
-            if let Some(i) = wi
-            {
+            if let Some(i) = wi {
                 params.push(NdParam {
                     value: w,
                     grad_idx: *i,
                 });
             }
-            if let Some(i) = bi
-            {
+            if let Some(i) = bi {
                 params.push(NdParam {
                     value: b,
                     grad_idx: *i,
@@ -222,8 +213,7 @@ mod tests {
         let (lo, hi) = net.certified_box(&x, eps);
         let ibp = net.to_ibp_mlp();
         let reference = ibp.certify(&Interval::around(&x, eps));
-        for k in 0..lo.len()
-        {
+        for k in 0..lo.len() {
             assert!(
                 (lo[k] - reference.lo[k]).abs() < 1e-4,
                 "tape lo ≠ reference"
@@ -235,15 +225,13 @@ mod tests {
         }
         // Soundness: sample the input box, concrete-forward, must be within the box.
         let mut rng2 = PcgEngine::new(7);
-        for _ in 0..2000
-        {
+        for _ in 0..2000 {
             let p = [
                 x[0] + eps * rng2.float_signed(),
                 x[1] + eps * rng2.float_signed(),
             ];
             let y = ibp.forward(&p);
-            for (k, &yk) in y.iter().enumerate()
-            {
+            for (k, &yk) in y.iter().enumerate() {
                 assert!(
                     yk >= lo[k] - 1e-4 && yk <= hi[k] + 1e-4,
                     "unsound: y[{k}]={yk} not in [{}, {}]",
@@ -264,8 +252,7 @@ mod tests {
         let ibp = net.to_ibp_mlp();
         let mut total = 0.0f32;
         let mut correct = 0usize;
-        for (x, &y) in data.iter().zip(labels)
-        {
+        for (x, &y) in data.iter().zip(labels) {
             let pred = ibp
                 .forward(x)
                 .iter()
@@ -275,21 +262,16 @@ mod tests {
                     |b, (i, &v)| if v > b.1 { (i, v) } else { b },
                 )
                 .0;
-            if pred == y
-            {
+            if pred == y {
                 correct += 1;
             }
             // Binary search the certified radius.
             let (mut lo, mut hi) = (0.0f32, 2.0f32);
-            for _ in 0..20
-            {
+            for _ in 0..20 {
                 let mid = 0.5 * (lo + hi);
-                if certified_robust(&ibp.certify(&Interval::around(x, mid)), y)
-                {
+                if certified_robust(&ibp.certify(&Interval::around(x, mid)), y) {
                     lo = mid;
-                }
-                else
-                {
+                } else {
                     hi = mid;
                 }
             }
@@ -307,8 +289,7 @@ mod tests {
         let mut data = Vec::new();
         let mut labels = Vec::new();
         let mut rng = PcgEngine::new(3);
-        for _ in 0..32
-        {
+        for _ in 0..32 {
             data.push([-1.5 + 0.25 * rng.float_signed(), 0.25 * rng.float_signed()]);
             labels.push(0usize);
             data.push([1.5 + 0.25 * rng.float_signed(), 0.25 * rng.float_signed()]);
@@ -321,8 +302,7 @@ mod tests {
             let mut rng = PcgEngine::new(11);
             let mut net = CrownIbpMlp::new(&[2, 8, 2], &mut rng);
             let mut opt = NdAdam::with_lr(0.05);
-            for _ in 0..200
-            {
+            for _ in 0..200 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(flat.clone(), vec![batch, 2]));
                 let loss = net.robust_loss(&tape, xv, eps, &labels);

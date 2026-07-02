@@ -101,24 +101,18 @@ pub fn list_checkpoints(
     let parent = parent_dir.as_ref();
     let mut checkpoints = Vec::new();
 
-    if !parent.exists()
-    {
+    if !parent.exists() {
         return Ok(checkpoints);
     }
 
-    for entry in fs::read_dir(parent)?
-    {
+    for entry in fs::read_dir(parent)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_dir()
-        {
+        if path.is_dir() {
             let ckpt_file = path.join("checkpoint.json");
-            if ckpt_file.exists()
-            {
-                if let Ok(json) = fs::read_to_string(&ckpt_file)
-                {
-                    if let Ok(ckpt) = serde_json::from_str::<Checkpoint>(&json)
-                    {
+            if ckpt_file.exists() {
+                if let Ok(json) = fs::read_to_string(&ckpt_file) {
+                    if let Ok(ckpt) = serde_json::from_str::<Checkpoint>(&json) {
                         checkpoints.push((ckpt.epoch, path));
                     }
                 }
