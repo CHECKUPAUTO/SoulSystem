@@ -390,10 +390,10 @@ impl AutonomousAgent {
                 let msgs = messages_owned.clone();
                 let tools = tools_owned.clone();
                 async move {
-                    let t = tools.as_ref().map(|v| v.as_slice());
+                    let t = tools.as_deref();
                     match llm.chat(&msgs, t).await {
                         Ok(resp) => Ok(resp),
-                        Err(e) => Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                        Err(e) => Err(Box::new(std::io::Error::other(e))
                             as Box<dyn std::error::Error + Send + Sync>),
                     }
                 }
@@ -620,9 +620,7 @@ impl AutonomousAgent {
         // Update policy based on performance
         self.update_policy().await;
 
-        if result.is_err() {
-            return result;
-        }
+        result.as_ref()?;
         let last_response = result.unwrap();
 
         // Phase 6: Record trajectory for fine-tuning
@@ -757,7 +755,7 @@ impl AutonomousAgent {
             }
 
             // Inject metacognition self-model (every 10 turns)
-            if self.turn % 10 == 0 {
+            if self.turn.is_multiple_of(10) {
                 let model = self.metacognition.self_model().await;
                 combined_context.push_str(&format!(
                     "\n\nSelf-model: health={:.1}%, load={:.1}%, capabilities={}",
@@ -974,7 +972,7 @@ N. Final step"#,
                 // Strip the leading number and dot/paren
                 let trimmed = l.trim();
                 let after_num = trimmed
-                    .find(|c: char| c == '.' || c == ')' || c == ':')
+                    .find(['.', ')', ':'])
                     .map(|i| &trimmed[i + 1..])
                     .unwrap_or(trimmed);
                 after_num.trim().to_string()
@@ -1216,7 +1214,7 @@ N. Final step"#,
                 );
                 Ok(result)
             }
-            Err(e) => {
+            Err(_e) => {
                 // Fallback: return the best path's content
                 Ok(format!(
                     "ToT analysis ({} accepted, {} pruned):\n{}",
@@ -1563,7 +1561,7 @@ Only return the JSON array, no explanation."#,
     }
 
     /// Update global error metrics after task completion.
-    async fn update_global_error(&mut self, task: &str, result: &str) {
+    async fn update_global_error(&mut self, _task: &str, _result: &str) {
         // Calculate prediction error (simplified for this example)
         let prediction_error = 0.1; // In a real implementation, this would be calculated from predictions vs actual
         self.global_error.update_prediction_error(prediction_error);
@@ -1593,7 +1591,7 @@ Only return the JSON array, no explanation."#,
     }
 
     /// Calculate reward for task execution.
-    async fn calculate_reward(&mut self, task: &str, result: &str) {
+    async fn calculate_reward(&mut self, _task: &str, result: &str) {
         // Action reward calculation
         let action_reward = ActionReward::calculate(
             !result.is_empty(),           // completed successfully
@@ -1631,11 +1629,11 @@ Only return the JSON array, no explanation."#,
     /// Update policy based on recent performance.
     async fn update_policy(&mut self) {
         // Get current policy parameters
-        let exploration_rate = self
+        let _exploration_rate = self
             .policy_evolution
             .get_parameter("exploration_rate")
             .unwrap_or(0.1);
-        let exploitation_rate = self
+        let _exploitation_rate = self
             .policy_evolution
             .get_parameter("exploitation_rate")
             .unwrap_or(0.9);
@@ -2061,8 +2059,8 @@ mod tests {
         };
         assert_eq!(cfg.name, "MyBot");
         assert_eq!(cfg.max_turns, 100);
-        assert_eq!(cfg.auto_distill, false);
-        assert_eq!(cfg.auto_repair, false);
+        assert!(!cfg.auto_distill);
+        assert!(!cfg.auto_repair);
     }
 
     // ── truncate_output ─────────────────────────────────────────────────
@@ -2400,7 +2398,7 @@ mod tests {
         assert_eq!(agent.turn, 0);
         assert_eq!(agent.consecutive_failures, 0);
         assert_eq!(agent.repair_count, 0);
-        assert!(agent.tool_schemas.len() > 0, "should have tool schemas");
+        assert!(!agent.tool_schemas.is_empty(), "should have tool schemas");
     }
 
     #[tokio::test]

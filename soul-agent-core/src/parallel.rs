@@ -102,10 +102,10 @@ impl GoalDag {
             }
 
             if current_level.is_empty() && !remaining.is_empty() {
-                // Cycle detected or broken dependencies; push remaining sequentially
-                for id in remaining.drain() {
+                // Cycle detected or broken dependencies; take one arbitrary
+                // remaining item at a time to make progress.
+                if let Some(id) = remaining.iter().next().cloned() {
                     current_level.push(id);
-                    break; // Take one at a time
                 }
             }
 

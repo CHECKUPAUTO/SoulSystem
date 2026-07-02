@@ -125,24 +125,21 @@ impl FineTuneLoop {
 
         if count >= self.config.min_trajectories {
             let status = self.status.read().await;
-            match &*status {
-                FineTuneStatus::Idle => {
-                    drop(status);
-                    tracing::info!(
-                        "Fine-tune threshold reached: {}/{} quality pairs",
-                        count,
-                        self.config.min_trajectories
-                    );
-                    if self.config.auto_trigger {
-                        // Auto-trigger would be done externally via trigger()
-                    } else {
-                        let mut s = self.status.write().await;
-                        *s = FineTuneStatus::AwaitingTrigger {
-                            quality_count: count,
-                        };
-                    }
+            if *status == FineTuneStatus::Idle {
+                drop(status);
+                tracing::info!(
+                    "Fine-tune threshold reached: {}/{} quality pairs",
+                    count,
+                    self.config.min_trajectories
+                );
+                if self.config.auto_trigger {
+                    // Auto-trigger would be done externally via trigger()
+                } else {
+                    let mut s = self.status.write().await;
+                    *s = FineTuneStatus::AwaitingTrigger {
+                        quality_count: count,
+                    };
                 }
-                _ => {}
             }
         }
     }

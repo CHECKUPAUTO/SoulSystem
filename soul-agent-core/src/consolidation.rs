@@ -196,7 +196,7 @@ impl VectorConsolidator {
         // Limit max clusters
         if clusters.len() > self.config.max_clusters {
             // Sort by cluster size (largest first) and take top K
-            clusters.sort_by(|a, b| b.len().cmp(&a.len()));
+            clusters.sort_by_key(|b| std::cmp::Reverse(b.len()));
             clusters.truncate(self.config.max_clusters);
         }
 
@@ -291,7 +291,7 @@ impl VectorConsolidator {
             if stopwords.iter().any(|s| s == &lower) {
                 continue;
             }
-            if top_word.map_or(true, |(_, c)| *count > c) {
+            if top_word.is_none_or(|(_, c)| *count > c) {
                 top_word = Some((word, *count));
             }
         }
@@ -377,8 +377,8 @@ mod tests {
 
     #[test]
     fn centroid_computation() {
-        let a = vec![1.0, 1.0];
-        let b = vec![3.0, 3.0];
+        let a = [1.0, 1.0];
+        let b = [3.0, 3.0];
         let centroid = VectorConsolidator::centroid(&[&a[..], &b[..]], 2);
         assert!((centroid[0] - 2.0).abs() < 0.001);
         assert!((centroid[1] - 2.0).abs() < 0.001);
@@ -417,7 +417,7 @@ mod tests {
         ];
 
         let clusters = consolidator.cluster_memories(&memories, 0.7);
-        assert!(clusters.len() >= 1);
+        assert!(!clusters.is_empty());
         // m1 and m2 should be in same cluster (similar)
         let has_m1_m2 = clusters.iter().any(|c| c.contains(&0) && c.contains(&1));
         assert!(has_m1_m2);

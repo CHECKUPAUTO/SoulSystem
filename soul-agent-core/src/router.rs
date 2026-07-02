@@ -235,7 +235,7 @@ impl LlmRouter {
     }
 
     /// Select the best model for a task based on domain and complexity.
-    pub fn select_best(&self, task: &str, domain: TaskDomain, complexity: f32) -> &str {
+    pub fn select_best(&self, _task: &str, domain: TaskDomain, complexity: f32) -> &str {
         // Score each entry for this task
         let mut best_name = &self.entries[0].name;
         let mut best_score: f32 = f32::NEG_INFINITY;
