@@ -73,8 +73,7 @@ impl DeepEnsemble {
                 let mut rng = PcgEngine::new(base_seed + m as u64);
                 let mut mlp = MlpMember::new(hidden, &mut rng);
                 let mut opt = NdAdam::with_lr(lr);
-                for _ in 0..steps
-                {
+                for _ in 0..steps {
                     let tape = NdTape::new();
                     let xv = tape.input(xt.clone());
                     let tv = tape.input(yt.clone());
@@ -131,8 +130,7 @@ mod tests {
         // (1) Ensemble MSE ≤ average member MSE (variance reduction).
         let k = ens.len() as f32;
         let mut avg_member_mse = 0.0f32;
-        for m in ens.members.iter_mut()
-        {
+        for m in ens.members.iter_mut() {
             let mse: f32 = xs
                 .iter()
                 .zip(&ys)

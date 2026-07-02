@@ -20,15 +20,11 @@ impl CTCLoss {
         let mut total_log_p = tape.input(Tensor::zeros(1, 1));
         let target_vals = tape.value(targets.idx());
 
-        for t in 0..t_steps
-        {
+        for t in 0..t_steps {
             // For each time step, pick the target token's log probability if valid
-            let target_idx = if t < target_vals.data.len()
-            {
+            let target_idx = if t < target_vals.data.len() {
                 target_vals.data[t] as usize
-            }
-            else
-            {
+            } else {
                 vocab_size - 1 // blank/padding
             };
 

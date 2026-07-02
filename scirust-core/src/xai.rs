@@ -18,8 +18,7 @@ where
     let diff = input.sub(baseline);
     let step_size = 1.0 / steps as f32;
 
-    for i in 0..=steps
-    {
+    for i in 0..=steps {
         let alpha = i as f32 * step_size;
         let tape = Tape::new();
 

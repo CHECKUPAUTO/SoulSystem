@@ -43,8 +43,7 @@ impl CausalMemoryBackend {
 
     /// Create from a JSON snapshot (for cross-session persistence).
     pub fn from_json(json: &str) -> Result<Self, CausalError> {
-        let inner = CcosMemory::from_json(json)
-            .map_err(|e| CausalError::Engine(e.to_string()))?;
+        let inner = CcosMemory::from_json(json).map_err(|e| CausalError::Engine(e.to_string()))?;
         Ok(Self { inner })
     }
 
@@ -71,9 +70,13 @@ impl CausalMemoryBackend {
                 let p = entry.path();
                 if p.is_dir() {
                     files.extend(Self::collect_rs_files(&p));
-                } else if p.extension().map_or(false, |e| e == "rs") {
+                } else if p.extension().is_some_and(|e| e == "rs") {
                     if let Ok(source) = std::fs::read_to_string(&p) {
-                        let rel = p.strip_prefix(path).unwrap_or(&p).to_string_lossy().to_string();
+                        let rel = p
+                            .strip_prefix(path)
+                            .unwrap_or(&p)
+                            .to_string_lossy()
+                            .to_string();
                         files.push((rel, source));
                     }
                 }
@@ -112,8 +115,10 @@ impl CausalMemoryBackend {
         let mut text = String::new();
         for item in &window.items {
             if !item.content.is_empty() {
-                text.push_str(&format!("// {} [score={:.3}][kind={}]\n{}\n\n",
-                    item.uri, item.score, item.kind, item.content));
+                text.push_str(&format!(
+                    "// {} [score={:.3}][kind={}]\n{}\n\n",
+                    item.uri, item.score, item.kind, item.content
+                ));
             }
         }
         CausalContextWindow {
@@ -146,8 +151,6 @@ pub struct CausalContextWindow {
     pub item_count: usize,
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,7 +162,11 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         let src = dir.join("src");
         fs::create_dir_all(&src).unwrap();
-        fs::write(src.join("lib.rs"), "pub mod config;\npub fn run() -> u8 { config::get() }\n").unwrap();
+        fs::write(
+            src.join("lib.rs"),
+            "pub mod config;\npub fn run() -> u8 { config::get() }\n",
+        )
+        .unwrap();
         fs::write(src.join("config.rs"), "pub fn get() -> u8 { 0 }\n").unwrap();
         dir
     }
@@ -174,7 +181,10 @@ mod tests {
 
         // ingest_dir stores files relative to the src directory (e.g. "lib.rs", "config.rs")
         let ctx = mem.recall_text("lib.rs", 1024);
-        eprintln!("RECALL TEXT ({} tokens, {} items):\n{}", ctx.tokens, ctx.item_count, ctx.text);
+        eprintln!(
+            "RECALL TEXT ({} tokens, {} items):\n{}",
+            ctx.tokens, ctx.item_count, ctx.text
+        );
         // After ingest_dir, URIs are "lib.rs" and "config.rs" (relative to src/)
         // recall expects "lib.rs" not "src/lib.rs"
         assert!(ctx.item_count > 0, "should have items");
@@ -216,8 +226,7 @@ impl ShieldViewer {
     /// Parse a file and return its structural skeleton — the compressed
     /// view the agent should use instead of reading the whole file.
     pub fn skeleton(path: &str) -> Result<String, String> {
-        let s = ccos::shield::Shield::parse(path)
-            .map_err(|e| e.to_string())?;
+        let s = ccos::shield::Shield::parse(path).map_err(|e| e.to_string())?;
         Ok(s.text)
     }
 
@@ -225,21 +234,18 @@ impl ShieldViewer {
     /// function/test/anchor. Call this ONLY when the agent needs to
     /// inspect or modify that specific code.
     pub fn page_fault(path: &str, anchor: &str) -> Result<String, String> {
-        ccos::shield::Shield::page_fault(path, anchor)
-            .map_err(|e| e.to_string())
+        ccos::shield::Shield::page_fault(path, anchor).map_err(|e| e.to_string())
     }
 
     /// Parse a Rust source string directly and return the skeleton.
     pub fn skeleton_str(source: &str, name: &str) -> Result<String, String> {
-        let s = ccos::shield::Shield::parse_str(source, name)
-            .map_err(|e| e.to_string())?;
+        let s = ccos::shield::Shield::parse_str(source, name).map_err(|e| e.to_string())?;
         Ok(s.text)
     }
 
     /// Page-fault on an in-memory source string.
     pub fn page_fault_str(source: &str, anchor: &str) -> Result<String, String> {
-        ccos::shield::Shield::page_fault_str(source, anchor)
-            .map_err(|e| e.to_string())
+        ccos::shield::Shield::page_fault_str(source, anchor).map_err(|e| e.to_string())
     }
 }
 
@@ -249,7 +255,8 @@ mod shield_tests {
 
     #[test]
     fn test_shield_skeleton() {
-        let source = "\npub fn add(x: i32) -> i32 { x + 1 }\n\npub struct Point { x: i32, y: i32 }\n";
+        let source =
+            "\npub fn add(x: i32) -> i32 { x + 1 }\n\npub struct Point { x: i32, y: i32 }\n";
         let sk = ShieldViewer::skeleton_str(source, "test.rs").unwrap();
         assert!(sk.contains("add"), "should find fn anchor");
         assert!(sk.contains("Point"), "should find struct anchor");

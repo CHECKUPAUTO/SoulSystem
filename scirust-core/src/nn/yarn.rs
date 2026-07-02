@@ -68,12 +68,9 @@ pub fn yarn_frequencies(
 /// by `m = 0.1·ln(s) + 1` for `s > 1` (`1` when `s == 1`). Optional; orthogonal to
 /// the rotation and to the relative-position property.
 pub fn yarn_attention_scale(scale: f32) -> f32 {
-    if scale <= 1.0
-    {
+    if scale <= 1.0 {
         1.0
-    }
-    else
-    {
+    } else {
         0.1 * scale.ln() + 1.0
     }
 }
@@ -86,11 +83,9 @@ pub fn rope_apply_freqs(x: &[f32], seq: usize, d: usize, freqs: &[f32]) -> Vec<f
     assert_eq!(x.len(), seq * d, "rope_apply_freqs: x must be seq*d");
     assert_eq!(freqs.len(), d / 2, "rope_apply_freqs: freqs must be d/2");
     let mut out = vec![0.0f32; x.len()];
-    for s in 0..seq
-    {
+    for s in 0..seq {
         let row = s * d;
-        for p in 0..d / 2
-        {
+        for p in 0..d / 2 {
             let (sin, cos) = (s as f32 * freqs[p]).sin_cos();
             let (a, b) = (x[row + 2 * p], x[row + 2 * p + 1]);
             out[row + 2 * p] = a * cos - b * sin;
@@ -121,8 +116,7 @@ mod tests {
     fn scale_one_is_plain_rope() {
         let d = 16;
         let f = yarn_frequencies(d, 10000.0, 1.0, 2048.0, YARN_ALPHA, YARN_BETA);
-        for (p, &fp) in f.iter().enumerate()
-        {
+        for (p, &fp) in f.iter().enumerate() {
             let theta = 10000f32.powf(-2.0 * p as f32 / d as f32);
             assert!((fp - theta).abs() < 1e-7, "pair {p}: {fp} ≠ {theta}");
         }
@@ -149,8 +143,7 @@ mod tests {
         );
         // Ratio θ'/θ is monotone (decreasing) from high to low frequency.
         let ratios: Vec<f32> = (0..d / 2).map(|p| f[p] / theta(p)).collect();
-        for w in ratios.windows(2)
-        {
+        for w in ratios.windows(2) {
             assert!(w[1] <= w[0] + 1e-6, "ratio not monotone: {w:?}");
         }
     }
@@ -172,16 +165,13 @@ mod tests {
             r[pos * d..(pos + 1) * d].to_vec()
         };
         // Same offset δ at different absolute positions ⇒ same score.
-        for &delta in &[0usize, 1, 3, 7]
-        {
+        for &delta in &[0usize, 1, 3, 7] {
             let mut ref_score: Option<f32> = None;
-            for base_pos in 0..6
-            {
+            for base_pos in 0..6 {
                 let m = base_pos + delta;
                 let n = base_pos;
                 let score = dot(&rotate(&q, m), &rotate(&k, n));
-                match ref_score
-                {
+                match ref_score {
                     None => ref_score = Some(score),
                     Some(r) => assert!(
                         (score - r).abs() < 1e-4,

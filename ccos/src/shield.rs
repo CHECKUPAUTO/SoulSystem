@@ -124,13 +124,20 @@ impl Shield {
             let trimmed = line.trim();
 
             // Skip blank / comment-only lines
-            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
+            if trimmed.is_empty()
+                || trimmed.starts_with("//")
+                || trimmed.starts_with("/*")
+                || trimmed.starts_with('*')
+            {
                 continue;
             }
 
             // `use ...;` — dependency
             if trimmed.starts_with("use ") && trimmed.ends_with(';') {
-                let dep = trimmed.trim_start_matches("use ").trim_end_matches(';').trim();
+                let dep = trimmed
+                    .trim_start_matches("use ")
+                    .trim_end_matches(';')
+                    .trim();
                 if !dependencies.contains(&dep.to_string()) {
                     dependencies.push(dep.to_string());
                 }
@@ -138,7 +145,10 @@ impl Shield {
             }
 
             // `pub mod ...;` or `mod ...;`
-            if let Some(name) = trimmed.strip_prefix("pub mod ").or_else(|| trimmed.strip_prefix("mod ")) {
+            if let Some(name) = trimmed
+                .strip_prefix("pub mod ")
+                .or_else(|| trimmed.strip_prefix("mod "))
+            {
                 if name.ends_with(';') {
                     anchors.push(Anchor {
                         kind: "mod".into(),
@@ -152,11 +162,16 @@ impl Shield {
             }
 
             // `pub fn`, `fn`, `pub unsafe fn`, `async fn`, `pub async fn`
-            if trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ") || trimmed.starts_with("pub unsafe fn ")
-                || trimmed.starts_with("async fn ") || trimmed.starts_with("pub async fn ")
+            if trimmed.starts_with("fn ")
+                || trimmed.starts_with("pub fn ")
+                || trimmed.starts_with("pub unsafe fn ")
+                || trimmed.starts_with("async fn ")
+                || trimmed.starts_with("pub async fn ")
                 || trimmed.starts_with("unsafe fn ")
             {
-                let kind = if trimmed.contains("#[test]") || i > 0 && lines[i-1].trim().starts_with("#[test]") {
+                let kind = if trimmed.contains("#[test]")
+                    || i > 0 && lines[i - 1].trim().starts_with("#[test]")
+                {
                     "test"
                 } else {
                     "fn"
@@ -228,7 +243,11 @@ impl Shield {
             // `pub const`, `const`
             if trimmed.starts_with("pub const ") || trimmed.starts_with("const ") {
                 let name = trimmed.split_whitespace().nth(2).unwrap_or("<const>");
-                let name = name.trim_end_matches(':').trim_end_matches('<').trim_end_matches('=').trim();
+                let name = name
+                    .trim_end_matches(':')
+                    .trim_end_matches('<')
+                    .trim_end_matches('=')
+                    .trim();
                 anchors.push(Anchor {
                     kind: "const".into(),
                     name: name.to_string(),
@@ -270,7 +289,10 @@ impl Shield {
         // Group anchors by kind for compactness
         let tests: Vec<&Anchor> = anchors.iter().filter(|a| a.kind == "test").collect();
         let fns: Vec<&Anchor> = anchors.iter().filter(|a| a.kind == "fn").collect();
-        let others: Vec<&Anchor> = anchors.iter().filter(|a| a.kind != "test" && a.kind != "fn").collect();
+        let others: Vec<&Anchor> = anchors
+            .iter()
+            .filter(|a| a.kind != "test" && a.kind != "fn")
+            .collect();
 
         if !tests.is_empty() {
             text.push_str(&format!("//   [tests x{}]\n", tests.len()));
@@ -330,9 +352,14 @@ impl Shield {
         let skeleton = Self::parse_str(source, "<memory>")?;
 
         // Find the anchor
-        let anchor = skeleton.anchors.iter()
-            .find(|a| a.name == anchor_name || a.name.contains(anchor_name)
-                  || format!("L{}", a.line) == anchor_name)
+        let anchor = skeleton
+            .anchors
+            .iter()
+            .find(|a| {
+                a.name == anchor_name
+                    || a.name.contains(anchor_name)
+                    || format!("L{}", a.line) == anchor_name
+            })
             .ok_or_else(|| ShieldError::AnchorNotFound(anchor_name.to_string()))?;
 
         let lines: Vec<&str> = source.lines().collect();
@@ -345,7 +372,10 @@ impl Shield {
         };
 
         let mut result = String::new();
-        result.push_str(&format!("// {} (L{}) — page fault\n", anchor.name, anchor.line));
+        result.push_str(&format!(
+            "// {} (L{}) — page fault\n",
+            anchor.name, anchor.line
+        ));
         result.push_str(&format!("// signature: {}\n", anchor.signature));
         let body = &lines[body_start..body_end];
         for (i, line) in body.iter().enumerate() {
@@ -385,9 +415,14 @@ impl Shield {
         for (i, line) in lines.iter().enumerate().skip(start_line) {
             for ch in line.chars() {
                 match ch {
-                    '{' => { depth += 1; started = true; }
+                    '{' => {
+                        depth += 1;
+                        started = true;
+                    }
                     '}' => {
-                        if depth == 0 { return None; }
+                        if depth == 0 {
+                            return None;
+                        }
                         depth -= 1;
                         if started && depth == 0 {
                             return Some(i + 1);
@@ -412,11 +447,27 @@ mod tests {
         assert_eq!(skeleton.total_lines, 18);
         assert!(skeleton.dependencies.contains(&"crate::foo".to_string()));
         assert!(skeleton.dependencies.contains(&"crate::bar".to_string()));
-        assert!(skeleton.anchors.iter().any(|a| a.kind == "const" && a.name == "VERSION"));
-        assert!(skeleton.anchors.iter().any(|a| a.kind == "struct" && a.name == "Config"));
-        assert!(skeleton.anchors.iter().any(|a| a.name == "run" && a.kind == "fn"));
-        assert!(skeleton.anchors.iter().any(|a| a.name == "test_run" && a.kind == "test"));
-        assert!(skeleton.estimated_tokens < 100, "Skeleton should be compact (was {})", skeleton.estimated_tokens);
+        assert!(skeleton
+            .anchors
+            .iter()
+            .any(|a| a.kind == "const" && a.name == "VERSION"));
+        assert!(skeleton
+            .anchors
+            .iter()
+            .any(|a| a.kind == "struct" && a.name == "Config"));
+        assert!(skeleton
+            .anchors
+            .iter()
+            .any(|a| a.name == "run" && a.kind == "fn"));
+        assert!(skeleton
+            .anchors
+            .iter()
+            .any(|a| a.name == "test_run" && a.kind == "test"));
+        assert!(
+            skeleton.estimated_tokens < 100,
+            "Skeleton should be compact (was {})",
+            skeleton.estimated_tokens
+        );
     }
 
     #[test]
@@ -436,10 +487,20 @@ mod tests {
             return;
         }
         let skeleton = Shield::parse(path).unwrap();
-        eprintln!("Skeleton ({} tokens):\n{}", skeleton.estimated_tokens, skeleton.text);
-        assert!(skeleton.estimated_tokens < 600, "expansion_val skeleton should be <600 tokens (was {})", skeleton.estimated_tokens);
+        eprintln!(
+            "Skeleton ({} tokens):\n{}",
+            skeleton.estimated_tokens, skeleton.text
+        );
+        assert!(
+            skeleton.estimated_tokens < 600,
+            "expansion_val skeleton should be <600 tokens (was {})",
+            skeleton.estimated_tokens
+        );
         // 472 tokens vs ~10000 raw tokens = 95% compression. Agent can page-fault
         // individual tests on demand instead of loading the whole file.
-        assert!(skeleton.anchors.len() >= 15, "Should find at least 15 test anchors");
+        assert!(
+            skeleton.anchors.len() >= 15,
+            "Should find at least 15 test anchors"
+        );
     }
 }

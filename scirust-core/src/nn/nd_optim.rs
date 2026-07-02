@@ -98,8 +98,7 @@ impl NdAdam {
     /// One Adam update over `params`, reading each gradient from `grads` by the
     /// parameter's `grad_idx`. `params` must be in the same order on every call.
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.m.is_empty() && !params.is_empty()
-        {
+        if self.m.is_empty() && !params.is_empty() {
             self.m = params
                 .iter()
                 .map(|p| vec![0.0f32; p.value.data.len()])
@@ -125,8 +124,7 @@ impl NdAdam {
         let bc1 = 1.0 - beta1.powi(self.t as i32);
         let bc2 = 1.0 - beta2.powi(self.t as i32);
 
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             assert_eq!(
                 g.len(),
@@ -135,8 +133,7 @@ impl NdAdam {
             );
             let mk = &mut self.m[k];
             let vk = &mut self.v[k];
-            for j in 0..p.value.data.len()
-            {
+            for j in 0..p.value.data.len() {
                 let gj = g[j];
                 mk[j] = beta1 * mk[j] + (1.0 - beta1) * gj;
                 vk[j] = beta2 * vk[j] + (1.0 - beta2) * gj * gj;
@@ -201,8 +198,7 @@ impl NdLion {
 
     /// One Lion update over `params` (same ordering contract as [`NdAdam`]).
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.m.is_empty() && !params.is_empty()
-        {
+        if self.m.is_empty() && !params.is_empty() {
             self.m = params
                 .iter()
                 .map(|p| vec![0.0f32; p.value.data.len()])
@@ -220,8 +216,7 @@ impl NdLion {
             weight_decay,
         } = self.cfg;
 
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             assert_eq!(
                 g.len(),
@@ -229,21 +224,15 @@ impl NdLion {
                 "NdLion: grad/param size mismatch at parameter {k}"
             );
             let mk = &mut self.m[k];
-            for j in 0..p.value.data.len()
-            {
+            for j in 0..p.value.data.len() {
                 let gj = g[j];
                 // Update direction = sign(β1·m + (1−β1)·g).
                 let u = beta1 * mk[j] + (1.0 - beta1) * gj;
-                let step = if u > 0.0
-                {
+                let step = if u > 0.0 {
                     1.0
-                }
-                else if u < 0.0
-                {
+                } else if u < 0.0 {
                     -1.0
-                }
-                else
-                {
+                } else {
                     0.0
                 };
                 let theta = p.value.data[j];
@@ -265,10 +254,8 @@ fn frob_norm(a: &[f32]) -> f32 {
 /// Transpose an `r×c` row-major matrix into `c×r`.
 fn transpose(a: &[f32], r: usize, c: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; r * c];
-    for i in 0..r
-    {
-        for j in 0..c
-        {
+    for i in 0..r {
+        for j in 0..c {
             out[j * r + i] = a[i * c + j];
         }
     }
@@ -278,17 +265,13 @@ fn transpose(a: &[f32], r: usize, c: usize) -> Vec<f32> {
 /// Matrix product `(ar×ac) · (ac×bc) → (ar×bc)`, row-major.
 fn matmul(a: &[f32], ar: usize, ac: usize, b: &[f32], bc: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; ar * bc];
-    for i in 0..ar
-    {
-        for p in 0..ac
-        {
+    for i in 0..ar {
+        for p in 0..ac {
             let aip = a[i * ac + p];
-            if aip == 0.0
-            {
+            if aip == 0.0 {
                 continue;
             }
-            for j in 0..bc
-            {
+            for j in 0..bc {
                 out[i * bc + j] += aip * b[p * bc + j];
             }
         }
@@ -309,25 +292,21 @@ pub fn newton_schulz_orthogonalize(g: &[f32], rows: usize, cols: usize, steps: u
     // Work in the "wide" orientation (rows ≤ cols).
     let transposed = rows > cols;
     let (mut r, mut cc) = (rows, cols);
-    if transposed
-    {
+    if transposed {
         x = transpose(&x, rows, cols);
         std::mem::swap(&mut r, &mut cc);
     }
-    for _ in 0..steps
-    {
+    for _ in 0..steps {
         let xt = transpose(&x, r, cc); // cc×r
         let aa = matmul(&x, r, cc, &xt, r); // A = X·Xᵀ  (r×r)
         let a2 = matmul(&aa, r, r, &aa, r); // A²       (r×r)
         let bmat: Vec<f32> = aa.iter().zip(&a2).map(|(&u, &w)| b * u + c * w).collect();
         let bx = matmul(&bmat, r, r, &x, cc); // B·X     (r×cc)
-        for (xi, &bxi) in x.iter_mut().zip(&bx)
-        {
+        for (xi, &bxi) in x.iter_mut().zip(&bx) {
             *xi = a * *xi + bxi;
         }
     }
-    if transposed
-    {
+    if transposed {
         x = transpose(&x, r, cc);
     }
     x
@@ -384,8 +363,7 @@ impl NdMuon {
 
     /// One Muon update over `params` (same ordering contract as [`NdAdam`]).
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.m.is_empty() && !params.is_empty()
-        {
+        if self.m.is_empty() && !params.is_empty() {
             self.m = params
                 .iter()
                 .map(|p| vec![0.0f32; p.value.data.len()])
@@ -403,31 +381,24 @@ impl NdMuon {
             weight_decay,
         } = self.cfg;
 
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             let mk = &mut self.m[k];
-            for (mj, &gj) in mk.iter_mut().zip(g)
-            {
+            for (mj, &gj) in mk.iter_mut().zip(g) {
                 *mj = momentum * *mj + (1.0 - momentum) * gj;
             }
 
             let shape = &p.value.shape;
-            if shape.len() == 2 && shape[0] >= 2 && shape[1] >= 2
-            {
+            if shape.len() == 2 && shape[0] >= 2 && shape[1] >= 2 {
                 let (r, c) = (shape[0], shape[1]);
                 let o = newton_schulz_orthogonalize(mk, r, c, ns_steps);
                 let scale = (r as f32 / c as f32).max(1.0).sqrt();
-                for (pv, &ov) in p.value.data.iter_mut().zip(&o)
-                {
+                for (pv, &ov) in p.value.data.iter_mut().zip(&o) {
                     *pv -= lr * (scale * ov + weight_decay * *pv);
                 }
-            }
-            else
-            {
+            } else {
                 // Non-matrix parameter: momentum SGD.
-                for (pv, &mv) in p.value.data.iter_mut().zip(mk.iter())
-                {
+                for (pv, &mv) in p.value.data.iter_mut().zip(mk.iter()) {
                     *pv -= lr * (mv + weight_decay * *pv);
                 }
             }
@@ -497,8 +468,7 @@ impl NdScheduleFree {
     /// One update: read the gradient (taken at `y`), advance `z`/`x`, and write
     /// the next `y` into the parameter tensors.
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.z.is_empty() && !params.is_empty()
-        {
+        if self.z.is_empty() && !params.is_empty() {
             // z₁ = x₁ = θ₀ (the current parameter values, which equal y₁).
             self.z = params.iter().map(|p| p.value.data.clone()).collect();
             self.x = self.z.clone();
@@ -516,13 +486,11 @@ impl NdScheduleFree {
         } = self.cfg;
         let c = 1.0 / (self.t as f32 + 1.0); // averaging weight for constant LR
 
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             let zk = &mut self.z[k];
             let xk = &mut self.x[k];
-            for j in 0..p.value.data.len()
-            {
+            for j in 0..p.value.data.len() {
                 let yj = p.value.data[j]; // gradient was taken here
                 let geff = g[j] + weight_decay * yj;
                 zk[j] -= lr * geff;
@@ -535,8 +503,7 @@ impl NdScheduleFree {
     /// Load the evaluation point `x` (the Polyak average) into the parameter
     /// tensors — call before measuring/deploying the model.
     pub fn write_eval_point(&self, params: &mut [NdParam]) {
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             p.value.data.copy_from_slice(&self.x[k]);
         }
     }
@@ -612,8 +579,7 @@ impl NdAdEMAMix {
 
     /// One AdEMAMix update over `params` (same ordering contract as [`NdAdam`]).
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.m1.is_empty() && !params.is_empty()
-        {
+        if self.m1.is_empty() && !params.is_empty() {
             let zeros: Vec<Vec<f32>> = params
                 .iter()
                 .map(|p| vec![0.0f32; p.value.data.len()])
@@ -640,14 +606,12 @@ impl NdAdEMAMix {
         let bc1 = 1.0 - beta1.powi(self.t as i32);
         let bc2 = 1.0 - beta2.powi(self.t as i32);
 
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             let m1k = &mut self.m1[k];
             let m2k = &mut self.m2[k];
             let vk = &mut self.v[k];
-            for j in 0..p.value.data.len()
-            {
+            for j in 0..p.value.data.len() {
                 let gj = g[j];
                 m1k[j] = beta1 * m1k[j] + (1.0 - beta1) * gj;
                 m2k[j] = beta3 * m2k[j] + (1.0 - beta3) * gj;
@@ -671,66 +635,51 @@ pub fn jacobi_eigenvectors(a: &[f32], n: usize) -> Vec<f32> {
     assert_eq!(a.len(), n * n, "jacobi: size mismatch");
     let mut m = a.to_vec(); // diagonalised in place
     let mut v = vec![0f32; n * n];
-    for i in 0..n
-    {
+    for i in 0..n {
         v[i * n + i] = 1.0;
     }
-    if n == 1
-    {
+    if n == 1 {
         return v;
     }
-    for _sweep in 0..60
-    {
+    for _sweep in 0..60 {
         let mut off = 0f32;
-        for p in 0..n
-        {
-            for q in (p + 1)..n
-            {
+        for p in 0..n {
+            for q in (p + 1)..n {
                 off += m[p * n + q].abs();
             }
         }
-        if off <= 1e-12
-        {
+        if off <= 1e-12 {
             break;
         }
-        for p in 0..n
-        {
-            for q in (p + 1)..n
-            {
+        for p in 0..n {
+            for q in (p + 1)..n {
                 let apq = m[p * n + q];
-                if apq.abs() <= 1e-20
-                {
+                if apq.abs() <= 1e-20 {
                     continue;
                 }
                 let (app, aqq) = (m[p * n + p], m[q * n + q]);
                 let tau = (aqq - app) / (2.0 * apq);
                 // tan of the rotation (numerically stable branch by sign of tau).
-                let t = if tau >= 0.0
-                {
+                let t = if tau >= 0.0 {
                     1.0 / (tau + (1.0 + tau * tau).sqrt())
-                }
-                else
-                {
+                } else {
                     -1.0 / (-tau + (1.0 + tau * tau).sqrt())
                 };
                 let c = 1.0 / (1.0 + t * t).sqrt();
                 let s = t * c;
                 // A ← Jᵀ A J : rotate columns p,q, then rows p,q.
-                for k in 0..n
-                {
+                for k in 0..n {
                     let (akp, akq) = (m[k * n + p], m[k * n + q]);
                     m[k * n + p] = c * akp - s * akq;
                     m[k * n + q] = s * akp + c * akq;
                 }
-                for k in 0..n
-                {
+                for k in 0..n {
                     let (apk, aqk) = (m[p * n + k], m[q * n + k]);
                     m[p * n + k] = c * apk - s * aqk;
                     m[q * n + k] = s * apk + c * aqk;
                 }
                 // V ← V J (accumulate eigenvectors).
-                for k in 0..n
-                {
+                for k in 0..n {
                     let (vkp, vkq) = (v[k * n + p], v[k * n + q]);
                     v[k * n + p] = c * vkp - s * vkq;
                     v[k * n + q] = s * vkp + c * vkq;
@@ -830,14 +779,12 @@ impl NdSoap {
 
     /// One SOAP update over `params` (same ordering contract as [`NdAdam`]).
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.state.is_empty() && !params.is_empty()
-        {
+        if self.state.is_empty() && !params.is_empty() {
             self.state = params
                 .iter()
                 .map(|p| {
                     let shape = &p.value.shape;
-                    if shape.len() == 2 && shape[0] >= 2 && shape[1] >= 2
-                    {
+                    if shape.len() == 2 && shape[0] >= 2 && shape[1] >= 2 {
                         let (m, n) = (shape[0], shape[1]);
                         SoapState {
                             is_matrix: true,
@@ -850,9 +797,7 @@ impl NdSoap {
                             mom1: vec![0.0; m * n],
                             mom2: vec![0.0; m * n],
                         }
-                    }
-                    else
-                    {
+                    } else {
                         let len = p.value.data.len();
                         SoapState {
                             is_matrix: false,
@@ -880,14 +825,11 @@ impl NdSoap {
         let bc1 = 1.0 - cfg.beta1.powi(t_now as i32);
         let bc2 = 1.0 - cfg.beta2.powi(t_now as i32);
 
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             let st = &mut self.state[k];
-            if !st.is_matrix
-            {
-                for (i, &gi) in g.iter().enumerate()
-                {
+            if !st.is_matrix {
+                for (i, &gi) in g.iter().enumerate() {
                     st.mom1[i] = cfg.beta1 * st.mom1[i] + (1.0 - cfg.beta1) * gi;
                     st.mom2[i] = cfg.beta2 * st.mom2[i] + (1.0 - cfg.beta2) * gi * gi;
                     let mhat = st.mom1[i] / bc1;
@@ -902,8 +844,7 @@ impl NdSoap {
             let (m, n) = (st.rows, st.cols);
             let gt = transpose(g, m, n); // n×m
             // First touch: seed factors and eigenbases from this gradient.
-            if st.ql.is_empty()
-            {
+            if st.ql.is_empty() {
                 st.l = matmul(g, m, n, &gt, m); // GGᵀ  (m×m)
                 st.r = matmul(&gt, n, m, g, n); // GᵀG  (n×n)
                 st.ql = jacobi_eigenvectors(&st.l, m);
@@ -917,8 +858,7 @@ impl NdSoap {
 
             // Adam in the eigenbasis.
             let mut upd = vec![0f32; m * n];
-            for i in 0..m * n
-            {
+            for i in 0..m * n {
                 st.mom1[i] = cfg.beta1 * st.mom1[i] + (1.0 - cfg.beta1) * ghat[i];
                 st.mom2[i] = cfg.beta2 * st.mom2[i] + (1.0 - cfg.beta2) * ghat[i] * ghat[i];
                 let mhat = st.mom1[i] / bc1;
@@ -930,8 +870,7 @@ impl NdSoap {
             let qrt = transpose(&st.qr, n, n);
             let ul = matmul(&st.ql, m, m, &upd, n); // m×n
             let u = matmul(&ul, m, n, &qrt, n); // m×n
-            for (pv, &uv) in p.value.data.iter_mut().zip(&u)
-            {
+            for (pv, &uv) in p.value.data.iter_mut().zip(&u) {
                 *pv -= cfg.lr * (uv + cfg.weight_decay * *pv);
             }
 
@@ -939,18 +878,15 @@ impl NdSoap {
             let ggt = matmul(g, m, n, &gt, m);
             let gtg = matmul(&gt, n, m, g, n);
             let sb = cfg.shampoo_beta;
-            for (li, &gi) in st.l.iter_mut().zip(&ggt)
-            {
+            for (li, &gi) in st.l.iter_mut().zip(&ggt) {
                 *li = sb * *li + (1.0 - sb) * gi;
             }
-            for (ri, &gi) in st.r.iter_mut().zip(&gtg)
-            {
+            for (ri, &gi) in st.r.iter_mut().zip(&gtg) {
                 *ri = sb * *ri + (1.0 - sb) * gi;
             }
 
             // Periodically refresh the eigenbasis and rotate the moments into it.
-            if t_now as usize % cfg.precond_freq == 0
-            {
+            if t_now as usize % cfg.precond_freq == 0 {
                 let ql_new = jacobi_eigenvectors(&st.l, m);
                 let qr_new = jacobi_eigenvectors(&st.r, n);
                 let rot_l = matmul(&transpose(&ql_new, m, m), m, m, &st.ql, m); // m×m
@@ -1021,8 +957,7 @@ impl NdLookahead {
 
     /// One Lookahead update over `params` (same ordering contract as [`NdAdam`]).
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.slow.is_empty() && !params.is_empty()
-        {
+        if self.slow.is_empty() && !params.is_empty() {
             // Slow weights start at the current parameters.
             self.slow = params.iter().map(|p| p.value.data.clone()).collect();
         }
@@ -1035,14 +970,11 @@ impl NdLookahead {
         self.base.step(params, grads);
         self.t += 1;
         // Every k steps: pull the slow weights toward fast, then reset fast to slow.
-        if self.t as usize % self.cfg.k == 0
-        {
+        if self.t as usize % self.cfg.k == 0 {
             let alpha = self.cfg.alpha;
-            for (k, p) in params.iter_mut().enumerate()
-            {
+            for (k, p) in params.iter_mut().enumerate() {
                 let slow = &mut self.slow[k];
-                for (s, pv) in slow.iter_mut().zip(p.value.data.iter_mut())
-                {
+                for (s, pv) in slow.iter_mut().zip(p.value.data.iter_mut()) {
                     *s += alpha * (*pv - *s);
                     *pv = *s;
                 }
@@ -1116,8 +1048,7 @@ impl NdLamb {
 
     /// One LAMB update over `params` (same ordering contract as [`NdAdam`]).
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.m.is_empty() && !params.is_empty()
-        {
+        if self.m.is_empty() && !params.is_empty() {
             self.m = params
                 .iter()
                 .map(|p| vec![0.0f32; p.value.data.len()])
@@ -1143,8 +1074,7 @@ impl NdLamb {
         let bc1 = 1.0 - beta1.powi(self.t as i32);
         let bc2 = 1.0 - beta2.powi(self.t as i32);
 
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             let mk = &mut self.m[k];
             let vk = &mut self.v[k];
@@ -1152,8 +1082,7 @@ impl NdLamb {
             let mut r = vec![0f32; p.value.data.len()];
             let mut w_norm2 = 0f32;
             let mut r_norm2 = 0f32;
-            for j in 0..p.value.data.len()
-            {
+            for j in 0..p.value.data.len() {
                 let gj = g[j];
                 mk[j] = beta1 * mk[j] + (1.0 - beta1) * gj;
                 vk[j] = beta2 * vk[j] + (1.0 - beta2) * gj * gj;
@@ -1166,16 +1095,12 @@ impl NdLamb {
             }
             let (w_norm, r_norm) = (w_norm2.sqrt(), r_norm2.sqrt());
             // Trust ratio (1.0 when a norm vanishes, matching the reference).
-            let trust = if w_norm > 0.0 && r_norm > 0.0
-            {
+            let trust = if w_norm > 0.0 && r_norm > 0.0 {
                 w_norm / r_norm
-            }
-            else
-            {
+            } else {
                 1.0
             };
-            for (pv, &rj) in p.value.data.iter_mut().zip(&r)
-            {
+            for (pv, &rj) in p.value.data.iter_mut().zip(&r) {
                 *pv -= lr * trust * rj;
             }
         }
@@ -1256,8 +1181,7 @@ impl NdAdan {
 
     /// One Adan update over `params` (same ordering contract as [`NdAdam`]).
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.m.is_empty() && !params.is_empty()
-        {
+        if self.m.is_empty() && !params.is_empty() {
             let z = || {
                 params
                     .iter()
@@ -1286,8 +1210,7 @@ impl NdAdan {
         let first = self.t == 1;
         let decay = 1.0 / (1.0 + lr * weight_decay);
 
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             let (mk, vk, nk, gp) = (
                 &mut self.m[k],
@@ -1295,8 +1218,7 @@ impl NdAdan {
                 &mut self.n[k],
                 &mut self.g_prev[k],
             );
-            for j in 0..p.value.data.len()
-            {
+            for j in 0..p.value.data.len() {
                 let gj = g[j];
                 let diff = if first { 0.0 } else { gj - gp[j] };
                 mk[j] = (1.0 - beta1) * mk[j] + beta1 * gj;
@@ -1323,10 +1245,8 @@ fn adafactor_factored_v(r: &[f32], c: &[f32]) -> Vec<f32> {
     let sum_r: f32 = r.iter().sum();
     let inv = if sum_r > 0.0 { 1.0 / sum_r } else { 0.0 };
     let mut v = vec![0.0f32; r.len() * cols];
-    for (i, &ri) in r.iter().enumerate()
-    {
-        for (j, &cj) in c.iter().enumerate()
-        {
+    for (i, &ri) in r.iter().enumerate() {
+        for (j, &cj) in c.iter().enumerate() {
             v[i * cols + j] = ri * cj * inv;
         }
     }
@@ -1421,24 +1341,19 @@ impl NdAdafactor {
 
     /// One Adafactor update over `params` (same ordering contract as [`NdAdam`]).
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.state.is_empty() && !params.is_empty()
-        {
+        if self.state.is_empty() && !params.is_empty() {
             let beta1 = self.cfg.beta1;
             self.state = params
                 .iter()
                 .map(|p| {
                     let shape = &p.value.shape;
                     let len = p.value.data.len();
-                    let m = if beta1 > 0.0
-                    {
+                    let m = if beta1 > 0.0 {
                         vec![0.0; len]
-                    }
-                    else
-                    {
+                    } else {
                         Vec::new()
                     };
-                    if shape.len() == 2 && shape[0] >= 2 && shape[1] >= 2
-                    {
+                    if shape.len() == 2 && shape[0] >= 2 && shape[1] >= 2 {
                         AdafactorState {
                             is_matrix: true,
                             rows: shape[0],
@@ -1448,9 +1363,7 @@ impl NdAdafactor {
                             v: Vec::new(),
                             m,
                         }
-                    }
-                    else
-                    {
+                    } else {
                         AdafactorState {
                             is_matrix: false,
                             rows: 0,
@@ -1473,8 +1386,7 @@ impl NdAdafactor {
         let cfg = self.cfg;
         let beta2 = 1.0 - (self.t as f32).powf(-cfg.decay_rate);
 
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             assert_eq!(
                 g.len(),
@@ -1485,42 +1397,32 @@ impl NdAdafactor {
 
             // 1) Second-moment estimate V, then the raw update U = G/√V.
             let mut u = vec![0.0f32; g.len()];
-            if st.is_matrix
-            {
+            if st.is_matrix {
                 let cols = st.cols;
                 let mut row_sum = vec![0.0f32; st.rows];
                 let mut col_sum = vec![0.0f32; cols];
-                for (i, row) in g.chunks_exact(cols).enumerate()
-                {
-                    for (j, &gij) in row.iter().enumerate()
-                    {
+                for (i, row) in g.chunks_exact(cols).enumerate() {
+                    for (j, &gij) in row.iter().enumerate() {
                         let g2 = gij * gij + cfg.eps1;
                         row_sum[i] += g2;
                         col_sum[j] += g2;
                     }
                 }
-                for (ri, &rs) in st.r.iter_mut().zip(&row_sum)
-                {
+                for (ri, &rs) in st.r.iter_mut().zip(&row_sum) {
                     *ri = beta2 * *ri + (1.0 - beta2) * rs;
                 }
-                for (ci, &cs) in st.c.iter_mut().zip(&col_sum)
-                {
+                for (ci, &cs) in st.c.iter_mut().zip(&col_sum) {
                     *ci = beta2 * *ci + (1.0 - beta2) * cs;
                 }
                 let v = adafactor_factored_v(&st.r, &st.c);
-                for (ui, (&gi, &vi)) in u.iter_mut().zip(g.iter().zip(&v))
-                {
+                for (ui, (&gi, &vi)) in u.iter_mut().zip(g.iter().zip(&v)) {
                     *ui = gi / vi.sqrt();
                 }
-            }
-            else
-            {
-                for (vi, &gi) in st.v.iter_mut().zip(g)
-                {
+            } else {
+                for (vi, &gi) in st.v.iter_mut().zip(g) {
                     *vi = beta2 * *vi + (1.0 - beta2) * (gi * gi + cfg.eps1);
                 }
-                for (ui, (&gi, &vi)) in u.iter_mut().zip(g.iter().zip(&st.v))
-                {
+                for (ui, (&gi, &vi)) in u.iter_mut().zip(g.iter().zip(&st.v)) {
                     *ui = gi / vi.sqrt();
                 }
             }
@@ -1528,27 +1430,22 @@ impl NdAdafactor {
             // 2) RMS-clip the update so RMS(U) ≤ clip_threshold.
             let rms = (u.iter().map(|&x| x * x).sum::<f32>() / u.len() as f32).sqrt();
             let denom = (rms / cfg.clip_threshold).max(1.0);
-            if denom > 1.0
-            {
-                for ui in u.iter_mut()
-                {
+            if denom > 1.0 {
+                for ui in u.iter_mut() {
                     *ui /= denom;
                 }
             }
 
             // 3) Optional first-moment smoothing.
-            if cfg.beta1 > 0.0
-            {
-                for (mi, ui) in st.m.iter_mut().zip(u.iter_mut())
-                {
+            if cfg.beta1 > 0.0 {
+                for (mi, ui) in st.m.iter_mut().zip(u.iter_mut()) {
                     *mi = cfg.beta1 * *mi + (1.0 - cfg.beta1) * *ui;
                     *ui = *mi;
                 }
             }
 
             // 4) Step with decoupled weight decay.
-            for (pv, &ui) in p.value.data.iter_mut().zip(&u)
-            {
+            for (pv, &ui) in p.value.data.iter_mut().zip(&u) {
                 *pv -= cfg.lr * (ui + cfg.weight_decay * *pv);
             }
         }
@@ -1568,12 +1465,10 @@ fn inverse_pth_root(a: &[f32], n: usize, p: f32, eps: f32) -> Vec<f32> {
     let d = matmul(&qt, n, n, &aq, n); // Qᵀ A Q (diagonal ≈ eigenvalues)
     // scaled = Q · diag((λ + eps)^(−1/p))  (scale each eigenvector column).
     let mut scaled = vec![0.0f32; n * n];
-    for i in 0..n
-    {
+    for i in 0..n {
         let lam = d[i * n + i].max(0.0) + eps;
         let s = lam.powf(-1.0 / p);
-        for r in 0..n
-        {
+        for r in 0..n {
             scaled[r * n + i] = q[r * n + i] * s;
         }
     }
@@ -1664,15 +1559,13 @@ impl NdShampoo {
 
     /// One Shampoo update over `params` (same ordering contract as [`NdAdam`]).
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.state.is_empty() && !params.is_empty()
-        {
+        if self.state.is_empty() && !params.is_empty() {
             self.state = params
                 .iter()
                 .map(|p| {
                     let shape = &p.value.shape;
                     let len = p.value.data.len();
-                    if shape.len() == 2 && shape[0] >= 2 && shape[1] >= 2
-                    {
+                    if shape.len() == 2 && shape[0] >= 2 && shape[1] >= 2 {
                         let (m, n) = (shape[0], shape[1]);
                         ShampooState {
                             is_matrix: true,
@@ -1684,9 +1577,7 @@ impl NdShampoo {
                             ir: Vec::new(),
                             g2: Vec::new(),
                         }
-                    }
-                    else
-                    {
+                    } else {
                         ShampooState {
                             is_matrix: false,
                             rows: 0,
@@ -1710,8 +1601,7 @@ impl NdShampoo {
         let t = self.t as usize;
         let cfg = self.cfg;
 
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             assert_eq!(
                 g.len(),
@@ -1719,43 +1609,34 @@ impl NdShampoo {
                 "NdShampoo: grad/param size mismatch at parameter {k}"
             );
             let st = &mut self.state[k];
-            if st.is_matrix
-            {
+            if st.is_matrix {
                 let (m, n) = (st.rows, st.cols);
                 let gt = transpose(g, m, n); // n×m
                 let ggt = matmul(g, m, n, &gt, m); // m×m
                 let gtg = matmul(&gt, n, m, g, n); // n×n
                 let b = cfg.beta;
-                for (li, &v) in st.l.iter_mut().zip(&ggt)
-                {
+                for (li, &v) in st.l.iter_mut().zip(&ggt) {
                     *li = b * *li + (1.0 - b) * v;
                 }
-                for (ri, &v) in st.r.iter_mut().zip(&gtg)
-                {
+                for (ri, &v) in st.r.iter_mut().zip(&gtg) {
                     *ri = b * *ri + (1.0 - b) * v;
                 }
-                if st.il.is_empty() || t % cfg.precond_freq == 0
-                {
+                if st.il.is_empty() || t % cfg.precond_freq == 0 {
                     st.il = inverse_pth_root(&st.l, m, 4.0, cfg.eps);
                     st.ir = inverse_pth_root(&st.r, n, 4.0, cfg.eps);
                 }
                 // Preconditioned update U = L^(−1/4) G R^(−1/4).
                 let ilg = matmul(&st.il, m, m, g, n); // m×n
                 let u = matmul(&ilg, m, n, &st.ir, n); // m×n
-                for (pv, &uv) in p.value.data.iter_mut().zip(&u)
-                {
+                for (pv, &uv) in p.value.data.iter_mut().zip(&u) {
                     *pv -= cfg.lr * (uv + cfg.weight_decay * *pv);
                 }
-            }
-            else
-            {
+            } else {
                 // Diagonal Adagrad fallback.
-                for (a, &gi) in st.g2.iter_mut().zip(g)
-                {
+                for (a, &gi) in st.g2.iter_mut().zip(g) {
                     *a += gi * gi;
                 }
-                for (pv, (&gi, &a)) in p.value.data.iter_mut().zip(g.iter().zip(&st.g2))
-                {
+                for (pv, (&gi, &a)) in p.value.data.iter_mut().zip(g.iter().zip(&st.g2)) {
                     *pv -= cfg.lr * (gi / (a.sqrt() + cfg.eps) + cfg.weight_decay * *pv);
                 }
             }
@@ -1838,8 +1719,7 @@ impl NdSam {
     /// remember the perturbation so [`descent`](Self::descent) can undo it. `grads`
     /// is the gradient at the current `θ`.
     pub fn ascent(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.eps_store.len() != params.len()
-        {
+        if self.eps_store.len() != params.len() {
             self.eps_store = params
                 .iter()
                 .map(|p| vec![0.0f32; p.value.data.len()])
@@ -1847,20 +1727,16 @@ impl NdSam {
         }
         // Global L2 norm of the full gradient (over all parameters).
         let mut sumsq = 0.0f32;
-        for p in params.iter()
-        {
-            for &gi in &grads[p.grad_idx].data
-            {
+        for p in params.iter() {
+            for &gi in &grads[p.grad_idx].data {
                 sumsq += gi * gi;
             }
         }
         let scale = self.cfg.rho / (sumsq.sqrt() + self.cfg.eps);
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             let store = &mut self.eps_store[k];
-            for ((pv, &gi), e_slot) in p.value.data.iter_mut().zip(g.iter()).zip(store.iter_mut())
-            {
+            for ((pv, &gi), e_slot) in p.value.data.iter_mut().zip(g.iter()).zip(store.iter_mut()) {
                 let e = scale * gi;
                 *e_slot = e;
                 *pv += e;
@@ -1880,12 +1756,10 @@ impl NdSam {
         let SamConfig {
             lr, weight_decay, ..
         } = self.cfg;
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grads_perturbed[p.grad_idx].data;
             let store = &self.eps_store[k];
-            for ((pv, &gi), &e) in p.value.data.iter_mut().zip(g.iter()).zip(store.iter())
-            {
+            for ((pv, &gi), &e) in p.value.data.iter_mut().zip(g.iter()).zip(store.iter()) {
                 *pv -= e; // restore θ
                 *pv -= lr * (gi + weight_decay * *pv); // SGD step at the perturbed gradient
             }
@@ -1987,24 +1861,18 @@ impl NdSophia {
     /// **Probe** phase: draw a seeded `±1` direction `v` and perturb `θ ← θ + εv`
     /// (the caller then evaluates `∇L(θ+εv)`).
     pub fn probe(&mut self, params: &mut [NdParam], eps_fd: f32) {
-        if self.v.len() != params.len()
-        {
+        if self.v.len() != params.len() {
             self.v = params
                 .iter()
                 .map(|p| vec![0.0f32; p.value.data.len()])
                 .collect();
         }
         self.eps_fd = eps_fd;
-        for (k, p) in params.iter_mut().enumerate()
-        {
-            for (pv, vv) in p.value.data.iter_mut().zip(self.v[k].iter_mut())
-            {
-                let s = if self.rng.next_u32() & 1 == 0
-                {
+        for (k, p) in params.iter_mut().enumerate() {
+            for (pv, vv) in p.value.data.iter_mut().zip(self.v[k].iter_mut()) {
+                let s = if self.rng.next_u32() & 1 == 0 {
                     1.0
-                }
-                else
-                {
+                } else {
                     -1.0
                 };
                 *vv = s;
@@ -2022,8 +1890,7 @@ impl NdSophia {
             params.len(),
             "NdSophia: step before probe / parameter count changed"
         );
-        if self.m.is_empty()
-        {
+        if self.m.is_empty() {
             self.m = params
                 .iter()
                 .map(|p| vec![0.0f32; p.value.data.len()])
@@ -2041,12 +1908,10 @@ impl NdSophia {
         self.t += 1;
         let bc1 = 1.0 - beta1.powi(self.t as i32); // bias correction for m
         let efd = self.eps_fd;
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g = &grad[p.grad_idx].data;
             let gp = &grad_plus[p.grad_idx].data;
-            for i in 0..p.value.data.len()
-            {
+            for i in 0..p.value.data.len() {
                 p.value.data[i] -= efd * self.v[k][i]; // restore θ
                 let hv = (gp[i] - g[i]) / efd; // FD Hessian-vector product
                 let hhat = self.v[k][i] * hv; // Hutchinson diagonal estimate
@@ -2144,8 +2009,7 @@ impl NdProdigy {
 
     /// One Prodigy update over `params` (same ordering contract as [`NdAdam`]).
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.m.is_empty() && !params.is_empty()
-        {
+        if self.m.is_empty() && !params.is_empty() {
             let z = || -> Vec<Vec<f32>> {
                 params
                     .iter()
@@ -2178,12 +2042,10 @@ impl NdProdigy {
         // Pass 1: update m, v, s; accumulate the global numerator and ‖s‖₁.
         let mut r_num = 0.0f32;
         let mut s_l1 = 0.0f32;
-        for (k, p) in params.iter().enumerate()
-        {
+        for (k, p) in params.iter().enumerate() {
             let g = &grads[p.grad_idx].data;
             let (mk, vk, sk, x0k) = (&mut self.m[k], &mut self.v[k], &mut self.s[k], &self.x0[k]);
-            for j in 0..p.value.data.len()
-            {
+            for j in 0..p.value.data.len() {
                 let gj = g[j];
                 mk[j] = beta1 * mk[j] + (1.0 - beta1) * d * gj;
                 vk[j] = beta2 * vk[j] + (1.0 - beta2) * d2 * gj * gj;
@@ -2194,21 +2056,16 @@ impl NdProdigy {
         }
         // Global distance update: d_{t+1} = max(d_t, r_{t+1} / ‖s_{t+1}‖₁).
         self.r = sb2 * self.r + r_num;
-        let d_next = if s_l1 > 0.0
-        {
+        let d_next = if s_l1 > 0.0 {
             (self.r / s_l1).max(d)
-        }
-        else
-        {
+        } else {
             d
         };
 
         // Pass 2: Adam step at the current d_t.
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let (mk, vk) = (&self.m[k], &self.v[k]);
-            for j in 0..p.value.data.len()
-            {
+            for j in 0..p.value.data.len() {
                 p.value.data[j] -= lr * d * mk[j] / (vk[j].sqrt() + d * eps);
             }
         }
@@ -2233,11 +2090,9 @@ pub fn galore_subspace(gram: &[f32], dim: usize, rank: usize) -> Vec<f32> {
     let mut eig: Vec<(f32, usize)> = (0..dim)
         .map(|j| {
             let mut lam = 0.0f32;
-            for a in 0..dim
-            {
+            for a in 0..dim {
                 let mut gqa = 0.0f32;
-                for b in 0..dim
-                {
+                for b in 0..dim {
                     gqa += gram[a * dim + b] * q[b * dim + j];
                 }
                 lam += q[a * dim + j] * gqa;
@@ -2248,10 +2103,8 @@ pub fn galore_subspace(gram: &[f32], dim: usize, rank: usize) -> Vec<f32> {
     // Descending eigenvalue; index tie-break keeps it deterministic.
     eig.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
     let mut p = vec![0.0f32; dim * r];
-    for (col, &(_, j)) in eig.iter().take(r).enumerate()
-    {
-        for a in 0..dim
-        {
+    for (col, &(_, j)) in eig.iter().take(r).enumerate() {
+        for a in 0..dim {
             p[a * r + col] = q[a * dim + j];
         }
     }
@@ -2261,10 +2114,8 @@ pub fn galore_subspace(gram: &[f32], dim: usize, rank: usize) -> Vec<f32> {
 /// `(rows×cols)ᵀ → (cols×rows)`, row-major.
 fn galore_transpose(a: &[f32], rows: usize, cols: usize) -> Vec<f32> {
     let mut t = vec![0.0f32; rows * cols];
-    for i in 0..rows
-    {
-        for j in 0..cols
-        {
+    for i in 0..rows {
+        for j in 0..cols {
             t[j * rows + i] = a[i * cols + j];
         }
     }
@@ -2274,17 +2125,13 @@ fn galore_transpose(a: &[f32], rows: usize, cols: usize) -> Vec<f32> {
 /// `A(m×k) · B(k×n) → (m×n)`, row-major.
 fn galore_matmul(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
     let mut c = vec![0.0f32; m * n];
-    for i in 0..m
-    {
-        for p in 0..k
-        {
+    for i in 0..m {
+        for p in 0..k {
             let aip = a[i * k + p];
-            if aip == 0.0
-            {
+            if aip == 0.0 {
                 continue;
             }
-            for j in 0..n
-            {
+            for j in 0..n {
                 c[i * n + j] += aip * b[p * n + j];
             }
         }
@@ -2295,13 +2142,10 @@ fn galore_matmul(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32>
 /// **Gram matrix** `G Gᵀ` (`rows×rows`) of a row-major `rows×cols` matrix.
 fn galore_gram(g: &[f32], rows: usize, cols: usize) -> Vec<f32> {
     let mut gram = vec![0.0f32; rows * rows];
-    for i in 0..rows
-    {
-        for j in 0..rows
-        {
+    for i in 0..rows {
+        for j in 0..rows {
             let mut s = 0.0f32;
-            for c in 0..cols
-            {
+            for c in 0..cols {
                 s += g[i * cols + c] * g[j * cols + c];
             }
             gram[i * rows + j] = s;
@@ -2406,8 +2250,7 @@ impl NdGalore {
     /// The projected-space moment-buffer length for parameter `i` (`rank×max(m,n)`
     /// for a matrix), exposed so tests can confirm the memory reduction.
     pub fn state_len(&self, i: usize) -> usize {
-        match &self.state[i]
-        {
+        match &self.state[i] {
             GaloreState::Dense { m, .. } => m.len(),
             GaloreState::LowRank { m, .. } => m.len(),
         }
@@ -2415,21 +2258,16 @@ impl NdGalore {
 
     /// One GaLore update over `params` (same order on every call).
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
-        if self.state.is_empty() && !params.is_empty()
-        {
+        if self.state.is_empty() && !params.is_empty() {
             self.state = params
                 .iter()
                 .map(|p| {
-                    if p.value.shape.len() == 2
-                    {
+                    if p.value.shape.len() == 2 {
                         let (rows, cols) = (p.value.shape[0], p.value.shape[1]);
                         let transpose = rows > cols;
-                        let (a, b) = if transpose
-                        {
+                        let (a, b) = if transpose {
                             (cols, rows)
-                        }
-                        else
-                        {
+                        } else {
                             (rows, cols)
                         };
                         let r = self.cfg.rank.min(a).max(1);
@@ -2442,9 +2280,7 @@ impl NdGalore {
                             m: vec![0.0f32; r * b],
                             v: vec![0.0f32; r * b],
                         }
-                    }
-                    else
-                    {
+                    } else {
                         GaloreState::Dense {
                             m: vec![0.0f32; p.value.data.len()],
                             v: vec![0.0f32; p.value.data.len()],
@@ -2472,15 +2308,11 @@ impl NdGalore {
         let bc2 = 1.0 - beta2.powi(self.t as i32);
         let refresh = (self.t - 1) % update_gap.max(1) as u64 == 0;
 
-        for (k, p) in params.iter_mut().enumerate()
-        {
+        for (k, p) in params.iter_mut().enumerate() {
             let g_full = &grads[p.grad_idx].data;
-            match &mut self.state[k]
-            {
-                GaloreState::Dense { m, v } =>
-                {
-                    for j in 0..p.value.data.len()
-                    {
+            match &mut self.state[k] {
+                GaloreState::Dense { m, v } => {
+                    for j in 0..p.value.data.len() {
                         let gj = g_full[j];
                         m[j] = beta1 * m[j] + (1.0 - beta1) * gj;
                         v[j] = beta2 * v[j] + (1.0 - beta2) * gj * gj;
@@ -2488,7 +2320,7 @@ impl NdGalore {
                         let vhat = v[j] / bc2;
                         p.value.data[j] -= lr * mhat / (vhat.sqrt() + eps);
                     }
-                },
+                }
                 GaloreState::LowRank {
                     transpose,
                     a,
@@ -2497,21 +2329,16 @@ impl NdGalore {
                     proj,
                     m,
                     v,
-                } =>
-                {
+                } => {
                     let (a, b, r) = (*a, *b, *r);
                     // Orient the gradient so it is a×b (a = min dim).
-                    let g = if *transpose
-                    {
+                    let g = if *transpose {
                         galore_transpose(g_full, b, a) // stored rows×cols = b×a
-                    }
-                    else
-                    {
+                    } else {
                         g_full.clone()
                     };
                     // (Re)compute the projector P (a×r) from the gradient subspace.
-                    if refresh || proj.is_empty()
-                    {
+                    if refresh || proj.is_empty() {
                         let gram = galore_gram(&g, a, b);
                         *proj = galore_subspace(&gram, a, r);
                     }
@@ -2520,8 +2347,7 @@ impl NdGalore {
                     let rgrad = galore_matmul(&pt, &g, r, a, b);
                     // Adam in the projected space → per-element update U (r×b).
                     let mut u = vec![0.0f32; r * b];
-                    for j in 0..r * b
-                    {
+                    for j in 0..r * b {
                         let gj = rgrad[j];
                         m[j] = beta1 * m[j] + (1.0 - beta1) * gj;
                         v[j] = beta2 * v[j] + (1.0 - beta2) * gj * gj;
@@ -2531,19 +2357,15 @@ impl NdGalore {
                     }
                     // Project back: ΔW = scale · P U  (a×b), re-orient, subtract.
                     let dw = galore_matmul(proj, &u, a, r, b);
-                    let dw = if *transpose
-                    {
+                    let dw = if *transpose {
                         galore_transpose(&dw, a, b) // a×b → b×a = rows×cols
-                    }
-                    else
-                    {
+                    } else {
                         dw
                     };
-                    for (pj, &dj) in p.value.data.iter_mut().zip(&dw)
-                    {
+                    for (pj, &dj) in p.value.data.iter_mut().zip(&dw) {
                         *pj -= lr * scale * dj;
                     }
-                },
+                }
             }
         }
     }
@@ -2562,8 +2384,7 @@ mod tests {
         let mut x = TensorND::new(vec![0.0, 0.0, 0.0], vec![3]);
         let mut opt = NdAdam::with_lr(0.1);
 
-        for _ in 0..500
-        {
+        for _ in 0..500 {
             let grad_data: Vec<f32> = x
                 .data
                 .iter()
@@ -2578,8 +2399,7 @@ mod tests {
             opt.step(&mut params, &grads);
         }
 
-        for (&xi, &ti) in x.data.iter().zip(&target)
-        {
+        for (&xi, &ti) in x.data.iter().zip(&target) {
             assert!(
                 (xi - ti).abs() < 1e-3,
                 "x={:?}, target={:?}",
@@ -2598,8 +2418,7 @@ mod tests {
             let target = [1.0f32, -1.0];
             let mut x = TensorND::new(vec![0.5, 0.5], vec![2]);
             let mut opt = NdAdam::with_lr(0.05);
-            for _ in 0..120
-            {
+            for _ in 0..120 {
                 let gd: Vec<f32> = x
                     .data
                     .iter()
@@ -2629,8 +2448,7 @@ mod tests {
         let mut opt_wd = NdAdam::with_lr_wd(0.1, 0.5);
         let mut x_plain = TensorND::new(vec![1.0, -2.0], vec![2]);
         let mut opt_plain = NdAdam::with_lr(0.1);
-        for _ in 0..20
-        {
+        for _ in 0..20 {
             opt_wd.step(
                 &mut [NdParam {
                     value: &mut x_wd,
@@ -2660,8 +2478,7 @@ mod tests {
         let mut x = TensorND::new(vec![0.0, 0.0, 0.0], vec![3]);
         let mut opt = NdLion::with_lr(0.01);
 
-        for _ in 0..800
-        {
+        for _ in 0..800 {
             let gd: Vec<f32> = x
                 .data
                 .iter()
@@ -2677,8 +2494,7 @@ mod tests {
                 &grads,
             );
         }
-        for (&xi, &ti) in x.data.iter().zip(&target)
-        {
+        for (&xi, &ti) in x.data.iter().zip(&target) {
             assert!(
                 (xi - ti).abs() < 0.05,
                 "x={:?}, target={:?}",
@@ -2695,8 +2511,7 @@ mod tests {
             let target = [1.0f32, -1.0];
             let mut x = TensorND::new(vec![0.5, 0.5], vec![2]);
             let mut opt = NdLion::with_lr(0.02);
-            for _ in 0..100
-            {
+            for _ in 0..100 {
                 let gd: Vec<f32> = x
                     .data
                     .iter()
@@ -2731,10 +2546,8 @@ mod tests {
             let at = transpose(a, m, n);
             let aat = matmul(a, m, n, &at, m);
             let mut s = 0.0f32;
-            for i in 0..m
-            {
-                for j in 0..m
-                {
+            for i in 0..m {
+                for j in 0..m {
                     let want = if i == j { 1.0 } else { 0.0 };
                     s += (aat[i * m + j] - want).powi(2);
                 }
@@ -2773,8 +2586,7 @@ mod tests {
                 .sum()
         };
         let first = loss(&w);
-        for _ in 0..300
-        {
+        for _ in 0..300 {
             let gd: Vec<f32> = w
                 .data
                 .iter()
@@ -2803,8 +2615,7 @@ mod tests {
             let target: Vec<f32> = (0..r * c).map(|i| (i as f32 * 0.3).cos()).collect();
             let mut w = TensorND::new(vec![0.1f32; r * c], vec![r, c]);
             let mut opt = NdMuon::with_lr(0.05);
-            for _ in 0..50
-            {
+            for _ in 0..50 {
                 let gd: Vec<f32> = w
                     .data
                     .iter()
@@ -2834,8 +2645,7 @@ mod tests {
         let mut p = TensorND::new(vec![0.0, 0.0, 0.0], vec![3]);
         let mut opt = NdScheduleFree::with_lr(0.2);
 
-        for _ in 0..1000
-        {
+        for _ in 0..1000 {
             // gradient of Σ(y−t)² at the current y (= p).
             let gd: Vec<f32> = p
                 .data
@@ -2857,8 +2667,7 @@ mod tests {
             value: &mut p,
             grad_idx: 0,
         }]);
-        for (&xi, &ti) in p.data.iter().zip(&target)
-        {
+        for (&xi, &ti) in p.data.iter().zip(&target) {
             assert!(
                 (xi - ti).abs() < 0.02,
                 "x={:?}, target={:?}",
@@ -2875,8 +2684,7 @@ mod tests {
             let target = [1.0f32, -1.0];
             let mut p = TensorND::new(vec![0.5, 0.5], vec![2]);
             let mut opt = NdScheduleFree::with_lr(0.1);
-            for _ in 0..200
-            {
+            for _ in 0..200 {
                 let gd: Vec<f32> = p
                     .data
                     .iter()
@@ -2910,8 +2718,7 @@ mod tests {
         let target = [3.0f32, -2.0, 0.5];
         let mut x = TensorND::new(vec![0.0, 0.0, 0.0], vec![3]);
         let mut opt = NdAdEMAMix::with_lr(0.02);
-        for _ in 0..2000
-        {
+        for _ in 0..2000 {
             let gd: Vec<f32> = x
                 .data
                 .iter()
@@ -2927,8 +2734,7 @@ mod tests {
                 &grads,
             );
         }
-        for (&xi, &ti) in x.data.iter().zip(&target)
-        {
+        for (&xi, &ti) in x.data.iter().zip(&target) {
             assert!((xi - ti).abs() < 0.1, "x={:?}, target={:?}", x.data, target);
         }
     }
@@ -2940,8 +2746,7 @@ mod tests {
             let target = [1.0f32, -1.0];
             let mut x = TensorND::new(vec![0.5, 0.5], vec![2]);
             let mut opt = NdAdEMAMix::with_lr(0.02);
-            for _ in 0..200
-            {
+            for _ in 0..200 {
                 let gd: Vec<f32> = x
                     .data
                     .iter()
@@ -2978,10 +2783,8 @@ mod tests {
 
         // Orthogonality: QᵀQ ≈ I.
         let qtq = matmul(&qt, n, n, &q, n);
-        for i in 0..n
-        {
-            for j in 0..n
-            {
+        for i in 0..n {
+            for j in 0..n {
                 let want = if i == j { 1.0 } else { 0.0 };
                 assert!(
                     (qtq[i * n + j] - want).abs() < 1e-4,
@@ -2993,12 +2796,9 @@ mod tests {
         // Diagonalisation: off-diagonal of QᵀAQ ≈ 0.
         let aq = matmul(&a, n, n, &q, n);
         let d = matmul(&qt, n, n, &aq, n);
-        for i in 0..n
-        {
-            for j in 0..n
-            {
-                if i != j
-                {
+        for i in 0..n {
+            for j in 0..n {
+                if i != j {
                     assert!(
                         d[i * n + j].abs() < 1e-3,
                         "off-diag ({i},{j}) = {}",
@@ -3010,8 +2810,7 @@ mod tests {
         // Reconstruction: Q·(QᵀAQ)·Qᵀ ≈ A.
         let qd = matmul(&q, n, n, &d, n);
         let recon = matmul(&qd, n, n, &qt, n);
-        for (r, a0) in recon.iter().zip(&a)
-        {
+        for (r, a0) in recon.iter().zip(&a) {
             assert!((r - a0).abs() < 1e-3, "reconstruction off: {r} vs {a0}");
         }
     }
@@ -3031,8 +2830,7 @@ mod tests {
             precond_freq: 2,
             ..SoapConfig::default()
         });
-        for _ in 0..1000
-        {
+        for _ in 0..1000 {
             let gd: Vec<f32> = w
                 .data
                 .iter()
@@ -3048,8 +2846,7 @@ mod tests {
                 &grads,
             );
         }
-        for (wi, ti) in w.data.iter().zip(&target)
-        {
+        for (wi, ti) in w.data.iter().zip(&target) {
             assert!((wi - ti).abs() < 0.1, "SOAP did not converge: {wi} vs {ti}");
         }
     }
@@ -3062,8 +2859,7 @@ mod tests {
             let target: Vec<f32> = (0..rows * cols).map(|k| k as f32 * 0.1).collect();
             let mut w = TensorND::new(vec![0.2; rows * cols], vec![rows, cols]);
             let mut opt = NdSoap::with_lr(0.03);
-            for _ in 0..120
-            {
+            for _ in 0..120 {
                 let gd: Vec<f32> = w
                     .data
                     .iter()
@@ -3091,8 +2887,7 @@ mod tests {
         let target = [3.0f32, -2.0, 0.5];
         let mut x = TensorND::new(vec![0.0, 0.0, 0.0], vec![3]);
         let mut opt = NdLookahead::with_lr(0.05);
-        for _ in 0..400
-        {
+        for _ in 0..400 {
             let gd: Vec<f32> = x
                 .data
                 .iter()
@@ -3108,8 +2903,7 @@ mod tests {
                 &grads,
             );
         }
-        for (xi, ti) in x.data.iter().zip(&target)
-        {
+        for (xi, ti) in x.data.iter().zip(&target) {
             assert!((xi - ti).abs() < 0.05, "Lookahead off: {xi} vs {ti}");
         }
         assert_eq!(opt.step_count(), 400);
@@ -3123,8 +2917,7 @@ mod tests {
             let mut x = TensorND::new(vec![0.5, 0.5], vec![2]);
             let mut opt =
                 NdLookahead::new(NdAdam::with_lr(0.05), LookaheadConfig { k: 3, alpha: 0.5 });
-            for _ in 0..120
-            {
+            for _ in 0..120 {
                 let gd: Vec<f32> = x
                     .data
                     .iter()
@@ -3152,8 +2945,7 @@ mod tests {
         mut step: F,
     ) -> Vec<f32> {
         let mut x = TensorND::new(vec![0.0; target.len()], vec![target.len()]);
-        for _ in 0..steps
-        {
+        for _ in 0..steps {
             let gd: Vec<f32> = x
                 .data
                 .iter()
@@ -3185,8 +2977,7 @@ mod tests {
             quad_run(&target, 1500, |p, g| opt.step(p, g))
         };
         let x = run();
-        for (xi, ti) in x.iter().zip(&target)
-        {
+        for (xi, ti) in x.iter().zip(&target) {
             assert!((xi - ti).abs() < 0.05, "LAMB off: {xi} vs {ti}");
         }
         assert_eq!(run(), x);
@@ -3201,8 +2992,7 @@ mod tests {
             quad_run(&target, 800, |p, g| opt.step(p, g))
         };
         let x = run();
-        for (xi, ti) in x.iter().zip(&target)
-        {
+        for (xi, ti) in x.iter().zip(&target) {
             assert!((xi - ti).abs() < 0.1, "Adan off: {xi} vs {ti}");
         }
         assert_eq!(run(), x);
@@ -3220,10 +3010,8 @@ mod tests {
         let mut g2 = vec![0.0f32; rows * cols];
         let mut r = vec![0.0f32; rows];
         let mut c = vec![0.0f32; cols];
-        for (i, &ai) in a.iter().enumerate()
-        {
-            for (j, &bj) in b.iter().enumerate()
-            {
+        for (i, &ai) in a.iter().enumerate() {
+            for (j, &bj) in b.iter().enumerate() {
                 let val = ai * bj;
                 g2[i * cols + j] = val;
                 r[i] += val;
@@ -3231,8 +3019,7 @@ mod tests {
             }
         }
         let v = adafactor_factored_v(&r, &c);
-        for (vi, gi) in v.iter().zip(&g2)
-        {
+        for (vi, gi) in v.iter().zip(&g2) {
             assert!((vi - gi).abs() < 1e-5, "factored V off: {vi} vs {gi}");
         }
     }
@@ -3249,8 +3036,7 @@ mod tests {
             quad_run(&target, 2000, |p, g| opt.step(p, g))
         };
         let x = run();
-        for (xi, ti) in x.iter().zip(&target)
-        {
+        for (xi, ti) in x.iter().zip(&target) {
             assert!((xi - ti).abs() < 0.05, "Adafactor off: {xi} vs {ti}");
         }
         assert_eq!(run(), x);
@@ -3284,8 +3070,7 @@ mod tests {
                 .sum()
         };
         let first = loss(&w);
-        for _ in 0..1500
-        {
+        for _ in 0..1500 {
             let gd: Vec<f32> = w.data.iter().zip(&target).map(|(&a, &b)| a - b).collect();
             let grads = vec![TensorND::new(gd, vec![rows, cols])];
             opt.step(
@@ -3313,17 +3098,14 @@ mod tests {
         let m: Vec<f32> = (0..n * n).map(|_| rng.float_signed()).collect();
         let mt = transpose(&m, n, n);
         let mut a = matmul(&mt, n, n, &m, n);
-        for i in 0..n
-        {
+        for i in 0..n {
             a[i * n + i] += 1.0;
         }
         let inv_half = inverse_pth_root(&a, n, 2.0, 0.0);
         let half_sq = matmul(&inv_half, n, n, &inv_half, n); // A^(−1)
         let prod = matmul(&half_sq, n, n, &a, n); // A^(−1) · A ≈ I
-        for i in 0..n
-        {
-            for j in 0..n
-            {
+        for i in 0..n {
+            for j in 0..n {
                 let want = if i == j { 1.0 } else { 0.0 };
                 assert!(
                     (prod[i * n + j] - want).abs() < 1e-3,
@@ -3346,8 +3128,7 @@ mod tests {
         let run = || {
             let mut w = TensorND::new(vec![0.0; rows * cols], vec![rows, cols]);
             let mut opt = NdShampoo::with_lr(0.2);
-            for _ in 0..1500
-            {
+            for _ in 0..1500 {
                 let gd: Vec<f32> = w.data.iter().zip(&target).map(|(&a, &b)| a - b).collect();
                 let grads = vec![TensorND::new(gd, vec![rows, cols])];
                 opt.step(
@@ -3361,8 +3142,7 @@ mod tests {
             w.data
         };
         let w = run();
-        for (wi, ti) in w.iter().zip(&target)
-        {
+        for (wi, ti) in w.iter().zip(&target) {
             assert!(
                 (wi - ti).abs() < 0.1,
                 "Shampoo did not converge: {wi} vs {ti}"
@@ -3378,8 +3158,7 @@ mod tests {
         let target = [1.0f32, -0.8, 0.5];
         let mut opt = NdShampoo::with_lr(0.3);
         let x = quad_run(&target, 4000, |p, g| opt.step(p, g));
-        for (xi, ti) in x.iter().zip(&target)
-        {
+        for (xi, ti) in x.iter().zip(&target) {
             assert!(
                 (xi - ti).abs() < 0.05,
                 "Shampoo Adagrad fallback off: {xi} vs {ti}"
@@ -3406,8 +3185,7 @@ mod tests {
         // ε = ρ·g/‖g‖ = 0.1·[3,0,4]/5 = [0.06, 0, 0.08].
         let expected = [0.06f32, 0.0, 0.08];
         let mut dnorm2 = 0.0f32;
-        for ((xi, t0), e) in x.data.iter().zip(&theta0).zip(&expected)
-        {
+        for ((xi, t0), e) in x.data.iter().zip(&theta0).zip(&expected) {
             let disp = xi - t0;
             assert!((disp - e).abs() < 1e-6, "perturbation off: {disp} vs {e}");
             dnorm2 += disp * disp;
@@ -3429,8 +3207,7 @@ mod tests {
         let run = || {
             let mut x = TensorND::new(vec![0.0; 3], vec![3]);
             let mut opt = NdSam::with_rho_lr(0.02, 0.1);
-            for _ in 0..600
-            {
+            for _ in 0..600 {
                 // Gradient of ½‖x−t‖² at θ.
                 let g0: Vec<f32> = x
                     .data
@@ -3463,8 +3240,7 @@ mod tests {
             x.data
         };
         let x = run();
-        for (xi, ti) in x.iter().zip(&target)
-        {
+        for (xi, ti) in x.iter().zip(&target) {
             assert!((xi - ti).abs() < 0.05, "SAM off: {xi} vs {ti}");
         }
         assert_eq!(run(), x);
@@ -3490,8 +3266,7 @@ mod tests {
             let mut x = TensorND::new(vec![0.0; 3], vec![3]);
             let mut opt = NdSophia::with_lr_seed(0.3, 42);
             let eps_fd = 1e-2;
-            for _ in 0..400
-            {
+            for _ in 0..400 {
                 let g0 = grad_at(&x.data); // ∇L(θ)
                 opt.probe(
                     &mut [NdParam {
@@ -3513,13 +3288,11 @@ mod tests {
             x.data
         };
         let x = run();
-        for (xi, ti) in x.iter().zip(&target)
-        {
+        for (xi, ti) in x.iter().zip(&target) {
             assert!((xi - ti).abs() < 0.05, "Sophia off: {xi} vs {ti}");
         }
         let x2 = run();
-        for (a, b) in x.iter().zip(&x2)
-        {
+        for (a, b) in x.iter().zip(&x2) {
             assert_eq!(a.to_bits(), b.to_bits());
         }
     }
@@ -3539,8 +3312,7 @@ mod tests {
                 lr: 0.1,
                 ..ProdigyConfig::default()
             });
-            for _ in 0..3000
-            {
+            for _ in 0..3000 {
                 let gd: Vec<f32> = x
                     .data
                     .iter()
@@ -3595,16 +3367,13 @@ mod tests {
         let gram = galore_gram(&g, rows, cols);
         let total = frob2(&g);
         let mut prev_err = f32::INFINITY;
-        for r in 1..=3
-        {
+        for r in 1..=3 {
             let p = galore_subspace(&gram, rows, r);
             // Orthonormality: PᵀP = I_r.
             let pt = galore_transpose(&p, rows, r);
             let gram_p = galore_matmul(&pt, &p, r, rows, r);
-            for i in 0..r
-            {
-                for j in 0..r
-                {
+            for i in 0..r {
+                for j in 0..r {
                     let want = if i == j { 1.0 } else { 0.0 };
                     assert!(
                         (gram_p[i * r + j] - want).abs() < 1e-3,
@@ -3667,8 +3436,7 @@ mod tests {
             update_gap: gap,
             ..GaloreConfig::default()
         });
-        for _ in 0..steps
-        {
+        for _ in 0..steps {
             let gd: Vec<f32> = w
                 .data
                 .iter()
@@ -3703,8 +3471,7 @@ mod tests {
 
         // Fixed projector (huge gap) isolates the convergence claim.
         let (w, slen) = galore_matrix_run(&target, n, n, rho, 100_000, 2000);
-        for (wi, ti) in w.iter().zip(&target)
-        {
+        for (wi, ti) in w.iter().zip(&target) {
             assert!((wi - ti).abs() < 0.05, "GaLore off: {wi} vs {ti}");
         }
         assert_eq!(slen, rho * n, "state not compressed to rank×n");
@@ -3734,8 +3501,7 @@ mod tests {
             quad_run(&target, 800, |p, g| opt.step(p, g))
         };
         let x = run();
-        for (xi, ti) in x.iter().zip(&target)
-        {
+        for (xi, ti) in x.iter().zip(&target) {
             assert!((xi - ti).abs() < 0.05, "GaLore-Adam off: {xi} vs {ti}");
         }
         assert_eq!(run(), x);

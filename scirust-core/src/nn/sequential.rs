@@ -60,8 +60,7 @@ impl Default for Sequential {
 impl Module for Sequential {
     fn forward<'t>(&mut self, tape: &'t Tape, input: Var<'t>) -> Var<'t> {
         let mut h = input;
-        for layer in self.layers.iter_mut()
-        {
+        for layer in self.layers.iter_mut() {
             h = layer.forward(tape, h);
         }
         h
@@ -69,27 +68,23 @@ impl Module for Sequential {
 
     fn parameter_indices(&self) -> Vec<usize> {
         let mut all = Vec::new();
-        for layer in &self.layers
-        {
+        for layer in &self.layers {
             all.extend(layer.parameter_indices());
         }
         all
     }
 
     fn sync(&mut self, tape: &Tape) {
-        for layer in self.layers.iter_mut()
-        {
+        for layer in self.layers.iter_mut() {
             layer.sync(tape);
         }
     }
 
     fn state_dict(&self) -> std::collections::HashMap<String, Tensor> {
         let mut map = std::collections::HashMap::new();
-        for (i, layer) in self.layers.iter().enumerate()
-        {
+        for (i, layer) in self.layers.iter().enumerate() {
             let inner = layer.state_dict();
-            for (k, v) in inner
-            {
+            for (k, v) in inner {
                 map.insert(format!("{}.{}", i, k), v);
             }
         }
@@ -104,8 +99,7 @@ impl Module for Sequential {
             usize,
             std::collections::HashMap<String, Tensor>,
         > = std::collections::HashMap::new();
-        for (k, v) in state
-        {
+        for (k, v) in state {
             if let Some((idx_str, rest)) = k.split_once('.')
                 && let Ok(idx) = idx_str.parse::<usize>()
             {
@@ -115,10 +109,8 @@ impl Module for Sequential {
                     .insert(rest.to_string(), v.clone());
             }
         }
-        for (i, layer) in self.layers.iter_mut().enumerate()
-        {
-            if let Some(inner) = grouped.get(&i)
-            {
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            if let Some(inner) = grouped.get(&i) {
                 layer.load_state_dict(inner)?;
             }
         }
@@ -189,8 +181,7 @@ mod tests {
         tape.backward(loss.idx());
 
         // Tous les params doivent avoir un grad
-        for &p_idx in &mlp.parameter_indices()
-        {
+        for &p_idx in &mlp.parameter_indices() {
             let g = tape.grad(p_idx);
             // Au moins un grad non-nul (sauf si tout à 0 par hasard)
             let max_abs: f32 = g.data.iter().map(|x| x.abs()).fold(0.0, f32::max);
@@ -230,10 +221,8 @@ mod tests {
         let n_epochs = 2000;
         let mut final_predictions = [0.0_f32; 4];
 
-        for _epoch in 0..n_epochs
-        {
-            for (x_arr, &t) in inputs.iter().zip(targets.iter())
-            {
+        for _epoch in 0..n_epochs {
+            for (x_arr, &t) in inputs.iter().zip(targets.iter()) {
                 let tape = Tape::new();
                 let x = tape.input(Tensor::from_vec(x_arr.to_vec(), 1, 2));
                 let target_t = tape.input(Tensor::from_vec(vec![t], 1, 1));
@@ -250,8 +239,7 @@ mod tests {
         }
 
         // Mesure les prédictions finales
-        for (i, x_arr) in inputs.iter().enumerate()
-        {
+        for (i, x_arr) in inputs.iter().enumerate() {
             let tape = Tape::new();
             let x = tape.input(Tensor::from_vec(x_arr.to_vec(), 1, 2));
             let pred = mlp.forward(&tape, x);
@@ -260,11 +248,9 @@ mod tests {
 
         // Critère : chaque prédiction doit être du bon côté de 0.5
         let mut correct = 0;
-        for i in 0..4
-        {
+        for i in 0..4 {
             let predicted_class = if final_predictions[i] > 0.5 { 1.0 } else { 0.0 };
-            if (predicted_class - targets[i]).abs() < 0.01
-            {
+            if (predicted_class - targets[i]).abs() < 0.01 {
                 correct += 1;
             }
         }
@@ -297,8 +283,7 @@ mod tests {
     fn sequential_load_state_dict_handles_indices_above_9() {
         let mut rng = PcgEngine::new(42);
         let mut layers: Vec<Box<dyn Module>> = Vec::new();
-        for _ in 0..11
-        {
+        for _ in 0..11 {
             layers.push(Box::new(Linear::new(
                 2,
                 2,
@@ -317,8 +302,7 @@ mod tests {
         // Reload et vérifie que rien n'a fui d'index croisés.
         let mut rng2 = PcgEngine::new(99);
         let mut layers2: Vec<Box<dyn Module>> = Vec::new();
-        for _ in 0..11
-        {
+        for _ in 0..11 {
             layers2.push(Box::new(Linear::new(
                 2,
                 2,

@@ -64,12 +64,19 @@ impl CascadeMemory {
     }
 
     /// Recall: CCOS causal scope → OctaSoma semantic rerank.
-    pub fn recall(&self, failing_file: &str, query: &str, budget: usize) -> Result<String, CascadeError> {
+    pub fn recall(
+        &self,
+        failing_file: &str,
+        query: &str,
+        budget: usize,
+    ) -> Result<String, CascadeError> {
         // Step 1: CCOS causal context window
         let causal_ctx = self.causal.recall_text(failing_file, budget);
 
         // Step 2: OctaSoma semantic rerank
-        let sem_hits: Vec<&[u8]> = self.embedder.embed(query)
+        let sem_hits: Vec<&[u8]> = self
+            .embedder
+            .embed(query)
             .map(|qemb| self.semantic.query_k(&qemb, 5))
             .unwrap_or_default();
 
@@ -106,8 +113,16 @@ mod tests {
         cascade.ingest_source("src/lib.rs", "pub fn run() -> u8 { config::get() }");
         cascade.ingest_source("src/config.rs", "pub fn get() -> u8 { 42 }");
 
-        let result = cascade.recall("src/lib.rs", "run the function", 1024).unwrap();
-        assert!(result.contains("config"), "causal scope should include config.rs");
-        assert!(result.contains("causal scope"), "should mark causal section");
+        let result = cascade
+            .recall("src/lib.rs", "run the function", 1024)
+            .unwrap();
+        assert!(
+            result.contains("config"),
+            "causal scope should include config.rs"
+        );
+        assert!(
+            result.contains("causal scope"),
+            "should mark causal section"
+        );
     }
 }

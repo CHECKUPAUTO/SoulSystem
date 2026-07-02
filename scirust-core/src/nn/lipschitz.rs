@@ -21,39 +21,32 @@ use std::f32::consts::SQRT_2;
 /// iteration** on `WᵀW` (deterministic: fixed all-ones start, fixed `iters`).
 pub fn spectral_norm(w: &[f32], rows: usize, cols: usize, iters: usize) -> f32 {
     assert_eq!(w.len(), rows * cols, "spectral_norm: size mismatch");
-    if rows == 0 || cols == 0
-    {
+    if rows == 0 || cols == 0 {
         return 0.0;
     }
     let mut v = vec![1.0f32 / (cols as f32).sqrt(); cols];
     let mut sigma = 0.0f32;
-    for _ in 0..iters
-    {
+    for _ in 0..iters {
         // u = W v   (rows)
         let mut u = vec![0.0f32; rows];
-        for (i, ui) in u.iter_mut().enumerate()
-        {
+        for (i, ui) in u.iter_mut().enumerate() {
             let row = &w[i * cols..(i + 1) * cols];
             *ui = row.iter().zip(&v).map(|(&a, &b)| a * b).sum();
         }
         sigma = u.iter().map(|&x| x * x).sum::<f32>().sqrt();
         // v ← normalize(Wᵀ u)   (cols)
         let mut vn = vec![0.0f32; cols];
-        for (i, &ui) in u.iter().enumerate()
-        {
+        for (i, &ui) in u.iter().enumerate() {
             let row = &w[i * cols..(i + 1) * cols];
-            for (vj, &wij) in vn.iter_mut().zip(row)
-            {
+            for (vj, &wij) in vn.iter_mut().zip(row) {
                 *vj += wij * ui;
             }
         }
         let nrm = vn.iter().map(|&x| x * x).sum::<f32>().sqrt();
-        if nrm <= 0.0
-        {
+        if nrm <= 0.0 {
             return 0.0;
         }
-        for x in vn.iter_mut()
-        {
+        for x in vn.iter_mut() {
             *x /= nrm;
         }
         v = vn;
@@ -66,8 +59,7 @@ pub fn spectral_norm(w: &[f32], rows: usize, cols: usize, iters: usize) -> f32 {
 /// returned unchanged.
 pub fn spectral_normalize(w: &[f32], rows: usize, cols: usize, iters: usize) -> Vec<f32> {
     let sn = spectral_norm(w, rows, cols, iters);
-    if sn <= 0.0
-    {
+    if sn <= 0.0 {
         return w.to_vec();
     }
     w.iter().map(|&x| x / sn).collect()
@@ -114,28 +106,21 @@ impl GloroClassifier {
     pub fn certify(&self, x: &[f32]) -> (usize, f32) {
         let logits = self.logits(x);
         let mut top = 0usize;
-        for c in 1..self.num_classes
-        {
-            if logits[c] > logits[top]
-            {
+        for c in 1..self.num_classes {
+            if logits[c] > logits[top] {
                 top = c;
             }
         }
         let mut runner = f32::NEG_INFINITY;
-        for (c, &l) in logits.iter().enumerate()
-        {
-            if c != top && l > runner
-            {
+        for (c, &l) in logits.iter().enumerate() {
+            if c != top && l > runner {
                 runner = l;
             }
         }
         let margin = logits[top] - runner;
-        let radius = if self.lip > 0.0
-        {
+        let radius = if self.lip > 0.0 {
             margin / self.lip
-        }
-        else
-        {
+        } else {
             0.0
         };
         (top, radius.max(0.0))
@@ -198,10 +183,8 @@ mod tests {
         // (1) Soundness: the worst-case perturbation toward each boundary at
         // radius r keeps `top` the argmax.
         let logits = clf.logits(&x);
-        for b in 0..nc
-        {
-            if b == top
-            {
+        for b in 0..nc {
+            if b == top {
                 continue;
             }
             // d = W_top − W_b; worst δ = −0.999·r·d/‖d‖.
@@ -216,10 +199,8 @@ mod tests {
                 .collect();
             let lp = clf.logits(&xp);
             let mut amax = 0usize;
-            for c in 1..nc
-            {
-                if lp[c] > lp[amax]
-                {
+            for c in 1..nc {
+                if lp[c] > lp[amax] {
                     amax = c;
                 }
             }

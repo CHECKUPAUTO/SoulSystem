@@ -28,13 +28,10 @@ pub fn compute_scale(fp32: &[f32]) -> f32 {
 /// Matmul int8 × int8 → i32.
 pub fn matmul_int8(a: &[i8], b: &[i8], m: usize, k: usize, n: usize) -> Vec<i32> {
     let mut result = vec![0i32; m * n];
-    for i in 0..m
-    {
-        for j in 0..n
-        {
+    for i in 0..m {
+        for j in 0..n {
             let mut sum = 0i32;
-            for kk in 0..k
-            {
+            for kk in 0..k {
                 sum += a[i * k + kk] as i32 * b[kk * n + j] as i32;
             }
             result[i * n + j] = sum;
@@ -54,8 +51,7 @@ mod tests {
         let quantized = quantize_tensor(&original, scale);
         let recovered = dequantize_tensor(&quantized, scale);
 
-        for (orig, rec) in original.iter().zip(recovered.iter())
-        {
+        for (orig, rec) in original.iter().zip(recovered.iter()) {
             let error = (orig - rec).abs();
             assert!(error < scale * 1.5, "error {} exceeds threshold", error);
         }
@@ -93,24 +89,19 @@ pub fn quantize_per_channel(
     out_features: usize,
 ) -> (Vec<i8>, Vec<f32>) {
     let mut scales = vec![1.0f32; out_features];
-    for o in 0..out_features
-    {
+    for o in 0..out_features {
         let mut max_abs = 0.0f32;
-        for i in 0..in_features
-        {
+        for i in 0..in_features {
             let v = weight[i * out_features + o].abs();
-            if v > max_abs
-            {
+            if v > max_abs {
                 max_abs = v;
             }
         }
         scales[o] = if max_abs == 0.0 { 1.0 } else { max_abs / 127.0 };
     }
     let mut q = vec![0i8; in_features * out_features];
-    for i in 0..in_features
-    {
-        for o in 0..out_features
-        {
+    for i in 0..in_features {
+        for o in 0..out_features {
             let val = (weight[i * out_features + o] / scales[o]).round();
             q[i * out_features + o] = val.clamp(-128.0, 127.0) as i8;
         }
@@ -137,10 +128,8 @@ pub fn quantized_linear_forward(
     let x_q = quantize_tensor(input, scale_in);
     let acc = matmul_int8(&x_q, w_q, batch, in_features, out_features);
     let mut out = vec![0.0f32; batch * out_features];
-    for b in 0..batch
-    {
-        for o in 0..out_features
-        {
+    for b in 0..batch {
+        for o in 0..out_features {
             out[b * out_features + o] =
                 acc[b * out_features + o] as f32 * scale_in * w_scales[o] + bias[o];
         }
@@ -172,13 +161,10 @@ mod tests_quant_linear {
         let bias: Vec<f32> = vec![0.01, -0.02, 0.03];
         let input: Vec<f32> = vec![0.5, -0.3, 0.8, 0.1, -0.2, 0.4, 0.0, 0.6];
         let mut reference = vec![0.0f32; batch * out_f];
-        for b in 0..batch
-        {
-            for o in 0..out_f
-            {
+        for b in 0..batch {
+            for o in 0..out_f {
                 let mut s = 0.0f32;
-                for i in 0..in_f
-                {
+                for i in 0..in_f {
                     s += input[b * in_f + i] * weight[i * out_f + o];
                 }
                 reference[b * out_f + o] = s + bias[o];
@@ -186,8 +172,7 @@ mod tests_quant_linear {
         }
         let (w_q, w_scales) = quantize_per_channel(&weight, in_f, out_f);
         let out = quantized_linear_forward(&input, batch, in_f, &w_q, &w_scales, &bias, out_f);
-        for (r, o) in reference.iter().zip(out.iter())
-        {
+        for (r, o) in reference.iter().zip(out.iter()) {
             assert!((r - o).abs() < 0.05, "ecart trop grand: ref={} q={}", r, o);
         }
     }
@@ -226,23 +211,19 @@ pub fn smoothquant_scales(
     assert_eq!(x.len(), tokens * in_f, "smoothquant: x size");
     assert_eq!(w.len(), in_f * out_f, "smoothquant: w size");
     let mut s = vec![1.0f32; in_f];
-    for (j, sj) in s.iter_mut().enumerate()
-    {
+    for (j, sj) in s.iter_mut().enumerate() {
         let mut xmax = 0.0f32;
-        for t in 0..tokens
-        {
+        for t in 0..tokens {
             xmax = xmax.max(x[t * in_f + j].abs());
         }
         let mut wmax = 0.0f32;
-        for o in 0..out_f
-        {
+        for o in 0..out_f {
             wmax = wmax.max(w[j * out_f + o].abs());
         }
         let num = xmax.powf(alpha);
         let den = wmax.powf(1.0 - alpha);
         // Keep s_j = 1 for empty channels (avoids div-by-zero / NaNs).
-        if num > 1e-12 && den > 1e-12
-        {
+        if num > 1e-12 && den > 1e-12 {
             *sj = num / den;
         }
     }
@@ -261,17 +242,13 @@ pub fn apply_smoothquant(
     s: &[f32],
 ) {
     assert_eq!(s.len(), in_f, "smoothquant: scale len");
-    for t in 0..tokens
-    {
-        for j in 0..in_f
-        {
+    for t in 0..tokens {
+        for j in 0..in_f {
             x[t * in_f + j] /= s[j];
         }
     }
-    for j in 0..in_f
-    {
-        for o in 0..out_f
-        {
+    for j in 0..in_f {
+        for o in 0..out_f {
             w[j * out_f + o] *= s[j];
         }
     }
@@ -283,12 +260,9 @@ mod smoothquant_tests {
 
     fn matmul_f32(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
         let mut out = vec![0.0f32; m * n];
-        for i in 0..m
-        {
-            for p in 0..k
-            {
-                for j in 0..n
-                {
+        for i in 0..m {
+            for p in 0..k {
+                for j in 0..n {
                     out[i * n + j] += a[i * k + p] * b[p * n + j];
                 }
             }
@@ -304,8 +278,7 @@ mod smoothquant_tests {
             .map(|i| (i as f32 * 0.3 - 1.0).sin())
             .collect();
         // Outlier input channel 0 (large activations) — the case SmoothQuant targets.
-        for t in 0..tokens
-        {
+        for t in 0..tokens {
             x[t * in_f] *= 50.0;
         }
         let mut w: Vec<f32> = (0..in_f * out_f).map(|i| (i as f32 * 0.2).cos()).collect();
@@ -315,8 +288,7 @@ mod smoothquant_tests {
         apply_smoothquant(&mut x, tokens, in_f, &mut w, out_f, &s);
         let y2 = matmul_f32(&x, &w, tokens, in_f, out_f);
 
-        for (a, b) in y.iter().zip(&y2)
-        {
+        for (a, b) in y.iter().zip(&y2) {
             assert!((a - b).abs() < 1e-2, "product changed: {a} vs {b}");
         }
     }
@@ -329,8 +301,7 @@ mod smoothquant_tests {
         let mut x: Vec<f32> = (0..tokens * in_f)
             .map(|i| (i as f32 * 0.17 + 0.5).sin())
             .collect();
-        for t in 0..tokens
-        {
+        for t in 0..tokens {
             x[t * in_f] *= 40.0; // outlier channel 0
         }
         let mut w: Vec<f32> = (0..in_f * out_f)
@@ -374,27 +345,21 @@ pub fn gptq_hessian(x: &[f32], samples: usize, in_features: usize) -> Vec<f32> {
     assert_eq!(x.len(), samples * in_features, "gptq_hessian: x size");
     let d = in_features;
     let mut h = vec![0f32; d * d];
-    for t in 0..samples
-    {
+    for t in 0..samples {
         let row = &x[t * d..t * d + d];
-        for a in 0..d
-        {
+        for a in 0..d {
             let xa = row[a];
-            if xa == 0.0
-            {
+            if xa == 0.0 {
                 continue;
             }
-            for b in a..d
-            {
+            for b in a..d {
                 h[a * d + b] += xa * row[b];
             }
         }
     }
     // Symmetrise (we only filled the upper triangle).
-    for a in 0..d
-    {
-        for b in (a + 1)..d
-        {
+    for a in 0..d {
+        for b in (a + 1)..d {
             h[b * d + a] = h[a * d + b];
         }
     }
@@ -407,35 +372,26 @@ pub fn gptq_hessian(x: &[f32], samples: usize, in_features: usize) -> Vec<f32> {
 /// positive) ; un pivot non positif est planché pour rester fini.
 fn spd_inverse_f64(h: &[f32], d: usize) -> Vec<f64> {
     let mut l = vec![0f64; d * d];
-    for i in 0..d
-    {
-        for j in 0..=i
-        {
+    for i in 0..d {
+        for j in 0..=i {
             let mut s = h[i * d + j] as f64;
-            for k in 0..j
-            {
+            for k in 0..j {
                 s -= l[i * d + k] * l[j * d + k];
             }
-            if i == j
-            {
+            if i == j {
                 l[i * d + j] = if s > 1e-12 { s.sqrt() } else { 1e-6 };
-            }
-            else
-            {
+            } else {
                 l[i * d + j] = s / l[j * d + j];
             }
         }
     }
     // L⁻¹ (lower) par substitution avant, colonne par colonne.
     let mut linv = vec![0f64; d * d];
-    for col in 0..d
-    {
+    for col in 0..d {
         linv[col * d + col] = 1.0 / l[col * d + col];
-        for i in (col + 1)..d
-        {
+        for i in (col + 1)..d {
             let mut s = 0f64;
-            for k in col..i
-            {
+            for k in col..i {
                 s += l[i * d + k] * linv[k * d + col];
             }
             linv[i * d + col] = -s / l[i * d + i];
@@ -443,13 +399,10 @@ fn spd_inverse_f64(h: &[f32], d: usize) -> Vec<f64> {
     }
     // H⁻¹ = L⁻ᵀ L⁻¹ : Hinv[a,b] = Σ_k linv[k,a]·linv[k,b].
     let mut hinv = vec![0f64; d * d];
-    for a in 0..d
-    {
-        for b in a..d
-        {
+    for a in 0..d {
+        for b in a..d {
             let mut s = 0f64;
-            for k in a.max(b)..d
-            {
+            for k in a.max(b)..d {
                 s += linv[k * d + a] * linv[k * d + b];
             }
             hinv[a * d + b] = s;
@@ -490,11 +443,9 @@ pub fn quantize_gptq(
 
     // Scale par canal de sortie, figé sur les poids d'origine.
     let mut scales = vec![1f32; out_features];
-    for (o, so) in scales.iter_mut().enumerate()
-    {
+    for (o, so) in scales.iter_mut().enumerate() {
         let mut m = 0f32;
-        for i in 0..d
-        {
+        for i in 0..d {
             m = m.max(weight[i * out_features + o].abs());
         }
         *so = if m == 0.0 { 1.0 } else { m / 127.0 };
@@ -503,16 +454,13 @@ pub fn quantize_gptq(
     // Hessienne amortie puis inversée (en f64).
     let mut h = hessian.to_vec();
     let mut diag_mean = 0f32;
-    for i in 0..d
-    {
+    for i in 0..d {
         diag_mean += h[i * d + i];
     }
     diag_mean /= d as f32;
     let damp = percdamp * diag_mean.max(1e-8);
-    for i in 0..d
-    {
-        if h[i * d + i] <= 0.0
-        {
+    for i in 0..d {
+        if h[i * d + i] <= 0.0 {
             h[i * d + i] = 1.0; // colonne « morte » : se quantifiera vers 0
         }
         h[i * d + i] += damp;
@@ -522,13 +470,11 @@ pub fn quantize_gptq(
     let mut q = vec![0i8; d * out_features];
     let mut w = weight.to_vec(); // copie modifiée par le feedback d'erreur
     let mut err = vec![0f64; out_features];
-    for i in 0..d
-    {
+    for i in 0..d {
         let di = hinv[i * d + i];
         let inv_di = if di.abs() > 1e-12 { 1.0 / di } else { 0.0 };
         // Quantifier la colonne d'entrée i pour tous les canaux de sortie.
-        for o in 0..out_features
-        {
+        for o in 0..out_features {
             let s = scales[o];
             let wv = w[i * out_features + o];
             let qv = (wv / s).round().clamp(-128.0, 127.0);
@@ -536,30 +482,23 @@ pub fn quantize_gptq(
             err[o] = (wv as f64 - (qv * s) as f64) * inv_di;
         }
         // Propager l'erreur sur les poids non encore quantifiés (colonnes j>i).
-        for j in (i + 1)..d
-        {
+        for j in (i + 1)..d {
             let hij = hinv[i * d + j];
-            if hij == 0.0
-            {
+            if hij == 0.0 {
                 continue;
             }
-            for o in 0..out_features
-            {
+            for o in 0..out_features {
                 w[j * out_features + o] -= (err[o] * hij) as f32;
             }
         }
         // Complément de Schur sur le bloc restant de H⁻¹ (déterministe).
-        if inv_di != 0.0
-        {
-            for a in (i + 1)..d
-            {
+        if inv_di != 0.0 {
+            for a in (i + 1)..d {
                 let f = hinv[a * d + i] * inv_di;
-                if f == 0.0
-                {
+                if f == 0.0 {
                     continue;
                 }
-                for b in (i + 1)..d
-                {
+                for b in (i + 1)..d {
                     hinv[a * d + b] -= f * hinv[i * d + b];
                 }
             }
@@ -578,17 +517,13 @@ mod gptq_tests {
     /// error — exactly the objective GPTQ minimises.
     fn weighted_err(w: &[f32], wq: &[f32], in_f: usize, out_f: usize, h: &[f32]) -> f64 {
         let mut e = 0f64;
-        for o in 0..out_f
-        {
-            for a in 0..in_f
-            {
+        for o in 0..out_f {
+            for a in 0..in_f {
                 let da = (wq[a * out_f + o] - w[a * out_f + o]) as f64;
-                if da == 0.0
-                {
+                if da == 0.0 {
                     continue;
                 }
-                for b in 0..in_f
-                {
+                for b in 0..in_f {
                     let db = (wq[b * out_f + o] - w[b * out_f + o]) as f64;
                     e += da * h[a * in_f + b] as f64 * db;
                 }
@@ -599,10 +534,8 @@ mod gptq_tests {
 
     fn dequant(q: &[i8], scales: &[f32], in_f: usize, out_f: usize) -> Vec<f32> {
         let mut w = vec![0f32; in_f * out_f];
-        for i in 0..in_f
-        {
-            for o in 0..out_f
-            {
+        for i in 0..in_f {
+            for o in 0..out_f {
                 w[i * out_f + o] = q[i * out_f + o] as f32 * scales[o];
             }
         }
@@ -621,14 +554,11 @@ mod gptq_tests {
         // Correlated activations: x[t,:] = A·z[t] + small noise (rank-`latent`).
         let a: Vec<f32> = (0..in_f * latent).map(|_| rng.float_signed()).collect();
         let mut x = vec![0f32; samples * in_f];
-        for t in 0..samples
-        {
+        for t in 0..samples {
             let z: Vec<f32> = (0..latent).map(|_| rng.float_signed()).collect();
-            for i in 0..in_f
-            {
+            for i in 0..in_f {
                 let mut v = 0.1 * rng.float_signed();
-                for (l, &zl) in z.iter().enumerate()
-                {
+                for (l, &zl) in z.iter().enumerate() {
                     v += a[i * latent + l] * zl;
                 }
                 x[t * in_f + i] = v;
@@ -679,16 +609,13 @@ mod gptq_tests {
 pub fn awq_act_scale(x: &[f32], samples: usize, in_features: usize) -> Vec<f32> {
     assert_eq!(x.len(), samples * in_features, "awq_act_scale: x size");
     let mut a = vec![0f32; in_features];
-    for t in 0..samples
-    {
-        for (j, aj) in a.iter_mut().enumerate()
-        {
+    for t in 0..samples {
+        for (j, aj) in a.iter_mut().enumerate() {
             *aj += x[t * in_features + j].abs();
         }
     }
     let inv = 1.0 / samples as f32;
-    for aj in a.iter_mut()
-    {
+    for aj in a.iter_mut() {
         *aj *= inv;
     }
     a
@@ -714,11 +641,9 @@ impl AwqResult {
     /// row-major `(in_features × out_features)`.
     pub fn dequantize(&self, in_features: usize, out_features: usize) -> Vec<f32> {
         let mut w = vec![0f32; in_features * out_features];
-        for j in 0..in_features
-        {
+        for j in 0..in_features {
             let inv = 1.0 / self.channel_scales[j];
-            for o in 0..out_features
-            {
+            for o in 0..out_features {
                 w[j * out_features + o] =
                     self.q[j * out_features + o] as f32 * self.w_scales[o] * inv;
             }
@@ -757,17 +682,13 @@ pub fn awq_quantize(
     // Erreur de sortie pondérée par la calibration pour des poids déquantifiés.
     let werr = |wq: &[f32]| -> f64 {
         let mut e = 0f64;
-        for o in 0..out_features
-        {
-            for a in 0..in_features
-            {
+        for o in 0..out_features {
+            for a in 0..in_features {
                 let da = (wq[a * out_features + o] - w[a * out_features + o]) as f64;
-                if da == 0.0
-                {
+                if da == 0.0 {
                     continue;
                 }
-                for b in 0..in_features
-                {
+                for b in 0..in_features {
                     let db = (wq[b * out_features + o] - w[b * out_features + o]) as f64;
                     e += da * h[a * in_features + b] as f64 * db;
                 }
@@ -778,8 +699,7 @@ pub fn awq_quantize(
 
     let mut best: Option<AwqResult> = None;
     let mut best_err = f64::INFINITY;
-    for g in 0..grid
-    {
+    for g in 0..grid {
         let alpha = g as f32 / (grid - 1) as f32;
         // s_j = a_j^alpha normalisé en moyenne géométrique 1 (neutre en magnitude).
         let mean_log = log_act.iter().sum::<f32>() / in_features as f32;
@@ -789,10 +709,8 @@ pub fn awq_quantize(
             .collect();
         // Poids mis à l'échelle, puis quantification int8 per-canal de sortie.
         let mut ws = vec![0f32; in_features * out_features];
-        for j in 0..in_features
-        {
-            for o in 0..out_features
-            {
+        for j in 0..in_features {
+            for o in 0..out_features {
                 ws[j * out_features + o] = w[j * out_features + o] * s[j];
             }
         }
@@ -804,8 +722,7 @@ pub fn awq_quantize(
             alpha,
         };
         let err = werr(&cand.dequantize(in_features, out_features));
-        if err < best_err
-        {
+        if err < best_err {
             best_err = err;
             best = Some(cand);
         }
@@ -820,17 +737,13 @@ mod awq_tests {
 
     fn weighted_err(w: &[f32], wq: &[f32], in_f: usize, out_f: usize, h: &[f32]) -> f64 {
         let mut e = 0f64;
-        for o in 0..out_f
-        {
-            for a in 0..in_f
-            {
+        for o in 0..out_f {
+            for a in 0..in_f {
                 let da = (wq[a * out_f + o] - w[a * out_f + o]) as f64;
-                if da == 0.0
-                {
+                if da == 0.0 {
                     continue;
                 }
-                for b in 0..in_f
-                {
+                for b in 0..in_f {
                     let db = (wq[b * out_f + o] - w[b * out_f + o]) as f64;
                     e += da * h[a * in_f + b] as f64 * db;
                 }
@@ -849,17 +762,12 @@ mod awq_tests {
         // Activations: most channels small, a few salient (×20). These dominate Y.
         let salient = [2usize, 5, 9];
         let mut x = vec![0f32; samples * in_f];
-        for t in 0..samples
-        {
-            for j in 0..in_f
-            {
+        for t in 0..samples {
+            for j in 0..in_f {
                 let base = rng.float_signed();
-                x[t * in_f + j] = if salient.contains(&j)
-                {
+                x[t * in_f + j] = if salient.contains(&j) {
                     20.0 * base
-                }
-                else
-                {
+                } else {
                     base
                 };
             }
@@ -874,10 +782,8 @@ mod awq_tests {
         // alpha = 0 is exactly per-channel round-to-nearest.
         let (qr, sr) = quantize_per_channel(&w, in_f, out_f);
         let mut wr = vec![0f32; in_f * out_f];
-        for j in 0..in_f
-        {
-            for o in 0..out_f
-            {
+        for j in 0..in_f {
+            for o in 0..out_f {
                 wr[j * out_f + o] = qr[j * out_f + o] as f32 * sr[o];
             }
         }
@@ -953,20 +859,15 @@ pub fn ternary_matmul(
     assert_eq!(x.len(), batch * in_f, "ternary_matmul: x size");
     assert_eq!(w_q.len(), in_f * out_f, "ternary_matmul: w size");
     let mut out = vec![0f32; batch * out_f];
-    for b in 0..batch
-    {
+    for b in 0..batch {
         let xrow = &x[b * in_f..b * in_f + in_f];
-        for o in 0..out_f
-        {
+        for o in 0..out_f {
             let mut acc = 0f32;
-            for i in 0..in_f
-            {
-                match w_q[i * out_f + o]
-                {
+            for i in 0..in_f {
+                match w_q[i * out_f + o] {
                     1 => acc += xrow[i],
                     -1 => acc -= xrow[i],
-                    _ =>
-                    {},
+                    _ => {}
                 }
             }
             out[b * out_f + o] = acc * scale;
@@ -995,13 +896,10 @@ mod bitnet_tests {
 
         let mut sign_sum = vec![0f32; batch * out_f]; // (Σ ±xᵢ)·scale — same order as mf
         let mut dequant = vec![0f32; batch * out_f]; // Σ xᵢ·(±scale) — ordinary multiply
-        for b in 0..batch
-        {
-            for o in 0..out_f
-            {
+        for b in 0..batch {
+            for o in 0..out_f {
                 let (mut s, mut d) = (0f32, 0f32);
-                for i in 0..in_f
-                {
+                for i in 0..in_f {
                     let q = wq[i * out_f + o] as f32;
                     s += q * x[b * in_f + i]; // ±xᵢ (or 0)
                     d += x[b * in_f + i] * (q * scale);
@@ -1012,8 +910,7 @@ mod bitnet_tests {
         }
         let mf = ternary_matmul(&x, batch, &wq, in_f, out_f, scale);
         // The multiplication-free path is exactly (Σ ±xᵢ)·scale (bit-for-bit).
-        for (a, r) in mf.iter().zip(&sign_sum)
-        {
+        for (a, r) in mf.iter().zip(&sign_sum) {
             assert_eq!(
                 a.to_bits(),
                 r.to_bits(),
@@ -1021,8 +918,7 @@ mod bitnet_tests {
             );
         }
         // …and equals the dequantised product up to floating-point reassociation.
-        for (a, d) in mf.iter().zip(&dequant)
-        {
+        for (a, d) in mf.iter().zip(&dequant) {
             assert!(
                 (a - d).abs() < 1e-4,
                 "ternary matmul off from dequant: {a} vs {d}"
@@ -1079,11 +975,9 @@ pub fn nf4_quantize(w: &[f32]) -> (Vec<u8>, f32) {
             // Nearest NF4 level (16 entries; linear scan, deterministic order).
             let mut best = 0usize;
             let mut bd = (v - NF4_LEVELS[0]).abs();
-            for (k, &lvl) in NF4_LEVELS.iter().enumerate().skip(1)
-            {
+            for (k, &lvl) in NF4_LEVELS.iter().enumerate().skip(1) {
                 let d = (v - lvl).abs();
-                if d < bd
-                {
+                if d < bd {
                     bd = d;
                     best = k;
                 }
@@ -1135,11 +1029,9 @@ mod nf4_tests {
                 let v = x * inv;
                 let mut best = ulevels[0];
                 let mut bd = (v - ulevels[0]).abs();
-                for &lvl in &ulevels[1..]
-                {
+                for &lvl in &ulevels[1..] {
                     let d = (v - lvl).abs();
-                    if d < bd
-                    {
+                    if d < bd {
                         bd = d;
                         best = lvl;
                     }
@@ -1173,8 +1065,7 @@ mod nf4_tests {
         let (codes, absmax) = nf4_quantize(&w);
         assert!((absmax - 3.0).abs() < 1e-6);
         let back = nf4_dequantize(&codes, absmax);
-        for (a, b) in w.iter().zip(&back)
-        {
+        for (a, b) in w.iter().zip(&back) {
             assert!((a - b).abs() < 1e-5, "NF4 round-trip off: {a} vs {b}");
         }
     }
@@ -1210,35 +1101,29 @@ impl SqueezeLlmCodebook {
         let k = 1usize << bits;
         let n = weights.len();
         let mut levels = vec![0.0f32; k];
-        if n == 0
-        {
+        if n == 0 {
             return Self { levels };
         }
         // Deterministic init: centroids at evenly spaced quantiles of the weights.
         let mut sorted = weights.to_vec();
         sorted.sort_by(f32::total_cmp);
-        for (j, lvl) in levels.iter_mut().enumerate()
-        {
+        for (j, lvl) in levels.iter_mut().enumerate() {
             let pos = ((j as f32 + 0.5) / k as f32) * (n as f32 - 1.0);
             *lvl = sorted[pos.round() as usize];
         }
         // Weighted Lloyd iterations: assign to nearest centroid, then move each
         // centroid to the sensitivity-weighted mean of its members (the optimum).
-        for _ in 0..iters
-        {
+        for _ in 0..iters {
             let mut sum = vec![0.0f32; k];
             let mut wsum = vec![0.0f32; k];
-            for (&w, &s) in weights.iter().zip(sensitivity)
-            {
+            for (&w, &s) in weights.iter().zip(sensitivity) {
                 let a = nearest_level(&levels, w);
                 let s = s.max(0.0);
                 sum[a] += s * w;
                 wsum[a] += s;
             }
-            for (lvl, (&sj, &wj)) in levels.iter_mut().zip(sum.iter().zip(&wsum))
-            {
-                if wj > 0.0
-                {
+            for (lvl, (&sj, &wj)) in levels.iter_mut().zip(sum.iter().zip(&wsum)) {
+                if wj > 0.0 {
                     *lvl = sj / wj;
                 }
                 // Empty cluster: keep its previous value (deterministic).
@@ -1275,11 +1160,9 @@ impl SqueezeLlmCodebook {
 fn nearest_level(levels: &[f32], w: f32) -> usize {
     let mut best = 0usize;
     let mut bd = (w - levels[0]).abs();
-    for (i, &l) in levels.iter().enumerate().skip(1)
-    {
+    for (i, &l) in levels.iter().enumerate().skip(1) {
         let d = (w - l).abs();
-        if d < bd
-        {
+        if d < bd {
             bd = d;
             best = i;
         }
@@ -1361,12 +1244,10 @@ mod tests_squeezellm {
 
         let cb = SqueezeLlmCodebook::fit(&w, &s, 4, 10);
         assert_eq!(cb.levels().len(), 16);
-        for pair in cb.levels().windows(2)
-        {
+        for pair in cb.levels().windows(2) {
             assert!(pair[0] <= pair[1], "codebook not sorted");
         }
-        for &l in cb.levels()
-        {
+        for &l in cb.levels() {
             assert!(
                 (cb.quantize(l) - l).abs() < 1e-6,
                 "codebook value not fixed: {l}"
@@ -1422,8 +1303,7 @@ impl SpqrOutliers {
     /// overwritten by their exact fp values.
     pub fn reconstruct(&self, quantized: &[f32]) -> Vec<f32> {
         let mut out = quantized.to_vec();
-        for (&i, &v) in self.indices.iter().zip(&self.values)
-        {
+        for (&i, &v) in self.indices.iter().zip(&self.values) {
             out[i] = v;
         }
         out
@@ -1465,8 +1345,7 @@ mod tests_spqr {
         let mut w: Vec<f32> = (0..n)
             .map(|_| rng.float_signed() + rng.float_signed())
             .collect();
-        for j in 0..(n / 100)
-        {
+        for j in 0..(n / 100) {
             w[j * 100] = if j % 2 == 0 { 12.0 } else { -12.0 };
         }
         let q = rtn_clip(&w, 4, -3.0, 3.0);
@@ -1516,30 +1395,22 @@ fn kv_quant_dequant_axis(
     let qmax = ((1i32 << (bits - 1)) - 1) as f32; // symmetric signed range
     let mut out = vec![0.0f32; rows * cols];
     let q1 = |x: f32, scale: f32| (x / scale).round().clamp(-qmax, qmax) * scale;
-    if per_row
-    {
-        for (row, orow) in m.chunks_exact(cols).zip(out.chunks_exact_mut(cols))
-        {
+    if per_row {
+        for (row, orow) in m.chunks_exact(cols).zip(out.chunks_exact_mut(cols)) {
             let amax = row.iter().fold(0.0f32, |a, &x| a.max(x.abs()));
             let scale = if amax > 0.0 { amax / qmax } else { 1.0 };
-            for (o, &x) in orow.iter_mut().zip(row)
-            {
+            for (o, &x) in orow.iter_mut().zip(row) {
                 *o = q1(x, scale);
             }
         }
-    }
-    else
-    {
-        for j in 0..cols
-        {
+    } else {
+        for j in 0..cols {
             let mut amax = 0.0f32;
-            for i in 0..rows
-            {
+            for i in 0..rows {
                 amax = amax.max(m[i * cols + j].abs());
             }
             let scale = if amax > 0.0 { amax / qmax } else { 1.0 };
-            for i in 0..rows
-            {
+            for i in 0..rows {
                 out[i * cols + j] = q1(m[i * cols + j], scale);
             }
         }
@@ -1581,14 +1452,11 @@ mod tests_kvquant {
     fn attention(q: &[f32], k: &[f32], v: &[f32], seq: usize, d: usize) -> Vec<f32> {
         let scale = 1.0 / (d as f32).sqrt();
         let mut out = vec![0.0f32; seq * d];
-        for i in 0..seq
-        {
+        for i in 0..seq {
             let mut scores = vec![0.0f32; seq];
-            for (j, sj) in scores.iter_mut().enumerate()
-            {
+            for (j, sj) in scores.iter_mut().enumerate() {
                 let mut s = 0.0f32;
-                for t in 0..d
-                {
+                for t in 0..d {
                     s += q[i * d + t] * k[j * d + t];
                 }
                 *sj = s * scale;
@@ -1596,11 +1464,9 @@ mod tests_kvquant {
             let mx = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
             let exps: Vec<f32> = scores.iter().map(|&z| (z - mx).exp()).collect();
             let z: f32 = exps.iter().sum();
-            for (j, &e) in exps.iter().enumerate()
-            {
+            for (j, &e) in exps.iter().enumerate() {
                 let w = e / z;
-                for t in 0..d
-                {
+                for t in 0..d {
                     out[i * d + t] += w * v[j * d + t];
                 }
             }
@@ -1618,10 +1484,8 @@ mod tests_kvquant {
         let mut rng = PcgEngine::new(17);
         let (seq, d) = (8usize, 16usize);
         let mut k = vec![0.0f32; seq * d];
-        for i in 0..seq
-        {
-            for j in 0..d
-            {
+        for i in 0..seq {
+            for j in 0..d {
                 let outlier = if j == 0 || j == 5 { 12.0 } else { 1.0 };
                 k[i * d + j] = rng.float_signed() * 0.5 * outlier;
             }
@@ -1657,11 +1521,9 @@ mod tests_kvquant {
         let (seq, d) = (6usize, 4usize);
         // Column 0 is a large outlier; columns 1..3 are small.
         let mut m = vec![0.0f32; seq * d];
-        for i in 0..seq
-        {
+        for i in 0..seq {
             m[i * d] = 50.0 + i as f32; // outlier column
-            for j in 1..d
-            {
+            for j in 1..d {
                 m[i * d + j] = 0.1 * (i + j) as f32;
             }
         }
@@ -1670,10 +1532,8 @@ mod tests_kvquant {
         // Error on the small columns (j ≥ 1).
         let small_err = |r: &[f32]| -> f32 {
             let mut e = 0.0f32;
-            for i in 0..seq
-            {
-                for j in 1..d
-                {
+            for i in 0..seq {
+                for j in 1..d {
                     e += (m[i * d + j] - r[i * d + j]).powi(2);
                 }
             }
@@ -1720,16 +1580,12 @@ pub fn int8_mixed_matmul(
     // reflects the normal range and the zeros contribute nothing to the product).
     let mut x_int = x.to_vec();
     let mut w_int = w.to_vec();
-    for (j, &is_out) in outlier.iter().enumerate()
-    {
-        if is_out
-        {
-            for i in 0..m
-            {
+    for (j, &is_out) in outlier.iter().enumerate() {
+        if is_out {
+            for i in 0..m {
                 x_int[i * k + j] = 0.0;
             }
-            for l in 0..n
-            {
+            for l in 0..n {
                 w_int[j * n + l] = 0.0;
             }
         }
@@ -1746,15 +1602,11 @@ pub fn int8_mixed_matmul(
     let mut out: Vec<f32> = acc.iter().map(|&a| a as f32 * sx * sw).collect();
 
     // fp32 path: add the exact contribution of the outlier columns.
-    for (j, &is_out) in outlier.iter().enumerate()
-    {
-        if is_out
-        {
-            for i in 0..m
-            {
+    for (j, &is_out) in outlier.iter().enumerate() {
+        if is_out {
+            for i in 0..m {
                 let xij = x[i * k + j];
-                for l in 0..n
-                {
+                for l in 0..n {
                     out[i * n + l] += xij * w[j * n + l];
                 }
             }
@@ -1770,13 +1622,10 @@ mod tests_llm_int8 {
 
     fn naive_matmul(x: &[f32], w: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
         let mut out = vec![0.0f32; m * n];
-        for i in 0..m
-        {
-            for l in 0..n
-            {
+        for i in 0..m {
+            for l in 0..n {
                 let mut s = 0.0f32;
-                for j in 0..k
-                {
+                for j in 0..k {
                     s += x[i * k + j] * w[j * n + l];
                 }
                 out[i * n + l] = s;
@@ -1794,10 +1643,8 @@ mod tests_llm_int8 {
         let mut rng = PcgEngine::new(23);
         let (m, k, n) = (6usize, 16usize, 8usize);
         let mut x = vec![0.0f32; m * k];
-        for i in 0..m
-        {
-            for j in 0..k
-            {
+        for i in 0..m {
+            for j in 0..k {
                 let v = rng.float_signed();
                 // Columns 3 and 10 are outlier features (≈ ×75 the bulk).
                 x[i * k + j] = if j == 3 || j == 10 { v * 30.0 } else { v * 0.4 };
@@ -1836,8 +1683,7 @@ mod tests_llm_int8 {
         let (sx, sw) = (compute_scale(&x), compute_scale(&w));
         let plain_acc = matmul_int8(&quantize_tensor(&x, sx), &quantize_tensor(&w, sw), m, k, n);
         let plain: Vec<f32> = plain_acc.iter().map(|&a| a as f32 * sx * sw).collect();
-        for (a, b) in mixed.iter().zip(&plain)
-        {
+        for (a, b) in mixed.iter().zip(&plain) {
             assert!((a - b).abs() < 1e-6, "no-outlier mismatch: {a} vs {b}");
         }
     }
@@ -1852,8 +1698,7 @@ unsafe fn dot_i8_neon(a: *const i8, b: *const i8, k: usize) -> i32 {
     unsafe {
         let mut acc = vdupq_n_s32(0);
         let mut kk = 0usize;
-        while kk + 16 <= k
-        {
+        while kk + 16 <= k {
             let va = vld1q_s8(a.add(kk));
             let vb = vld1q_s8(b.add(kk));
             let lo = vmull_s8(vget_low_s8(va), vget_low_s8(vb));
@@ -1863,8 +1708,7 @@ unsafe fn dot_i8_neon(a: *const i8, b: *const i8, k: usize) -> i32 {
             kk += 16;
         }
         let mut sum = vaddvq_s32(acc);
-        while kk < k
-        {
+        while kk < k {
             sum += (*a.add(kk)) as i32 * (*b.add(kk)) as i32;
             kk += 1;
         }
@@ -1878,19 +1722,15 @@ unsafe fn dot_i8_neon(a: *const i8, b: *const i8, k: usize) -> i32 {
 #[cfg(target_arch = "aarch64")]
 pub fn matmul_int8_neon(a: &[i8], b: &[i8], m: usize, k: usize, n: usize) -> Vec<i32> {
     let mut bt = vec![0i8; n * k];
-    for kk in 0..k
-    {
-        for j in 0..n
-        {
+    for kk in 0..k {
+        for j in 0..n {
             bt[j * k + kk] = b[kk * n + j];
         }
     }
     let mut out = vec![0i32; m * n];
-    for i in 0..m
-    {
+    for i in 0..m {
         let arow = a[i * k..i * k + k].as_ptr();
-        for j in 0..n
-        {
+        for j in 0..n {
             let brow = bt[j * k..j * k + k].as_ptr();
             out[i * n + j] = unsafe { dot_i8_neon(arow, brow, k) };
         }
@@ -1942,10 +1782,8 @@ impl OmniQuantResult {
     /// Reconstruct the dequantized weight matrix `(in_features, out_features)`.
     pub fn dequantize(&self) -> Vec<f32> {
         let mut w = vec![0.0f32; self.in_features * self.out_features];
-        for i in 0..self.in_features
-        {
-            for o in 0..self.out_features
-            {
+        for i in 0..self.in_features {
+            for o in 0..self.out_features {
                 w[i * self.out_features + o] =
                     self.codes[i * self.out_features + o] as f32 * self.scales[o];
             }
@@ -1958,13 +1796,11 @@ impl OmniQuantResult {
 /// `γ·max|w|`): `Σ (w − q·scale)²` with `q = clamp(round(w/scale), ±qmax)`.
 fn omniquant_channel_error(col: &[f32], maxabs: f32, qmax: f32, gamma: f32) -> (f32, f32) {
     let scale = gamma * maxabs / qmax;
-    if scale == 0.0
-    {
+    if scale == 0.0 {
         return (0.0, 1.0);
     }
     let mut err = 0.0f32;
-    for &w in col
-    {
+    for &w in col {
         let q = (w / scale).round().clamp(-qmax, qmax);
         let d = w - q * scale;
         err += d * d;
@@ -1997,25 +1833,20 @@ pub fn omniquant_quantize(
     let mut codes = vec![0i8; in_features * out_features];
 
     let mut col = vec![0.0f32; in_features];
-    for o in 0..out_features
-    {
-        for i in 0..in_features
-        {
+    for o in 0..out_features {
+        for i in 0..in_features {
             col[i] = weight[i * out_features + o];
         }
         let maxabs = col.iter().fold(0.0f32, |m, &v| m.max(v.abs()));
-        if maxabs == 0.0
-        {
+        if maxabs == 0.0 {
             continue;
         }
         // Search γ over the grid (g/grid for g=1..=grid ⇒ includes γ=1 = RTN).
         let (mut best_err, mut best_gamma, mut best_scale) = (f32::INFINITY, 1.0, maxabs / qmax);
-        for g in 1..=grid
-        {
+        for g in 1..=grid {
             let gamma = g as f32 / grid as f32;
             let (err, scale) = omniquant_channel_error(&col, maxabs, qmax, gamma);
-            if err < best_err
-            {
+            if err < best_err {
                 best_err = err;
                 best_gamma = gamma;
                 best_scale = scale;
@@ -2023,8 +1854,7 @@ pub fn omniquant_quantize(
         }
         scales[o] = best_scale;
         clips[o] = best_gamma;
-        for i in 0..in_features
-        {
+        for i in 0..in_features {
             let q = (col[i] / best_scale).round().clamp(-qmax, qmax);
             codes[i * out_features + o] = q as i8;
         }
@@ -2047,16 +1877,13 @@ mod omniquant_tests {
     fn rtn_error(weight: &[f32], in_f: usize, out_f: usize, bits: u32) -> f32 {
         let qmax = ((1i32 << (bits - 1)) - 1) as f32;
         let mut err = 0.0f32;
-        for o in 0..out_f
-        {
+        for o in 0..out_f {
             let mut maxabs = 0.0f32;
-            for i in 0..in_f
-            {
+            for i in 0..in_f {
                 maxabs = maxabs.max(weight[i * out_f + o].abs());
             }
             let scale = if maxabs == 0.0 { 1.0 } else { maxabs / qmax };
-            for i in 0..in_f
-            {
+            for i in 0..in_f {
                 let w = weight[i * out_f + o];
                 let q = (w / scale).round().clamp(-qmax, qmax);
                 let d = w - q * scale;
@@ -2083,12 +1910,10 @@ mod omniquant_tests {
         let mut rng = PcgEngine::new(7);
         let (in_f, out_f) = (64usize, 8usize);
         let mut w = vec![0.0f32; in_f * out_f];
-        for v in w.iter_mut()
-        {
+        for v in w.iter_mut() {
             // Bulk ~ small Gaussian-ish; rare large outliers.
             let mut x = (rng.float_signed() + rng.float_signed()) * 0.1;
-            if rng.float() < 0.03
-            {
+            if rng.float() < 0.03 {
                 x += rng.float_signed() * 5.0;
             }
             *v = x;
@@ -2155,13 +1980,10 @@ impl AqlmResult {
         let (g, m) = (self.group_size, self.num_codebooks);
         let n_groups = self.codes.len().checked_div(m).unwrap_or(0);
         let mut out = vec![0.0f32; n_groups * g];
-        for i in 0..n_groups
-        {
-            for (cb, codebook) in self.codebooks.iter().enumerate()
-            {
+        for i in 0..n_groups {
+            for (cb, codebook) in self.codebooks.iter().enumerate() {
                 let a = self.codes[i * m + cb];
-                for t in 0..g
-                {
+                for t in 0..g {
                     out[i * g + t] += codebook[a * g + t];
                 }
             }
@@ -2187,16 +2009,13 @@ impl AqlmResult {
 fn nearest_codeword(codebook: &[f32], k: usize, g: usize, v: &[f32]) -> usize {
     let mut best = 0usize;
     let mut bd = f32::INFINITY;
-    for j in 0..k
-    {
+    for j in 0..k {
         let mut d = 0.0f32;
-        for t in 0..g
-        {
+        for t in 0..g {
             let e = v[t] - codebook[j * g + t];
             d += e * e;
         }
-        if d < bd
-        {
+        if d < bd {
             bd = d;
             best = j;
         }
@@ -2210,34 +2029,26 @@ fn nearest_codeword(codebook: &[f32], k: usize, g: usize, v: &[f32]) -> usize {
 fn vec_kmeans(data: &[Vec<f32>], k: usize, g: usize, iters: usize) -> Vec<f32> {
     let n = data.len();
     let mut cents = vec![0.0f32; k * g];
-    if n == 0
-    {
+    if n == 0 {
         return cents;
     }
-    for j in 0..k
-    {
+    for j in 0..k {
         let idx = (j * n / k).min(n - 1);
         cents[j * g..j * g + g].copy_from_slice(&data[idx][..g]);
     }
-    for _ in 0..iters
-    {
+    for _ in 0..iters {
         let mut sum = vec![0.0f32; k * g];
         let mut cnt = vec![0usize; k];
-        for v in data
-        {
+        for v in data {
             let a = nearest_codeword(&cents, k, g, v);
-            for t in 0..g
-            {
+            for t in 0..g {
                 sum[a * g + t] += v[t];
             }
             cnt[a] += 1;
         }
-        for j in 0..k
-        {
-            if cnt[j] > 0
-            {
-                for t in 0..g
-                {
+        for j in 0..k {
+            if cnt[j] > 0 {
+                for t in 0..g {
                     cents[j * g + t] = sum[j * g + t] / cnt[j] as f32;
                 }
             }
@@ -2269,14 +2080,11 @@ pub fn quantize_aqlm(
     let n_groups = n_weights.div_ceil(g);
     // Split (zero-padding the final partial group).
     let mut groups: Vec<Vec<f32>> = Vec::with_capacity(n_groups);
-    for i in 0..n_groups
-    {
+    for i in 0..n_groups {
         let mut grp = vec![0.0f32; g];
-        for (t, gt) in grp.iter_mut().enumerate()
-        {
+        for (t, gt) in grp.iter_mut().enumerate() {
             let idx = i * g + t;
-            if idx < n_weights
-            {
+            if idx < n_weights {
                 *gt = w[idx];
             }
         }
@@ -2285,14 +2093,11 @@ pub fn quantize_aqlm(
     // Initialise codebooks by residual k-means.
     let mut codebooks: Vec<Vec<f32>> = Vec::with_capacity(m);
     let mut residual: Vec<Vec<f32>> = groups.clone();
-    for _ in 0..m
-    {
+    for _ in 0..m {
         let cents = vec_kmeans(&residual, k, g, iters);
-        for grp in residual.iter_mut()
-        {
+        for grp in residual.iter_mut() {
             let a = nearest_codeword(&cents, k, g, grp);
-            for t in 0..g
-            {
+            for t in 0..g {
                 grp[t] -= cents[a * g + t];
             }
         }
@@ -2301,15 +2106,12 @@ pub fn quantize_aqlm(
     // Greedy residual encoding of every group across all codebooks.
     let encode_all = |codebooks: &[Vec<f32>]| -> Vec<usize> {
         let mut codes = vec![0usize; n_groups * m];
-        for (i, grp) in groups.iter().enumerate()
-        {
+        for (i, grp) in groups.iter().enumerate() {
             let mut r = grp.clone();
-            for (cb, codebook) in codebooks.iter().enumerate()
-            {
+            for (cb, codebook) in codebooks.iter().enumerate() {
                 let a = nearest_codeword(codebook, k, g, &r);
                 codes[i * m + cb] = a;
-                for t in 0..g
-                {
+                for t in 0..g {
                     r[t] -= codebook[a * g + t];
                 }
             }
@@ -2318,41 +2120,31 @@ pub fn quantize_aqlm(
     };
     // Alternating refinement: re-encode, then re-fit each codebook by LS on the
     // partial residual (group minus the other codebooks' contributions).
-    for _ in 0..iters
-    {
+    for _ in 0..iters {
         let codes = encode_all(&codebooks);
-        for cb in 0..m
-        {
+        for cb in 0..m {
             let mut sum = vec![0.0f32; k * g];
             let mut cnt = vec![0usize; k];
-            for (i, grp) in groups.iter().enumerate()
-            {
+            for (i, grp) in groups.iter().enumerate() {
                 let mut pr = grp.clone();
-                for (mm, codebook) in codebooks.iter().enumerate()
-                {
-                    if mm == cb
-                    {
+                for (mm, codebook) in codebooks.iter().enumerate() {
+                    if mm == cb {
                         continue;
                     }
                     let a = codes[i * m + mm];
-                    for t in 0..g
-                    {
+                    for t in 0..g {
                         pr[t] -= codebook[a * g + t];
                     }
                 }
                 let a = codes[i * m + cb];
-                for t in 0..g
-                {
+                for t in 0..g {
                     sum[a * g + t] += pr[t];
                 }
                 cnt[a] += 1;
             }
-            for j in 0..k
-            {
-                if cnt[j] > 0
-                {
-                    for t in 0..g
-                    {
+            for j in 0..k {
+                if cnt[j] > 0 {
+                    for t in 0..g {
                         codebooks[cb][j * g + t] = sum[j * g + t] / cnt[j] as f32;
                     }
                 }
@@ -2409,12 +2201,10 @@ mod aqlm_tests {
             .map(|_| (0..g).map(|_| rng.float_signed()).collect())
             .collect();
         let mut w = Vec::with_capacity(n_groups * g);
-        for i in 0..n_groups
-        {
+        for i in 0..n_groups {
             let p = &protos[i % n_proto];
             let scale = 0.5 + (i % 5) as f32 * 0.4;
-            for &pt in p.iter()
-            {
+            for &pt in p.iter() {
                 w.push(scale * pt + 0.03 * rng.float_signed());
             }
         }
@@ -2456,13 +2246,10 @@ mod aqlm_tests {
 /// transform is **orthogonal** and **involutory** (`FWHT(FWHT(x)) = x`).
 fn fwht8(a: &mut [f32; 8]) {
     let mut len = 1usize;
-    while len < 8
-    {
+    while len < 8 {
         let mut i = 0usize;
-        while i < 8
-        {
-            for j in i..i + len
-            {
+        while i < 8 {
+            for j in i..i + len {
                 let (x, y) = (a[j], a[j + len]);
                 a[j] = x + y;
                 a[j + len] = x - y;
@@ -2472,8 +2259,7 @@ fn fwht8(a: &mut [f32; 8]) {
         len *= 2;
     }
     let inv = 1.0 / (8.0f32).sqrt();
-    for v in a.iter_mut()
-    {
+    for v in a.iter_mut() {
         *v *= inv;
     }
 }
@@ -2485,27 +2271,21 @@ fn nearest_d8(y: &[f32; 8]) -> [f32; 8] {
     let mut f = [0.0f32; 8];
     let mut sum = 0i64;
     let (mut worst, mut worst_err) = (0usize, -1.0f32);
-    for (i, fi) in f.iter_mut().enumerate()
-    {
+    for (i, fi) in f.iter_mut().enumerate() {
         let r = y[i].round();
         *fi = r;
         sum += r as i64;
         let e = (y[i] - r).abs();
-        if e > worst_err
-        {
+        if e > worst_err {
             worst_err = e;
             worst = i;
         }
     }
-    if sum % 2 != 0
-    {
+    if sum % 2 != 0 {
         // Re-round the worst coordinate to its second-nearest integer (flips parity).
-        f[worst] += if y[worst] - f[worst] >= 0.0
-        {
+        f[worst] += if y[worst] - f[worst] >= 0.0 {
             1.0
-        }
-        else
-        {
+        } else {
             -1.0
         };
     }
@@ -2519,13 +2299,11 @@ fn nearest_d8(y: &[f32; 8]) -> [f32; 8] {
 pub fn nearest_e8(x: &[f32; 8]) -> [f32; 8] {
     let a = nearest_d8(x);
     let mut xs = *x;
-    for v in xs.iter_mut()
-    {
+    for v in xs.iter_mut() {
         *v -= 0.5;
     }
     let mut b = nearest_d8(&xs);
-    for v in b.iter_mut()
-    {
+    for v in b.iter_mut() {
         *v += 0.5;
     }
     let dist = |p: &[f32; 8]| -> f32 { (0..8).map(|i| (x[i] - p[i]).powi(2)).sum() };
@@ -2544,11 +2322,9 @@ pub fn random_hadamard_transform(w: &[f32], seed: u64) -> Vec<f32> {
         .map(|_| if rng.next_u32() & 1 == 0 { 1.0 } else { -1.0 })
         .collect();
     let mut out = vec![0.0f32; nb * 8];
-    for b in 0..nb
-    {
+    for b in 0..nb {
         let mut blk = [0.0f32; 8];
-        for (t, bt) in blk.iter_mut().enumerate()
-        {
+        for (t, bt) in blk.iter_mut().enumerate() {
             let idx = b * 8 + t;
             let v = if idx < n { w[idx] } else { 0.0 };
             *bt = v * signs[idx];
@@ -2568,13 +2344,11 @@ pub fn inverse_random_hadamard_transform(wr: &[f32], seed: u64, len: usize) -> V
         .map(|_| if rng.next_u32() & 1 == 0 { 1.0 } else { -1.0 })
         .collect();
     let mut out = vec![0.0f32; nb * 8];
-    for b in 0..nb
-    {
+    for b in 0..nb {
         let mut blk = [0.0f32; 8];
         blk.copy_from_slice(&wr[b * 8..b * 8 + 8]);
         fwht8(&mut blk);
-        for (t, bt) in blk.iter().enumerate()
-        {
+        for (t, bt) in blk.iter().enumerate() {
             out[b * 8 + t] = bt * signs[b * 8 + t];
         }
     }
@@ -2628,16 +2402,13 @@ pub fn quantize_quip(w: &[f32], bits: u32, seed: u64) -> QuipResult {
     let scale = if maxabs == 0.0 { 1.0 } else { maxabs / qmax };
     let nb = wr.len() / 8;
     let mut codes = vec![0i16; wr.len()];
-    for b in 0..nb
-    {
+    for b in 0..nb {
         let mut y = [0.0f32; 8];
-        for (t, yt) in y.iter_mut().enumerate()
-        {
+        for (t, yt) in y.iter_mut().enumerate() {
             *yt = (wr[b * 8 + t] / scale).clamp(-qmax, qmax);
         }
         let e8 = nearest_e8(&y);
-        for t in 0..8
-        {
+        for t in 0..8 {
             // Bound to the ±qmax box and store 2× (E8 coords are in ½ℤ).
             let c = e8[t].clamp(-qmax, qmax);
             codes[b * 8 + t] = (c * 2.0).round() as i16;
@@ -2673,8 +2444,7 @@ mod quip_tests {
         w[40] = -2.5;
         let wr = random_hadamard_transform(&w, 7);
         let back = inverse_random_hadamard_transform(&wr, 7, w.len());
-        for (a, b) in back.iter().zip(&w)
-        {
+        for (a, b) in back.iter().zip(&w) {
             assert!((a - b).abs() < 1e-5, "RHT not orthogonal: {a} vs {b}");
         }
         let max_w = w.iter().fold(0.0f32, |a, &x| a.max(x.abs()));
@@ -2692,11 +2462,9 @@ mod quip_tests {
     fn nearest_e8_valid_and_beats_cubic() {
         let mut rng = PcgEngine::new(31);
         let (mut e8_err, mut cubic_err) = (0.0f32, 0.0f32);
-        for _ in 0..4000
-        {
+        for _ in 0..4000 {
             let mut x = [0.0f32; 8];
-            for v in x.iter_mut()
-            {
+            for v in x.iter_mut() {
                 *v = 2.5 * rng.float_signed();
             }
             let p = nearest_e8(&x);
@@ -2728,8 +2496,7 @@ mod quip_tests {
         let mut rng = PcgEngine::new(33);
         // Mostly small weights with sparse large outliers (the hard case for RTN).
         let mut w: Vec<f32> = (0..512).map(|_| 0.05 * rng.float_signed()).collect();
-        for i in (0..512).step_by(37)
-        {
+        for i in (0..512).step_by(37) {
             w[i] = 2.0 + rng.float_signed();
         }
         let res = quantize_quip(&w, 2, 5);

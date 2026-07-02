@@ -122,16 +122,13 @@ impl TransformerBlock {
         let mut map = HashMap::new();
         let p = &self.name;
         // Child modules (ln1, mha, ln2) already have globally-unique names
-        for (k, v) in self.ln1.state_dict()
-        {
+        for (k, v) in self.ln1.state_dict() {
             map.insert(k, v);
         }
-        for (k, v) in self.mha.state_dict()
-        {
+        for (k, v) in self.mha.state_dict() {
             map.insert(k, v);
         }
-        for (k, v) in self.ln2.state_dict()
-        {
+        for (k, v) in self.ln2.state_dict() {
             map.insert(k, v);
         }
         // FFN linears have no names, prefix manually
@@ -218,8 +215,7 @@ mod tests {
         let x_3d = Var3D::from_var(x, 1, 2, 8);
         let out = b.forward_3d(&tape, x_3d);
         let out_t = tape.value(out.as_var().idx());
-        for (i, &v) in out_t.data.iter().enumerate()
-        {
+        for (i, &v) in out_t.data.iter().enumerate() {
             assert!(
                 (v - x_data[i]).abs() < 1e-3,
                 "residual broken at {i}: input={} output={}",

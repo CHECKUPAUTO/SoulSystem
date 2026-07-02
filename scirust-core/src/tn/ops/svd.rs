@@ -65,14 +65,10 @@ pub fn truncated_svd(
 
     // Determine effective rank.
     let mut rank = 0usize;
-    for &sigma in s_full.iter()
-    {
-        if sigma >= abs_threshold && rank < max_rank.min(full_rank)
-        {
+    for &sigma in s_full.iter() {
+        if sigma >= abs_threshold && rank < max_rank.min(full_rank) {
             rank += 1;
-        }
-        else
-        {
+        } else {
             break;
         }
     }
@@ -80,10 +76,8 @@ pub fn truncated_svd(
 
     // Extract the first `rank` columns of U → (m, rank) row-major.
     let mut u = vec![0.0f32; m * rank];
-    for i in 0..m
-    {
-        for k in 0..rank
-        {
+    for i in 0..m {
+        for k in 0..rank {
             u[i * rank + k] = u_full[(i, k)];
         }
     }
@@ -93,10 +87,8 @@ pub fn truncated_svd(
 
     // V^T: first `rank` rows → (rank, n) row-major.
     let mut vt = vec![0.0f32; rank * n];
-    for k in 0..rank
-    {
-        for j in 0..n
-        {
+    for k in 0..rank {
+        for j in 0..n {
             vt[k * n + j] = vt_full[(k, j)];
         }
     }
@@ -119,13 +111,10 @@ pub fn reconstruct(svd: &TruncSvd) -> Vec<f32> {
     let r = svd.rank;
     let mut out = vec![0.0f32; m * n];
     // out[i, j] = sum_k U[i, k] * s[k] * Vt[k, j]
-    for i in 0..m
-    {
-        for j in 0..n
-        {
+    for i in 0..m {
+        for j in 0..n {
             let mut acc = 0.0f32;
-            for k in 0..r
-            {
+            for k in 0..r {
                 acc += svd.u[i * r + k] * svd.s[k] * svd.vt[k * n + j];
             }
             out[i * n + j] = acc;
@@ -158,8 +147,7 @@ mod tests {
         let svd = truncated_svd(&data, 3, 3, 10, 0.0);
         assert_eq!(svd.rank, 3);
         // All singular values = 1
-        for &s in &svd.s
-        {
+        for &s in &svd.s {
             assert!((s - 1.0).abs() < 1e-5);
         }
         let recon = reconstruct(&svd);
@@ -179,8 +167,7 @@ mod tests {
         let svd = truncated_svd(&data, 3, 2, 10, 0.0);
         // Mathematical rank is 1, second singular value should be ~0
         assert!(svd.s[0] > 0.0);
-        if svd.s.len() > 1
-        {
+        if svd.s.len() > 1 {
             assert!(svd.s[1].abs() < 1e-4);
         }
         let recon = reconstruct(&svd);

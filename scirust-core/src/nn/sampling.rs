@@ -44,10 +44,8 @@ impl SamplingConfig {
 fn argmax(logits: &[f32]) -> usize {
     let mut best = 0usize;
     let mut best_v = f32::NEG_INFINITY;
-    for (i, &v) in logits.iter().enumerate()
-    {
-        if v > best_v
-        {
+    for (i, &v) in logits.iter().enumerate() {
+        if v > best_v {
             best_v = v;
             best = i;
         }
@@ -58,13 +56,11 @@ fn argmax(logits: &[f32]) -> usize {
 /// Sample a token index from `logits` under `cfg`, using `rng` for the random
 /// draw. Deterministic in `(logits, cfg, rng-state)`.
 pub fn sample_token(logits: &[f32], cfg: &SamplingConfig, rng: &mut PcgEngine) -> usize {
-    if logits.is_empty()
-    {
+    if logits.is_empty() {
         return 0;
     }
     // Greedy shortcuts (no randomness consumed).
-    if cfg.temperature <= 0.0 || cfg.top_k == 1
-    {
+    if cfg.temperature <= 0.0 || cfg.top_k == 1 {
         return argmax(logits);
     }
 
@@ -83,33 +79,26 @@ pub fn sample_token(logits: &[f32], cfg: &SamplingConfig, rng: &mut PcgEngine) -
     });
 
     // top-k: zero out everything past the k-th most probable.
-    if cfg.top_k > 0 && cfg.top_k < order.len()
-    {
-        for &i in &order[cfg.top_k..]
-        {
+    if cfg.top_k > 0 && cfg.top_k < order.len() {
+        for &i in &order[cfg.top_k..] {
             probs[i] = 0.0;
         }
     }
 
     // top-p (nucleus): keep the smallest prefix whose cumulative mass ≥ top_p.
-    if cfg.top_p < 1.0
-    {
+    if cfg.top_p < 1.0 {
         let total: f32 = probs.iter().sum();
-        if total > 0.0
-        {
+        if total > 0.0 {
             let mut cum = 0.0f32;
             let mut cutoff = order.len();
-            for (rank, &i) in order.iter().enumerate()
-            {
+            for (rank, &i) in order.iter().enumerate() {
                 cum += probs[i] / total;
-                if cum >= cfg.top_p
-                {
+                if cum >= cfg.top_p {
                     cutoff = rank + 1;
                     break;
                 }
             }
-            for &i in &order[cutoff..]
-            {
+            for &i in &order[cutoff..] {
                 probs[i] = 0.0;
             }
         }
@@ -117,17 +106,14 @@ pub fn sample_token(logits: &[f32], cfg: &SamplingConfig, rng: &mut PcgEngine) -
 
     // Normalise and draw.
     let sum: f32 = probs.iter().sum();
-    if sum <= 0.0
-    {
+    if sum <= 0.0 {
         return argmax(logits);
     }
     let r = rng.float() * sum; // uniform in [0, sum)
     let mut cum = 0.0f32;
-    for (i, &p) in probs.iter().enumerate()
-    {
+    for (i, &p) in probs.iter().enumerate() {
         cum += p;
-        if r < cum
-        {
+        if r < cum {
             return i;
         }
     }
@@ -183,8 +169,7 @@ mod tests {
             top_p: 1.0,
         };
         let mut rng = PcgEngine::new(7);
-        for _ in 0..50
-        {
+        for _ in 0..50 {
             let t = sample_token(&logits, &cfg, &mut rng);
             assert!(t == 1 || t == 3, "top_k=2 produced out-of-set token {t}");
         }
@@ -200,8 +185,7 @@ mod tests {
             top_p: 0.5,
         };
         let mut rng = PcgEngine::new(3);
-        for _ in 0..30
-        {
+        for _ in 0..30 {
             assert_eq!(sample_token(&logits, &cfg, &mut rng), 1);
         }
     }

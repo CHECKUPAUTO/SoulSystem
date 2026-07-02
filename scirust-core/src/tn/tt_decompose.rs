@@ -70,8 +70,7 @@ pub fn tt_decompose_tensor(t: &TensorND, max_rank: usize, tolerance: f32) -> TTC
     let mut cores: Vec<TensorND> = Vec::with_capacity(d);
 
     // Edge case: single-mode tensor, just wrap as one core.
-    if d == 1
-    {
+    if d == 1 {
         let core = TensorND::new(t.data.clone(), vec![1, mode_dims[0], 1]);
         cores.push(core);
         return TTCores {
@@ -88,8 +87,7 @@ pub fn tt_decompose_tensor(t: &TensorND, max_rank: usize, tolerance: f32) -> TTC
     //   rest_k = ∏_{l>k} n_l.
     let mut rows = mode_dims[0]; // r_0 * n_0 = 1 * n_0
 
-    for k in 0..d - 1
-    {
+    for k in 0..d - 1 {
         let cols = work.len() / rows;
         debug_assert_eq!(rows * cols, work.len(), "shape consistency");
 
@@ -105,11 +103,9 @@ pub fn tt_decompose_tensor(t: &TensorND, max_rank: usize, tolerance: f32) -> TTC
 
         // Residual = diag(s) @ V^T, of shape (r_{k+1}, cols)
         let mut residual = vec![0.0f32; r_next * cols];
-        for kk in 0..r_next
-        {
+        for kk in 0..r_next {
             let s_kk = svd.s[kk];
-            for j in 0..cols
-            {
+            for j in 0..cols {
                 residual[kk * cols + j] = s_kk * svd.vt[kk * cols + j];
             }
         }
@@ -139,8 +135,7 @@ pub fn reconstruct_tensor(tt: &TTCores) -> Vec<f32> {
     let d = tt.cores.len();
     debug_assert!(d >= 1);
 
-    if d == 1
-    {
+    if d == 1 {
         return tt.cores[0].data.clone();
     }
 
@@ -150,8 +145,7 @@ pub fn reconstruct_tensor(tt: &TTCores) -> Vec<f32> {
     let mut acc_rows = tt.mode_dims[0];
     let mut acc_cols = tt.ranks[1];
 
-    for k in 1..d
-    {
+    for k in 1..d {
         let r_k = tt.ranks[k];
         let n_k = tt.mode_dims[k];
         let r_next = tt.ranks[k + 1];
@@ -160,15 +154,11 @@ pub fn reconstruct_tensor(tt: &TTCores) -> Vec<f32> {
 
         // acc: (acc_rows, r_k), core viewed as (r_k, n_k * r_{k+1}) → matmul.
         let mut new_acc = vec![0.0f32; acc_rows * n_k * r_next];
-        for i in 0..acc_rows
-        {
-            for nk in 0..n_k
-            {
-                for rn in 0..r_next
-                {
+        for i in 0..acc_rows {
+            for nk in 0..n_k {
+                for rn in 0..r_next {
                     let mut sum = 0.0f32;
-                    for rk in 0..r_k
-                    {
+                    for rk in 0..r_k {
                         let acc_v = acc[i * r_k + rk];
                         let core_v = core[rk * (n_k * r_next) + nk * r_next + rn];
                         sum += acc_v * core_v;
@@ -215,16 +205,14 @@ pub(crate) fn interleave_weight(w: &[f32], in_dims: &[usize], out_dims: &[usize]
     );
 
     let mut target_shape = Vec::with_capacity(2 * d);
-    for k in 0..d
-    {
+    for k in 0..d {
         target_shape.push(in_dims[k]);
         target_shape.push(out_dims[k]);
     }
 
     // Precompute strides for the target row-major layout.
     let mut target_strides = vec![1usize; 2 * d];
-    for k in (0..2 * d - 1).rev()
-    {
+    for k in (0..2 * d - 1).rev() {
         target_strides[k] = target_strides[k + 1] * target_shape[k + 1];
     }
 
@@ -232,12 +220,10 @@ pub(crate) fn interleave_weight(w: &[f32], in_dims: &[usize], out_dims: &[usize]
     // then map to source flat index (i * out + j).
     let mut t = vec![0.0f32; total];
     #[allow(clippy::needless_range_loop)]
-    for target_flat in 0..total
-    {
+    for target_flat in 0..total {
         let mut idx = vec![0usize; 2 * d];
         let mut rem = target_flat;
-        for k in 0..2 * d
-        {
+        for k in 0..2 * d {
             idx[k] = rem / target_strides[k];
             rem %= target_strides[k];
         }
@@ -245,8 +231,7 @@ pub(crate) fn interleave_weight(w: &[f32], in_dims: &[usize], out_dims: &[usize]
         // Decode i from (i_0, i_1, ..., i_{d-1}) = (idx[0], idx[2], ..., idx[2d-2])
         let mut i = 0usize;
         let mut stride = in_features;
-        for k in 0..d
-        {
+        for k in 0..d {
             stride /= in_dims[k];
             i += idx[2 * k] * stride;
         }
@@ -254,8 +239,7 @@ pub(crate) fn interleave_weight(w: &[f32], in_dims: &[usize], out_dims: &[usize]
         // Decode j from (j_0, j_1, ..., j_{d-1}) = (idx[1], idx[3], ..., idx[2d-1])
         let mut j = 0usize;
         let mut stride = out_features;
-        for k in 0..d
-        {
+        for k in 0..d {
             stride /= out_dims[k];
             j += idx[2 * k + 1] * stride;
         }
@@ -277,39 +261,33 @@ fn deinterleave_weight(t: &[f32], in_dims: &[usize], out_dims: &[usize]) -> Vec<
     assert_eq!(t.len(), total, "deinterleave_weight: tensor size mismatch");
 
     let mut source_shape = Vec::with_capacity(2 * d);
-    for k in 0..d
-    {
+    for k in 0..d {
         source_shape.push(in_dims[k]);
         source_shape.push(out_dims[k]);
     }
     let mut source_strides = vec![1usize; 2 * d];
-    for k in (0..2 * d - 1).rev()
-    {
+    for k in (0..2 * d - 1).rev() {
         source_strides[k] = source_strides[k + 1] * source_shape[k + 1];
     }
 
     let mut w = vec![0.0f32; total];
     #[allow(clippy::needless_range_loop)]
-    for source_flat in 0..total
-    {
+    for source_flat in 0..total {
         let mut idx = vec![0usize; 2 * d];
         let mut rem = source_flat;
-        for k in 0..2 * d
-        {
+        for k in 0..2 * d {
             idx[k] = rem / source_strides[k];
             rem %= source_strides[k];
         }
         let mut i = 0usize;
         let mut stride = in_features;
-        for k in 0..d
-        {
+        for k in 0..d {
             stride /= in_dims[k];
             i += idx[2 * k] * stride;
         }
         let mut j = 0usize;
         let mut stride = out_features;
-        for k in 0..d
-        {
+        for k in 0..d {
             stride /= out_dims[k];
             j += idx[2 * k + 1] * stride;
         }
@@ -423,12 +401,9 @@ mod tests {
         let v: Vec<f32> = vec![1.0, -1.0, 0.5, 2.0];
         let w: Vec<f32> = vec![0.5, 1.5];
         let mut data = vec![0.0f32; 3 * 4 * 2];
-        for i in 0..3
-        {
-            for j in 0..4
-            {
-                for k in 0..2
-                {
+        for i in 0..3 {
+            for j in 0..4 {
+                for k in 0..2 {
                     data[(i * 4 + j) * 2 + k] = u[i] * v[j] * w[k];
                 }
             }
@@ -479,10 +454,8 @@ mod tests {
         let u: Vec<f32> = (0..n_in).map(|i| (i as f32).sin()).collect();
         let v: Vec<f32> = (0..n_out).map(|j| (j as f32).cos()).collect();
         let mut w = vec![0.0f32; n_in * n_out];
-        for i in 0..n_in
-        {
-            for j in 0..n_out
-            {
+        for i in 0..n_in {
+            for j in 0..n_out {
                 w[i * n_out + j] = u[i] * v[j] + 0.01 * ((i + j) as f32).sin();
             }
         }

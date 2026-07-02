@@ -26,19 +26,15 @@
 pub fn conformal_quantile(scores: &[f32], alpha: f32) -> f32 {
     assert!(alpha > 0.0 && alpha < 1.0, "alpha must be in (0,1)");
     let n = scores.len();
-    if n == 0
-    {
+    if n == 0 {
         return f32::INFINITY;
     }
     let mut s = scores.to_vec();
     s.sort_by(f32::total_cmp);
     let k = (((n + 1) as f32) * (1.0 - alpha)).ceil() as usize; // 1-indexed rank
-    if (1..=n).contains(&k)
-    {
+    if (1..=n).contains(&k) {
         s[k - 1]
-    }
-    else
-    {
+    } else {
         f32::INFINITY
     }
 }
@@ -197,8 +193,7 @@ fn aps_cumulative(probs: &[f32], k_reg: usize, lam: f32) -> Vec<f32> {
     order.sort_by(|&a, &b| probs[b].total_cmp(&probs[a]).then(a.cmp(&b)));
     let mut s = vec![0.0f32; n];
     let mut cum = 0.0f32;
-    for (pos, &c) in order.iter().enumerate()
-    {
+    for (pos, &c) in order.iter().enumerate() {
         cum += probs[c];
         let penalty = lam * ((pos as f32 + 1.0) - k_reg as f32).max(0.0);
         s[c] = cum + penalty;
@@ -315,16 +310,11 @@ impl AdaptiveConformal {
     /// `αₜ`. `αₜ ≤ 0` ⇒ the interval is everything (always covers); `αₜ ≥ 1` ⇒
     /// empty (never covers).
     pub fn step(&mut self, scores: &[f32], score: f32) -> bool {
-        let q = if self.alpha_t <= 0.0
-        {
+        let q = if self.alpha_t <= 0.0 {
             f32::INFINITY
-        }
-        else if self.alpha_t >= 1.0
-        {
+        } else if self.alpha_t >= 1.0 {
             f32::NEG_INFINITY
-        }
-        else
-        {
+        } else {
             conformal_quantile(scores, self.alpha_t)
         };
         let covered = score <= q;
@@ -349,8 +339,7 @@ impl AdaptiveConformal {
 /// `mean + √(ln(1/δ) / (2n))`. The bound holds with probability `≥ 1 − delta`.
 pub fn hoeffding_ucb(mean: f32, n: usize, delta: f32) -> f32 {
     assert!(delta > 0.0 && delta < 1.0, "delta must be in (0,1)");
-    if n == 0
-    {
+    if n == 0 {
         return f32::INFINITY;
     }
     mean + ((1.0 / delta).ln() / (2.0 * n as f32)).sqrt()
@@ -371,14 +360,10 @@ pub fn rcps_select(risks: &[f32], n: usize, alpha: f32, delta: f32) -> Option<us
     // whose UCB — and every UCB to its right — is ≤ alpha. Stop at the first
     // violation (rigorous even if the empirical risk isn't perfectly monotone).
     let mut hat = None;
-    for i in (0..risks.len()).rev()
-    {
-        if hoeffding_ucb(risks[i], n, delta) <= alpha
-        {
+    for i in (0..risks.len()).rev() {
+        if hoeffding_ucb(risks[i], n, delta) <= alpha {
             hat = Some(i);
-        }
-        else
-        {
+        } else {
             break;
         }
     }
@@ -409,8 +394,7 @@ pub fn hoeffding_pvalue(emp_risk: f32, n: usize, alpha: f32) -> f32 {
 pub fn learn_then_test(emp_risks: &[f32], n: usize, alpha: f32, delta: f32) -> Vec<usize> {
     assert!(delta > 0.0 && delta < 1.0, "delta must be in (0,1)");
     let m = emp_risks.len();
-    if m == 0
-    {
+    if m == 0 {
         return Vec::new();
     }
     let threshold = delta / m as f32;
@@ -490,8 +474,7 @@ mod tests {
 
         let mut cal_probs = Vec::new();
         let mut cal_labels = Vec::new();
-        for _ in 0..2000
-        {
+        for _ in 0..2000 {
             let (p, y) = make(&mut rng);
             cal_probs.push(p);
             cal_labels.push(y);
@@ -553,8 +536,7 @@ mod tests {
             let q_hi = |x: f32| c * sigma(x);
 
             let (mut clo, mut chi, mut cy) = (Vec::new(), Vec::new(), Vec::new());
-            for _ in 0..3000
-            {
+            for _ in 0..3000 {
                 let x = rng.float();
                 let y = sigma(x) * noise(&mut rng);
                 clo.push(q_lo(x));
@@ -566,23 +548,18 @@ mod tests {
             let n_test = 8000usize;
             let (mut covered, mut wlow, mut nlow, mut whigh, mut nhigh) =
                 (0usize, 0.0f32, 0usize, 0.0f32, 0usize);
-            for _ in 0..n_test
-            {
+            for _ in 0..n_test {
                 let x = rng.float();
                 let y = sigma(x) * noise(&mut rng);
                 let (lo, hi) = cqr.interval(q_lo(x), q_hi(x));
-                if y >= lo && y <= hi
-                {
+                if y >= lo && y <= hi {
                     covered += 1;
                 }
                 let w = hi - lo;
-                if x < 0.2
-                {
+                if x < 0.2 {
                     wlow += w;
                     nlow += 1;
-                }
-                else if x > 0.8
-                {
+                } else if x > 0.8 {
                     whigh += w;
                     nhigh += 1;
                 }
@@ -652,8 +629,7 @@ mod tests {
             let mut rng = PcgEngine::new(11);
             let classes = 6usize;
             let (mut cp, mut cl) = (Vec::new(), Vec::new());
-            for _ in 0..3000
-            {
+            for _ in 0..3000 {
                 let (p, y, _) = make_clf_example(&mut rng, classes);
                 cp.push(p);
                 cl.push(y);
@@ -662,21 +638,16 @@ mod tests {
             let n_test = 6000usize;
             let (mut cov, mut esz, mut en, mut hsz, mut hn) =
                 (0usize, 0usize, 0usize, 0usize, 0usize);
-            for _ in 0..n_test
-            {
+            for _ in 0..n_test {
                 let (p, y, easy) = make_clf_example(&mut rng, classes);
-                if aps.covers(&p, y)
-                {
+                if aps.covers(&p, y) {
                     cov += 1;
                 }
                 let sz = aps.predict_set(&p).len();
-                if easy
-                {
+                if easy {
                     esz += sz;
                     en += 1;
-                }
-                else
-                {
+                } else {
                     hsz += sz;
                     hn += 1;
                 }
@@ -715,8 +686,7 @@ mod tests {
         };
         let mut rng = PcgEngine::new(5);
         let (mut cp, mut cl) = (Vec::new(), Vec::new());
-        for _ in 0..3000
-        {
+        for _ in 0..3000 {
             let (p, y) = draw(&mut rng);
             cp.push(p);
             cl.push(y);
@@ -728,8 +698,7 @@ mod tests {
         let n_test = 6000usize;
         let mut tp = Vec::new();
         let mut tl = Vec::new();
-        for _ in 0..n_test
-        {
+        for _ in 0..n_test {
             let (p, y) = draw(&mut rng);
             tp.push(p);
             tl.push(y);
@@ -737,10 +706,8 @@ mod tests {
         let eval = |m: &AdaptivePredictionSets| -> (f32, f32) {
             let mut cov = 0usize;
             let mut size = 0usize;
-            for (p, &y) in tp.iter().zip(&tl)
-            {
-                if m.covers(p, y)
-                {
+            for (p, &y) in tp.iter().zip(&tl) {
+                if m.covers(p, y) {
                     cov += 1;
                 }
                 size += m.predict_set(p).len();
@@ -797,16 +764,13 @@ mod tests {
             let mut aci = AdaptiveConformal::new(target, 0.05);
             let n = 4000usize;
             let (mut acov, mut scov) = (0usize, 0usize);
-            for t in 0..n
-            {
+            for t in 0..n {
                 let scale = if t < n / 2 { 1.0 } else { 3.0 }; // variance shift halfway
                 let s = noise(&mut rng, scale);
-                if aci.step(&window, s)
-                {
+                if aci.step(&window, s) {
                     acov += 1;
                 }
-                if s <= q_static
-                {
+                if s <= q_static {
                     scov += 1;
                 }
                 window.remove(0);
@@ -894,20 +858,17 @@ mod tests {
         let (m, n, alpha, delta) = (20usize, 500usize, 0.20f32, 0.10f32);
         let trials = 2000usize;
         let (mut ltt_fail, mut naive_fail) = (0usize, 0usize);
-        for _ in 0..trials
-        {
+        for _ in 0..trials {
             // Each candidate's empirical risk: mean of n Bernoulli(α) losses.
             let risks: Vec<f32> = (0..m)
                 .map(|_| (0..n).filter(|_| rng.float() < alpha).count() as f32 / n as f32)
                 .collect();
             // LtT (Bonferroni): a false rejection iff *any* candidate is selected.
-            if !learn_then_test(&risks, n, alpha, delta).is_empty()
-            {
+            if !learn_then_test(&risks, n, alpha, delta).is_empty() {
                 ltt_fail += 1;
             }
             // Naive: select any candidate whose empirical risk is ≤ α (no test).
-            if risks.iter().any(|&r| r <= alpha)
-            {
+            if risks.iter().any(|&r| r <= alpha) {
                 naive_fail += 1;
             }
         }

@@ -66,9 +66,15 @@ pub enum FineTuneStatus {
     /// Exporting training data to disk.
     Exporting { progress: f64 },
     /// Training in progress.
-    Training { current_epoch: usize, total_epochs: usize },
+    Training {
+        current_epoch: usize,
+        total_epochs: usize,
+    },
     /// Fine-tuning completed successfully.
-    Completed { model_name: String, quality_improvement: f64 },
+    Completed {
+        model_name: String,
+        quality_improvement: f64,
+    },
     /// Fine-tuning failed.
     Failed { reason: String },
     /// Waiting for manual trigger.
@@ -119,24 +125,21 @@ impl FineTuneLoop {
 
         if count >= self.config.min_trajectories {
             let status = self.status.read().await;
-            match &*status {
-                FineTuneStatus::Idle => {
-                    drop(status);
-                    tracing::info!(
-                        "Fine-tune threshold reached: {}/{} quality pairs",
-                        count,
-                        self.config.min_trajectories
-                    );
-                    if self.config.auto_trigger {
-                        // Auto-trigger would be done externally via trigger()
-                    } else {
-                        let mut s = self.status.write().await;
-                        *s = FineTuneStatus::AwaitingTrigger {
-                            quality_count: count,
-                        };
-                    }
+            if *status == FineTuneStatus::Idle {
+                drop(status);
+                tracing::info!(
+                    "Fine-tune threshold reached: {}/{} quality pairs",
+                    count,
+                    self.config.min_trajectories
+                );
+                if self.config.auto_trigger {
+                    // Auto-trigger would be done externally via trigger()
+                } else {
+                    let mut s = self.status.write().await;
+                    *s = FineTuneStatus::AwaitingTrigger {
+                        quality_count: count,
+                    };
                 }
-                _ => {}
             }
         }
     }
@@ -169,8 +172,8 @@ impl FineTuneLoop {
 
         let mut content = String::new();
         for pair in &pairs {
-            let json = serde_json::to_string(pair)
-                .map_err(|e| format!("Serialization failed: {}", e))?;
+            let json =
+                serde_json::to_string(pair).map_err(|e| format!("Serialization failed: {}", e))?;
             content.push_str(&json);
             content.push('\n');
         }
@@ -182,11 +185,7 @@ impl FineTuneLoop {
         // Update checkpoint
         self.checkpoint.write().await.total_processed += pairs.len();
 
-        tracing::info!(
-            "Exported {} DPO pairs to {}",
-            pairs.len(),
-            path.display()
-        );
+        tracing::info!("Exported {} DPO pairs to {}", pairs.len(), path.display());
 
         Ok(path)
     }
@@ -208,10 +207,7 @@ PARAMETER top_p 0.9
             data_path.display(),
         );
 
-        let modelfile_path = self
-            .config
-            .output_dir
-            .join("Modelfile.finetune");
+        let modelfile_path = self.config.output_dir.join("Modelfile.finetune");
         tokio::fs::write(&modelfile_path, &modelfile_content)
             .await
             .map_err(|e| format!("Failed to write Modelfile: {}", e))?;

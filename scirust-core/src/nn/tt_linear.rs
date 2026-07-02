@@ -118,8 +118,7 @@ impl TTLinear {
         assert_eq!(ranks[0], 1, "ranks[0] must be 1");
         assert_eq!(ranks[d], 1, "ranks[d] must be 1");
         assert_eq!(cores.len(), d, "need {d} cores");
-        for k in 0..d
-        {
+        for k in 0..d {
             let expected_rows = ranks[k] * in_dims[k] * out_dims[k];
             let expected_cols = ranks[k + 1];
             assert_eq!(
@@ -166,8 +165,7 @@ impl Module for TTLinear {
         self.register_params(tape);
 
         let mut core_vars: Vec<Var<'t>> = Vec::new();
-        for &idx in &self.core_indices
-        {
+        for &idx in &self.core_indices {
             core_vars.push(Var::new(tape, idx));
         }
         let b_var = self.bias_idx.map(|idx| Var::new(tape, idx));
@@ -183,8 +181,7 @@ impl Module for TTLinear {
 
     fn parameter_indices(&self) -> Vec<usize> {
         let mut idx = self.core_indices.clone();
-        if let Some(b) = self.bias_idx
-        {
+        if let Some(b) = self.bias_idx {
             idx.push(b);
         }
         idx
@@ -193,15 +190,12 @@ impl Module for TTLinear {
     fn sync(&mut self, tape: &Tape) {
         // Pull updated values back from the tape into our local cores so the
         // next forward sees the post-optimizer-step parameters.
-        if self.core_indices.len() == self.cores.len()
-        {
-            for (k, &idx) in self.core_indices.iter().enumerate()
-            {
+        if self.core_indices.len() == self.cores.len() {
+            for (k, &idx) in self.core_indices.iter().enumerate() {
                 self.cores[k] = tape.value(idx);
             }
         }
-        if let (Some(b_idx), Some(_)) = (self.bias_idx, &self.bias)
-        {
+        if let (Some(b_idx), Some(_)) = (self.bias_idx, &self.bias) {
             self.bias = Some(tape.value(b_idx));
         }
     }
@@ -329,10 +323,8 @@ mod tests {
             &mut rng,
         );
         // Fill weight with a non-trivial pattern.
-        for i in 0..6
-        {
-            for j in 0..4
-            {
+        for i in 0..6 {
+            for j in 0..4 {
                 linear.weight.data[i * 4 + j] = ((i * 4 + j) as f32).sin();
             }
         }
@@ -352,8 +344,7 @@ mod tests {
             &crate::nn::init::Zeros,
             &mut rng,
         );
-        for i in 0..(8 * 16)
-        {
+        for i in 0..(8 * 16) {
             linear.weight.data[i] = ((i as f32) * 0.13).cos();
         }
         let tt = tt_decompose_auto(&linear, 2, 100, 0.0);
@@ -423,10 +414,8 @@ mod tests {
             &crate::nn::init::Zeros,
             &mut crate::nn::rng::PcgEngine::new(42),
         );
-        for i in 0..outer
-        {
-            for j in 0..inner
-            {
+        for i in 0..outer {
+            for j in 0..inner {
                 linear.weight.data[i * inner + j] = ((i * inner + j) as f32).sin();
             }
         }
@@ -435,8 +424,7 @@ mod tests {
         let tape = Tape::new();
         let batch = 4;
 
-        for batch_idx in 0..5
-        {
+        for batch_idx in 0..5 {
             let input_data: Vec<f32> = (0..batch * outer)
                 .map(|k| ((k + batch_idx * 37) as f32).cos())
                 .collect();
@@ -465,8 +453,7 @@ mod tests {
             &crate::nn::init::Zeros,
             &mut crate::nn::rng::PcgEngine::new(42),
         );
-        for i in 0..(6 * 4)
-        {
+        for i in 0..(6 * 4) {
             linear.weight.data[i] = ((i as f32) * 0.13).cos();
         }
         let mut tt = tt_decompose(&linear, &[2, 3], &[2, 2], 100, 0.0);
@@ -481,8 +468,7 @@ mod tests {
         let loss = y.sum();
         tape.backward(loss.idx());
 
-        for (i, idx) in tt.parameter_indices().iter().enumerate()
-        {
+        for (i, idx) in tt.parameter_indices().iter().enumerate() {
             let grad = tape.grad(*idx);
             assert!(
                 grad.data.iter().any(|&g| g.abs() > 1e-6),

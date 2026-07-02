@@ -42,8 +42,7 @@ impl GCN {
         rng: &mut PcgEngine,
     ) -> Self {
         let mut layers = Vec::new();
-        for i in 0..dims.len() - 1
-        {
+        for i in 0..dims.len() - 1 {
             layers.push(GCNLayer::new(dims[i], dims[i + 1], w_init, b_init, rng));
         }
         Self { layers }
@@ -51,8 +50,7 @@ impl GCN {
 
     pub fn forward<'t>(&mut self, tape: &'t Tape, x: Var<'t>, adj: Var<'t>) -> Var<'t> {
         let mut h = x;
-        for layer in &mut self.layers
-        {
+        for layer in &mut self.layers {
             h = layer.forward_with_adj(tape, h, adj);
         }
         h

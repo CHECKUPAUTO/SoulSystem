@@ -143,11 +143,7 @@ impl VectorConsolidator {
 
     /// Cluster memories using cosine similarity with the given threshold.
     /// Returns clusters of memory indices.
-    pub fn cluster_memories(
-        &self,
-        memories: &[VectorMemory],
-        threshold: f32,
-    ) -> Vec<Vec<usize>> {
+    pub fn cluster_memories(&self, memories: &[VectorMemory], threshold: f32) -> Vec<Vec<usize>> {
         if memories.is_empty() {
             return Vec::new();
         }
@@ -200,7 +196,7 @@ impl VectorConsolidator {
         // Limit max clusters
         if clusters.len() > self.config.max_clusters {
             // Sort by cluster size (largest first) and take top K
-            clusters.sort_by(|a, b| b.len().cmp(&a.len()));
+            clusters.sort_by_key(|b| std::cmp::Reverse(b.len()));
             clusters.truncate(self.config.max_clusters);
         }
 
@@ -213,10 +209,7 @@ impl VectorConsolidator {
         let mut clusters = Vec::new();
 
         for (cluster_id, indices) in cluster_indices.iter().enumerate() {
-            let members: Vec<String> = indices
-                .iter()
-                .map(|&i| self.buffer[i].id.clone())
-                .collect();
+            let members: Vec<String> = indices.iter().map(|&i| self.buffer[i].id.clone()).collect();
 
             let embeddings: Vec<&[f32]> = indices
                 .iter()
@@ -244,7 +237,12 @@ impl VectorConsolidator {
             };
 
             // Detect dominant theme from member texts
-            let theme = self.detect_theme(&indices.iter().map(|&i| &self.buffer[i].text).collect::<Vec<_>>());
+            let theme = self.detect_theme(
+                &indices
+                    .iter()
+                    .map(|&i| &self.buffer[i].text)
+                    .collect::<Vec<_>>(),
+            );
 
             clusters.push(MemoryCluster {
                 id: format!("cluster_{}", cluster_id),
@@ -267,7 +265,11 @@ impl VectorConsolidator {
         }
 
         // Count word frequency across all texts
-        let all_text: String = texts.iter().map(|t| t.as_str()).collect::<Vec<_>>().join(" ");
+        let all_text: String = texts
+            .iter()
+            .map(|t| t.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
         let words: Vec<&str> = all_text
             .split_whitespace()
             .filter(|w| w.len() > 3)
@@ -279,7 +281,9 @@ impl VectorConsolidator {
         }
 
         // Find most common meaningful word
-        let stopwords = ["this", "that", "with", "from", "have", "been", "were", "they", "will"];
+        let stopwords = [
+            "this", "that", "with", "from", "have", "been", "were", "they", "will",
+        ];
 
         let mut top_word: Option<(&str, usize)> = None;
         for (word, count) in freq.iter() {
@@ -287,7 +291,7 @@ impl VectorConsolidator {
             if stopwords.iter().any(|s| s == &lower) {
                 continue;
             }
-            if top_word.map_or(true, |(_, c)| *count > c) {
+            if top_word.is_none_or(|(_, c)| *count > c) {
                 top_word = Some((word, *count));
             }
         }
@@ -323,10 +327,8 @@ impl VectorConsolidator {
             .count();
 
         // Decay original episodic memories in consolidated clusters
-        let consolidated_ids: std::collections::HashSet<String> = clusters
-            .iter()
-            .flat_map(|c| c.members.clone())
-            .collect();
+        let consolidated_ids: std::collections::HashSet<String> =
+            clusters.iter().flat_map(|c| c.members.clone()).collect();
         self.buffer.retain(|m| !consolidated_ids.contains(&m.id));
 
         ConsolidationResult {
@@ -375,8 +377,8 @@ mod tests {
 
     #[test]
     fn centroid_computation() {
-        let a = vec![1.0, 1.0];
-        let b = vec![3.0, 3.0];
+        let a = [1.0, 1.0];
+        let b = [3.0, 3.0];
         let centroid = VectorConsolidator::centroid(&[&a[..], &b[..]], 2);
         assert!((centroid[0] - 2.0).abs() < 0.001);
         assert!((centroid[1] - 2.0).abs() < 0.001);
@@ -415,7 +417,7 @@ mod tests {
         ];
 
         let clusters = consolidator.cluster_memories(&memories, 0.7);
-        assert!(clusters.len() >= 1);
+        assert!(!clusters.is_empty());
         // m1 and m2 should be in same cluster (similar)
         let has_m1_m2 = clusters.iter().any(|c| c.contains(&0) && c.contains(&1));
         assert!(has_m1_m2);

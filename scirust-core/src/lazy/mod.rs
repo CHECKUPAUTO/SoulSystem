@@ -58,8 +58,7 @@ impl LazyGraph {
     }
 
     pub fn invalidate(&self) {
-        for c in self.cache.borrow_mut().iter_mut()
-        {
+        for c in self.cache.borrow_mut().iter_mut() {
             *c = None;
         }
     }
@@ -69,63 +68,51 @@ impl LazyGraph {
     }
 
     pub fn eval(&self, id: LazyId) -> Tensor {
-        if let Some(t) = &self.cache.borrow()[id]
-        {
+        if let Some(t) = &self.cache.borrow()[id] {
             return t.clone();
         }
         let op = self.nodes.borrow()[id].op.clone();
-        let result = match op
-        {
+        let result = match op {
             LazyOp::Const(t) => t,
-            LazyOp::Feed { name, .. } =>
-            {
+            LazyOp::Feed { name, .. } => {
                 panic!("eval implicite ne supporte pas les feeds — utilise compile() pour '{name}'")
-            },
+            }
             LazyOp::Add(a, b) => elementwise(self, a, b, |x, y| x + y),
             LazyOp::Sub(a, b) => elementwise(self, a, b, |x, y| x - y),
             LazyOp::Mul(a, b) => elementwise(self, a, b, |x, y| x * y),
-            LazyOp::Scale(a, s) =>
-            {
+            LazyOp::Scale(a, s) => {
                 let mut t = self.eval(a);
-                for x in t.data.iter_mut()
-                {
+                for x in t.data.iter_mut() {
                     *x *= s;
                 }
                 t
-            },
-            LazyOp::Relu(a) =>
-            {
+            }
+            LazyOp::Relu(a) => {
                 let mut t = self.eval(a);
-                for x in t.data.iter_mut()
-                {
+                for x in t.data.iter_mut() {
                     *x = x.max(0.0);
                 }
                 t
-            },
-            LazyOp::Exp(a) =>
-            {
+            }
+            LazyOp::Exp(a) => {
                 let mut t = self.eval(a);
-                for x in t.data.iter_mut()
-                {
+                for x in t.data.iter_mut() {
                     *x = x.exp();
                 }
                 t
-            },
-            LazyOp::Log(a) =>
-            {
+            }
+            LazyOp::Log(a) => {
                 let mut t = self.eval(a);
-                for x in t.data.iter_mut()
-                {
+                for x in t.data.iter_mut() {
                     *x = x.max(1e-12).ln();
                 }
                 t
-            },
-            LazyOp::MatMul(a, b) =>
-            {
+            }
+            LazyOp::MatMul(a, b) => {
                 let ta = self.eval(a);
                 let tb = self.eval(b);
                 naive_matmul(&ta, &tb)
-            },
+            }
         };
         self.cache.borrow_mut()[id] = Some(result.clone());
         result
@@ -137,8 +124,7 @@ fn elementwise<F: Fn(f32, f32) -> f32>(g: &LazyGraph, a: LazyId, b: LazyId, f: F
     let tb = g.eval(b);
     assert_eq!(ta.shape(), tb.shape());
     let mut out = ta.clone();
-    for i in 0..out.data.len()
-    {
+    for i in 0..out.data.len() {
         out.data[i] = f(ta.data[i], tb.data[i]);
     }
     out
@@ -149,13 +135,10 @@ fn naive_matmul(a: &Tensor, b: &Tensor) -> Tensor {
     let (k2, n) = b.shape();
     assert_eq!(k, k2);
     let mut c = Tensor::zeros(m, n);
-    for i in 0..m
-    {
-        for j in 0..n
-        {
+    for i in 0..m {
+        for j in 0..n {
             let mut acc = 0.0f32;
-            for p in 0..k
-            {
+            for p in 0..k {
                 acc += a.data[i * k + p] * b.data[p * n + j];
             }
             c.data[i * n + j] = acc;

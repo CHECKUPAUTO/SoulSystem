@@ -111,8 +111,7 @@ pub fn solve_harmonic(hidden: usize, steps: usize, lr: f32, seed: u64) -> PinnSo
     let inv_h2 = 1.0 / (h * h);
 
     let (mut first, mut last) = (f32::NAN, f32::NAN);
-    for step in 0..steps
-    {
+    for step in 0..steps {
         let tape = NdTape::new();
         let xv = tape.input(TensorND::new(batch.clone(), vec![m, 1]));
         let u = net.forward(&tape, xv); // (m, 1)
@@ -137,8 +136,7 @@ pub fn solve_harmonic(hidden: usize, steps: usize, lr: f32, seed: u64) -> PinnSo
 
         let loss = physics.add(bc_loss);
         let lval = tape.value(loss).data[0];
-        if step == 0
-        {
+        if step == 0 {
             first = lval;
         }
         last = lval;
@@ -148,12 +146,10 @@ pub fn solve_harmonic(hidden: usize, steps: usize, lr: f32, seed: u64) -> PinnSo
 
     // Verify against the analytic solution sin(x) on a uniform grid.
     let mut max_error = 0.0f32;
-    for i in 0..=20
-    {
+    for i in 0..=20 {
         let x = l * i as f32 / 20.0;
         let err = (net.eval(x) - x.sin()).abs();
-        if err > max_error
-        {
+        if err > max_error {
             max_error = err;
         }
     }

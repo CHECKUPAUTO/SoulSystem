@@ -15,17 +15,14 @@ impl GradientAggregator {
     /// `grads` is a slice of per-worker gradient vectors (each of length N).
     /// Returns a single vector of length N where `result[j] = sum_i grads[i][j]`.
     pub fn reduce_sum(grads: &[Vec<f64>]) -> Vec<f64> {
-        if grads.is_empty()
-        {
+        if grads.is_empty() {
             return Vec::new();
         }
         let n = grads[0].len();
         let mut result = vec![0.0; n];
-        for worker_grads in grads
-        {
+        for worker_grads in grads {
             debug_assert_eq!(worker_grads.len(), n, "reduce_sum: length mismatch");
-            for (j, &v) in worker_grads.iter().enumerate()
-            {
+            for (j, &v) in worker_grads.iter().enumerate() {
                 result[j] += v;
             }
         }
@@ -37,14 +34,12 @@ impl GradientAggregator {
     /// `grads` is a slice of per-worker gradient vectors (each of length N).
     /// Returns a single vector of length N where `result[j] = mean_i grads[i][j]`.
     pub fn reduce_mean(grads: &[Vec<f64>]) -> Vec<f64> {
-        if grads.is_empty()
-        {
+        if grads.is_empty() {
             return Vec::new();
         }
         let n_workers = grads.len() as f64;
         let mut result = Self::reduce_sum(grads);
-        for v in &mut result
-        {
+        for v in &mut result {
             *v /= n_workers;
         }
         result
@@ -86,8 +81,7 @@ impl DataParallelTrainer {
         F: Fn(&ParallelTape, usize) -> Vec<f64>,
     {
         let mut all_grads: Vec<Vec<f64>> = Vec::with_capacity(self.n_workers);
-        for i in 0..self.n_workers
-        {
+        for i in 0..self.n_workers {
             let grads = batch_fn(&self.tapes[i], i);
             all_grads.push(grads);
         }
@@ -113,8 +107,7 @@ impl DataParallelTrainer {
         F: Fn(&ParallelTape, usize) -> Vec<f64> + Sync,
     {
         let n = self.n_workers;
-        if n == 0
-        {
+        if n == 0 {
             return Vec::new();
         }
         let n_threads = n_threads.clamp(1, n);
@@ -122,14 +115,11 @@ impl DataParallelTrainer {
         let next = AtomicUsize::new(0);
 
         std::thread::scope(|scope| {
-            for _ in 0..n_threads
-            {
+            for _ in 0..n_threads {
                 scope.spawn(|| {
-                    loop
-                    {
+                    loop {
                         let i = next.fetch_add(1, Ordering::Relaxed);
-                        if i >= n
-                        {
+                        if i >= n {
                             break;
                         }
                         let g = batch_fn(&self.tapes[i], i);
@@ -345,12 +335,9 @@ mod tests {
         // Mean: [3,3]
         let mut trainer = DataParallelTrainer::new(2);
         let avg_grads = trainer.train_batch(|tape, worker| {
-            let x_vals: Vec<f32> = if worker == 0
-            {
+            let x_vals: Vec<f32> = if worker == 0 {
                 vec![1.0, 2.0]
-            }
-            else
-            {
+            } else {
                 vec![4.0, 5.0]
             };
             let x = tape.alloc_node(Node {
@@ -398,8 +385,7 @@ mod tests {
     #[test]
     fn train_batch_threaded_is_thread_count_invariant() {
         let bf = |_tape: &ParallelTape, w: usize| -> Vec<f64> {
-            let e0 = match w % 4
-            {
+            let e0 = match w % 4 {
                 0 => 1e16,
                 1 => 1.0,
                 2 => -1e16,
@@ -463,8 +449,7 @@ mod tests {
             let mut w: Vec<f32> = (0..in_dim * out_dim)
                 .map(|i| (i as f32 * 0.1).sin())
                 .collect();
-            for _ in 0..steps
-            {
+            for _ in 0..steps {
                 let trainer = DataParallelTrainer::new(n_workers);
                 let w_ref = &w;
                 let grads = trainer.train_batch_threaded(threads, |_t, worker| {
@@ -484,8 +469,7 @@ mod tests {
                     tape.backward(loss.idx());
                     tape.grad(wv.idx()).data.iter().map(|&v| v as f64).collect()
                 });
-                for (wj, &g) in w.iter_mut().zip(grads.iter())
-                {
+                for (wj, &g) in w.iter_mut().zip(grads.iter()) {
                     *wj -= lr * g as f32;
                 }
             }

@@ -90,11 +90,9 @@ impl IbpLinear {
     pub fn forward_point(&self, x: &[f32]) -> Vec<f32> {
         assert_eq!(x.len(), self.in_f, "IbpLinear: input size");
         let mut y = vec![0.0f32; self.out_f];
-        for (o, yo) in y.iter_mut().enumerate()
-        {
+        for (o, yo) in y.iter_mut().enumerate() {
             let mut acc = self.b[o];
-            for (i, &xi) in x.iter().enumerate()
-            {
+            for (i, &xi) in x.iter().enumerate() {
                 acc += xi * self.w[i * self.out_f + o];
             }
             *yo = acc;
@@ -107,12 +105,10 @@ impl IbpLinear {
         assert_eq!(x.lo.len(), self.in_f, "IbpLinear: input size");
         let mut lo = vec![0.0f32; self.out_f];
         let mut hi = vec![0.0f32; self.out_f];
-        for o in 0..self.out_f
-        {
+        for o in 0..self.out_f {
             let mut c = self.b[o];
             let mut r = 0.0f32;
-            for i in 0..self.in_f
-            {
+            for i in 0..self.in_f {
                 let w = self.w[i * self.out_f + o];
                 c += w * 0.5 * (x.lo[i] + x.hi[i]);
                 r += w.abs() * 0.5 * (x.hi[i] - x.lo[i]);
@@ -147,13 +143,10 @@ impl IbpMlp {
     /// Concrete forward over the whole network.
     pub fn forward(&self, x: &[f32]) -> Vec<f32> {
         let mut cur = x.to_vec();
-        for (i, layer) in self.layers.iter().enumerate()
-        {
+        for (i, layer) in self.layers.iter().enumerate() {
             cur = layer.forward_point(&cur);
-            if i + 1 < self.layers.len()
-            {
-                for v in cur.iter_mut()
-                {
+            if i + 1 < self.layers.len() {
+                for v in cur.iter_mut() {
                     *v = v.max(0.0);
                 }
             }
@@ -165,11 +158,9 @@ impl IbpMlp {
     /// output inside the returned [`Interval`] (sound by construction).
     pub fn certify(&self, input: &Interval) -> Interval {
         let mut cur = input.clone();
-        for (i, layer) in self.layers.iter().enumerate()
-        {
+        for (i, layer) in self.layers.iter().enumerate() {
             cur = layer.forward_interval(&cur);
-            if i + 1 < self.layers.len()
-            {
+            if i + 1 < self.layers.len() {
                 cur = relu_interval(&cur);
             }
         }
@@ -181,11 +172,9 @@ impl IbpMlp {
     /// correlations that plain intervals discard.
     pub fn certify_zonotope(&self, input: &Interval) -> Interval {
         let mut z = Zonotope::from_interval(input);
-        for (i, layer) in self.layers.iter().enumerate()
-        {
+        for (i, layer) in self.layers.iter().enumerate() {
             z = layer.forward_zonotope(&z);
-            if i + 1 < self.layers.len()
-            {
+            if i + 1 < self.layers.len() {
                 z = relu_zonotope(&z);
             }
         }
@@ -209,8 +198,7 @@ type Aff = (Vec<f32>, f32);
 /// minimum picks, per coordinate, the box end that extremises `cⱼ·inputⱼ`.
 fn dp_concretize(aff: &Aff, lo: &[f32], hi: &[f32], maximize: bool) -> f32 {
     let mut v = aff.1;
-    for (i, &c) in aff.0.iter().enumerate()
-    {
+    for (i, &c) in aff.0.iter().enumerate() {
         let pick = if (c >= 0.0) == maximize { hi[i] } else { lo[i] };
         v += c * pick;
     }
@@ -237,29 +225,22 @@ pub fn deeppoly_certify(layers: &[IbpLinear], input: &Interval) -> Interval {
         })
         .collect();
     let mut upper: Vec<Aff> = lower.clone();
-    for (li, layer) in layers.iter().enumerate()
-    {
+    for (li, layer) in layers.iter().enumerate() {
         let (inf, outf) = (layer.in_f, layer.out_f);
         let mut new_lower: Vec<Aff> = Vec::with_capacity(outf);
         let mut new_upper: Vec<Aff> = Vec::with_capacity(outf);
-        for o in 0..outf
-        {
+        for o in 0..outf {
             let (mut lc, mut uc) = (vec![0.0f32; d_in], vec![0.0f32; d_in]);
             let (mut lcon, mut ucon) = (layer.b[o], layer.b[o]);
-            for i in 0..inf
-            {
+            for i in 0..inf {
                 let w = layer.w[i * outf + o];
                 // Positive weight keeps the orientation, negative flips it.
-                let (up_src, lo_src) = if w >= 0.0
-                {
+                let (up_src, lo_src) = if w >= 0.0 {
                     (&upper[i], &lower[i])
-                }
-                else
-                {
+                } else {
                     (&lower[i], &upper[i])
                 };
-                for k in 0..d_in
-                {
+                for k in 0..d_in {
                     uc[k] += w * up_src.0[k];
                     lc[k] += w * lo_src.0[k];
                 }
@@ -272,34 +253,25 @@ pub fn deeppoly_certify(layers: &[IbpLinear], input: &Interval) -> Interval {
         lower = new_lower;
         upper = new_upper;
         // ReLU after every layer except the last.
-        if li + 1 < layers.len()
-        {
-            for o in 0..outf
-            {
+        if li + 1 < layers.len() {
+            for o in 0..outf {
                 let l = dp_concretize(&lower[o], &input.lo, &input.hi, false);
                 let u = dp_concretize(&upper[o], &input.lo, &input.hi, true);
-                if l >= 0.0
-                {
+                if l >= 0.0 {
                     // Stable-active: identity (keep the bounds).
-                }
-                else if u <= 0.0
-                {
+                } else if u <= 0.0 {
                     // Stable-inactive: zero.
                     lower[o] = (vec![0.0f32; d_in], 0.0);
                     upper[o] = (vec![0.0f32; d_in], 0.0);
-                }
-                else
-                {
+                } else {
                     // Unstable: chord upper bound, area-minimising lower bound.
                     let slope = u / (u - l);
-                    for c in upper[o].0.iter_mut()
-                    {
+                    for c in upper[o].0.iter_mut() {
                         *c *= slope;
                     }
                     upper[o].1 = slope * (upper[o].1 - l);
                     let lam = if u > -l { 1.0f32 } else { 0.0f32 };
-                    for c in lower[o].0.iter_mut()
-                    {
+                    for c in lower[o].0.iter_mut() {
                         *c *= lam;
                     }
                     lower[o].1 *= lam;
@@ -321,13 +293,10 @@ pub fn deeppoly_certify(layers: &[IbpLinear], input: &Interval) -> Interval {
 /// last) — the network function the [`verify_robustness`] branch-and-bound checks.
 fn forward_layers(layers: &[IbpLinear], x: &[f32]) -> Vec<f32> {
     let mut cur = x.to_vec();
-    for (i, l) in layers.iter().enumerate()
-    {
+    for (i, l) in layers.iter().enumerate() {
         cur = l.forward_point(&cur);
-        if i + 1 < layers.len()
-        {
-            for v in cur.iter_mut()
-            {
+        if i + 1 < layers.len() {
+            for v in cur.iter_mut() {
                 *v = v.max(0.0);
             }
         }
@@ -347,10 +316,8 @@ fn build_margin_net(layers: &[IbpLinear], t: usize) -> Vec<IbpLinear> {
     let others: Vec<usize> = (0..k).filter(|&j| j != t).collect();
     let mut wm = vec![0.0f32; h * others.len()];
     let mut bm = vec![0.0f32; others.len()];
-    for (col, &j) in others.iter().enumerate()
-    {
-        for i in 0..h
-        {
+    for (col, &j) in others.iter().enumerate() {
+        for i in 0..h {
             // margin_j = logitₜ − logitⱼ = Σ_i (W[i,t] − W[i,j]) hᵢ + (bₜ − bⱼ)
             wm[i * others.len() + col] = last.w[i * k + t] - last.w[i * k + j];
         }
@@ -393,16 +360,13 @@ pub fn verify_robustness(
     let mnet = build_margin_net(layers, true_class);
     let mut work = vec![input.clone()];
     let mut count = 0usize;
-    while let Some(b) = work.pop()
-    {
+    while let Some(b) = work.pop() {
         count += 1;
-        if count > max_boxes
-        {
+        if count > max_boxes {
             return BabResult::Unknown;
         }
         let out = deeppoly_certify(&mnet, &b);
-        if out.lo.iter().all(|&v| v > 0.0)
-        {
+        if out.lo.iter().all(|&v| v > 0.0) {
             continue; // this sub-box is provably robust
         }
         // Probe the box centre for a real counterexample.
@@ -411,22 +375,18 @@ pub fn verify_robustness(
                 .zip(&b.hi)
                 .map(|(&l, &h)| 0.5 * (l + h))
                 .collect();
-        if forward_layers(&mnet, &center).iter().any(|&v| v <= 0.0)
-        {
+        if forward_layers(&mnet, &center).iter().any(|&v| v <= 0.0) {
             return BabResult::Unsafe(center);
         }
-        if b.max_radius() < tol
-        {
+        if b.max_radius() < tol {
             return BabResult::Unknown; // can't split further
         }
         // Split along the widest coordinate.
         let mut d = 0usize;
         let mut wmax = 0.0f32;
-        for i in 0..b.lo.len()
-        {
+        for i in 0..b.lo.len() {
             let w = b.hi[i] - b.lo[i];
-            if w > wmax
-            {
+            if w > wmax {
                 wmax = w;
                 d = i;
             }
@@ -450,15 +410,12 @@ pub fn verify_robustness(
 fn lp_min_2d(cons: &[(f32, f32, f32)], obj: (f32, f32)) -> Option<(f32, [f32; 2])> {
     let mut best: Option<(f32, [f32; 2])> = None;
     let n = cons.len();
-    for i in 0..n
-    {
-        for j in (i + 1)..n
-        {
+    for i in 0..n {
+        for j in (i + 1)..n {
             let (a0, a1, ac) = cons[i];
             let (b0, b1, bc) = cons[j];
             let det = a0 * b1 - a1 * b0;
-            if det.abs() < 1e-9
-            {
+            if det.abs() < 1e-9 {
                 continue; // parallel boundaries
             }
             let x0 = (ac * b1 - a1 * bc) / det;
@@ -468,8 +425,7 @@ fn lp_min_2d(cons: &[(f32, f32, f32)], obj: (f32, f32)) -> Option<(f32, [f32; 2]
                 .all(|&(c0, c1, cc)| c0 * x0 + c1 * x1 <= cc + 1e-4)
             {
                 let val = obj.0 * x0 + obj.1 * x1;
-                if best.is_none_or(|(bv, _)| val < bv)
-                {
+                if best.is_none_or(|(bv, _)| val < bv) {
                     best = Some((val, [x0, x1]));
                 }
             }
@@ -506,37 +462,28 @@ pub fn milp_min_margin(
         0.5 * (input.lo[0] + input.hi[0]),
         0.5 * (input.lo[1] + input.hi[1]),
     ];
-    for j in 0..k
-    {
-        if j == t
-        {
+    for j in 0..k {
+        if j == t {
             continue;
         }
-        for pat in 0..(1usize << h)
-        {
+        for pat in 0..(1usize << h) {
             let mut cons = base.clone();
             let (mut a0, mut a1) = (0.0f32, 0.0f32);
             let mut d = l2.b[t] - l2.b[j];
-            for i in 0..h
-            {
+            for i in 0..h {
                 let (w0, w1, b1i) = (l1.w[i], l1.w[h + i], l1.b[i]); // zᵢ = w0·x₀ + w1·x₁ + b
-                if (pat >> i) & 1 == 1
-                {
+                if (pat >> i) & 1 == 1 {
                     cons.push((-w0, -w1, b1i)); // active: zᵢ ≥ 0
                     let coef = l2.w[i * k + t] - l2.w[i * k + j];
                     a0 += coef * w0;
                     a1 += coef * w1;
                     d += coef * b1i;
-                }
-                else
-                {
+                } else {
                     cons.push((w0, w1, -b1i)); // inactive: zᵢ ≤ 0 (contributes 0)
                 }
             }
-            if let Some((val, pt)) = lp_min_2d(&cons, (a0, a1))
-            {
-                if val + d < best
-                {
+            if let Some((val, pt)) = lp_min_2d(&cons, (a0, a1)) {
+                if val + d < best {
                     best = val + d;
                     witness = pt.to_vec();
                 }
@@ -557,12 +504,9 @@ pub fn milp_verify_robustness(
     true_class: usize,
 ) -> BabResult {
     let (m, witness) = milp_min_margin(l1, l2, input, true_class);
-    if m > 0.0
-    {
+    if m > 0.0 {
         BabResult::Robust
-    }
-    else
-    {
+    } else {
         BabResult::Unsafe(witness)
     }
 }
@@ -579,41 +523,31 @@ fn pattern_min_margin(
 ) -> Option<(f32, Vec<f32>)> {
     let (h, k) = (l1.out_f, l2.out_f);
     let mut region = base.to_vec();
-    for (i, &on) in active.iter().enumerate()
-    {
+    for (i, &on) in active.iter().enumerate() {
         let (w0, w1, b1i) = (l1.w[i], l1.w[h + i], l1.b[i]);
-        if on
-        {
+        if on {
             region.push((-w0, -w1, b1i)); // zᵢ ≥ 0
-        }
-        else
-        {
+        } else {
             region.push((w0, w1, -b1i)); // zᵢ ≤ 0
         }
     }
     let mut best: Option<(f32, Vec<f32>)> = None;
-    for j in 0..k
-    {
-        if j == t
-        {
+    for j in 0..k {
+        if j == t {
             continue;
         }
         let (mut a0, mut a1) = (0.0f32, 0.0f32);
         let mut d = l2.b[t] - l2.b[j];
-        for (i, &on) in active.iter().enumerate()
-        {
-            if on
-            {
+        for (i, &on) in active.iter().enumerate() {
+            if on {
                 let coef = l2.w[i * k + t] - l2.w[i * k + j];
                 a0 += coef * l1.w[i];
                 a1 += coef * l1.w[h + i];
                 d += coef * l1.b[i];
             }
         }
-        if let Some((val, pt)) = lp_min_2d(&region, (a0, a1))
-        {
-            if best.as_ref().is_none_or(|(bm, _)| val + d < *bm)
-            {
+        if let Some((val, pt)) = lp_min_2d(&region, (a0, a1)) {
+            if best.as_ref().is_none_or(|(bm, _)| val + d < *bm) {
                 best = Some((val + d, pt.to_vec()));
             }
         }
@@ -644,18 +578,12 @@ pub fn reluplex_verify(
     let zb = l1.forward_interval(input);
     let mut active_base = vec![false; h]; // stable-active ⇒ true
     let mut unstable = Vec::new();
-    for (i, ab) in active_base.iter_mut().enumerate()
-    {
-        if zb.lo[i] >= 0.0
-        {
+    for (i, ab) in active_base.iter_mut().enumerate() {
+        if zb.lo[i] >= 0.0 {
             *ab = true; // stable active (forced)
-        }
-        else if zb.hi[i] <= 0.0
-        {
+        } else if zb.hi[i] <= 0.0 {
             // stable inactive (forced off)
-        }
-        else
-        {
+        } else {
             unstable.push(i); // must be split
         }
     }
@@ -666,20 +594,15 @@ pub fn reluplex_verify(
         (0.0, -1.0, -input.lo[1]),
     ];
     // Case-split only the unstable neurons.
-    for pat in 0..(1usize << unstable.len())
-    {
+    for pat in 0..(1usize << unstable.len()) {
         let mut active = active_base.clone();
-        for (bit, &nu) in unstable.iter().enumerate()
-        {
-            if (pat >> bit) & 1 == 1
-            {
+        for (bit, &nu) in unstable.iter().enumerate() {
+            if (pat >> bit) & 1 == 1 {
                 active[nu] = true;
             }
         }
-        if let Some((m, witness)) = pattern_min_margin(l1, l2, &base, &active, true_class)
-        {
-            if m <= 0.0
-            {
+        if let Some((m, witness)) = pattern_min_margin(l1, l2, &base, &active, true_class) {
+            if m <= 0.0 {
                 return BabResult::Unsafe(witness); // SAT: a real counterexample
             }
         }
@@ -716,11 +639,9 @@ impl Zonotope {
         let n = iv.lo.len();
         let center: Vec<f32> = (0..n).map(|i| 0.5 * (iv.lo[i] + iv.hi[i])).collect();
         let mut generators = Vec::new();
-        for i in 0..n
-        {
+        for i in 0..n {
             let r = 0.5 * (iv.hi[i] - iv.lo[i]);
-            if r != 0.0
-            {
+            if r != 0.0 {
                 let mut g = vec![0.0f32; n];
                 g[i] = r;
                 generators.push(g);
@@ -733,10 +654,8 @@ impl Zonotope {
     pub fn radii(&self) -> Vec<f32> {
         let n = self.center.len();
         let mut r = vec![0.0f32; n];
-        for g in &self.generators
-        {
-            for (i, ri) in r.iter_mut().enumerate()
-            {
+        for g in &self.generators {
+            for (i, ri) in r.iter_mut().enumerate() {
                 *ri += g[i].abs();
             }
         }
@@ -761,11 +680,9 @@ impl IbpLinear {
         assert_eq!(z.center.len(), self.in_f, "forward_zonotope: input size");
         let map = |v: &[f32], bias: bool| -> Vec<f32> {
             let mut out = vec![0.0f32; self.out_f];
-            for (o, oo) in out.iter_mut().enumerate()
-            {
+            for (o, oo) in out.iter_mut().enumerate() {
                 let mut acc = if bias { self.b[o] } else { 0.0 };
-                for (i, &vi) in v.iter().enumerate()
-                {
+                for (i, &vi) in v.iter().enumerate() {
                     acc += vi * self.w[i * self.out_f + o];
                 }
                 *oo = acc;
@@ -790,20 +707,14 @@ pub fn relu_zonotope(z: &Zonotope) -> Zonotope {
     let mut new_center = vec![0.0f32; n];
     let mut lambda = vec![0.0f32; n];
     let mut mu = vec![0.0f32; n]; // fresh-generator magnitude (0 ⇒ stable neuron)
-    for j in 0..n
-    {
+    for j in 0..n {
         let (l, u) = (iv.lo[j], iv.hi[j]);
-        if l >= 0.0
-        {
+        if l >= 0.0 {
             lambda[j] = 1.0;
             new_center[j] = z.center[j];
-        }
-        else if u <= 0.0
-        {
+        } else if u <= 0.0 {
             new_center[j] = 0.0; // lambda[j] stays 0
-        }
-        else
-        {
+        } else {
             let lam = u / (u - l);
             lambda[j] = lam;
             mu[j] = -lam * l * 0.5; // > 0
@@ -817,10 +728,8 @@ pub fn relu_zonotope(z: &Zonotope) -> Zonotope {
         .map(|g| (0..n).map(|j| lambda[j] * g[j]).collect())
         .collect();
     // One fresh generator per unstable neuron.
-    for (j, &m) in mu.iter().enumerate()
-    {
-        if m != 0.0
-        {
+    for (j, &m) in mu.iter().enumerate() {
+        if m != 0.0 {
             let mut g = vec![0.0f32; n];
             g[j] = m;
             generators.push(g);
@@ -866,20 +775,14 @@ pub fn crown_bounds(l1: &IbpLinear, l2: &IbpLinear, input: &Interval) -> Interva
     // `il` (lower intercept) stays 0 for every relaxation case, so it needs no `mut`.
     let (mut sl, il) = (vec![0f32; hid], vec![0f32; hid]);
     let (mut su, mut iu) = (vec![0f32; hid], vec![0f32; hid]);
-    for h in 0..hid
-    {
+    for h in 0..hid {
         let (zlo, zhi) = (pre.lo[h], pre.hi[h]);
-        if zlo >= 0.0
-        {
+        if zlo >= 0.0 {
             sl[h] = 1.0;
             su[h] = 1.0;
-        }
-        else if zhi <= 0.0
-        {
+        } else if zhi <= 0.0 {
             // stays zero
-        }
-        else
-        {
+        } else {
             let s = zhi / (zhi - zlo);
             su[h] = s;
             iu[h] = -s * zlo; // chord through (zlo,0)–(zhi,zhi)
@@ -902,41 +805,33 @@ pub fn crown_bounds(l1: &IbpLinear, l2: &IbpLinear, input: &Interval) -> Interva
 
     let mut lo = vec![0f32; out_f];
     let mut hi = vec![0f32; out_f];
-    for o in 0..out_f
-    {
+    for o in 0..out_f {
         // Build a linear bound a + cᵀx, then intervalise over the box.
         // `upper = false` → a *lower* bound on y[o]; `true` → an upper bound.
         let bound = |upper: bool| -> f32 {
             let mut konst = l2.b[o];
             let mut coef = vec![0f32; in_f];
-            for h in 0..hid
-            {
+            for h in 0..hid {
                 let w2 = l2.w[h * out_f + o];
                 // For a lower bound: w2≥0 picks the relu lower relaxation, w2<0 the
                 // upper; for an upper bound, the opposite.
                 let pick_lower = (w2 >= 0.0) ^ upper;
-                let (s, ic) = if pick_lower
-                {
+                let (s, ic) = if pick_lower {
                     (sl[h], il[h])
-                }
-                else
-                {
+                } else {
                     (su[h], iu[h])
                 };
                 let cz = w2 * s;
                 konst += w2 * ic + cz * l1.b[h];
-                if cz != 0.0
-                {
-                    for (i, ci) in coef.iter_mut().enumerate()
-                    {
+                if cz != 0.0 {
+                    for (i, ci) in coef.iter_mut().enumerate() {
                         *ci += cz * l1.w[i * hid + h];
                     }
                 }
             }
             // min (upper=false) or max (upper=true) of a + cᵀx over the box.
             let mut y = konst;
-            for i in 0..in_f
-            {
+            for i in 0..in_f {
                 y += coef[i] * c[i] + if upper { coef[i].abs() } else { -coef[i].abs() } * r[i];
             }
             y
@@ -975,8 +870,7 @@ mod tests {
         let xv = t.input(TensorND::new(x.to_vec(), vec![1, 4]));
         let y_tape = t.value(lin.forward(&t, xv)).data;
         let y_ibp = ibp.forward_point(&x);
-        for (a, b) in y_tape.iter().zip(&y_ibp)
-        {
+        for (a, b) in y_tape.iter().zip(&y_ibp) {
             assert!((a - b).abs() < 1e-5, "tape {a} vs ibp {b}");
         }
     }
@@ -1001,12 +895,10 @@ mod tests {
         let cert = mlp.certify(&box_in);
 
         let mut srng = PcgEngine::new(123);
-        for _ in 0..4000
-        {
+        for _ in 0..4000 {
             let x = sample(&box_in, &mut srng);
             let y = mlp.forward(&x);
-            for (k, &yk) in y.iter().enumerate()
-            {
+            for (k, &yk) in y.iter().enumerate() {
                 assert!(
                     yk >= cert.lo[k] - 1e-4 && yk <= cert.hi[k] + 1e-4,
                     "soundness violated at out {k}: {yk} not in [{}, {}]",
@@ -1085,8 +977,7 @@ mod tests {
         let ibp = mlp.certify(&box_in);
 
         // Tighter (or equal): CROWN width ≤ IBP width per output.
-        for o in 0..3
-        {
+        for o in 0..3 {
             let cw = crown.hi[o] - crown.lo[o];
             let iw = ibp.hi[o] - ibp.lo[o];
             assert!(
@@ -1097,8 +988,7 @@ mod tests {
 
         // Sound: sample the box; every output is inside the CROWN box.
         let mut srng = PcgEngine::new(99);
-        for _ in 0..4000
-        {
+        for _ in 0..4000 {
             let x: Vec<f32> = box_in
                 .lo
                 .iter()
@@ -1106,8 +996,7 @@ mod tests {
                 .map(|(&l, &h)| l + srng.float() * (h - l))
                 .collect();
             let y = mlp.forward(&x);
-            for (o, &yo) in y.iter().enumerate()
-            {
+            for (o, &yo) in y.iter().enumerate() {
                 assert!(
                     yo >= crown.lo[o] - 1e-4 && yo <= crown.hi[o] + 1e-4,
                     "CROWN unsound at out {o}: {yo} not in [{}, {}]",
@@ -1129,8 +1018,7 @@ mod tests {
             .forward_zonotope(&Zonotope::from_interval(&box_in))
             .interval();
         let ii = lin.forward_interval(&box_in);
-        for k in 0..3
-        {
+        for k in 0..3 {
             assert!((zi.lo[k] - ii.lo[k]).abs() < 1e-5, "lo mismatch at {k}");
             assert!((zi.hi[k] - ii.hi[k]).abs() < 1e-5, "hi mismatch at {k}");
         }
@@ -1150,12 +1038,10 @@ mod tests {
         let cert = mlp.certify_zonotope(&box_in);
 
         let mut srng = PcgEngine::new(321);
-        for _ in 0..4000
-        {
+        for _ in 0..4000 {
             let x = sample(&box_in, &mut srng);
             let y = mlp.forward(&x);
-            for (k, &yk) in y.iter().enumerate()
-            {
+            for (k, &yk) in y.iter().enumerate() {
                 assert!(
                     yk >= cert.lo[k] - 1e-4 && yk <= cert.hi[k] + 1e-4,
                     "zonotope unsound at out {k}: {yk} not in [{}, {}]",
@@ -1212,12 +1098,10 @@ mod tests {
         assert_eq!(cert.lo, mlp.certify_deeppoly(&box_in).lo); // deterministic
 
         let mut srng = PcgEngine::new(321);
-        for _ in 0..4000
-        {
+        for _ in 0..4000 {
             let x = sample(&box_in, &mut srng);
             let y = mlp.forward(&x);
-            for (k, &yk) in y.iter().enumerate()
-            {
+            for (k, &yk) in y.iter().enumerate() {
                 assert!(
                     yk >= cert.lo[k] - 1e-4 && yk <= cert.hi[k] + 1e-4,
                     "deeppoly unsound at out {k}: {yk} not in [{}, {}]",
@@ -1288,8 +1172,7 @@ mod tests {
         assert_eq!(res, verify_robustness(&layers, &box_in, pred, 1e-3, 5000)); // deterministic
 
         let mut srng = PcgEngine::new(99);
-        for _ in 0..5000
-        {
+        for _ in 0..5000 {
             let p = sample(&box_in, &mut srng);
             assert_eq!(
                 argmax(&forward_layers(&layers, &p)),
@@ -1324,15 +1207,11 @@ mod tests {
         };
         let radius = |f: &dyn Fn(f32) -> bool| -> f32 {
             let (mut lo, mut hi) = (0.0f32, 1.5f32);
-            for _ in 0..18
-            {
+            for _ in 0..18 {
                 let m = 0.5 * (lo + hi);
-                if f(m)
-                {
+                if f(m) {
                     lo = m;
-                }
-                else
-                {
+                } else {
                     hi = m;
                 }
             }
@@ -1347,8 +1226,7 @@ mod tests {
         // The gap region DeepPoly could not certify is genuinely robust.
         let mid = 0.5 * (eps_dp + eps_bab);
         let mut srng = PcgEngine::new(7);
-        for _ in 0..3000
-        {
+        for _ in 0..3000 {
             let p = sample(&Interval::around(&x, mid), &mut srng);
             assert_eq!(
                 argmax(&forward_layers(&layers, &p)),
@@ -1378,20 +1256,17 @@ mod tests {
             argmax(&forward_layers(&layers, &p)) != pred
         });
         assert!(nonrobust, "test setup: box should be non-robust");
-        match verify_robustness(&layers, &box_in, pred, 5e-3, 50000)
-        {
-            BabResult::Unsafe(cx) =>
-            {
+        match verify_robustness(&layers, &box_in, pred, 5e-3, 50000) {
+            BabResult::Unsafe(cx) => {
                 assert_ne!(
                     argmax(&forward_layers(&layers, &cx)),
                     pred,
                     "counterexample not misclassified"
                 );
-                for ((&c, &l), &h) in cx.iter().zip(&box_in.lo).zip(&box_in.hi)
-                {
+                for ((&c, &l), &h) in cx.iter().zip(&box_in.lo).zip(&box_in.hi) {
                     assert!(c >= l - 1e-6 && c <= h + 1e-6);
                 }
-            },
+            }
             other => panic!("expected Unsafe, got {other:?}"),
         }
     }
@@ -1421,10 +1296,8 @@ mod tests {
 
         let g = 120usize;
         let mut grid_min = f32::MAX;
-        for a in 0..=g
-        {
-            for b in 0..=g
-            {
+        for a in 0..=g {
+            for b in 0..=g {
                 let p = [
                     box_in.lo[0] + (box_in.hi[0] - box_in.lo[0]) * a as f32 / g as f32,
                     box_in.lo[1] + (box_in.hi[1] - box_in.lo[1]) * b as f32 / g as f32,
@@ -1462,17 +1335,15 @@ mod tests {
         let t = argmax(&forward_layers(&net, &x));
 
         let box_big = Interval::around(&x, 1.5);
-        match milp_verify_robustness(&l1, &l2, &box_big, t)
-        {
-            BabResult::Unsafe(cx) =>
-            {
+        match milp_verify_robustness(&l1, &l2, &box_big, t) {
+            BabResult::Unsafe(cx) => {
                 assert!(
                     worst_margin(&net, &cx, t, 3) <= 1e-3,
                     "counterexample not unsafe"
                 );
                 assert!(cx[0] >= box_big.lo[0] - 1e-3 && cx[0] <= box_big.hi[0] + 1e-3);
                 assert!(cx[1] >= box_big.lo[1] - 1e-3 && cx[1] <= box_big.hi[1] + 1e-3);
-            },
+            }
             other => panic!("expected Unsafe, got {other:?}"),
         }
 
@@ -1480,8 +1351,7 @@ mod tests {
         // strictly tighter at some radius (extra precision from being exact).
         let mnet = build_margin_net(&net, t);
         let mut strictly_tighter = false;
-        for k in 1..50
-        {
+        for k in 1..50 {
             let eps = 0.05 * k as f32;
             let b = Interval::around(&x, eps);
             let dp_lo = deeppoly_certify(&mnet, &b)
@@ -1494,8 +1364,7 @@ mod tests {
                 mm >= dp_lo - 1e-3,
                 "MILP {mm} below sound DeepPoly bound {dp_lo}"
             );
-            if mm > dp_lo + 0.01
-            {
+            if mm > dp_lo + 0.01 {
                 strictly_tighter = true;
             }
         }
@@ -1516,8 +1385,7 @@ mod tests {
         let net = vec![l1.clone(), l2.clone()];
         let x = [0.1f32, -0.2];
         let t = argmax(&forward_layers(&net, &x));
-        for k in 1..30
-        {
+        for k in 1..30 {
             let eps = 0.05 * k as f32;
             let b = Interval::around(&x, eps);
             let rp = reluplex_verify(&l1, &l2, &b, t);
@@ -1540,17 +1408,15 @@ mod tests {
         let x = [0.1f32, -0.2];
         let t = argmax(&forward_layers(&net, &x));
         let b = Interval::around(&x, 1.5);
-        match reluplex_verify(&l1, &l2, &b, t)
-        {
-            BabResult::Unsafe(cx) =>
-            {
+        match reluplex_verify(&l1, &l2, &b, t) {
+            BabResult::Unsafe(cx) => {
                 assert!(
                     worst_margin(&net, &cx, t, 3) <= 1e-3,
                     "not a counterexample"
                 );
                 assert!(cx[0] >= b.lo[0] - 1e-3 && cx[0] <= b.hi[0] + 1e-3);
                 assert!(cx[1] >= b.lo[1] - 1e-3 && cx[1] <= b.hi[1] + 1e-3);
-            },
+            }
             other => panic!("expected Unsafe, got {other:?}"),
         }
     }

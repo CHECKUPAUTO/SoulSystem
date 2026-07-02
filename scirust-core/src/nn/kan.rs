@@ -90,16 +90,13 @@ impl KanLayer {
     pub fn forward(&self, x: &[f32]) -> Vec<f32> {
         assert_eq!(x.len(), self.in_features, "KAN: input width mismatch");
         let mut y = vec![0.0f32; self.out_features];
-        for (i, &xi) in x.iter().enumerate()
-        {
+        for (i, &xi) in x.iter().enumerate() {
             let phi = self.rbf(xi);
             let s = silu(xi);
-            for (j, yj) in y.iter_mut().enumerate()
-            {
+            for (j, yj) in y.iter_mut().enumerate() {
                 let off = (i * self.out_features + j) * self.num_basis;
                 let mut acc = self.base[i * self.out_features + j] * s;
-                for (k, &bk) in phi.iter().enumerate()
-                {
+                for (k, &bk) in phi.iter().enumerate() {
                     acc += self.coeffs[off + k] * bk;
                 }
                 *yj += acc;
@@ -125,51 +122,41 @@ impl KanLayer {
             .collect();
         let inv_s = 1.0 / s as f32;
         let mut mse = 0.0f32;
-        for _ in 0..steps
-        {
+        for _ in 0..steps {
             let mut g_coeffs = vec![0.0f32; self.coeffs.len()];
             let mut g_base = vec![0.0f32; self.base.len()];
             mse = 0.0;
-            for (si, (rbf, silus)) in feats.iter().enumerate()
-            {
+            for (si, (rbf, silus)) in feats.iter().enumerate() {
                 // Forward from the precomputed features.
                 let mut y = vec![0.0f32; self.out_features];
-                for i in 0..self.in_features
-                {
-                    for (j, yj) in y.iter_mut().enumerate()
-                    {
+                for i in 0..self.in_features {
+                    for (j, yj) in y.iter_mut().enumerate() {
                         let off = (i * self.out_features + j) * self.num_basis;
                         let mut acc = self.base[i * self.out_features + j] * silus[i];
-                        for (k, &bk) in rbf[i].iter().enumerate()
-                        {
+                        for (k, &bk) in rbf[i].iter().enumerate() {
                             acc += self.coeffs[off + k] * bk;
                         }
                         *yj += acc;
                     }
                 }
-                for j in 0..self.out_features
-                {
+                for j in 0..self.out_features {
                     let e = y[j] - ts[si][j];
                     mse += e * e;
                     let ge = 2.0 * e * inv_s;
-                    for i in 0..self.in_features
-                    {
+                    for i in 0..self.in_features {
                         g_base[i * self.out_features + j] += ge * silus[i];
                         let off = (i * self.out_features + j) * self.num_basis;
-                        for (k, &bk) in rbf[i].iter().enumerate()
-                        {
+                        for (k, &bk) in rbf[i].iter().enumerate() {
                             g_coeffs[off + k] += ge * bk;
                         }
                     }
                 }
             }
             mse *= inv_s;
-            for (c, g) in self.coeffs.iter_mut().zip(&g_coeffs)
-            {
+            for (c, g) in self.coeffs.iter_mut().zip(&g_coeffs) {
                 *c -= lr * g;
             }
-            for (b, g) in self.base.iter_mut().zip(&g_base)
-            {
+            for (b, g) in self.base.iter_mut().zip(&g_base) {
                 *b -= lr * g;
             }
         }
@@ -191,10 +178,8 @@ mod tests {
         let n = 11usize;
         let mut xs = Vec::new();
         let mut ts = Vec::new();
-        for a in 0..n
-        {
-            for b in 0..n
-            {
+        for a in 0..n {
+            for b in 0..n {
                 let x0 = -1.0 + 2.0 * a as f32 / (n as f32 - 1.0);
                 let x1 = -1.0 + 2.0 * b as f32 / (n as f32 - 1.0);
                 xs.push(vec![x0, x1]);
@@ -210,12 +195,10 @@ mod tests {
         let (mut w0, mut w1, mut b) = (0.0f32, 0.0f32, 0.0f32);
         let s = xs.len() as f32;
         let mut mse = 0.0;
-        for _ in 0..5000
-        {
+        for _ in 0..5000 {
             let (mut g0, mut g1, mut gb) = (0.0f32, 0.0f32, 0.0f32);
             mse = 0.0;
-            for (x, t) in xs.iter().zip(ts)
-            {
+            for (x, t) in xs.iter().zip(ts) {
                 let e = w0 * x[0] + w1 * x[1] + b - t[0];
                 mse += e * e;
                 g0 += 2.0 * e * x[0] / s;

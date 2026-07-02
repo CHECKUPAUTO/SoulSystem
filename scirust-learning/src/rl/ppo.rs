@@ -35,8 +35,7 @@ impl<A: Module, C: Module> PPOAgent<A, C> {
         let mut total_actor_loss = tape.input(Tensor::zeros(1, 1));
         let mut total_critic_loss = tape.input(Tensor::zeros(1, 1));
 
-        for i in 0..states.len()
-        {
+        for i in 0..states.len() {
             let s_var = tape.input(states[i].clone());
             let actor_out = self.actor.forward(&tape, s_var);
             let probs = actor_out.softmax(1);
@@ -60,12 +59,9 @@ impl<A: Module, C: Module> PPOAgent<A, C> {
             // loss = -min(surr1, surr2)
             // We take the smaller of the two surrogates to be conservative
             let surr1_val = tape.value(surr1.idx()).data[0];
-            let actor_loss = if surr1_val < (clipped_ratio * adv)
-            {
+            let actor_loss = if surr1_val < (clipped_ratio * adv) {
                 surr1.scale(-1.0)
-            }
-            else
-            {
+            } else {
                 surr2.scale(-1.0)
             };
 

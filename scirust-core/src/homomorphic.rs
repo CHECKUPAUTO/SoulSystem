@@ -54,15 +54,12 @@ pub fn add_encrypted(a: &BigUint, b: &BigUint, pk: &PaillierPublicKey) -> BigUin
 }
 
 fn mod_inverse(a: &BigUint, m: &BigUint) -> Option<BigUint> {
-    if a.is_zero() || m.is_zero()
-    {
+    if a.is_zero() || m.is_zero() {
         return None;
     }
     let mut x = BigUint::one();
-    while &x < m
-    {
-        if (&x * a) % m == BigUint::one()
-        {
+    while &x < m {
+        if (&x * a) % m == BigUint::one() {
             return Some(x);
         }
         x += BigUint::one();

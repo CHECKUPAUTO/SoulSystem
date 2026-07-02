@@ -17,6 +17,7 @@ num_cpus = "1"
 reqwest = { workspace = true }
 libc = "0.2"
 soullink-nvml = { path = "../soullink-nvml" }
+slha = { path = "../../slha-kernel", package = "slha-kernel" }
 llama-cpp-2 = { version = "0.1", optional = true }
 nalgebra = "0.33"
 rand = "0.8"

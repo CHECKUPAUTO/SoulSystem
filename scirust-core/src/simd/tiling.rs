@@ -52,8 +52,7 @@ impl TilingConfig {
             if let Ok(size_str) =
                 std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cache/index2/size")
             {
-                if let Ok(size) = size_str.trim().trim_end_matches('K').parse::<usize>()
-                {
+                if let Ok(size) = size_str.trim().trim_end_matches('K').parse::<usize>() {
                     return size * 1024; // Convertir KB → bytes
                 }
             }
@@ -77,12 +76,10 @@ impl TilingConfig {
     pub fn detect_simd_width() -> usize {
         #[cfg(target_arch = "x86_64")]
         {
-            if std::arch::is_x86_feature_detected!("avx512f")
-            {
+            if std::arch::is_x86_feature_detected!("avx512f") {
                 return 16;
             }
-            if std::arch::is_x86_feature_detected!("avx2")
-            {
+            if std::arch::is_x86_feature_detected!("avx2") {
                 return 8;
             }
             4
@@ -90,8 +87,7 @@ impl TilingConfig {
 
         #[cfg(target_arch = "aarch64")]
         {
-            if Self::has_sve()
-            {
+            if Self::has_sve() {
                 return 16;
             }
             4 // NEON
@@ -140,43 +136,35 @@ pub fn matmul_tiled_f32(
     config: Option<&TilingConfig>,
 ) {
     let det_config;
-    let config = match config
-    {
+    let config = match config {
         Some(cfg) => cfg,
-        None =>
-        {
+        None => {
             det_config = TilingConfig::detect();
             &det_config
-        },
+        }
     };
     let (tile_m, tile_k, tile_n) = (config.tile_m, config.tile_k, config.tile_n);
 
     // Initialiser C par beta
     #[allow(clippy::needless_range_loop)]
-    for i in 0..m * n
-    {
+    for i in 0..m * n {
         c[i] *= beta;
     }
 
     let mut ii = 0;
-    while ii < m
-    {
+    while ii < m {
         let im = (ii + tile_m).min(m);
         let mut pp = 0;
-        while pp < k
-        {
+        while pp < k {
             let pk = (pp + tile_k).min(k);
             let mut jj = 0;
-            while jj < n
-            {
+            while jj < n {
                 let jn = (jj + tile_n).min(n);
 
-                for i in ii..im
-                {
+                for i in ii..im {
                     let a_row_off = i * k;
                     let c_row_off = i * n;
-                    for p in pp..pk
-                    {
+                    for p in pp..pk {
                         let alpha_a = alpha * a[a_row_off + p];
                         let b_col_off = p * n;
 
@@ -186,8 +174,7 @@ pub fn matmul_tiled_f32(
                         #[cfg(feature = "portable-simd")]
                         let a_val = f32x4::splat(alpha_a);
                         #[cfg(feature = "portable-simd")]
-                        while j + 4 <= jn
-                        {
+                        while j + 4 <= jn {
                             let c_idx = c_row_off + j;
                             let b_idx = b_col_off + j;
 
@@ -200,8 +187,7 @@ pub fn matmul_tiled_f32(
                             j += 4;
                         }
 
-                        while j < jn
-                        {
+                        while j < jn {
                             c[c_row_off + j] += alpha_a * b[b_col_off + j];
                             j += 1;
                         }
@@ -234,38 +220,31 @@ pub fn matmul_neon_tiled_f32(
     let (tile_m, tile_k, tile_n) = (64, 64, 64);
 
     #[allow(clippy::needless_range_loop)]
-    for i in 0..m * n
-    {
+    for i in 0..m * n {
         c[i] *= beta;
     }
 
     let mut ii = 0;
-    while ii < m
-    {
+    while ii < m {
         let im = (ii + tile_m).min(m);
         let mut pp = 0;
-        while pp < k
-        {
+        while pp < k {
             let pk = (pp + tile_k).min(k);
             let mut jj = 0;
-            while jj < n
-            {
+            while jj < n {
                 let jn = (jj + tile_n).min(n);
 
-                for i in ii..im
-                {
+                for i in ii..im {
                     let a_row_off = i * k;
                     let c_row_off = i * n;
-                    for p in pp..pk
-                    {
+                    for p in pp..pk {
                         let alpha_a = alpha * a[a_row_off + p];
                         let b_col_off = p * n;
 
                         let mut j = jj;
                         unsafe {
                             let a_val_v = vdupq_n_f32(alpha_a);
-                            while j + 4 <= jn
-                            {
+                            while j + 4 <= jn {
                                 let c_ptr = c.as_mut_ptr().add(c_row_off + j);
                                 let b_ptr = b.as_ptr().add(b_col_off + j);
 
@@ -278,8 +257,7 @@ pub fn matmul_neon_tiled_f32(
                             }
                         }
 
-                        while j < jn
-                        {
+                        while j < jn {
                             c[c_row_off + j] += alpha_a * b[b_col_off + j];
                             j += 1;
                         }
@@ -311,44 +289,36 @@ pub fn matmul_avx2_tiled_f32(
 
     let (tile_m, tile_k, tile_n) = (64, 64, 64);
 
-    if !std::arch::is_x86_feature_detected!("avx2")
-    {
+    if !std::arch::is_x86_feature_detected!("avx2") {
         return matmul_tiled_f32(alpha, a, b, beta, c, m, k, n, None);
     }
 
     #[allow(clippy::needless_range_loop)]
-    for i in 0..m * n
-    {
+    for i in 0..m * n {
         c[i] *= beta;
     }
 
     let mut ii = 0;
-    while ii < m
-    {
+    while ii < m {
         let im = (ii + tile_m).min(m);
         let mut pp = 0;
-        while pp < k
-        {
+        while pp < k {
             let pk = (pp + tile_k).min(k);
             let mut jj = 0;
-            while jj < n
-            {
+            while jj < n {
                 let jn = (jj + tile_n).min(n);
 
-                for i in ii..im
-                {
+                for i in ii..im {
                     let a_row_off = i * k;
                     let c_row_off = i * n;
-                    for p in pp..pk
-                    {
+                    for p in pp..pk {
                         let alpha_a = alpha * a[a_row_off + p];
                         let b_col_off = p * n;
 
                         let mut j = jj;
                         unsafe {
                             let va = _mm256_set1_ps(alpha_a);
-                            while j + 8 <= jn
-                            {
+                            while j + 8 <= jn {
                                 let b_ptr = b.as_ptr().add(b_col_off + j);
                                 let c_ptr = c.as_mut_ptr().add(c_row_off + j);
 
@@ -361,8 +331,7 @@ pub fn matmul_avx2_tiled_f32(
                             }
                         }
 
-                        while j < jn
-                        {
+                        while j < jn {
                             c[c_row_off + j] += alpha_a * b[b_col_off + j];
                             j += 1;
                         }
@@ -416,10 +385,8 @@ impl CacheProfile {
 fn detect_l1_cache() -> usize {
     #[cfg(target_os = "linux")]
     {
-        if let Ok(s) = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cache/index0/size")
-        {
-            if let Ok(v) = s.trim().trim_end_matches('K').parse::<usize>()
-            {
+        if let Ok(s) = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cache/index0/size") {
+            if let Ok(v) = s.trim().trim_end_matches('K').parse::<usize>() {
                 return v * 1024;
             }
         }
@@ -430,10 +397,8 @@ fn detect_l1_cache() -> usize {
 fn detect_l2_cache_size() -> usize {
     #[cfg(target_os = "linux")]
     {
-        if let Ok(s) = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cache/index2/size")
-        {
-            if let Ok(v) = s.trim().trim_end_matches('K').parse::<usize>()
-            {
+        if let Ok(s) = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cache/index2/size") {
+            if let Ok(v) = s.trim().trim_end_matches('K').parse::<usize>() {
                 return v * 1024;
             }
         }
@@ -459,12 +424,9 @@ fn detect_l3_cache() -> usize {
             "/sys/devices/system/cpu/cpu0/cache/index3/size",
             "/sys/devices/system/cpu/cache/index3/size",
         ];
-        for path in &paths
-        {
-            if let Ok(s) = std::fs::read_to_string(path)
-            {
-                if let Ok(v) = s.trim().trim_end_matches('K').parse::<usize>()
-                {
+        for path in &paths {
+            if let Ok(s) = std::fs::read_to_string(path) {
+                if let Ok(v) = s.trim().trim_end_matches('K').parse::<usize>() {
                     return v * 1024;
                 }
             }

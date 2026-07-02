@@ -45,8 +45,7 @@ impl RMSprop {
             .entry(param_id.to_string())
             .or_insert_with(|| vec![0.0; grad.len()]);
 
-        for i in 0..grad.len()
-        {
+        for i in 0..grad.len() {
             // Update biased second moment estimate
             v[i] = self.decay_rate * v[i] + (1.0 - self.decay_rate) * grad[i] * grad[i];
 
@@ -109,8 +108,7 @@ impl AdamW {
         let bias_correction1 = 1.0 - self.beta1.powi(self.t as i32);
         let bias_correction2 = 1.0 - self.beta2.powi(self.t as i32);
 
-        for i in 0..grad.len()
-        {
+        for i in 0..grad.len() {
             // Update biased first moment estimate
             m[i] = self.beta1 * m[i] + (1.0 - self.beta1) * grad[i];
 
@@ -171,8 +169,7 @@ impl LAMB {
         let bias_correction1 = 1.0 - self.beta1.powi(self.t as i32);
         let bias_correction2 = 1.0 - self.beta2.powi(self.t as i32);
 
-        for i in 0..grad.len()
-        {
+        for i in 0..grad.len() {
             m[i] = self.beta1 * m[i] + (1.0 - self.beta1) * grad[i];
             v[i] = self.beta2 * v[i] + (1.0 - self.beta2) * grad[i] * grad[i];
 
@@ -183,12 +180,9 @@ impl LAMB {
             let param_norm = param.iter().map(|p| p * p).sum::<f32>().sqrt();
             let update_norm = update;
 
-            let adaptive_lr = if param_norm > 0.0
-            {
+            let adaptive_lr = if param_norm > 0.0 {
                 self.learning_rate * (param_norm / (update_norm + self.epsilon))
-            }
-            else
-            {
+            } else {
                 self.learning_rate
             };
 

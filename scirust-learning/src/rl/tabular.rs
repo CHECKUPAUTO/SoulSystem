@@ -31,13 +31,10 @@ where
     }
 
     pub fn act_epsilon_greedy<R: Rng + ?Sized>(&self, state: &S, actions: &[A], rng: &mut R) -> A {
-        if rng.gen_bool(self.epsilon)
-        {
+        if rng.gen_bool(self.epsilon) {
             let idx = rng.gen_range(0..actions.len());
             actions[idx].clone()
-        }
-        else
-        {
+        } else {
             actions
                 .iter()
                 .max_by(|a1, a2| {
@@ -59,12 +56,9 @@ where
         next_actions: &[A],
         done: bool,
     ) {
-        let max_next_q = if done || next_actions.is_empty()
-        {
+        let max_next_q = if done || next_actions.is_empty() {
             0.0
-        }
-        else
-        {
+        } else {
             next_actions
                 .iter()
                 .map(|a| self.get_q(next_state, a))

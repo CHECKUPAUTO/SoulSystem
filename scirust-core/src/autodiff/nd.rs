@@ -119,30 +119,24 @@ impl NdTape {
         );
         grads[root.idx] = TensorND::ones(&nodes[root.idx].value.shape);
 
-        for i in (0..nodes.len()).rev()
-        {
+        for i in (0..nodes.len()).rev() {
             let g = grads[i].clone();
-            match nodes[i].op
-            {
-                Op::Leaf =>
-                {},
-                Op::Add(a, b) =>
-                {
+            match nodes[i].op {
+                Op::Leaf => {}
+                Op::Add(a, b) => {
                     let sa = nodes[a].value.shape.clone();
                     let sb = nodes[b].value.shape.clone();
                     accumulate(&mut grads[a], &unbroadcast(&g, &sa));
                     accumulate(&mut grads[b], &unbroadcast(&g, &sb));
-                },
-                Op::Sub(a, b) =>
-                {
+                }
+                Op::Sub(a, b) => {
                     let sa = nodes[a].value.shape.clone();
                     let sb = nodes[b].value.shape.clone();
                     let neg = ew(&g, &g, |x, _| -x);
                     accumulate(&mut grads[a], &unbroadcast(&g, &sa));
                     accumulate(&mut grads[b], &unbroadcast(&neg, &sb));
-                },
-                Op::Mul(a, b) =>
-                {
+                }
+                Op::Mul(a, b) => {
                     let out_shape = &nodes[i].value.shape;
                     let av = nodes[a].value.broadcast_to(out_shape).unwrap();
                     let bv = nodes[b].value.broadcast_to(out_shape).unwrap();
@@ -150,9 +144,8 @@ impl NdTape {
                     let gb = ew(&g, &av, |x, y| x * y);
                     accumulate(&mut grads[a], &unbroadcast(&ga, &nodes[a].value.shape));
                     accumulate(&mut grads[b], &unbroadcast(&gb, &nodes[b].value.shape));
-                },
-                Op::Div(a, b) =>
-                {
+                }
+                Op::Div(a, b) => {
                     // z = a/b ⇒ ∂a = g/b, ∂b = −g·a/b².
                     let out_shape = &nodes[i].value.shape;
                     let av = nodes[a].value.broadcast_to(out_shape).unwrap();
@@ -162,9 +155,8 @@ impl NdTape {
                     let gb = ew(&g, &avb2, |x, y| -x * y);
                     accumulate(&mut grads[a], &unbroadcast(&ga, &nodes[a].value.shape));
                     accumulate(&mut grads[b], &unbroadcast(&gb, &nodes[b].value.shape));
-                },
-                Op::Matmul(a, b) =>
-                {
+                }
+                Op::Matmul(a, b) => {
                     // out (m,n) = A(m,k)·B(k,n) → gA = g·Bᵀ, gB = Aᵀ·g
                     let av = &nodes[a].value;
                     let bv = &nodes[b].value;
@@ -172,51 +164,42 @@ impl NdTape {
                     let gb = matmul2d(&transpose2d(av), &g);
                     accumulate(&mut grads[a], &ga);
                     accumulate(&mut grads[b], &gb);
-                },
-                Op::Bmm(a, b) =>
-                {
+                }
+                Op::Bmm(a, b) => {
                     let (ga, gb) = bmm_backward(&nodes[a].value, &nodes[b].value, &g);
                     accumulate(&mut grads[a], &ga);
                     accumulate(&mut grads[b], &gb);
-                },
-                Op::Softmax(a) =>
-                {
+                }
+                Op::Softmax(a) => {
                     // dx_i = y_i · (g_i − Σ_j g_j y_j) over the last axis.
                     let y = &nodes[i].value;
                     accumulate(&mut grads[a], &softmax_backward(y, &g));
-                },
-                Op::TransposeLast2(a) =>
-                {
+                }
+                Op::TransposeLast2(a) => {
                     accumulate(&mut grads[a], &transpose_last2(&g));
-                },
-                Op::Reshape(a) =>
-                {
+                }
+                Op::Reshape(a) => {
                     // Reshape the upstream grad back to the input's shape.
                     let shape = nodes[a].value.shape.clone();
                     accumulate(&mut grads[a], &TensorND::new(g.data.clone(), shape));
-                },
-                Op::Permute(a, ref perm) =>
-                {
+                }
+                Op::Permute(a, ref perm) => {
                     // Gradient flows through the inverse permutation.
                     let mut inv = vec![0usize; perm.len()];
-                    for (i, &p) in perm.iter().enumerate()
-                    {
+                    for (i, &p) in perm.iter().enumerate() {
                         inv[p] = i;
                     }
                     accumulate(&mut grads[a], &g.transpose(&inv).expect("permute backward"));
-                },
-                Op::LayerNormLast(a, eps) =>
-                {
+                }
+                Op::LayerNormLast(a, eps) => {
                     let dx = layernorm_backward(&nodes[a].value, &nodes[i].value, &g, eps);
                     accumulate(&mut grads[a], &dx);
-                },
-                Op::RmsNormLast(a, eps) =>
-                {
+                }
+                Op::RmsNormLast(a, eps) => {
                     let dx = rmsnorm_backward(&nodes[a].value, &nodes[i].value, &g, eps);
                     accumulate(&mut grads[a], &dx);
-                },
-                Op::Sigmoid(a) =>
-                {
+                }
+                Op::Sigmoid(a) => {
                     // dx = g · y · (1 − y), y the sigmoid output.
                     let y = &nodes[i].value;
                     let d: Vec<f32> = g
@@ -226,9 +209,8 @@ impl NdTape {
                         .map(|(&gi, &yi)| gi * yi * (1.0 - yi))
                         .collect();
                     accumulate(&mut grads[a], &TensorND::new(d, y.shape.clone()));
-                },
-                Op::Exp(a) =>
-                {
+                }
+                Op::Exp(a) => {
                     // dx = g · exp(x); the output node already holds exp(x).
                     let y = &nodes[i].value;
                     let d: Vec<f32> = g
@@ -238,53 +220,43 @@ impl NdTape {
                         .map(|(&gi, &yi)| gi * yi)
                         .collect();
                     accumulate(&mut grads[a], &TensorND::new(d, y.shape.clone()));
-                },
-                Op::Rope(a, base) =>
-                {
+                }
+                Op::Rope(a, base) => {
                     // RoPE is an orthogonal rotation R(pos); dx = Rᵀ·g = R(−pos)·g.
                     accumulate(&mut grads[a], &rope_lastaxis(&g, base, true));
-                },
-                Op::Relu(a) =>
-                {
+                }
+                Op::Relu(a) => {
                     let av = &nodes[a].value;
                     let mut d = g.data.clone();
-                    for (gi, &x) in d.iter_mut().zip(av.data.iter())
-                    {
-                        if x <= 0.0
-                        {
+                    for (gi, &x) in d.iter_mut().zip(av.data.iter()) {
+                        if x <= 0.0 {
                             *gi = 0.0;
                         }
                     }
                     accumulate(&mut grads[a], &TensorND::new(d, av.shape.clone()));
-                },
-                Op::Sum(a) =>
-                {
+                }
+                Op::Sum(a) => {
                     // out is scalar; every input element gets the same upstream grad.
                     let s = g.data[0];
                     let shape = nodes[a].value.shape.clone();
                     let n = nodes[a].value.numel();
                     accumulate(&mut grads[a], &TensorND::new(vec![s; n], shape));
-                },
-                Op::Gather(a, ref idx) =>
-                {
+                }
+                Op::Gather(a, ref idx) => {
                     // Scatter-add each output row's gradient back to its source
                     // row (repeated indices accumulate).
                     let dim = nodes[a].value.shape[1];
-                    for (r, &ix) in idx.iter().enumerate()
-                    {
-                        for c in 0..dim
-                        {
+                    for (r, &ix) in idx.iter().enumerate() {
+                        for c in 0..dim {
                             grads[a].data[ix * dim + c] += g.data[r * dim + c];
                         }
                     }
-                },
-                Op::Cat(ref idxs) =>
-                {
+                }
+                Op::Cat(ref idxs) => {
                     // Split the upstream gradient into row-blocks, one per operand.
                     let trailing: usize = nodes[i].value.shape[1..].iter().product();
                     let mut row_off = 0usize;
-                    for &part in idxs
-                    {
+                    for &part in idxs {
                         let prows = nodes[part].value.shape[0];
                         let start = row_off * trailing;
                         let end = (row_off + prows) * trailing;
@@ -295,28 +267,25 @@ impl NdTape {
                         accumulate(&mut grads[part], &gp);
                         row_off += prows;
                     }
-                },
-                Op::CrossEntropy(a, ref targets) =>
-                {
+                }
+                Op::CrossEntropy(a, ref targets) => {
                     // dL/dlogits = (softmax(logits) − onehot(target)) / n, times
                     // the (scalar) upstream gradient.
                     let logits = &nodes[a].value;
                     let (n, vocab) = (logits.shape[0], logits.shape[1]);
                     let scale = g.data[0] / n as f32;
                     let mut dl = vec![0.0f32; logits.data.len()];
-                    for (r, &target) in targets.iter().enumerate()
-                    {
+                    for (r, &target) in targets.iter().enumerate() {
                         let row = &logits.data[r * vocab..(r + 1) * vocab];
                         let mx = row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
                         let sum: f32 = row.iter().map(|&v| (v - mx).exp()).sum();
-                        for c in 0..vocab
-                        {
+                        for c in 0..vocab {
                             dl[r * vocab + c] = scale * (row[c] - mx).exp() / sum;
                         }
                         dl[r * vocab + target] -= scale;
                     }
                     accumulate(&mut grads[a], &TensorND::new(dl, logits.shape.clone()));
-                },
+                }
             }
         }
         grads
@@ -489,8 +458,7 @@ impl<'t> NdVar<'t> {
         assert_eq!(w.ndim(), 2, "gather: table must be 2-D (vocab, dim)");
         let (vocab, dim) = (w.shape[0], w.shape[1]);
         let mut data = Vec::with_capacity(indices.len() * dim);
-        for &ix in indices
-        {
+        for &ix in indices {
             assert!(
                 ix < vocab,
                 "gather: index {ix} out of range (vocab {vocab})"
@@ -512,8 +480,7 @@ impl<'t> NdVar<'t> {
         let mut rows = first.shape[0];
         let mut data = first.data.clone();
         let mut idxs = vec![self.idx];
-        for p in rest
-        {
+        for p in rest {
             let v = &nodes[p.idx].value;
             assert_eq!(v.shape[1..], trailing[..], "cat0: trailing dims must match");
             rows += v.shape[0];
@@ -540,8 +507,7 @@ impl<'t> NdVar<'t> {
         let (n, vocab) = (logits.shape[0], logits.shape[1]);
         assert_eq!(targets.len(), n, "cross_entropy: one target per row");
         let mut loss = 0.0f32;
-        for (r, &t) in targets.iter().enumerate()
-        {
+        for (r, &t) in targets.iter().enumerate() {
             let row = &logits.data[r * vocab..(r + 1) * vocab];
             let mx = row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let lse = mx + row.iter().map(|&v| (v - mx).exp()).sum::<f32>().ln();
@@ -590,8 +556,7 @@ fn ew_broadcast(a: &TensorND, b: &TensorND, f: impl Fn(f32, f32) -> f32) -> Tens
 /// `acc += g` (same shape).
 fn accumulate(acc: &mut TensorND, g: &TensorND) {
     debug_assert_eq!(acc.shape, g.shape);
-    for (a, &x) in acc.data.iter_mut().zip(&g.data)
-    {
+    for (a, &x) in acc.data.iter_mut().zip(&g.data) {
         *a += x;
     }
 }
@@ -601,15 +566,12 @@ fn accumulate(acc: &mut TensorND, g: &TensorND) {
 fn unbroadcast(grad: &TensorND, target: &[usize]) -> TensorND {
     let mut g = grad.clone();
     // Collapse extra leading axes that `target` does not have.
-    while g.shape.len() > target.len()
-    {
+    while g.shape.len() > target.len() {
         g = sum_axis(&g, 0, false);
     }
     // Sum over axes that were size-1 in the source (kept as size 1).
-    for (axis, &t) in target.iter().enumerate()
-    {
-        if t == 1 && g.shape[axis] != 1
-        {
+    for (axis, &t) in target.iter().enumerate() {
+        if t == 1 && g.shape[axis] != 1 {
             g = sum_axis(&g, axis, true);
         }
     }
@@ -625,13 +587,11 @@ fn sum_axis(t: &TensorND, axis: usize, keepdim: bool) -> TensorND {
     let out_strides = strides_of(&out_shape);
     let mut out = vec![0.0f32; out_shape.iter().product()];
     let in_strides = strides_of(&t.shape);
-    for (flat, &v) in t.data.iter().enumerate()
-    {
+    for (flat, &v) in t.data.iter().enumerate() {
         // Decode the multi-index, zero out `axis`, re-encode into the output.
         let mut rem = flat;
         let mut out_flat = 0usize;
-        for (ax, &st) in in_strides.iter().enumerate()
-        {
+        for (ax, &st) in in_strides.iter().enumerate() {
             let idx = rem / st;
             rem %= st;
             let oidx = if ax == axis { 0 } else { idx };
@@ -639,12 +599,9 @@ fn sum_axis(t: &TensorND, axis: usize, keepdim: bool) -> TensorND {
         }
         out[out_flat] += v;
     }
-    if keepdim
-    {
+    if keepdim {
         TensorND::new(out, out_shape)
-    }
-    else
-    {
+    } else {
         let squeezed: Vec<usize> = out_shape
             .iter()
             .enumerate()
@@ -657,8 +614,7 @@ fn sum_axis(t: &TensorND, axis: usize, keepdim: bool) -> TensorND {
 
 fn strides_of(shape: &[usize]) -> Vec<usize> {
     let mut s = vec![1usize; shape.len()];
-    for i in (0..shape.len().saturating_sub(1)).rev()
-    {
+    for i in (0..shape.len().saturating_sub(1)).rev() {
         s[i] = s[i + 1] * shape[i + 1];
     }
     s
@@ -668,10 +624,8 @@ fn transpose2d(t: &TensorND) -> TensorND {
     assert_eq!(t.ndim(), 2, "transpose2d: need a 2-D tensor");
     let (r, c) = (t.shape[0], t.shape[1]);
     let mut data = vec![0.0f32; r * c];
-    for i in 0..r
-    {
-        for j in 0..c
-        {
+    for i in 0..r {
+        for j in 0..c {
             data[j * r + i] = t.data[i * c + j];
         }
     }
@@ -685,13 +639,10 @@ fn matmul2d(a: &TensorND, b: &TensorND) -> TensorND {
     let (k2, n) = (b.shape[0], b.shape[1]);
     assert_eq!(k, k2, "matmul2d: inner dims disagree");
     let mut data = vec![0.0f32; m * n];
-    for i in 0..m
-    {
-        for j in 0..n
-        {
+    for i in 0..m {
+        for j in 0..n {
             let mut acc = 0.0f32;
-            for p in 0..k
-            {
+            for p in 0..k {
                 acc += a.data[i * k + p] * b.data[p * n + j];
             }
             data[i * n + j] = acc;
@@ -705,23 +656,19 @@ fn softmax_lastaxis(t: &TensorND) -> TensorND {
     let last = t.shape[t.ndim() - 1].max(1);
     let outer = t.data.len() / last;
     let mut out = vec![0.0f32; t.data.len()];
-    for o in 0..outer
-    {
+    for o in 0..outer {
         let base = o * last;
         let mut mx = f32::NEG_INFINITY;
-        for i in 0..last
-        {
+        for i in 0..last {
             mx = mx.max(t.data[base + i]);
         }
         let mut sum = 0.0f32;
-        for i in 0..last
-        {
+        for i in 0..last {
             let e = (t.data[base + i] - mx).exp();
             out[base + i] = e;
             sum += e;
         }
-        for i in 0..last
-        {
+        for i in 0..last {
             out[base + i] /= sum;
         }
     }
@@ -733,16 +680,13 @@ fn softmax_backward(y: &TensorND, g: &TensorND) -> TensorND {
     let last = y.shape[y.ndim() - 1].max(1);
     let outer = y.data.len() / last;
     let mut dx = vec![0.0f32; y.data.len()];
-    for o in 0..outer
-    {
+    for o in 0..outer {
         let base = o * last;
         let mut dot = 0.0f32;
-        for i in 0..last
-        {
+        for i in 0..last {
             dot += g.data[base + i] * y.data[base + i];
         }
-        for i in 0..last
-        {
+        for i in 0..last {
             dx[base + i] = y.data[base + i] * (g.data[base + i] - dot);
         }
     }
@@ -754,15 +698,13 @@ fn layernorm_lastaxis(t: &TensorND, eps: f32) -> TensorND {
     let d = t.shape[t.ndim() - 1].max(1);
     let outer = t.data.len() / d;
     let mut out = vec![0.0f32; t.data.len()];
-    for o in 0..outer
-    {
+    for o in 0..outer {
         let base = o * d;
         let row = &t.data[base..base + d];
         let mean = row.iter().sum::<f32>() / d as f32;
         let var = row.iter().map(|&v| (v - mean) * (v - mean)).sum::<f32>() / d as f32;
         let rstd = 1.0 / (var + eps).sqrt();
-        for i in 0..d
-        {
+        for i in 0..d {
             out[base + i] = (row[i] - mean) * rstd;
         }
     }
@@ -775,8 +717,7 @@ fn layernorm_backward(x: &TensorND, y: &TensorND, g: &TensorND, eps: f32) -> Ten
     let d = x.shape[x.ndim() - 1].max(1);
     let outer = x.data.len() / d;
     let mut dx = vec![0.0f32; x.data.len()];
-    for o in 0..outer
-    {
+    for o in 0..outer {
         let base = o * d;
         let row = &x.data[base..base + d];
         let mean = row.iter().sum::<f32>() / d as f32;
@@ -787,8 +728,7 @@ fn layernorm_backward(x: &TensorND, y: &TensorND, g: &TensorND, eps: f32) -> Ten
             .map(|i| g.data[base + i] * y.data[base + i])
             .sum::<f32>()
             / d as f32;
-        for i in 0..d
-        {
+        for i in 0..d {
             dx[base + i] = rstd * (g.data[base + i] - mean_g - y.data[base + i] * mean_gy);
         }
     }
@@ -800,14 +740,12 @@ fn rmsnorm_lastaxis(t: &TensorND, eps: f32) -> TensorND {
     let d = t.shape[t.ndim() - 1].max(1);
     let outer = t.data.len() / d;
     let mut out = vec![0.0f32; t.data.len()];
-    for o in 0..outer
-    {
+    for o in 0..outer {
         let base = o * d;
         let row = &t.data[base..base + d];
         let ms = row.iter().map(|&v| v * v).sum::<f32>() / d as f32;
         let r = (ms + eps).sqrt();
-        for i in 0..d
-        {
+        for i in 0..d {
             out[base + i] = row[i] / r;
         }
     }
@@ -820,8 +758,7 @@ fn rmsnorm_backward(x: &TensorND, y: &TensorND, g: &TensorND, eps: f32) -> Tenso
     let d = x.shape[x.ndim() - 1].max(1);
     let outer = x.data.len() / d;
     let mut dx = vec![0.0f32; x.data.len()];
-    for o in 0..outer
-    {
+    for o in 0..outer {
         let base = o * d;
         let ms = x.data[base..base + d].iter().map(|&v| v * v).sum::<f32>() / d as f32;
         let r = (ms + eps).sqrt();
@@ -829,8 +766,7 @@ fn rmsnorm_backward(x: &TensorND, y: &TensorND, g: &TensorND, eps: f32) -> Tenso
             .map(|i| g.data[base + i] * y.data[base + i])
             .sum::<f32>()
             / d as f32;
-        for i in 0..d
-        {
+        for i in 0..d {
             dx[base + i] = (g.data[base + i] - y.data[base + i] * mean_gy) / r;
         }
     }
@@ -849,13 +785,10 @@ fn rope_lastaxis(t: &TensorND, base: f32, inverse: bool) -> TensorND {
     let m = t.data.len() / (seq * d).max(1);
     let mut out = vec![0.0f32; t.data.len()];
     let sign = if inverse { -1.0 } else { 1.0 };
-    for outer in 0..m
-    {
-        for s in 0..seq
-        {
+    for outer in 0..m {
+        for s in 0..seq {
             let row = (outer * seq + s) * d;
-            for p in 0..d / 2
-            {
+            for p in 0..d / 2 {
                 let theta = base.powf(-2.0 * p as f32 / d as f32);
                 let ang = sign * s as f32 * theta;
                 let (sin, cos) = ang.sin_cos();
@@ -875,13 +808,10 @@ fn transpose_last2(t: &TensorND) -> TensorND {
     let (a, b) = (t.shape[nd - 2], t.shape[nd - 1]);
     let outer = t.data.len() / (a * b).max(1);
     let mut out = vec![0.0f32; t.data.len()];
-    for o in 0..outer
-    {
+    for o in 0..outer {
         let base = o * a * b;
-        for i in 0..a
-        {
-            for j in 0..b
-            {
+        for i in 0..a {
+            for j in 0..b {
                 out[base + j * a + i] = t.data[base + i * b + j];
             }
         }
@@ -894,8 +824,7 @@ fn transpose_last2(t: &TensorND) -> TensorND {
 /// Map a flat index in `out_batch` to the corresponding flat batch offset in a
 /// (possibly smaller / size-1-broadcast) `target_batch`.
 fn project_batch(out_flat: usize, out_batch: &[usize], target_batch: &[usize]) -> usize {
-    if target_batch.is_empty()
-    {
+    if target_batch.is_empty() {
         return 0;
     }
     let out_strides = strides_of(out_batch);
@@ -903,12 +832,10 @@ fn project_batch(out_flat: usize, out_batch: &[usize], target_batch: &[usize]) -
     let off = out_batch.len() - target_batch.len();
     let mut rem = out_flat;
     let mut tgt_flat = 0usize;
-    for (ax, &os) in out_strides.iter().enumerate()
-    {
+    for (ax, &os) in out_strides.iter().enumerate() {
         let idx = rem / os;
         rem %= os;
-        if ax >= off
-        {
+        if ax >= off {
             let ta = ax - off;
             let tidx = if target_batch[ta] == 1 { 0 } else { idx };
             tgt_flat += tidx * tgt_strides[ta];
@@ -929,18 +856,14 @@ fn batched_matmul(a: &TensorND, b: &TensorND) -> TensorND {
     let out_batch = TensorND::broadcast_shape(a_batch, b_batch).expect("bmm: batch broadcast");
     let bsz: usize = out_batch.iter().product::<usize>().max(1);
     let mut data = vec![0.0f32; bsz * m * n];
-    for bi in 0..bsz
-    {
+    for bi in 0..bsz {
         let a_off = project_batch(bi, &out_batch, a_batch) * m * k;
         let b_off = project_batch(bi, &out_batch, b_batch) * k * n;
         let o_off = bi * m * n;
-        for i in 0..m
-        {
-            for j in 0..n
-            {
+        for i in 0..m {
+            for j in 0..n {
                 let mut acc = 0.0f32;
-                for p in 0..k
-                {
+                for p in 0..k {
                     acc += a.data[a_off + i * k + p] * b.data[b_off + p * n + j];
                 }
                 data[o_off + i * n + j] = acc;
@@ -965,32 +888,25 @@ fn bmm_backward(a: &TensorND, b: &TensorND, g: &TensorND) -> (TensorND, TensorND
     let bsz: usize = out_batch.iter().product::<usize>().max(1);
     let mut ga = vec![0.0f32; a.data.len()];
     let mut gb = vec![0.0f32; b.data.len()];
-    for bi in 0..bsz
-    {
+    for bi in 0..bsz {
         let a_off = project_batch(bi, &out_batch, a_batch) * m * k;
         let b_off = project_batch(bi, &out_batch, b_batch) * k * n;
         let g_off = bi * m * n;
         // gA[i,p] += sum_j g[i,j] * b[p,j]   (g·Bᵀ)
-        for i in 0..m
-        {
-            for p in 0..k
-            {
+        for i in 0..m {
+            for p in 0..k {
                 let mut acc = 0.0f32;
-                for j in 0..n
-                {
+                for j in 0..n {
                     acc += g.data[g_off + i * n + j] * b.data[b_off + p * n + j];
                 }
                 ga[a_off + i * k + p] += acc;
             }
         }
         // gB[p,j] += sum_i a[i,p] * g[i,j]   (Aᵀ·g)
-        for p in 0..k
-        {
-            for j in 0..n
-            {
+        for p in 0..k {
+            for j in 0..n {
                 let mut acc = 0.0f32;
-                for i in 0..m
-                {
+                for i in 0..m {
                     acc += a.data[a_off + i * k + p] * g.data[g_off + i * n + j];
                 }
                 gb[b_off + p * n + j] += acc;
@@ -1049,8 +965,7 @@ mod tests {
         // Central finite differences for each input tensor.
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for k in 0..base.len()
-            {
+            for k in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[k] += eps;
@@ -1114,8 +1029,7 @@ mod tests {
 
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for kk in 0..base.len()
-            {
+            for kk in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[kk] += eps;
@@ -1157,8 +1071,7 @@ mod tests {
         let gx = grads[xv.idx()].clone();
 
         let fd = 1e-3f32;
-        for k in 0..n
-        {
+        for k in 0..n {
             let mut up = x.clone();
             let mut dn = x.clone();
             up[k] += fd;
@@ -1196,8 +1109,7 @@ mod tests {
         let gx = grads[xv.idx()].clone();
 
         let fd = 1e-3f32;
-        for k in 0..n
-        {
+        for k in 0..n {
             let mut up = x.clone();
             let mut dn = x.clone();
             up[k] += fd;
@@ -1237,8 +1149,7 @@ mod tests {
         let gx = grads[xv.idx()].clone();
 
         let fd = 1e-3f32;
-        for k in 0..n
-        {
+        for k in 0..n {
             let mut up = x.clone();
             let mut dn = x.clone();
             up[k] += fd;
@@ -1277,8 +1188,7 @@ mod tests {
         let gx = grads[xv.idx()].clone();
 
         let fd = 1e-3f32;
-        for k in 0..x.len()
-        {
+        for k in 0..x.len() {
             let mut up = x.clone();
             let mut dn = x.clone();
             up[k] += fd;
@@ -1302,8 +1212,7 @@ mod tests {
         let t = NdTape::new();
         let xv = t.input(TensorND::new(x.clone(), vec![seq, d]));
         let y = t.value(xv.rope(10000.0)).data;
-        for s in 0..seq
-        {
+        for s in 0..seq {
             let nx: f32 = x[s * d..(s + 1) * d].iter().map(|v| v * v).sum();
             let ny: f32 = y[s * d..(s + 1) * d].iter().map(|v| v * v).sum();
             assert!((nx - ny).abs() < 1e-4, "row {s}: norm {nx} -> {ny}");
@@ -1332,8 +1241,7 @@ mod tests {
             |i: usize, j: usize| -> f32 { (0..d).map(|c| qv[i * d + c] * kv[j * d + c]).sum() };
         // offset +1: (1,0), (2,1), (3,2), (4,3) all equal.
         let s = dot(1, 0);
-        for (i, j) in [(2, 1), (3, 2), (4, 3)]
-        {
+        for (i, j) in [(2, 1), (3, 2), (4, 3)] {
             assert!((dot(i, j) - s).abs() < 1e-4, "offset +1 not constant");
         }
         // offset −2: (0,2) == (2,4).
@@ -1407,8 +1315,7 @@ mod tests {
 
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for kk in 0..base.len()
-            {
+            for kk in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[kk] += eps;
@@ -1459,8 +1366,7 @@ mod tests {
 
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for k in 0..base.len()
-            {
+            for k in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[k] += eps;
@@ -1484,8 +1390,7 @@ mod tests {
         let t0 = NdTape::new();
         let xv0 = t0.input(TensorND::new(x.clone(), vec![2, 3]));
         let e = t0.value(xv0.exp());
-        for (got, &xi) in e.data.iter().zip(&x)
-        {
+        for (got, &xi) in e.data.iter().zip(&x) {
             assert!((got - xi.exp()).abs() < 1e-6);
         }
         let loss_of = |xx: &[f32]| -> f32 {
@@ -1498,8 +1403,7 @@ mod tests {
         let grads = t.backward(xv.exp().sum());
         let g = grads[xv.idx()].clone();
         let eps = 1e-3f32;
-        for k in 0..x.len()
-        {
+        for k in 0..x.len() {
             let mut up = x.clone();
             let mut dn = x.clone();
             up[k] += eps;
@@ -1523,8 +1427,7 @@ mod tests {
         let av0 = t0.input(TensorND::new(a.clone(), vec![2, 3]));
         let bv0 = t0.input(TensorND::new(b.clone(), vec![2, 3]));
         let z = t0.value(av0.div(bv0));
-        for (got, (&ai, &bi)) in z.data.iter().zip(a.iter().zip(&b))
-        {
+        for (got, (&ai, &bi)) in z.data.iter().zip(a.iter().zip(&b)) {
             assert!((got - ai / bi).abs() < 1e-6);
         }
         let loss_of = |aa: &[f32], bb: &[f32]| -> f32 {
@@ -1539,8 +1442,7 @@ mod tests {
         let grads = t.backward(av.div(bv).sum());
         let (ga, gb) = (grads[av.idx()].clone(), grads[bv.idx()].clone());
         let eps = 1e-3f32;
-        for k in 0..a.len()
-        {
+        for k in 0..a.len() {
             let (mut au, mut ad) = (a.clone(), a.clone());
             au[k] += eps;
             ad[k] -= eps;
@@ -1598,8 +1500,7 @@ mod tests {
         assert_eq!(gw.shape, vec![vocab, dim]);
 
         let eps = 1e-3f32;
-        for k in 0..w.len()
-        {
+        for k in 0..w.len() {
             let mut up = w.clone();
             let mut dn = w.clone();
             up[k] += eps;
@@ -1639,8 +1540,7 @@ mod tests {
         let gl = grads[lv.idx()].clone();
 
         let eps = 1e-3f32;
-        for k in 0..logits.len()
-        {
+        for k in 0..logits.len() {
             let mut up = logits.clone();
             let mut dn = logits.clone();
             up[k] += eps;
@@ -1652,8 +1552,7 @@ mod tests {
                 gl.data[k]
             );
         }
-        for r in 0..n
-        {
+        for r in 0..n {
             let s: f32 = gl.data[r * vocab..(r + 1) * vocab].iter().sum();
             assert!(s.abs() < 1e-6, "row {r} gradient should sum to 0, got {s}");
         }

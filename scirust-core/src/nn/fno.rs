@@ -37,10 +37,8 @@ use std::f32::consts::TAU;
 fn dft_forward(n: usize, modes: usize) -> (Vec<f32>, Vec<f32>) {
     let mut cf = vec![0f32; modes * n];
     let mut sf = vec![0f32; modes * n];
-    for k in 0..modes
-    {
-        for j in 0..n
-        {
+    for k in 0..modes {
+        for j in 0..n {
             let a = TAU * (k as f32) * (j as f32) / n as f32;
             cf[k * n + j] = a.cos();
             sf[k * n + j] = -a.sin();
@@ -57,10 +55,8 @@ fn dft_forward(n: usize, modes: usize) -> (Vec<f32>, Vec<f32>) {
 fn dft_inverse(n: usize, modes: usize) -> (Vec<f32>, Vec<f32>) {
     let mut ic = vec![0f32; n * modes];
     let mut is = vec![0f32; n * modes];
-    for j in 0..n
-    {
-        for k in 0..modes
-        {
+    for j in 0..n {
+        for k in 0..modes {
             let f = if k == 0 { 1.0 } else { 2.0 };
             let a = TAU * (k as f32) * (j as f32) / n as f32;
             ic[j * modes + k] = f * a.cos() / n as f32;
@@ -100,12 +96,10 @@ impl FnoSpectralConv1d {
         let scale = 1.0 / width as f32;
         let mut ar = vec![0f32; modes * width * width];
         let mut ai = vec![0f32; modes * width * width];
-        for x in ar.iter_mut()
-        {
+        for x in ar.iter_mut() {
             *x = rng.float_signed() * scale;
         }
-        for x in ai.iter_mut()
-        {
+        for x in ai.iter_mut() {
             *x = rng.float_signed() * scale;
         }
         Self {
@@ -144,15 +138,13 @@ impl FnoSpectralConv1d {
     pub fn parameters(&mut self) -> Vec<NdParam<'_>> {
         let (ar_idx, ai_idx) = (self.ar_idx, self.ai_idx);
         let mut params = Vec::new();
-        if let Some(i) = ar_idx
-        {
+        if let Some(i) = ar_idx {
             params.push(NdParam {
                 value: &mut self.ar,
                 grad_idx: i,
             });
         }
-        if let Some(i) = ai_idx
-        {
+        if let Some(i) = ai_idx {
             params.push(NdParam {
                 value: &mut self.ai,
                 grad_idx: i,
@@ -247,8 +239,7 @@ mod tests {
         let t = NdTape::new();
         let vv = t.input(TensorND::new(v.clone(), vec![n, 1]));
         let got = t.value(conv.forward(&t, vv));
-        for (g, w) in got.data.iter().zip(&v)
-        {
+        for (g, w) in got.data.iter().zip(&v) {
             assert!((g - w).abs() < 1e-4, "reconstruction: got {g}, want {w}");
         }
     }
@@ -285,8 +276,7 @@ mod tests {
         let gai = grads[conv.ai_idx.unwrap()].clone();
         let eps = 1e-3f32;
         let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
-            for i in 0..base.len()
-            {
+            for i in 0..base.len() {
                 let mut up = base.to_vec();
                 let mut dn = base.to_vec();
                 up[i] += eps;
@@ -337,8 +327,7 @@ mod tests {
             let mut rng = PcgEngine::new(5);
             let mut conv = FnoSpectralConv1d::new(n, modes, 1, &mut rng);
             let mut opt = NdAdam::with_lr(0.05);
-            for step in 0..900
-            {
+            for step in 0..900 {
                 let (inp, der) = &train[step % train.len()];
                 let tape = NdTape::new();
                 let x = tape.input(TensorND::new(inp.clone(), vec![n, 1]));
@@ -349,13 +338,11 @@ mod tests {
             }
             // Held-out (unseen phase) test error.
             let mut terr = 0f32;
-            for (inp, der) in &test
-            {
+            for (inp, der) in &test {
                 let tape = NdTape::new();
                 let x = tape.input(TensorND::new(inp.clone(), vec![n, 1]));
                 let pred = tape.value(conv.forward(&tape, x));
-                for (p, d) in pred.data.iter().zip(der)
-                {
+                for (p, d) in pred.data.iter().zip(der) {
                     terr += (p - d) * (p - d);
                 }
             }
@@ -383,16 +370,14 @@ mod tests {
             let target: Vec<f32> = (0..n).map(|j| (j as f32 * 0.3).cos()).collect();
             let mut opt = NdAdam::with_lr(0.03);
             let (mut first, mut last) = (0f32, 0f32);
-            for step in 0..200
-            {
+            for step in 0..200 {
                 let tape = NdTape::new();
                 let xv = tape.input(TensorND::new(x.clone(), vec![n, 1]));
                 let tv = tape.input(TensorND::new(target.clone(), vec![n, 1]));
                 let out = layer.forward(&tape, xv);
                 let loss = mse(out, tv);
                 let lval = tape.value(loss).data[0];
-                if step == 0
-                {
+                if step == 0 {
                     first = lval;
                 }
                 last = lval;

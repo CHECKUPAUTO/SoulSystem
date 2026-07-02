@@ -34,4 +34,28 @@ impl SoulLinkMesh {
             meta: OrganMesh::new(size),
         }
     }
+
+    /// Shared references to the six organs, in a fixed order.
+    pub fn organs(&self) -> [&OrganMesh; 6] {
+        [
+            &self.science,
+            &self.mind,
+            &self.engineer,
+            &self.crypto,
+            &self.creative,
+            &self.meta,
+        ]
+    }
+
+    /// Mutable references to the six organs, in a fixed order.
+    pub fn organs_mut(&mut self) -> [&mut OrganMesh; 6] {
+        [
+            &mut self.science,
+            &mut self.mind,
+            &mut self.engineer,
+            &mut self.crypto,
+            &mut self.creative,
+            &mut self.meta,
+        ]
+    }
 }

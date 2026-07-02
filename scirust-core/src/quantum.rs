@@ -117,10 +117,8 @@ impl Mps {
         let node = &self.nodes[q];
         let (dl, dr) = (node.dl, node.dr);
         let mut out = vec![0.0f32; dl * 2 * dr];
-        for l in 0..dl
-        {
-            for r in 0..dr
-            {
+        for l in 0..dl {
+            for r in 0..dr {
                 let (a0, a1) = (node.get(l, 0, r), node.get(l, 1, r));
                 out[l * (2 * dr) + r] = gate[0] * a0 + gate[1] * a1; // physical 0
                 out[l * (2 * dr) + dr + r] = gate[2] * a0 + gate[3] * a1; // physical 1
@@ -140,23 +138,16 @@ impl Mps {
         // θ[l, q1, q2, r] = Σ_{p1,p2} gate[(q1q2),(p1p2)] · Σ_v A[l,p1,v] B[v,p2,r],
         // laid out as a (rows × cols) row-major matrix.
         let mut theta = vec![0.0f32; rows * cols];
-        for l in 0..dl
-        {
-            for p1 in 0..2
-            {
-                for p2 in 0..2
-                {
-                    for r in 0..dr
-                    {
+        for l in 0..dl {
+            for p1 in 0..2 {
+                for p2 in 0..2 {
+                    for r in 0..dr {
                         let mut c = 0.0f32;
-                        for v in 0..mid
-                        {
+                        for v in 0..mid {
                             c += a.get(l, p1, v) * b.get(v, p2, r);
                         }
-                        for q1 in 0..2
-                        {
-                            for q2 in 0..2
-                            {
+                        for q1 in 0..2 {
+                            for q2 in 0..2 {
                                 let g = gate[(q1 * 2 + q2) * 4 + (p1 * 2 + p2)];
                                 theta[l * (4 * dr) + q1 * (2 * dr) + q2 * dr + r] += g * c;
                             }
@@ -171,24 +162,18 @@ impl Mps {
         let k = svd.rank;
         // Split √s symmetrically into the two new nodes.
         let mut left = vec![0.0f32; dl * 2 * k]; // (dl, 2, k)
-        for l in 0..dl
-        {
-            for q1 in 0..2
-            {
-                for j in 0..k
-                {
+        for l in 0..dl {
+            for q1 in 0..2 {
+                for j in 0..k {
                     left[l * (2 * k) + q1 * k + j] = svd.u[(l * 2 + q1) * k + j] * svd.s[j].sqrt();
                 }
             }
         }
         let mut right = vec![0.0f32; k * 2 * dr]; // (k, 2, dr)
-        for j in 0..k
-        {
+        for j in 0..k {
             let sq = svd.s[j].sqrt();
-            for q2 in 0..2
-            {
-                for r in 0..dr
-                {
+            for q2 in 0..2 {
+                for r in 0..dr {
                     right[j * (2 * dr) + q2 * dr + r] = sq * svd.vt[j * cols + (q2 * dr + r)];
                 }
             }
@@ -206,16 +191,12 @@ impl Mps {
             "amplitude: wrong number of bits"
         );
         let mut v = vec![1.0f32]; // left boundary (dim 1)
-        for (i, node) in self.nodes.iter().enumerate()
-        {
+        for (i, node) in self.nodes.iter().enumerate() {
             let s = bits[i];
             let mut vn = vec![0.0f32; node.dr];
-            for (l, &vl) in v.iter().enumerate()
-            {
-                if vl != 0.0
-                {
-                    for (r, vnr) in vn.iter_mut().enumerate()
-                    {
+            for (l, &vl) in v.iter().enumerate() {
+                if vl != 0.0 {
+                    for (r, vnr) in vn.iter_mut().enumerate() {
                         *vnr += vl * node.get(l, s, r);
                     }
                 }
@@ -232,10 +213,8 @@ impl Mps {
         let dim = 1usize << n;
         let mut sv = vec![0.0f32; dim];
         let mut bits = vec![0usize; n];
-        for (idx, amp) in sv.iter_mut().enumerate()
-        {
-            for (i, b) in bits.iter_mut().enumerate()
-            {
+        for (idx, amp) in sv.iter_mut().enumerate() {
+            for (i, b) in bits.iter_mut().enumerate() {
                 *b = (idx >> i) & 1;
             }
             *amp = self.amplitude(&bits);
@@ -260,10 +239,8 @@ mod tests {
     fn dense_1q(state: &mut [f32], q: usize, g: &[f32; 4]) {
         let step = 1usize << q;
         let mut base = 0usize;
-        while base < state.len()
-        {
-            if base & step == 0
-            {
+        while base < state.len() {
+            if base & step == 0 {
                 let (a0, a1) = (state[base], state[base | step]);
                 state[base] = g[0] * a0 + g[1] * a1;
                 state[base | step] = g[2] * a0 + g[3] * a1;
@@ -275,10 +252,8 @@ mod tests {
     fn dense_2q(state: &mut [f32], q: usize, g: &[f32; 16]) {
         let (s1, s2) = (1usize << q, 1usize << (q + 1));
         let mut base = 0usize;
-        while base < state.len()
-        {
-            if base & s1 == 0 && base & s2 == 0
-            {
+        while base < state.len() {
+            if base & s1 == 0 && base & s2 == 0 {
                 let inp = [
                     state[base],           // p1=0,p2=0
                     state[base | s2],      // p1=0,p2=1
@@ -346,24 +321,17 @@ mod tests {
         let mut mps = Mps::zero(n);
         let mut dense = vec![0.0f32; 1 << n];
         dense[0] = 1.0;
-        for _ in 0..40
-        {
-            if rng.next_u32() % 2 == 0
-            {
+        for _ in 0..40 {
+            if rng.next_u32() % 2 == 0 {
                 let q = (rng.next_u32() as usize) % n;
-                let g = if rng.next_u32() % 2 == 0
-                {
+                let g = if rng.next_u32() % 2 == 0 {
                     H
-                }
-                else
-                {
+                } else {
                     ry(rng.float_signed() * 3.0)
                 };
                 mps.apply_1qubit_gate(q, &g);
                 dense_1q(&mut dense, q, &g);
-            }
-            else
-            {
+            } else {
                 let q = (rng.next_u32() as usize) % (n - 1);
                 let g = if rng.next_u32() % 2 == 0 { CNOT } else { CZ };
                 mps.apply_2qubit_gate(q, &g, 1 << n); // no truncation
@@ -377,23 +345,16 @@ mod tests {
         // Determinism.
         let mut mps2 = Mps::zero(n);
         let mut rng2 = PcgEngine::new(7);
-        for _ in 0..40
-        {
-            if rng2.next_u32() % 2 == 0
-            {
+        for _ in 0..40 {
+            if rng2.next_u32() % 2 == 0 {
                 let q = (rng2.next_u32() as usize) % n;
-                let g = if rng2.next_u32() % 2 == 0
-                {
+                let g = if rng2.next_u32() % 2 == 0 {
                     H
-                }
-                else
-                {
+                } else {
                     ry(rng2.float_signed() * 3.0)
                 };
                 mps2.apply_1qubit_gate(q, &g);
-            }
-            else
-            {
+            } else {
                 let q = (rng2.next_u32() as usize) % (n - 1);
                 let g = if rng2.next_u32() % 2 == 0 { CNOT } else { CZ };
                 mps2.apply_2qubit_gate(q, &g, 1 << n);
@@ -417,16 +378,14 @@ mod tests {
     fn bond_dimension_and_truncation() {
         // Product state: independent H on each qubit ⇒ no entanglement ⇒ bond 1.
         let mut prod = Mps::zero(4);
-        for q in 0..4
-        {
+        for q in 0..4 {
             prod.apply_1qubit_gate(q, &H);
         }
         assert_eq!(prod.max_bond(), 1, "product state must stay at bond 1");
 
         // Entangle, then compare full vs hard-truncated bond.
         let mut full = Mps::zero(4);
-        for q in 0..4
-        {
+        for q in 0..4 {
             full.apply_1qubit_gate(q, &H);
         }
         full.apply_2qubit_gate(0, &CZ, 8);
@@ -436,8 +395,7 @@ mod tests {
 
         // χ ≥ needed reproduces it exactly; a fidelity proxy stays high under heavy cap.
         let mut capped = Mps::zero(4);
-        for q in 0..4
-        {
+        for q in 0..4 {
             capped.apply_1qubit_gate(q, &H);
         }
         capped.apply_2qubit_gate(0, &CZ, 1);

@@ -76,24 +76,20 @@ impl Module for Linear {
 
     fn parameter_indices(&self) -> Vec<usize> {
         let mut v = Vec::new();
-        if let Some(i) = self.last_w_idx
-        {
+        if let Some(i) = self.last_w_idx {
             v.push(i);
         }
-        if let Some(i) = self.last_b_idx
-        {
+        if let Some(i) = self.last_b_idx {
             v.push(i);
         }
         v
     }
 
     fn sync(&mut self, tape: &Tape) {
-        if let Some(i) = self.last_w_idx
-        {
+        if let Some(i) = self.last_w_idx {
             self.weight = tape.value(i);
         }
-        if let Some(i) = self.last_b_idx
-        {
+        if let Some(i) = self.last_b_idx {
             self.bias = tape.value(i);
         }
     }
@@ -115,16 +111,14 @@ impl Module for Linear {
         let b = sd
             .get("bias")
             .ok_or_else(|| "missing key: bias".to_string())?;
-        if w.shape() != (self.in_features, self.out_features)
-        {
+        if w.shape() != (self.in_features, self.out_features) {
             return Err(crate::error::SciRustError::InvalidConfig(format!(
                 "weight shape mismatch: expected {:?}, got {:?}",
                 (self.in_features, self.out_features),
                 w.shape()
             )));
         }
-        if b.shape() != (1, self.out_features)
-        {
+        if b.shape() != (1, self.out_features) {
             return Err(crate::error::SciRustError::InvalidConfig(format!(
                 "bias shape mismatch: expected {:?}, got {:?}",
                 (1, self.out_features),

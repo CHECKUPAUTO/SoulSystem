@@ -22,6 +22,7 @@ pub mod engine;
 pub mod hardware;
 pub mod mtp;
 pub mod router;
+pub mod slha_cache;
 pub mod standby;
 pub mod turboquant;
 pub mod types;

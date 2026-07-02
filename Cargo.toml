@@ -4,7 +4,7 @@ members = [
     # ── CCOS (Causal Context Operating System) ─────────────────────────
     "ccos",
     "octasoma",
-    "octasoma/octacore",
+    "slha-kernel",
 
     # ── SciRust core (local, replaces /root/scirust subtree) ─────────────
     "scirust-core",
@@ -22,6 +22,7 @@ members = [
 
     # ── SoulLink brain (inference + memory + reasoning) ──────────────────
     "soullink-brain/soullink-inference",
+    "soullink-brain/soullink-octasoma-backend",
     "soullink-brain/soullink-nvml",
     "soullink-brain/soullink-memory-hierarchy",
     "soullink-brain/soullink-memory",
@@ -202,6 +203,7 @@ members = [
 ]
 
 exclude = [
+    "octasoma/octacore",
     # Heavy CUDA / external subtrees — kept in repo, built on demand
     "soul-neural",
     "soullink-node",

@@ -235,7 +235,7 @@ impl LlmRouter {
     }
 
     /// Select the best model for a task based on domain and complexity.
-    pub fn select_best(&self, task: &str, domain: TaskDomain, complexity: f32) -> &str {
+    pub fn select_best(&self, _task: &str, domain: TaskDomain, complexity: f32) -> &str {
         // Score each entry for this task
         let mut best_name = &self.entries[0].name;
         let mut best_score: f32 = f32::NEG_INFINITY;
@@ -261,19 +261,22 @@ impl LlmRouter {
             }
 
             // Score: domain match + complexity fit + success rate
-            let domain_score: f32 = if entry.domains.contains(&domain) { 1.0 } else { 0.2 };
-            let complexity_fit: f32 = if complexity >= entry.min_complexity
-                && complexity <= entry.max_complexity
-            {
+            let domain_score: f32 = if entry.domains.contains(&domain) {
                 1.0
             } else {
-                let dist_from_range = if complexity < entry.min_complexity {
-                    entry.min_complexity - complexity
-                } else {
-                    complexity - entry.max_complexity
-                };
-                (1.0 - dist_from_range).max(0.0)
+                0.2
             };
+            let complexity_fit: f32 =
+                if complexity >= entry.min_complexity && complexity <= entry.max_complexity {
+                    1.0
+                } else {
+                    let dist_from_range = if complexity < entry.min_complexity {
+                        entry.min_complexity - complexity
+                    } else {
+                        complexity - entry.max_complexity
+                    };
+                    (1.0 - dist_from_range).max(0.0)
+                };
 
             let success_bonus = if let Ok(stats) = self.stats.try_read() {
                 if let Some(s) = stats.get(&entry.name) {
@@ -297,7 +300,10 @@ impl LlmRouter {
                 _ => 0.0,
             };
 
-            let score = domain_score * 0.3_f32 + complexity_fit * 0.35_f32 + success_bonus as f32 * 0.25_f32 + cost_penalty as f32;
+            let score = domain_score * 0.3_f32
+                + complexity_fit * 0.35_f32
+                + success_bonus as f32 * 0.25_f32
+                + cost_penalty as f32;
 
             if score > best_score {
                 best_score = score;
@@ -327,7 +333,9 @@ impl LlmRouter {
         messages: &[ChatMessage],
         tools: Option<&[ToolSchema]>,
     ) -> Result<ChatResponse, String> {
-        let primary = self.select_best(task_context, domain, complexity).to_string();
+        let primary = self
+            .select_best(task_context, domain, complexity)
+            .to_string();
         let mut tried = vec![primary.clone()];
 
         // First attempt with best model
@@ -394,7 +402,9 @@ impl LlmRouter {
         complexity: f32,
         prompt: &str,
     ) -> Result<ChatResponse, String> {
-        let primary = self.select_best(task_context, domain, complexity).to_string();
+        let primary = self
+            .select_best(task_context, domain, complexity)
+            .to_string();
         let mut tried = vec![primary.clone()];
 
         match self.try_generate(&primary, prompt).await {
@@ -458,11 +468,7 @@ impl LlmRouter {
         client.chat(messages, tools).await
     }
 
-    async fn try_generate(
-        &self,
-        name: &str,
-        prompt: &str,
-    ) -> Result<ChatResponse, String> {
+    async fn try_generate(&self, name: &str, prompt: &str) -> Result<ChatResponse, String> {
         let client = self
             .clients
             .get(name)

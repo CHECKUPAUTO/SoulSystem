@@ -46,8 +46,7 @@ mod tests {
             1.0, 2.0, 2.0, 1.0, 2.0, 4.0, 4.0, 2.0, 2.0, 4.0, 4.0, 2.0, 1.0, 2.0, 2.0, 1.0,
         ];
 
-        for (i, &g) in grad_x.data.iter().enumerate()
-        {
+        for (i, &g) in grad_x.data.iter().enumerate() {
             assert!(
                 (g - expected_grad[i]).abs() < 1e-5,
                 "Grad mismatch at index {}: got {}, expected {}",
@@ -90,8 +89,7 @@ mod tests {
         let val = tape.value(y.idx());
 
         // Each output element is sum of kernel weights = 1+2+3+4 = 10
-        for &v in val.data.iter()
-        {
+        for &v in val.data.iter() {
             assert!(
                 (v - 10.0).abs() < 1e-5,
                 "Forward value mismatch: got {}, expected 10.0",

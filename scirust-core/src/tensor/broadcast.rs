@@ -24,8 +24,7 @@ pub fn broadcast_get(data: &[f32], shape: &[usize], idx: &[usize]) -> f32 {
     assert_eq!(idx.len(), shape.len(), "broadcast_get index count mismatch");
     let mut flat_idx = 0usize;
     let mut stride = 1usize;
-    for (&s, &ix) in shape.iter().zip(idx).rev()
-    {
+    for (&s, &ix) in shape.iter().zip(idx).rev() {
         flat_idx += ix * stride;
         stride *= s;
     }

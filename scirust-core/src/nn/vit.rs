@@ -81,15 +81,12 @@ impl Module for ViT {
 
         // Skip transformer for small tests to avoid LayerNorm dimension mismatch
         // unless we can ensure d_model matches what transformer expects.
-        if seq_len == 1
-        {
+        if seq_len == 1 {
             use crate::tensor::tensor3d::Var3D;
             let x_3d = Var3D::from_var(patches, batch, seq_len, self.d_model);
             let encoded = self.encoder.forward_3d(tape, x_3d);
             self.head.forward(tape, encoded.var)
-        }
-        else
-        {
+        } else {
             // Simplified return for POC
             let dummy = tape.input(Tensor::zeros(batch, self.d_model));
             self.head.forward(tape, dummy)

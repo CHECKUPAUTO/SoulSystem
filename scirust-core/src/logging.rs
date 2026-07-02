@@ -91,18 +91,15 @@ impl TrainingLogger {
         value: f32,
         step: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        match self.format
-        {
-            LogFormat::Csv =>
-            {
+        match self.format {
+            LogFormat::Csv => {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_secs_f64();
                 writeln!(self.writer, "{},{},{},{}", step, tag, value, now)?;
-            },
-            LogFormat::TensorBoard =>
-            {
+            }
+            LogFormat::TensorBoard => {
                 // TensorBoard format: 8-byte header + protobuf event
                 // For simplicity, we write a human-readable event record
                 let now = SystemTime::now()
@@ -116,7 +113,7 @@ impl TrainingLogger {
                     "EVENT|tag={}|step={}|value={}|wall_time={:.6}",
                     tag, step, value, wall_time
                 )?;
-            },
+            }
         }
         Ok(())
     }
@@ -127,8 +124,7 @@ impl TrainingLogger {
         metrics: &[(&str, f32)],
         step: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        for (tag, value) in metrics
-        {
+        for (tag, value) in metrics {
             self.log_scalar(tag, *value, step)?;
         }
         Ok(())

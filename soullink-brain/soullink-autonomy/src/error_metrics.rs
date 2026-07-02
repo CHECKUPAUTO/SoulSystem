@@ -80,13 +80,12 @@ impl GlobalError {
 
     /// Calculate global error from individual components.
     pub fn calculate(&mut self) {
-        self.global_error =
-            self.weights.weight_prediction * self.prediction_error +
-            self.weights.weight_action * self.action_error +
-            self.weights.weight_goal * self.goal_error +
-            self.weights.weight_social * self.social_error +
-            self.weights.weight_uncertainty * self.uncertainty +
-            self.weights.weight_initiative * self.initiative_error;
+        self.global_error = self.weights.weight_prediction * self.prediction_error
+            + self.weights.weight_action * self.action_error
+            + self.weights.weight_goal * self.goal_error
+            + self.weights.weight_social * self.social_error
+            + self.weights.weight_uncertainty * self.uncertainty
+            + self.weights.weight_initiative * self.initiative_error;
     }
 
     /// Update prediction error.
@@ -178,7 +177,6 @@ impl GoalError {
     /// Calculate goal error between target and actual results.
     pub fn calculate(target: &str, result: &str) -> Self {
         let similarity = PredictionError::cosine_similarity(target, result);
-        let error = 1.0 - similarity;
 
         Self {
             target_goal: target.to_string(),

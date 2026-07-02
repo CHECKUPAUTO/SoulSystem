@@ -38,11 +38,9 @@ impl Dropout {
         let n = rows * cols;
         let scale = 1.0 / (1.0 - self.p);
         let mut data = vec![0.0f32; n];
-        for item in data.iter_mut()
-        {
+        for item in data.iter_mut() {
             let r: f32 = self.rng.float();
-            if r >= self.p
-            {
+            if r >= self.p {
                 *item = scale;
             }
         }
@@ -52,8 +50,7 @@ impl Dropout {
 
 impl Module for Dropout {
     fn forward<'t>(&mut self, tape: &'t Tape, input: Var<'t>) -> Var<'t> {
-        if !self.training
-        {
+        if !self.training {
             return input;
         }
         let (rows, cols) = input.shape();
@@ -114,8 +111,7 @@ mod tests {
 
         let v = tape.value(y.idx());
         // Chaque élément est soit 0 soit 2.0 * scale = 4.0
-        for &val in &v.data
-        {
+        for &val in &v.data {
             assert!(
                 val == 0.0 || (val - 4.0).abs() < 1e-5,
                 "Dropout output should be 0 or 4.0, got {}",
@@ -141,10 +137,8 @@ mod tests {
         // Le gradient doit être non-nul UNIQUEMENT où le mask est non-nul
         // grad = upstream(1) * mask, donc soit 0 soit scale
         let scale = 1.0 / (1.0 - 0.5);
-        for i in 0..10
-        {
-            if v.data[i] != 0.0
-            {
+        for i in 0..10 {
+            if v.data[i] != 0.0 {
                 assert!(
                     (g.data[i] - scale).abs() < 1e-5,
                     "grad[{}] should be scale={}, got {}",
@@ -152,9 +146,7 @@ mod tests {
                     scale,
                     g.data[i]
                 );
-            }
-            else
-            {
+            } else {
                 assert_eq!(g.data[i], 0.0, "grad[{}] should be 0 where mask is 0", i);
             }
         }
