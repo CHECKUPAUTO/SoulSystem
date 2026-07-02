@@ -10530,6 +10530,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "slha-kernel",
  "soullink-nvml",
  "thiserror 2.0.18",
  "tokio",
