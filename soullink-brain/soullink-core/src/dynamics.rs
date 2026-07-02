@@ -51,17 +51,17 @@ pub fn integrate_hamiltonian(organ: &mut OrganMesh, dt: f32) {
     // Forces at the current positions.
     let f0: Vec<f32> = (0..n).map(|i| force(&organ.q, i)).collect();
     // Half kick: p += (dt/2)·F(q).
-    for i in 0..n {
-        organ.p[i] += 0.5 * dt * f0[i];
+    for (p, f) in organ.p.iter_mut().zip(f0.iter()) {
+        *p += 0.5 * dt * f;
     }
     // Drift: q += dt·p.
-    for i in 0..n {
-        organ.q[i] += dt * organ.p[i];
+    for (q, p) in organ.q.iter_mut().zip(organ.p.iter()) {
+        *q += dt * p;
     }
     // Forces at the new positions, then the second half kick.
     let f1: Vec<f32> = (0..n).map(|i| force(&organ.q, i)).collect();
-    for i in 0..n {
-        organ.p[i] += 0.5 * dt * f1[i];
+    for (p, f) in organ.p.iter_mut().zip(f1.iter()) {
+        *p += 0.5 * dt * f;
     }
 }
 
