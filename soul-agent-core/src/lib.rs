@@ -62,6 +62,7 @@ use soullink_gate::{
 use soullink_memory_hierarchy::{
     ConsolidationConfig, EpisodicConfig, HierarchicalMemory, MemoryEntry, SemanticConfig,
 };
+use soullink_octasoma_backend::SemanticMemory;
 use soullink_reasoning::{ThoughtTree, TreeConfig};
 use soullink_trainer::{Trajectory, TrajectoryRecorder};
 use std::collections::HashMap;
@@ -202,6 +203,10 @@ pub struct AutonomousAgent {
     /// causal graph; failures inject pressure; recall yields a bounded,
     /// causally-coherent working set for long sessions.
     pub ccos: CcosMemory,
+    /// Topical semantic memory of the agent's own observations (OctaSoma 3-D
+    /// fractal store). Complements CCOS (causal code context) and the tiered
+    /// hierarchical memory: this is for "what have I seen/said about X?".
+    pub semantic: SemanticMemory,
 }
 
 impl AutonomousAgent {
@@ -278,6 +283,7 @@ impl AutonomousAgent {
             scanner: InjectionScanner::new(),
             gate: ApprovalGate::new(ExecutionMode::Autonomous),
             ccos: CcosMemory::new(),
+            semantic: SemanticMemory::offline(256, 0),
         }
     }
 
@@ -351,6 +357,7 @@ impl AutonomousAgent {
             scanner: InjectionScanner::new(),
             gate: ApprovalGate::new(ExecutionMode::Autonomous),
             ccos: CcosMemory::new(),
+            semantic: SemanticMemory::offline(256, 0),
         }
     }
 
@@ -461,6 +468,20 @@ impl AutonomousAgent {
     /// Current CCOS graph stats (nodes/edges/events/files/clock).
     pub fn ccos_stats(&self) -> ccos::external_memory::MemoryStats {
         self.ccos.stats()
+    }
+
+    /// Store an observation in the agent's topical semantic memory (OctaSoma).
+    /// Short/empty text is ignored; errors are swallowed (best-effort memory).
+    pub fn remember_observation(&mut self, text: &str) {
+        let t = text.trim();
+        if t.len() >= 12 {
+            let _ = self.semantic.remember(t);
+        }
+    }
+
+    /// Recall the `k` topically-nearest past observations for `query`.
+    pub fn recall_semantic(&self, query: &str, k: usize) -> Vec<String> {
+        self.semantic.recall(query, k).unwrap_or_default()
     }
 
     /// Append the CCOS causal working set to the chat context as a bounded
@@ -887,6 +908,8 @@ impl AutonomousAgent {
             if !content.is_empty() {
                 last_response = content.clone();
                 self.chat_session.add_assistant_message(&content);
+                // Fold the agent's own conclusion into topical semantic memory.
+                self.remember_observation(&content);
                 self.emit_event(AgentEvent::Response {
                     content: content.clone(),
                 });
@@ -1951,6 +1974,20 @@ mod tests {
         let last = agent.chat_session.messages.last().unwrap();
         assert!(last.content.contains("CCOS causal working set"));
         assert!(last.content.contains(".rs"));
+    }
+
+    #[test]
+    fn semantic_memory_remembers_and_recalls_observations() {
+        let mut agent = make_test_agent();
+        assert!(agent.semantic.is_empty());
+        agent.remember_observation("The database connection pool was exhausted under load.");
+        agent.remember_observation("Rust ownership prevents data races at compile time.");
+        agent.remember_observation("The user prefers dark mode and metric units.");
+        agent.remember_observation("ok");
+        assert_eq!(agent.semantic.len(), 3);
+
+        let hits = agent.recall_semantic("what did I learn about Rust?", 2);
+        assert_eq!(hits.len(), 2);
     }
 
     // ── Mock helpers ────────────────────────────────────────────────────

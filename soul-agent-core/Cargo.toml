@@ -21,6 +21,7 @@ soul-intrinsic-motivation = { path = "../soul-intrinsic-motivation" }
 soul-memory = { workspace = true }
 soul_skills = { path = "../soul-skills" }
 ccos = { path = "../ccos", features = ["syn-parser"] }
+soullink-octasoma-backend = { path = "../soullink-brain/soullink-octasoma-backend" }
 serde = { workspace = true }
 serde_json = "1"
 tokio = { workspace = true }
