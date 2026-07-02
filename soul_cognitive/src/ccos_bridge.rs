@@ -70,7 +70,7 @@ impl CausalMemoryBackend {
                 let p = entry.path();
                 if p.is_dir() {
                     files.extend(Self::collect_rs_files(&p));
-                } else if p.extension().map_or(false, |e| e == "rs") {
+                } else if p.extension().is_some_and(|e| e == "rs") {
                     if let Ok(source) = std::fs::read_to_string(&p) {
                         let rel = p
                             .strip_prefix(path)
