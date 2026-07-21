@@ -132,14 +132,25 @@ impl TelemetryHub {
         self: &Arc<Self>,
         period: Duration,
     ) -> std::io::Result<JoinHandle<()>> {
+        self.spawn_thermal_sampler_with_reader(period, read_thermal_millicelsius)
+    }
+
+    /// Variante injectable de l'echantillonneur, utilisee par les tests
+    /// pour fournir des echantillons deterministes sans materiel reel.
+    fn spawn_thermal_sampler_with_reader<F>(
+        self: &Arc<Self>,
+        period: Duration,
+        reader: F,
+    ) -> std::io::Result<JoinHandle<()>>
+    where
+        F: Fn() -> Option<u32> + Send + 'static,
+    {
         let weak: Weak<Self> = Arc::downgrade(self);
         std::thread::Builder::new()
             .name("thermal-sampler".to_string())
             .spawn(move || {
-                // Upgrade ephemere : on ne garde aucune ref forte pendant le
-                // sleep, sinon on retarderait la liberation du hub.
                 while let Some(hub) = weak.upgrade() {
-                    if let Some(milli) = read_thermal_millicelsius() {
+                    if let Some(milli) = reader() {
                         hub.thermal_millicelsius.store(milli, Ordering::Relaxed);
                     }
                     std::thread::sleep(period);
@@ -148,22 +159,198 @@ impl TelemetryHub {
     }
 }
 
+/// Lit la temperature brute (millidegres) depuis un chemin donne.
+/// Utilisee par la production sur sysfs et par les tests sur des fichiers temp.
+fn read_thermal_millicelsius_from(path: &std::path::Path) -> Option<u32> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    raw.trim().parse::<u32>().ok()
+}
+
 /// Lit la temperature brute (millidegres) depuis sysfs. HORS chemin chaud.
 fn read_thermal_millicelsius() -> Option<u32> {
-    let raw = std::fs::read_to_string(THERMAL_SYSFS_PATH).ok()?;
-    raw.trim().parse::<u32>().ok()
+    read_thermal_millicelsius_from(std::path::Path::new(THERMAL_SYSFS_PATH))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
+
+    // ------------------------------------------------------------------
+    // 6.1  Valid sysfs parsing
+    // ------------------------------------------------------------------
+    #[test]
+    fn lit_un_fichier_sysfs_valide() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("temp");
+        std::fs::write(&path, b"42000").unwrap();
+        assert_eq!(read_thermal_millicelsius_from(&path), Some(42_000));
+    }
 
     #[test]
-    fn sampler_lit_le_capteur_reel() {
+    fn ignore_le_retour_a_la_ligne() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("temp");
+        std::fs::write(&path, b"42000\n").unwrap();
+        assert_eq!(read_thermal_millicelsius_from(&path), Some(42_000));
+    }
+
+    // ------------------------------------------------------------------
+    // 6.2  Invalid sysfs content
+    // ------------------------------------------------------------------
+    #[test]
+    fn fichier_vide_retourne_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("temp");
+        std::fs::write(&path, b"").unwrap();
+        assert_eq!(read_thermal_millicelsius_from(&path), None);
+    }
+
+    #[test]
+    fn contenu_non_numerique_retourne_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("temp");
+        std::fs::write(&path, b"pas un nombre").unwrap();
+        assert_eq!(read_thermal_millicelsius_from(&path), None);
+    }
+
+    #[test]
+    fn valeur_negative_retourne_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("temp");
+        std::fs::write(&path, b"-42").unwrap();
+        assert_eq!(read_thermal_millicelsius_from(&path), None);
+    }
+
+    #[test]
+    fn valeur_hors_u32_retourne_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("temp");
+        std::fs::write(&path, b"999999999999").unwrap();
+        assert_eq!(read_thermal_millicelsius_from(&path), None);
+    }
+
+    // ------------------------------------------------------------------
+    // 6.3  Missing sysfs file
+    // ------------------------------------------------------------------
+    #[test]
+    fn chemin_inexistant_retourne_none() {
+        let path = std::path::Path::new("/tmp/ce_chemin_n_existe_pas_sur_aucune_machine");
+        assert_eq!(read_thermal_millicelsius_from(path), None);
+    }
+
+    // ------------------------------------------------------------------
+    // 6.4  Deterministic sampler publication
+    // ------------------------------------------------------------------
+    #[test]
+    fn echantillonneur_deterministe_publie_la_temperature() {
+        let hub = Arc::new(TelemetryHub::new(4));
+        let _h = hub
+            .spawn_thermal_sampler_with_reader(Duration::from_millis(10), || Some(42_000))
+            .expect("spawn");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if hub.current_temp_celsius() == 42 {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timeout en attendant l'echantillon thermique"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 6.5  Fail-open behavior
+    // ------------------------------------------------------------------
+    #[test]
+    fn echantillonneur_fail_open_sans_capteur() {
         let hub = Arc::new(TelemetryHub::new(4));
         // Avant tout echantillon : fail-open (pas de throttle), temp 0.
+        assert!(!hub.check_thermal_status(0));
+        assert_eq!(hub.current_temp_celsius(), 0);
+
+        let _h = hub
+            .spawn_thermal_sampler_with_reader(Duration::from_millis(10), || None)
+            .expect("spawn");
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Toujours fail-open puisque le reader injecte None
+        assert!(!hub.check_thermal_status(0));
+        assert_eq!(hub.current_temp_celsius(), 0);
+    }
+
+    // ------------------------------------------------------------------
+    // 6.6  Thermal threshold behavior
+    // ------------------------------------------------------------------
+    #[test]
+    fn temperature_sous_le_seuil_ne_declenche_pas_de_throttling() {
+        let hub = Arc::new(TelemetryHub::new(4));
+        // 40 °C < THERMAL_LIMIT_CELSIUS (80)
+        hub.thermal_millicelsius.store(40_000, Ordering::Relaxed);
+        assert!(!hub.check_thermal_status(0));
+        assert!(!hub.check_thermal_status(1));
+        assert!(!hub.check_thermal_status(2));
+        assert!(!hub.check_thermal_status(3));
+    }
+
+    #[test]
+    fn temperature_au_dessus_du_seuil_declenche_le_throttling() {
+        let hub = Arc::new(TelemetryHub::new(4));
+        // 90 °C > THERMAL_LIMIT_CELSIUS (80)
+        hub.thermal_millicelsius.store(90_000, Ordering::Relaxed);
+        assert!(hub.check_thermal_status(0));
+        assert!(hub.check_thermal_status(1));
+        let snap = hub.get_core_metrics();
+        assert_eq!(snap[0].thermal_backoff_events, 1);
+        assert_eq!(snap[1].thermal_backoff_events, 1);
+    }
+
+    #[test]
+    fn temperature_a_la_limite_exacte_ne_declenche_pas() {
+        let hub = Arc::new(TelemetryHub::new(4));
+        // 80 °C === THERMAL_LIMIT_CELSIUS (80), pas > 80 => pas de throttling
+        hub.thermal_millicelsius.store(80_000, Ordering::Relaxed);
+        assert!(!hub.check_thermal_status(0));
+    }
+
+    #[test]
+    fn temperature_zero_vaut_fail_open() {
+        let hub = Arc::new(TelemetryHub::new(4));
+        hub.thermal_millicelsius.store(0, Ordering::Relaxed);
+        assert!(!hub.check_thermal_status(0));
+    }
+
+    // ------------------------------------------------------------------
+    // 6.7  Thread shutdown
+    // ------------------------------------------------------------------
+    #[test]
+    fn sampler_s_eteint_a_la_liberation_du_hub() {
+        let hub = Arc::new(TelemetryHub::new(1));
+        let h = hub
+            .spawn_thermal_sampler_with_reader(Duration::from_millis(20), || Some(42_000))
+            .expect("spawn");
+        drop(hub);
+        let start = Instant::now();
+        h.join().expect("join sampler");
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "le sampler n'a pas termine apres liberation du hub"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // 7.  Optional real-hardware smoke test (manual only)
+    // ------------------------------------------------------------------
+    #[test]
+    #[ignore = "requires a Linux host exposing a real sysfs thermal sensor"]
+    fn sampler_lit_le_capteur_reel_quand_disponible() {
+        if !std::path::Path::new(THERMAL_SYSFS_PATH).exists() {
+            panic!("sysfs {} absent", THERMAL_SYSFS_PATH);
+        }
+        let hub = Arc::new(TelemetryHub::new(4));
         assert!(!hub.check_thermal_status(0));
         assert_eq!(hub.current_temp_celsius(), 0);
 
@@ -171,39 +358,14 @@ mod tests {
             .spawn_thermal_sampler(Duration::from_millis(50))
             .expect("spawn thermal-sampler");
 
-        // Laisse passer quelques ticks : sysfs doit etre lu et publie.
         std::thread::sleep(Duration::from_millis(300));
 
         let c = hub.current_temp_celsius();
-        assert!(
-            c > 0,
-            "temperature non echantillonnee (sysfs zone0 absent ?) : {}",
-            c
-        );
+        assert!(c > 0, "temperature non echantillonnee depuis sysfs : {}", c);
         assert!(c < 150, "temperature aberrante : {}", c);
         println!(
             "PREUVE thermique : capteur lu hors chemin chaud -> {} deg C",
             c
-        );
-    }
-
-    #[test]
-    fn sampler_s_eteint_a_la_liberation_du_hub() {
-        // Le thread ne tient qu'un Weak : quand le dernier Arc tombe, il sort.
-        let hub = Arc::new(TelemetryHub::new(1));
-        let h = hub
-            .spawn_thermal_sampler(Duration::from_millis(20))
-            .expect("spawn");
-        drop(hub); // plus aucune reference forte
-        let start = std::time::Instant::now();
-        h.join().expect("join sampler");
-        assert!(
-            start.elapsed() < Duration::from_secs(2),
-            "le sampler n'a pas termine apres liberation du hub"
-        );
-        println!(
-            "PREUVE auto-stop : sampler termine en {:?}",
-            start.elapsed()
         );
     }
 }
