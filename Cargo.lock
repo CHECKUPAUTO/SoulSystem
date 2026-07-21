@@ -1401,7 +1401,7 @@ dependencies = [
  "futures",
  "garde 0.23.0",
  "image",
- "lru 0.12.5",
+ "lru 0.18.0",
  "ort",
  "serde",
  "serde_json",
