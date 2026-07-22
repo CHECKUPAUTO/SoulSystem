@@ -359,7 +359,11 @@ mod tests {
     #[ignore = "requires a Linux host exposing a real sysfs thermal sensor"]
     fn sampler_lit_le_capteur_reel_quand_disponible() {
         if !std::path::Path::new(THERMAL_SYSFS_PATH).exists() {
-            panic!("sysfs {} absent", THERMAL_SYSFS_PATH);
+            eprintln!(
+                "real thermal sensor unavailable at {}; manual hardware smoke test skipped",
+                THERMAL_SYSFS_PATH
+            );
+            return;
         }
         let hub = Arc::new(TelemetryHub::new(4));
         assert!(!hub.check_thermal_status(0));
