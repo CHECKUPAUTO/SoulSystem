@@ -236,8 +236,10 @@ mod tests {
     // ------------------------------------------------------------------
     #[test]
     fn chemin_inexistant_retourne_none() {
-        let path = std::path::Path::new("/tmp/ce_chemin_n_existe_pas_sur_aucune_machine");
-        assert_eq!(read_thermal_millicelsius_from(path), None);
+        let dir = tempfile::tempdir().expect("create temporary directory");
+        let path = dir.path().join("missing-temperature-file");
+        assert!(!path.exists());
+        assert_eq!(read_thermal_millicelsius_from(&path), None);
     }
 
     // ------------------------------------------------------------------
@@ -246,7 +248,7 @@ mod tests {
     #[test]
     fn echantillonneur_deterministe_publie_la_temperature() {
         let hub = Arc::new(TelemetryHub::new(4));
-        let _h = hub
+        let handle = hub
             .spawn_thermal_sampler_with_reader(Duration::from_millis(10), || Some(42_000))
             .expect("spawn");
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -260,6 +262,10 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(5));
         }
+        drop(hub);
+        handle
+            .join()
+            .expect("thermal sampler thread should terminate");
     }
 
     // ------------------------------------------------------------------
@@ -272,7 +278,7 @@ mod tests {
         assert!(!hub.check_thermal_status(0));
         assert_eq!(hub.current_temp_celsius(), 0);
 
-        let _h = hub
+        let handle = hub
             .spawn_thermal_sampler_with_reader(Duration::from_millis(10), || None)
             .expect("spawn");
         std::thread::sleep(Duration::from_millis(100));
@@ -280,6 +286,11 @@ mod tests {
         // Toujours fail-open puisque le reader injecte None
         assert!(!hub.check_thermal_status(0));
         assert_eq!(hub.current_temp_celsius(), 0);
+
+        drop(hub);
+        handle
+            .join()
+            .expect("thermal sampler thread should terminate");
     }
 
     // ------------------------------------------------------------------
@@ -354,7 +365,7 @@ mod tests {
         assert!(!hub.check_thermal_status(0));
         assert_eq!(hub.current_temp_celsius(), 0);
 
-        let _h = hub
+        let handle = hub
             .spawn_thermal_sampler(Duration::from_millis(50))
             .expect("spawn thermal-sampler");
 
@@ -367,5 +378,10 @@ mod tests {
             "PREUVE thermique : capteur lu hors chemin chaud -> {} deg C",
             c
         );
+
+        drop(hub);
+        handle
+            .join()
+            .expect("thermal sampler thread should terminate");
     }
 }
