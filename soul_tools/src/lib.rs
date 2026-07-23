@@ -248,31 +248,120 @@ impl AsyncShellExecutor {
     }
 }
 
+// ── Typed tool registry ────────────────────────────────────────
+
+/// Error raised by the tool dispatch path.
+///
+/// Security-critical invariant (INV-TOOL-1, see
+/// `docs/security/SECURITY_INVARIANTS.md`): an unregistered tool name yields
+/// [`ToolError::UnknownTool`] and is NEVER converted into a process invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolError {
+    /// The requested tool name is not a registered tool.
+    UnknownTool { name: String },
+}
+
+impl std::fmt::Display for ToolError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownTool { name } => {
+                write!(f, "unknown tool {name:?}: not a registered tool")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ToolError {}
+
+/// The closed set of tools the agent may dispatch.
+///
+/// This enum *is* the registry: [`ToolId::from_name`] is the only way a tool
+/// name becomes dispatchable, and it accepts exactly these identifiers. There is
+/// no fallback that turns an arbitrary name into an executable invocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolId {
+    /// Run a shell command (the single explicit process-execution tool).
+    ExecuteShell,
+    /// Read a file.
+    ReadFile,
+    /// Write a file.
+    WriteFile,
+    /// Patch a file (search/replace).
+    PatchFile,
+}
+
+impl ToolId {
+    /// The canonical wire name of this tool.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ExecuteShell => "execute_shell",
+            Self::ReadFile => "read_file",
+            Self::WriteFile => "write_file",
+            Self::PatchFile => "patch_file",
+        }
+    }
+
+    /// Every registered tool id.
+    pub fn all() -> [ToolId; 4] {
+        [
+            Self::ExecuteShell,
+            Self::ReadFile,
+            Self::WriteFile,
+            Self::PatchFile,
+        ]
+    }
+
+    /// Resolve a tool name to its id, or fail closed.
+    ///
+    /// The match is exact: no trimming, no case-folding, no Unicode
+    /// normalisation. Any name that is not byte-for-byte one of the registered
+    /// identifiers yields [`ToolError::UnknownTool`] and cannot execute.
+    pub fn from_name(name: &str) -> std::result::Result<ToolId, ToolError> {
+        match name {
+            "execute_shell" => Ok(Self::ExecuteShell),
+            "read_file" => Ok(Self::ReadFile),
+            "write_file" => Ok(Self::WriteFile),
+            "patch_file" => Ok(Self::PatchFile),
+            _ => Err(ToolError::UnknownTool {
+                name: name.to_string(),
+            }),
+        }
+    }
+
+    /// Whether `name` is a registered tool.
+    pub fn is_registered(name: &str) -> bool {
+        Self::from_name(name).is_ok()
+    }
+}
+
 // ── Dispatch ───────────────────────────────────────────────────
 
 pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result<String, String> {
-    match name {
-        "execute_shell" => {
+    // Fail closed: only registered tools dispatch. An unregistered name can
+    // never reach process execution — there is no wildcard fallthrough
+    // (INV-TOOL-1). See docs/security/SECURITY_INVARIANTS.md.
+    let tool = ToolId::from_name(name).map_err(|e| e.to_string())?;
+    match tool {
+        ToolId::ExecuteShell => {
             let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
             execute_shell(cmd)
         }
-        "read_file" => {
+        ToolId::ReadFile => {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             std::fs::read_to_string(path).map_err(|e| e.to_string())
         }
-        "write_file" => {
+        ToolId::WriteFile => {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
             std::fs::write(path, content).map_err(|e| e.to_string())?;
             Ok(format!("written {} bytes", content.len()))
         }
-        "patch_file" => {
+        ToolId::PatchFile => {
             let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let old_text = args.get("old_text").and_then(|v| v.as_str()).unwrap_or("");
             let new_text = args.get("new_text").and_then(|v| v.as_str()).unwrap_or("");
             patch_file(path, old_text, new_text)
         }
-        _ => execute_shell(&format!("{} {}", name, args)),
     }
 }
 
@@ -398,8 +487,60 @@ mod compat_tests {
     }
 
     #[test]
-    fn unknown_tool_errors() {
-        assert!(dispatch_tool("nope", json!({})).is_err());
+    fn unknown_tool_never_executes() {
+        // A non-existent command name errors, as before...
+        let e = dispatch_tool("nope", json!({})).unwrap_err();
+        assert!(e.contains("unknown tool"), "got: {e}");
+
+        // ...and — the actual CRIT-002 fix — a REAL executable is rejected
+        // rather than run. Under the old wildcard fallthrough, `dispatch_tool`
+        // would have executed `echo {}` / `bash {}` and returned Ok. Now every
+        // one of these must fail closed with UnknownTool.
+        for name in ["echo", "bash", "sh", "python3", "env", "cat", "curl"] {
+            let err = dispatch_tool(name, json!({"anything": "here"})).unwrap_err();
+            assert!(
+                err.contains("unknown tool"),
+                "{name:?} must be rejected as unknown, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_tool_names_rejected() {
+        // Exact-match registry: no trimming, casing, path separators, control
+        // characters, embedded arguments, or Unicode look-alikes get through.
+        let names = [
+            "",                 // empty
+            " ",                // whitespace only
+            "read_file ",       // trailing space
+            " read_file",       // leading space
+            "READ_FILE",        // wrong case
+            "read/file",        // path separator
+            "read_file\n",      // trailing newline
+            "execute_shell;id", // embedded command
+            "execute_shell id", // space-embedded argument
+            "reаd_file",        // Cyrillic 'а' (U+0430) look-alike
+        ];
+        for name in names {
+            assert!(
+                ToolId::from_name(name).is_err(),
+                "name {name:?} must not resolve to a tool"
+            );
+            assert!(
+                dispatch_tool(name, json!({})).is_err(),
+                "dispatch of {name:?} must fail closed"
+            );
+        }
+    }
+
+    #[test]
+    fn registry_roundtrip_and_membership() {
+        for id in ToolId::all() {
+            assert_eq!(ToolId::from_name(id.as_str()), Ok(id));
+            assert!(ToolId::is_registered(id.as_str()));
+        }
+        assert!(!ToolId::is_registered("bash"));
+        assert!(!ToolId::is_registered(""));
     }
 
     #[tokio::test]
