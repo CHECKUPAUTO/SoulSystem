@@ -817,17 +817,20 @@ impl AutonomousAgent {
                             args: args.clone(),
                         });
 
-                        // Outbound policy gate. PermissionLevel classifies the
-                        // command; ApprovalGate is the single decision point
-                        // (persistent allow/deny memory + execution modes).
-                        let (permission, scope) = if name == "execute_shell" {
-                            let cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("");
-                            (
-                                soul_tools::PermissionLevel::from_command(cmd),
-                                cmd.to_string(),
-                            )
+                        // Outbound policy gate. The required permission is
+                        // derived from the trusted tool registry — never from a
+                        // caller-supplied level — so write_file/patch_file are
+                        // classified by their FileWrite capability rather than
+                        // defaulting to Read (CRIT-003). The shell tool is refined
+                        // per-command; an unregistered name is treated as the most
+                        // restrictive level. ApprovalGate remains the single
+                        // decision point (persistent allow/deny memory + modes).
+                        let cmd = args.get("command").and_then(|c| c.as_str());
+                        let permission = soul_tools::required_permission_for(&name, cmd);
+                        let scope = if name == "execute_shell" {
+                            cmd.unwrap_or("").to_string()
                         } else {
-                            (soul_tools::PermissionLevel::Read, name.clone())
+                            name.clone()
                         };
 
                         let req = permission_requirement(permission);
