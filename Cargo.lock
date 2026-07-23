@@ -10235,6 +10235,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry_sdk",
  "prometheus",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]

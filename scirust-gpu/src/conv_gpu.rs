@@ -121,24 +121,17 @@ pub fn cpu_im2col(
     let col_cols = out_h * out_w;
     let mut col = vec![0.0f32; batch * col_rows * col_cols];
 
-    for b in 0..batch
-    {
-        for c in 0..channels
-        {
-            for ky in 0..k
-            {
-                for kx in 0..k
-                {
-                    for oy in 0..out_h
-                    {
-                        for ox in 0..out_w
-                        {
+    for b in 0..batch {
+        for c in 0..channels {
+            for ky in 0..k {
+                for kx in 0..k {
+                    for oy in 0..out_h {
+                        for ox in 0..out_w {
                             let in_y = oy * stride + ky;
                             let in_x = ox * stride + kx;
                             let col_row = c * k * k + ky * k + kx;
                             let col_idx = ((b * col_rows + col_row) * out_h + oy) * out_w + ox;
-                            if in_y >= pad && in_y < h + pad && in_x >= pad && in_x < w + pad
-                            {
+                            if in_y >= pad && in_y < h + pad && in_x >= pad && in_x < w + pad {
                                 let in_y = in_y - pad;
                                 let in_x = in_x - pad;
                                 let in_idx = ((b * channels + c) * h + in_y) * w + in_x;
@@ -170,22 +163,15 @@ pub fn cpu_col2im(
     let im_size = batch * channels * h * w;
     let mut im = vec![0.0f32; im_size];
 
-    for b in 0..batch
-    {
-        for c in 0..channels
-        {
-            for ky in 0..k
-            {
-                for kx in 0..k
-                {
-                    for oy in 0..out_h
-                    {
-                        for ox in 0..out_w
-                        {
+    for b in 0..batch {
+        for c in 0..channels {
+            for ky in 0..k {
+                for kx in 0..k {
+                    for oy in 0..out_h {
+                        for ox in 0..out_w {
                             let in_y = oy * stride + ky;
                             let in_x = ox * stride + kx;
-                            if in_y >= pad && in_y < h + pad && in_x >= pad && in_x < w + pad
-                            {
+                            if in_y >= pad && in_y < h + pad && in_x >= pad && in_x < w + pad {
                                 let in_y = in_y - pad;
                                 let in_x = in_x - pad;
                                 let in_idx = ((b * channels + c) * h + in_y) * w + in_x;

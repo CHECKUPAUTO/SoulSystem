@@ -12,7 +12,9 @@ members = [
     "scirust-simd",
     "scirust-autodiff",
     "scirust-simd-macros",
-    "scirust-gpu-macros",
+    # scirust-gpu-macros moved to the dedicated ./workspaces/gpu workspace
+    # (see exclude below). It remains a cross-workspace path dependency of
+    # scirust-core, which is allowed; it must not be a member of both.
     "scirust-macros",
     "scirust-symbolic",
     "scirust-learning",
@@ -221,6 +223,15 @@ exclude = [
     "avid-soullink",
     "avid-rstdp",
     "turbovec",
+    # Dedicated GPU/CUDA sub-workspace (./workspaces/gpu). These crates are
+    # owned exclusively by that workspace so the root and GPU workspaces do
+    # not both claim ownership. They may still be consumed as path
+    # dependencies across the workspace boundary (e.g. scirust-core -> scirust-gpu-macros).
+    "scirust-gpu",
+    "scirust-gpu-macros",
+    "soullink-brain/soullink-cutlass",
+    "soullink-brain/soullink-dali",
+    "soullink-brain/soullink-onednn",
 ]
 
 [workspace.package]

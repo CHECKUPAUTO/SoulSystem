@@ -169,8 +169,7 @@ impl WgpuContext {
     /// (unary). For binary ops `a` and `b` must share a shape; the result stays
     /// in VRAM. For relu, pass `b = a` (it is ignored).
     pub fn ew_resident(&self, a: &GpuMatrix, b: &GpuMatrix, op: u32) -> BackendResult<GpuMatrix> {
-        if op < 2 && (a.rows != b.rows || a.cols != b.cols)
-        {
+        if op < 2 && (a.rows != b.rows || a.cols != b.cols) {
             return Err(BackendError::ShapeMismatch(format!(
                 "elementwise: {}×{} vs {}×{}",
                 a.rows, a.cols, b.rows, b.cols
@@ -184,8 +183,7 @@ impl WgpuContext {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        if n > 0
-        {
+        if n > 0 {
             let params: [u32; 4] = [n as u32, op, 0, 0];
             let p_buf = self
                 .device
@@ -259,8 +257,7 @@ impl WgpuContext {
         elems: usize,
         bytes: u64,
     ) -> BackendResult<Vec<f32>> {
-        if elems == 0
-        {
+        if elems == 0 {
             return Ok(Vec::new());
         }
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -319,8 +316,7 @@ impl WgpuContext {
         b: &crate::tensor::GpuTensor,
         op: u32,
     ) -> BackendResult<crate::tensor::GpuTensor> {
-        if op < 2 && (a.rows != b.rows || a.cols != b.cols)
-        {
+        if op < 2 && (a.rows != b.rows || a.cols != b.cols) {
             return Err(BackendError::ShapeMismatch(format!(
                 "elementwise shape mismatch: {}×{} vs {}×{}",
                 a.rows, a.cols, b.rows, b.cols
@@ -334,8 +330,7 @@ impl WgpuContext {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        if n > 0
-        {
+        if n > 0 {
             let params: [u32; 4] = [n as u32, op, 0, 0];
             let p_buf = self
                 .device
@@ -406,15 +401,12 @@ impl WgpuContext {
         ta: bool,
         tb: bool,
     ) -> BackendResult<()> {
-        if m == 0 || n == 0
-        {
+        if m == 0 || n == 0 {
             return Ok(());
         }
-        if k == 0
-        {
+        if k == 0 {
             // No contraction: C = beta·C (handled on the host, no GPU work).
-            for v in c.iter_mut()
-            {
+            for v in c.iter_mut() {
                 *v *= beta;
             }
             return Ok(());
@@ -527,17 +519,14 @@ impl WgpuContext {
     pub fn upload(&self, data: &[f32], rows: usize, cols: usize) -> GpuMatrix {
         // wgpu rejects zero-sized buffers; back an empty matrix with a 4-byte
         // placeholder so the handle stays valid (`download` short-circuits empties).
-        let buf = if data.is_empty()
-        {
+        let buf = if data.is_empty() {
             self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("resident-empty"),
                 size: 4,
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             })
-        }
-        else
-        {
+        } else {
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("resident"),
@@ -562,8 +551,7 @@ impl WgpuContext {
         let k = if ta { a.rows } else { a.cols };
         let n = if tb { b.rows } else { b.cols };
         let kb = if tb { b.cols } else { b.rows };
-        if k != kb
-        {
+        if k != kb {
             return Err(BackendError::ShapeMismatch(format!(
                 "inner dims disagree: op(A) is {m}×{k}, op(B) is {kb}×{n}"
             )));
@@ -581,8 +569,7 @@ impl WgpuContext {
         });
         // Fresh result: alpha=1, beta=0. wgpu zero-initialises c_buf, so the
         // `beta·C` term reads valid zeros.
-        if m != 0 && n != 0 && k != 0
-        {
+        if m != 0 && n != 0 && k != 0 {
             self._encode_gemm(&a.buf, &b.buf, &c_buf, m, k, n, ta, tb, 1.0, 0.0);
         }
         Ok(GpuMatrix {
@@ -595,8 +582,7 @@ impl WgpuContext {
     /// Download a resident matrix back to a CPU `Vec<f32>` (row-major).
     pub fn download(&self, mat: &GpuMatrix) -> BackendResult<Vec<f32>> {
         let elems = mat.rows * mat.cols;
-        if elems == 0
-        {
+        if elems == 0 {
             return Ok(Vec::new());
         }
         let bytes = (elems * std::mem::size_of::<f32>()) as u64;
@@ -705,13 +691,11 @@ impl WgpuContext {
 /// One-shot row-major `C = A·B`. Acquires a fresh [`WgpuContext`]; for repeated
 /// calls (e.g. an autograd backward pass) prefer a cached [`crate::WgpuEngine`].
 pub fn wgpu_gemm(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> BackendResult<Vec<f32>> {
-    if m == 0 || n == 0
-    {
+    if m == 0 || n == 0 {
         return Ok(Vec::new());
     }
     let mut c = vec![0.0f32; m * n];
-    if k == 0
-    {
+    if k == 0 {
         return Ok(c);
     }
     WgpuContext::new()?.gemm(1.0, a, b, 0.0, &mut c, m, k, n, false, false)?;
@@ -739,14 +723,12 @@ mod tests {
     /// CI provides a software Vulkan adapter (lavapipe) so the assertion path
     /// is actually exercised there.
     fn run_or_skip(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Option<Vec<f32>> {
-        match super::wgpu_gemm(a, b, m, k, n)
-        {
+        match super::wgpu_gemm(a, b, m, k, n) {
             Ok(v) => Some(v),
-            Err(crate::BackendError::Unavailable(_)) =>
-            {
+            Err(crate::BackendError::Unavailable(_)) => {
                 eprintln!("wgpu: no adapter available, skipping");
                 None
-            },
+            }
             Err(e) => panic!("unexpected error: {e:?}"),
         }
     }
@@ -756,8 +738,7 @@ mod tests {
         // A (3×4) · B (4×2), values chosen to be non-trivial.
         let a: Vec<f32> = (0..12).map(|i| (i as f32 * 0.5 - 2.0).sin()).collect();
         let b: Vec<f32> = (0..8).map(|i| (i as f32 * 0.3 + 1.0).cos()).collect();
-        if let Some(gpu) = run_or_skip(&a, &b, 3, 4, 2)
-        {
+        if let Some(gpu) = run_or_skip(&a, &b, 3, 4, 2) {
             let cpu = CpuBackend.gemm_f32(&a, &b, 3, 4, 2).unwrap();
             assert_eq!(gpu.len(), cpu.len());
             assert!(rel_err(&gpu, &cpu) < 1e-4, "gpu={gpu:?} cpu={cpu:?}");
@@ -768,8 +749,7 @@ mod tests {
     fn wgpu_gemm_identity_roundtrip() {
         let a = [1.0f32, 2.0, 3.0, 4.0]; // 2×2
         let id = [1.0f32, 0.0, 0.0, 1.0];
-        if let Some(gpu) = run_or_skip(&a, &id, 2, 2, 2)
-        {
+        if let Some(gpu) = run_or_skip(&a, &id, 2, 2, 2) {
             assert!(rel_err(&gpu, &a) < 1e-5);
         }
     }
@@ -780,16 +760,13 @@ mod tests {
         // either a correct result (adapter present) or an honest Unavailable.
         let a = [1.0f32, 2.0, 3.0, 4.0];
         let id = [1.0f32, 0.0, 0.0, 1.0];
-        match WgpuBackend.gemm_f32(&a, &id, 2, 2, 2)
-        {
-            Ok(v) =>
-            {
+        match WgpuBackend.gemm_f32(&a, &id, 2, 2, 2) {
+            Ok(v) => {
                 let cpu = CpuBackend.gemm_f32(&a, &id, 2, 2, 2).unwrap();
                 assert!(rel_err(&v, &cpu) < 1e-5);
                 assert_eq!(GpuAccelerator::Wgpu(WgpuBackend).device_name(), "wgpu");
-            },
-            Err(crate::BackendError::Unavailable("wgpu")) =>
-            {},
+            }
+            Err(crate::BackendError::Unavailable("wgpu")) => {}
             Err(e) => panic!("unexpected: {e:?}"),
         }
     }
@@ -798,14 +775,12 @@ mod tests {
     /// computation. C = 2·Aᵀ·B + 0.5·C0.
     #[test]
     fn wgpu_gemm_transpose_alpha_beta() {
-        let ctx = match super::WgpuContext::new()
-        {
+        let ctx = match super::WgpuContext::new() {
             Ok(c) => c,
-            Err(_) =>
-            {
+            Err(_) => {
                 eprintln!("wgpu: no adapter, skipping");
                 return;
-            },
+            }
         };
         // op(A) = Aᵀ where stored A is k×m. Take A stored as 2×2 → op(A) 2×2.
         // stored a (k×m = 2×2) = [[1,2],[3,4]] → op(A)=Aᵀ=[[1,3],[2,4]]

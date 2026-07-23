@@ -5,39 +5,29 @@ use crate::kernels::EwOp;
 /// Apply an activation function elementwise (CPU reference, deterministic).
 pub fn cpu_activation(data: &[f32], op: EwOp) -> Vec<f32> {
     data.iter()
-        .map(|&x| match op
-        {
+        .map(|&x| match op {
             EwOp::Relu => x.max(0.0),
             EwOp::Sigmoid => 1.0 / (1.0 + (-x).exp()),
             EwOp::Tanh => x.tanh(),
-            EwOp::Gelu =>
-            {
+            EwOp::Gelu => {
                 let c = (2.0 / std::f32::consts::PI).sqrt();
                 0.5 * x * (1.0 + (c * (x + 0.044715 * x * x * x)).tanh())
-            },
+            }
             EwOp::Silu => x / (1.0 + (-x).exp()),
-            EwOp::LeakyRelu =>
-            {
-                if x >= 0.0
-                {
+            EwOp::LeakyRelu => {
+                if x >= 0.0 {
                     x
-                }
-                else
-                {
+                } else {
                     0.01 * x
                 }
-            },
-            EwOp::Elu =>
-            {
-                if x >= 0.0
-                {
+            }
+            EwOp::Elu => {
+                if x >= 0.0 {
                     x
-                }
-                else
-                {
+                } else {
                     1.0 * (x.exp() - 1.0)
                 }
-            },
+            }
             EwOp::Softplus => (1.0 + x.exp()).ln(),
             EwOp::Sqrt => x.max(0.0).sqrt(),
             EwOp::Exp => x.exp(),
@@ -49,8 +39,7 @@ pub fn cpu_activation(data: &[f32], op: EwOp) -> Vec<f32> {
 #[allow(clippy::needless_range_loop)]
 pub fn cpu_reduce_sum(data: &[f32], outer: usize, axis_size: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; outer];
-    for i in 0..outer
-    {
+    for i in 0..outer {
         let start = i * axis_size;
         out[i] = data[start..start + axis_size].iter().sum();
     }
@@ -59,8 +48,7 @@ pub fn cpu_reduce_sum(data: &[f32], outer: usize, axis_size: usize) -> Vec<f32> 
 
 /// CPU reference for mean reduction along the last axis.
 pub fn cpu_reduce_mean(data: &[f32], outer: usize, axis_size: usize) -> Vec<f32> {
-    if axis_size == 0
-    {
+    if axis_size == 0 {
         return vec![0.0; outer];
     }
     let sums = cpu_reduce_sum(data, outer, axis_size);
@@ -70,16 +58,13 @@ pub fn cpu_reduce_mean(data: &[f32], outer: usize, axis_size: usize) -> Vec<f32>
 /// CPU reference for max reduction along the last axis.
 #[allow(clippy::needless_range_loop)]
 pub fn cpu_reduce_max(data: &[f32], outer: usize, axis_size: usize) -> Vec<f32> {
-    if axis_size == 0
-    {
+    if axis_size == 0 {
         return vec![f32::NEG_INFINITY; outer];
     }
     let mut out = vec![f32::NEG_INFINITY; outer];
-    for i in 0..outer
-    {
+    for i in 0..outer {
         let start = i * axis_size;
-        for k in 0..axis_size
-        {
+        for k in 0..axis_size {
             out[i] = out[i].max(data[start + k]);
         }
     }
@@ -90,8 +75,7 @@ pub fn cpu_reduce_max(data: &[f32], outer: usize, axis_size: usize) -> Vec<f32> 
 #[allow(clippy::needless_range_loop)]
 pub fn cpu_reduce_norm(data: &[f32], outer: usize, axis_size: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; outer];
-    for i in 0..outer
-    {
+    for i in 0..outer {
         let start = i * axis_size;
         out[i] = data[start..start + axis_size]
             .iter()
@@ -112,15 +96,13 @@ pub fn cpu_layer_norm(
     cols: usize,
 ) -> Vec<f32> {
     let mut out = vec![0.0f32; data.len()];
-    for r in 0..rows
-    {
+    for r in 0..rows {
         let start = r * cols;
         let slice = &data[start..start + cols];
         let mean: f32 = slice.iter().sum::<f32>() / cols as f32;
         let var: f32 = slice.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / cols as f32;
         let inv_std = 1.0 / (var + eps).sqrt();
-        for c in 0..cols
-        {
+        for c in 0..cols {
             out[start + c] = (data[start + c] - mean) * inv_std * gamma[c] + beta[c];
         }
     }
@@ -130,13 +112,11 @@ pub fn cpu_layer_norm(
 /// CPU reference for RMSNorm: x / sqrt(mean(x^2) + eps) * weight.
 pub fn cpu_rms_norm(data: &[f32], weight: &[f32], eps: f32, rows: usize, cols: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; data.len()];
-    for r in 0..rows
-    {
+    for r in 0..rows {
         let start = r * cols;
         let slice = &data[start..start + cols];
         let rms: f32 = (slice.iter().map(|x| x * x).sum::<f32>() / cols as f32 + eps).sqrt();
-        for c in 0..cols
-        {
+        for c in 0..cols {
             out[start + c] = (data[start + c] / rms) * weight[c];
         }
     }

@@ -7,10 +7,10 @@
 //! The fusion planner takes a linear sequence of ops and merges compatible
 //! adjacent operations into the fused GEMM kernel.
 
-use crate::BackendResult;
 use crate::kernels;
 use crate::kernels::FusedAct;
 use crate::wgpu_backend::WgpuContext;
+use crate::BackendResult;
 use wgpu::util::DeviceExt;
 
 /// A node in a fusion graph. GEMM nodes are fused with their downstream
@@ -57,17 +57,13 @@ impl FusedLayer {
         let k = self.k;
         let elems = m * n;
 
-        if elems == 0
-        {
+        if elems == 0 {
             return Ok(Vec::new());
         }
 
-        let mut c = if let Some(bi) = bias
-        {
+        let mut c = if let Some(bi) = bias {
             bi.to_vec()
-        }
-        else
-        {
+        } else {
             vec![0.0f32; elems]
         };
 
@@ -102,12 +98,9 @@ impl FusedLayer {
             ta as u32,
             tb as u32,
             1.0f32.to_bits(), // alpha
-            if bias.is_some()
-            {
+            if bias.is_some() {
                 1.0f32.to_bits()
-            }
-            else
-            {
+            } else {
                 0.0f32.to_bits()
             }, // beta
             self.act as u32,
@@ -222,9 +215,7 @@ mod tests {
 
     #[test]
     fn test_fused_gemm_relu() {
-        let Some(_ctx) = WgpuContext::new().ok()
-        else
-        {
+        let Some(_ctx) = WgpuContext::new().ok() else {
             return;
         };
         // Fused tiled SGEMM test requires hardware adapter — validated by
@@ -234,9 +225,7 @@ mod tests {
 
     #[test]
     fn test_fused_gemm_gelu() {
-        let Some(_ctx) = WgpuContext::new().ok()
-        else
-        {
+        let Some(_ctx) = WgpuContext::new().ok() else {
             return;
         };
         eprintln!("wgpu: fused test skipped (validated via non-fused path)");
