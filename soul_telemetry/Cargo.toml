@@ -11,7 +11,7 @@ categories = ["monitoring", "embedded", "os"]
 [dependencies]
 prometheus = { workspace = true }
 opentelemetry = { version = "0.27", features = ["trace"] }
-opentelemetry_sdk = "0.27"
+opentelemetry_sdk = "0.32"
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 lazy_static = { workspace = true }
