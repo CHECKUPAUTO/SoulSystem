@@ -2,6 +2,7 @@
 name = "soullink-cutlass"
 version = "0.1.0"
 edition = "2021"
+workspace = "../../workspaces/gpu"
 
 [features]
 default = []
