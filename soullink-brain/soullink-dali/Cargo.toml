@@ -2,6 +2,7 @@
 name = "soullink-dali"
 version = "0.1.0"
 edition = "2021"
+workspace = "../../workspaces/gpu"
 
 [features]
 # Stub mode by default; enable `dali` on machines with the NVIDIA DALI SDK

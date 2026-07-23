@@ -8,6 +8,27 @@ members = [
     "../../soullink-brain/soullink-onednn",
 ]
 
+[workspace.package]
+version = "13.5.0"
+edition = "2021"
+rust-version = "1.85"
+authors = ["SoulLink Mesh Team"]
+license = "MIT"
+repository = "internal"
+
+# Only the workspace dependencies actually inherited (`{ workspace = true }`)
+# by the five GPU member manifests:
+#   soullink-onednn -> anyhow, tracing (+ version/edition from workspace.package)
+#   soullink-dali   -> thiserror, tracing, serde, serde_json
+#   soullink-cutlass-> thiserror, tracing
+# scirust-gpu and scirust-gpu-macros pin their own versions and inherit nothing.
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+
 [workspace.lints.rust]
 dead_code = "allow"
 unused_imports = "allow"

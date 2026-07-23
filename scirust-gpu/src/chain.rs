@@ -16,8 +16,8 @@
 //! whole forward op-set (bias, activations, im2col) to be device-resident —
 //! tracked as future work in `docs/GPU.md` (P2.2).
 
-use crate::BackendResult;
 use crate::wgpu_backend::{GpuMatrix, WgpuContext};
+use crate::BackendResult;
 
 /// A handle to a wgpu device for building VRAM-resident matmul chains.
 pub struct GpuChain {
@@ -98,9 +98,7 @@ mod tests {
     /// downloaded. Must match the CPU oracle. Skips if no adapter.
     #[test]
     fn resident_chain_keeps_intermediate_in_vram() {
-        let Some(chain) = GpuChain::new()
-        else
-        {
+        let Some(chain) = GpuChain::new() else {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -132,9 +130,7 @@ mod tests {
     /// Resident transpose path: `Aᵀ·B` matches the CPU oracle.
     #[test]
     fn resident_transpose() {
-        let Some(chain) = GpuChain::new()
-        else
-        {
+        let Some(chain) = GpuChain::new() else {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -151,10 +147,8 @@ mod tests {
 
         // CPU oracle: op(A)=aᵀ (2×3) · b (3×4). Build aᵀ then gemm.
         let mut at = vec![0.0f32; 6];
-        for i in 0..2
-        {
-            for q in 0..3
-            {
+        for i in 0..2 {
+            for q in 0..3 {
                 at[i * 3 + q] = a[q * 2 + i];
             }
         }
@@ -166,9 +160,7 @@ mod tests {
     /// `k == 0` yields an all-zeros result, `m == 0` yields an empty matrix.
     #[test]
     fn resident_degenerate_dims_are_handled() {
-        let Some(chain) = GpuChain::new()
-        else
-        {
+        let Some(chain) = GpuChain::new() else {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -191,9 +183,7 @@ mod tests {
     /// matches the CPU oracle on lavapipe.
     #[test]
     fn resident_layer_chain_gemm_bias_relu() {
-        let Some(chain) = GpuChain::new()
-        else
-        {
+        let Some(chain) = GpuChain::new() else {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -227,9 +217,7 @@ mod tests {
     /// Resident elementwise mul matches the CPU product; shape mismatch errors.
     #[test]
     fn resident_elementwise_mul() {
-        let Some(chain) = GpuChain::new()
-        else
-        {
+        let Some(chain) = GpuChain::new() else {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
