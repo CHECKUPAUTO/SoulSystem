@@ -9552,6 +9552,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul-prod-guard"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "soul-shell"
 version = "13.5.0"
 dependencies = [
@@ -11052,6 +11061,7 @@ dependencies = [
  "soul-bridge",
  "soul-dashboard",
  "soul-memory",
+ "soul-prod-guard",
  "soul_agent_core",
  "soul_agent_runtime",
  "soul_automodify",
