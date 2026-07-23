@@ -78,13 +78,10 @@ fn cpu_gemm(
     ta: bool,
     tb: bool,
 ) {
-    for i in 0..m
-    {
-        for j in 0..n
-        {
+    for i in 0..m {
+        for j in 0..n {
             let mut acc = 0.0f32;
-            for q in 0..k
-            {
+            for q in 0..k {
                 let av = if ta { a[q * m + i] } else { a[i * k + q] };
                 let bv = if tb { b[j * k + q] } else { b[q * n + j] };
                 acc += av * bv;
@@ -125,9 +122,7 @@ mod tests {
     /// the plain CPU `matmul` tape within tolerance. Skips if no adapter.
     #[test]
     fn tape_matmul_gpu_matches_cpu_forward_and_backward() {
-        let Some(engine) = WgpuEngine::new()
-        else
-        {
+        let Some(engine) = WgpuEngine::new() else {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -168,9 +163,7 @@ mod tests {
     /// match the CPU path within tolerance. Skips if no adapter.
     #[test]
     fn conv2d_gpu_matches_cpu() {
-        let Some(engine) = WgpuEngine::new()
-        else
-        {
+        let Some(engine) = WgpuEngine::new() else {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };

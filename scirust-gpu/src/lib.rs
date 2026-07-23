@@ -60,13 +60,13 @@ mod wgpu_backend;
 #[cfg(feature = "wgpu")]
 pub use chain::GpuChain;
 #[cfg(feature = "wgpu")]
-pub use conv_gpu::{COL2IM_WGSL, IM2COL_WGSL, cpu_col2im, cpu_im2col};
+pub use conv_gpu::{cpu_col2im, cpu_im2col, COL2IM_WGSL, IM2COL_WGSL};
 #[cfg(feature = "wgpu")]
 pub use deterministic_gpu::{DeterministicGpu, DeterministicValidator};
 #[cfg(feature = "wgpu")]
 pub use engine::WgpuEngine;
 #[cfg(feature = "wgpu")]
-pub use fusion::{FusedLayer, FusionNode, plan_fusion};
+pub use fusion::{plan_fusion, FusedLayer, FusionNode};
 #[cfg(feature = "wgpu")]
 pub use tensor::GpuTensor;
 #[cfg(feature = "wgpu")]
@@ -83,8 +83,7 @@ pub enum BackendError {
 
 impl core::fmt::Display for BackendError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self
-        {
+        match self {
             BackendError::Unavailable(name) => write!(
                 f,
                 "compute backend `{name}` is not wired in this build (roadmap P2.2)"
@@ -121,8 +120,7 @@ pub trait RawComputeBackend {
 
 /// Validate that `a` and `b` hold exactly the elements an `m×k · k×n` GEMM needs.
 fn check_gemm_dims(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> BackendResult<()> {
-    if a.len() != m * k
-    {
+    if a.len() != m * k {
         return Err(BackendError::ShapeMismatch(format!(
             "A has {} elements, expected m*k = {}*{} = {}",
             a.len(),
@@ -131,8 +129,7 @@ fn check_gemm_dims(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Backen
             m * k
         )));
     }
-    if b.len() != k * n
-    {
+    if b.len() != k * n {
         return Err(BackendError::ShapeMismatch(format!(
             "B has {} elements, expected k*n = {}*{} = {}",
             b.len(),
@@ -162,13 +159,10 @@ impl RawComputeBackend for CpuBackend {
     ) -> BackendResult<Vec<f32>> {
         check_gemm_dims(a, b, m, k, n)?;
         let mut out = vec![0.0f32; m * n];
-        for i in 0..m
-        {
-            for j in 0..n
-            {
+        for i in 0..m {
+            for j in 0..n {
                 let mut acc = 0.0f32;
-                for p in 0..k
-                {
+                for p in 0..k {
                     acc += a[i * k + p] * b[p * n + j];
                 }
                 out[i * n + j] = acc;
@@ -240,8 +234,7 @@ impl GpuAccelerator {
     }
 
     pub fn device_name(&self) -> &'static str {
-        match self
-        {
+        match self {
             GpuAccelerator::Cpu(b) => b.device_name(),
             GpuAccelerator::Wgpu(b) => b.device_name(),
             GpuAccelerator::Cuda(b) => b.device_name(),
@@ -256,8 +249,7 @@ impl GpuAccelerator {
         k: usize,
         n: usize,
     ) -> BackendResult<Vec<f32>> {
-        match self
-        {
+        match self {
             GpuAccelerator::Cpu(backend) => backend.gemm_f32(a, b, m, k, n),
             GpuAccelerator::Wgpu(backend) => backend.gemm_f32(a, b, m, k, n),
             GpuAccelerator::Cuda(backend) => backend.gemm_f32(a, b, m, k, n),
