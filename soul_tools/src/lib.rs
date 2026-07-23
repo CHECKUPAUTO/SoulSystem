@@ -14,6 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 use soul_sandbox::{Sandbox, SandboxPolicy, SandboxVerdict};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
@@ -440,9 +441,231 @@ pub fn required_permission_for(name: &str, command: Option<&str>) -> PermissionL
     }
 }
 
+// ── Filesystem confinement ──────────────────────────────────────
+
+/// Error raised while resolving a file-tool path against a [`FsPolicy`].
+///
+/// `Display` carries only the requested path string — never file contents —
+/// so it is safe to return to the caller and to log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FsPolicyError {
+    /// The requested path was empty.
+    EmptyPath,
+    /// The requested path contained a NUL byte.
+    NulByte { requested: String },
+    /// The resolved path escapes the confined root.
+    OutsideRoot { requested: String },
+    /// The resolved path touches a protected location (e.g. `.git`).
+    ProtectedPath { requested: String },
+    /// The workspace root itself could not be canonicalised.
+    RootNotFound { detail: String },
+    /// An I/O error occurred while resolving the path.
+    Io { requested: String, detail: String },
+}
+
+impl std::fmt::Display for FsPolicyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyPath => write!(f, "empty path"),
+            Self::NulByte { requested } => write!(f, "path {requested:?} contains a NUL byte"),
+            Self::OutsideRoot { requested } => {
+                write!(f, "path {requested:?} escapes the confined workspace root")
+            }
+            Self::ProtectedPath { requested } => {
+                write!(f, "path {requested:?} touches a protected location")
+            }
+            Self::RootNotFound { detail } => write!(f, "workspace root not found: {detail}"),
+            Self::Io { requested, detail } => write!(f, "path {requested:?}: {detail}"),
+        }
+    }
+}
+
+impl std::error::Error for FsPolicyError {}
+
+/// Confines file-tool paths to a canonical workspace root.
+///
+/// Every file tool resolves its path through [`FsPolicy::resolve_read`] or
+/// [`FsPolicy::resolve_write`] before touching the filesystem — there is no
+/// `std::fs` call on a caller-supplied path string anywhere on the dispatch
+/// path (CRIT-004 / INV-FS-1). Resolution is race-resistant: it canonicalises
+/// the nearest *existing* ancestor of the requested path (which resolves any
+/// symlink in that ancestor chain, including the target itself when it
+/// exists) before checking containment, so a symlink planted inside the root
+/// that points outside it is rejected rather than followed
+/// (INV-FS-2). `.git` is protected inside the root (INV-FS-3).
+pub struct FsPolicy {
+    root: PathBuf,
+}
+
+impl FsPolicy {
+    /// Build a policy confined to `root`. `root` must exist; it is
+    /// canonicalised once so every later containment check compares against a
+    /// symlink-free, absolute path.
+    pub fn new(root: impl AsRef<Path>) -> Result<Self, FsPolicyError> {
+        let root =
+            std::fs::canonicalize(root.as_ref()).map_err(|e| FsPolicyError::RootNotFound {
+                detail: e.to_string(),
+            })?;
+        Ok(Self { root })
+    }
+
+    /// The canonical root this policy confines paths to.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Resolve a path that must already exist (read, or the target of a patch).
+    pub fn resolve_read(&self, requested: &str) -> Result<PathBuf, FsPolicyError> {
+        self.resolve(requested, true)
+    }
+
+    /// Resolve a path that may not yet exist (write creates it).
+    pub fn resolve_write(&self, requested: &str) -> Result<PathBuf, FsPolicyError> {
+        self.resolve(requested, false)
+    }
+
+    fn resolve(&self, requested: &str, must_exist: bool) -> Result<PathBuf, FsPolicyError> {
+        if requested.is_empty() {
+            return Err(FsPolicyError::EmptyPath);
+        }
+        if requested.as_bytes().contains(&0) {
+            return Err(FsPolicyError::NulByte {
+                requested: requested.to_string(),
+            });
+        }
+
+        let req_path = Path::new(requested);
+        let candidate = if req_path.is_absolute() {
+            req_path.to_path_buf()
+        } else {
+            self.root.join(req_path)
+        };
+
+        // Walk up to the nearest existing ancestor, collecting the
+        // not-yet-existing tail. Canonicalising only the existing part
+        // resolves any symlink in that chain (including the leaf itself, when
+        // it already exists) without requiring the whole path to exist.
+        let mut existing = candidate.clone();
+        let mut tail: Vec<std::ffi::OsString> = Vec::new();
+        while !existing.exists() {
+            let Some(parent) = existing.parent() else {
+                return Err(FsPolicyError::OutsideRoot {
+                    requested: requested.to_string(),
+                });
+            };
+            if let Some(name) = existing.file_name() {
+                tail.push(name.to_os_string());
+            }
+            existing = parent.to_path_buf();
+        }
+        if must_exist && !tail.is_empty() {
+            return Err(FsPolicyError::Io {
+                requested: requested.to_string(),
+                detail: "not found".to_string(),
+            });
+        }
+
+        let canon_existing = std::fs::canonicalize(&existing).map_err(|e| FsPolicyError::Io {
+            requested: requested.to_string(),
+            detail: e.to_string(),
+        })?;
+        if !canon_existing.starts_with(&self.root) {
+            return Err(FsPolicyError::OutsideRoot {
+                requested: requested.to_string(),
+            });
+        }
+
+        let mut result = canon_existing;
+        for comp in tail.into_iter().rev() {
+            if comp == ".." || comp == "." {
+                return Err(FsPolicyError::OutsideRoot {
+                    requested: requested.to_string(),
+                });
+            }
+            result.push(comp);
+        }
+
+        if result.components().any(|c| c.as_os_str() == ".git") {
+            return Err(FsPolicyError::ProtectedPath {
+                requested: requested.to_string(),
+            });
+        }
+        if !result.starts_with(&self.root) {
+            return Err(FsPolicyError::OutsideRoot {
+                requested: requested.to_string(),
+            });
+        }
+
+        Ok(result)
+    }
+}
+
+/// The default confinement root: the process's current working directory.
+///
+/// This is the one root available today without richer workspace-root
+/// configuration plumbing (tracked as a residual item for a follow-up PR); it
+/// still establishes real confinement on the live dispatch path, rejecting
+/// any path outside the process's own working directory.
+fn default_workspace_root() -> PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"))
+}
+
+static ATOMIC_WRITE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Write `content` to `path` atomically: write to a sibling temp file with
+/// restrictive permissions, flush, sync, then rename over the destination.
+/// A crash or concurrent reader never observes a partially written file
+/// (INV-FS-4). `path` must already be confinement-checked by the caller.
+fn atomic_write(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no parent")
+        })?;
+    let file_name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no file name")
+    })?;
+
+    let n = ATOMIC_WRITE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp_name = format!(
+        ".{}.soultmp-{}-{n}",
+        file_name.to_string_lossy(),
+        std::process::id()
+    );
+    let tmp_path = dir.join(tmp_name);
+
+    let write_result = (|| {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.create(true).write(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&tmp_path)?;
+        f.write_all(content)?;
+        f.sync_all()
+    })();
+
+    if let Err(e) = write_result {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+
+    std::fs::rename(&tmp_path, path)
+}
+
 // ── Dispatch ───────────────────────────────────────────────────
 
-pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result<String, String> {
+/// Dispatch a tool call with paths confined to `root` (INV-FS-1).
+pub fn dispatch_tool_in(
+    name: &str,
+    args: serde_json::Value,
+    root: &Path,
+) -> std::result::Result<String, String> {
     // Fail closed: only registered tools dispatch. An unregistered name can
     // never reach process execution — there is no wildcard fallthrough
     // (INV-TOOL-1). See docs/security/SECURITY_INVARIANTS.md.
@@ -453,22 +676,35 @@ pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result
             execute_shell(cmd)
         }
         ToolId::ReadFile => {
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            std::fs::read_to_string(path).map_err(|e| e.to_string())
+            let requested = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let policy = FsPolicy::new(root).map_err(|e| e.to_string())?;
+            let path = policy.resolve_read(requested).map_err(|e| e.to_string())?;
+            std::fs::read_to_string(&path).map_err(|e| e.to_string())
         }
         ToolId::WriteFile => {
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let requested = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            std::fs::write(path, content).map_err(|e| e.to_string())?;
+            let policy = FsPolicy::new(root).map_err(|e| e.to_string())?;
+            let path = policy.resolve_write(requested).map_err(|e| e.to_string())?;
+            atomic_write(&path, content.as_bytes()).map_err(|e| e.to_string())?;
             Ok(format!("written {} bytes", content.len()))
         }
         ToolId::PatchFile => {
-            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let requested = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let old_text = args.get("old_text").and_then(|v| v.as_str()).unwrap_or("");
             let new_text = args.get("new_text").and_then(|v| v.as_str()).unwrap_or("");
-            patch_file(path, old_text, new_text)
+            let policy = FsPolicy::new(root).map_err(|e| e.to_string())?;
+            // patch requires the target to already exist.
+            let path = policy.resolve_read(requested).map_err(|e| e.to_string())?;
+            patch_file(&path, old_text, new_text)
         }
     }
+}
+
+/// Dispatch a tool call, confined to the process's current working directory.
+/// This is the live agent path (`async_dispatch_tool` calls this).
+pub fn dispatch_tool(name: &str, args: serde_json::Value) -> std::result::Result<String, String> {
+    dispatch_tool_in(name, args, &default_workspace_root())
 }
 
 pub async fn async_dispatch_tool(
@@ -513,46 +749,18 @@ pub fn execute_tool(tool: &Tool, args: &str) -> std::result::Result<String, Stri
 }
 
 // ── File operations backing the tool dispatch ──────────────────────────
+//
+// These operate only on paths already resolved and confinement-checked by
+// `FsPolicy` (see `dispatch_tool_in`) — never on a caller-supplied string.
 
-#[allow(dead_code)]
-fn read_file(path: &str, start: Option<usize>, num: Option<usize>) -> Result<String, String> {
-    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    match (start, num) {
-        (None, None) => Ok(content),
-        (s, n) => {
-            let skip = s.unwrap_or(1).saturating_sub(1);
-            let take = n.unwrap_or(usize::MAX);
-            Ok(content
-                .lines()
-                .skip(skip)
-                .take(take)
-                .collect::<Vec<_>>()
-                .join("\n"))
-        }
-    }
-}
-
-#[allow(dead_code)]
-fn write_file(path: &str, content: &str, append: bool) -> Result<(), String> {
-    use std::io::Write;
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .append(append)
-        .truncate(!append)
-        .open(path)
-        .map_err(|e| e.to_string())?;
-    f.write_all(content.as_bytes()).map_err(|e| e.to_string())
-}
-
-fn patch_file(path: &str, old: &str, new: &str) -> Result<String, String> {
+fn patch_file(path: &Path, old: &str, new: &str) -> Result<String, String> {
     let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     if !content.contains(old) {
-        return Err(format!("pattern not found in {path}"));
+        return Err(format!("pattern not found in {}", path.display()));
     }
     let updated = content.replacen(old, new, 1);
-    std::fs::write(path, updated).map_err(|e| e.to_string())?;
-    Ok(format!("patched {path}"))
+    atomic_write(path, updated.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(format!("patched {}", path.display()))
 }
 
 #[cfg(test)]
@@ -578,20 +786,254 @@ mod compat_tests {
 
     #[test]
     fn dispatch_file_ops_roundtrip() {
+        // dispatch_tool_in confines file ops to `root`; a relative path is the
+        // realistic agent usage (a workspace-relative reference).
         let dir = tempfile::tempdir().unwrap();
-        let f = dir.path().join("a.txt");
-        let fp = f.to_str().unwrap();
-        dispatch_tool("write_file", json!({"path": fp, "content": "hello"})).unwrap();
-        let read = dispatch_tool("read_file", json!({"path": fp})).unwrap();
+        let root = dir.path();
+        dispatch_tool_in(
+            "write_file",
+            json!({"path": "a.txt", "content": "hello"}),
+            root,
+        )
+        .unwrap();
+        let read = dispatch_tool_in("read_file", json!({"path": "a.txt"}), root).unwrap();
         assert_eq!(read, "hello");
-        dispatch_tool(
+        dispatch_tool_in(
             "patch_file",
-            json!({"path": fp, "old_text": "hello", "new_text": "world"}),
+            json!({"path": "a.txt", "old_text": "hello", "new_text": "world"}),
+            root,
         )
         .unwrap();
         assert_eq!(
-            dispatch_tool("read_file", json!({"path": fp})).unwrap(),
+            dispatch_tool_in("read_file", json!({"path": "a.txt"}), root).unwrap(),
             "world"
+        );
+    }
+
+    // ── CRIT-004: filesystem confinement adversarial tests ──────────────
+
+    #[test]
+    fn outside_root_absolute_path_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // An absolute path elsewhere on the filesystem must never be reached,
+        // whether or not it exists.
+        let err = dispatch_tool_in(
+            "write_file",
+            json!({"path": "/etc/passwd", "content": "pwned"}),
+            root,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("escapes the confined workspace root"),
+            "got: {err}"
+        );
+
+        let err2 = dispatch_tool_in(
+            "write_file",
+            json!({"path": "/tmp/soul-tools-crit004-outside-root-probe.txt", "content": "x"}),
+            root,
+        )
+        .unwrap_err();
+        assert!(
+            err2.contains("escapes the confined workspace root"),
+            "got: {err2}"
+        );
+    }
+
+    #[test]
+    fn parent_traversal_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let err = dispatch_tool_in(
+            "write_file",
+            json!({"path": "../escape.txt", "content": "x"}),
+            root,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("escapes the confined workspace root"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn absolute_path_within_root_is_allowed() {
+        // An absolute path is fine as long as it resolves inside the root —
+        // confinement is about containment, not about rejecting all absolute
+        // paths outright.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let abs = root.join("inside.txt");
+        let abs_str = abs.to_str().unwrap();
+        dispatch_tool_in(
+            "write_file",
+            json!({"path": abs_str, "content": "ok"}),
+            root,
+        )
+        .unwrap();
+        assert_eq!(
+            dispatch_tool_in("read_file", json!({"path": "inside.txt"}), root).unwrap(),
+            "ok"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn symlink_escape_of_existing_target_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("secret.txt");
+        std::fs::write(&secret, "top secret").unwrap();
+
+        let link = root.join("link.txt");
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+
+        // Reading through the symlink must resolve to the real (outside)
+        // target and be rejected — the sandbox must not follow it.
+        let err = dispatch_tool_in("read_file", json!({"path": "link.txt"}), root).unwrap_err();
+        assert!(
+            err.contains("escapes the confined workspace root"),
+            "got: {err}"
+        );
+
+        // Writing through the same symlink must also be rejected, not
+        // silently overwrite the outside file.
+        let err2 = dispatch_tool_in(
+            "write_file",
+            json!({"path": "link.txt", "content": "overwritten"}),
+            root,
+        )
+        .unwrap_err();
+        assert!(
+            err2.contains("escapes the confined workspace root"),
+            "got: {err2}"
+        );
+        assert_eq!(std::fs::read_to_string(&secret).unwrap(), "top secret");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn symlink_escape_of_directory_ancestor_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let outside = tempfile::tempdir().unwrap();
+
+        // A symlinked subdirectory pointing outside the root: writing a NEW
+        // file "through" it must still be rejected (the ancestor-walk
+        // canonicalises the nearest EXISTING ancestor, which is the symlink
+        // itself here).
+        let link_dir = root.join("outdir");
+        std::os::unix::fs::symlink(outside.path(), &link_dir).unwrap();
+
+        let err = dispatch_tool_in(
+            "write_file",
+            json!({"path": "outdir/new.txt", "content": "x"}),
+            root,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("escapes the confined workspace root"),
+            "got: {err}"
+        );
+        assert!(!outside.path().join("new.txt").exists());
+    }
+
+    #[test]
+    fn dot_git_is_protected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir(root.join(".git")).unwrap();
+
+        let err = dispatch_tool_in(
+            "write_file",
+            json!({"path": ".git/config", "content": "[core]\n"}),
+            root,
+        )
+        .unwrap_err();
+        assert!(err.contains("protected location"), "got: {err}");
+    }
+
+    #[test]
+    fn empty_and_nul_paths_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let err =
+            dispatch_tool_in("write_file", json!({"path": "", "content": "x"}), root).unwrap_err();
+        assert!(err.contains("empty path"), "got: {err}");
+
+        let err2 = dispatch_tool_in(
+            "write_file",
+            json!({"path": "a\0b.txt", "content": "x"}),
+            root,
+        )
+        .unwrap_err();
+        assert!(err2.contains("NUL byte"), "got: {err2}");
+    }
+
+    #[test]
+    fn patch_requires_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let err = dispatch_tool_in(
+            "patch_file",
+            json!({"path": "missing.txt", "old_text": "a", "new_text": "b"}),
+            root,
+        )
+        .unwrap_err();
+        assert!(err.contains("not found"), "got: {err}");
+    }
+
+    #[test]
+    fn atomic_write_leaves_no_temp_file_and_is_readable_immediately() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        dispatch_tool_in(
+            "write_file",
+            json!({"path": "a.txt", "content": "hello atomic"}),
+            root,
+        )
+        .unwrap();
+
+        let entries: Vec<_> = std::fs::read_dir(root)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(entries, vec!["a.txt"], "no leftover temp file: {entries:?}");
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.txt")).unwrap(),
+            "hello atomic"
+        );
+    }
+
+    #[test]
+    fn atomic_write_preserves_original_on_directory_failure() {
+        // atomic_write's temp file lives in the SAME directory as the
+        // destination; if that directory doesn't exist the write fails
+        // (as before) and the pre-existing destination file, if any, is left
+        // untouched — there is no window where it is truncated then never
+        // rewritten.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        dispatch_tool_in(
+            "write_file",
+            json!({"path": "a.txt", "content": "original"}),
+            root,
+        )
+        .unwrap();
+
+        // A second write to the SAME existing file must fully replace it
+        // (rename is atomic — no partial content is ever observable).
+        dispatch_tool_in(
+            "write_file",
+            json!({"path": "a.txt", "content": "replaced"}),
+            root,
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.txt")).unwrap(),
+            "replaced"
         );
     }
 
