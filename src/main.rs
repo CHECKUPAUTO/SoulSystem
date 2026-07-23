@@ -12,6 +12,7 @@
 use anyhow::Result;
 use clap::Parser;
 
+mod prod_guard;
 mod setup_tui;
 use soul_entity::{EntityConfig, SoulEntity};
 use soul_gateway::{serve as serve_gateway, GatewayState};
@@ -162,6 +163,14 @@ async fn main() -> Result<()> {
             tracing::warn!("Impossible de créer {:?}: {}", dir, e);
         }
     }
+
+    // ── Fail-closed production readiness guard ─────────────────────────────
+    // Validate security prerequisites before opening any listener. In
+    // production (SOULSYSTEM_ENV=production) an unmet prerequisite aborts
+    // startup; in development the findings are logged as warnings. The
+    // decision logic lives in the `soul-prod-guard` crate. See
+    // docs/security/SECURITY_INVARIANTS.md.
+    prod_guard::enforce_startup_security(&cli.gateway_addr, &settings)?;
 
     // ── Bus central (file d'attente 256 messages) ──────────────────────────
     #[allow(unused_variables)]

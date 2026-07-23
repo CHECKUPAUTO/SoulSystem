@@ -1,0 +1,13 @@
+[package]
+name = "soul-prod-guard"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "SoulSystem — fail-closed production readiness guard (pure, testable startup security validation)"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

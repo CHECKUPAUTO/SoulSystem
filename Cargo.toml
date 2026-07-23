@@ -142,6 +142,7 @@ members = [
 
     # ── Shared support crates ────────────────────────────────────────────
     "crates/soulsystem-common",
+    "crates/soul-prod-guard",
     "crates/soul-top",
     "crates/soul-chaos",
     "crates/soul-shell",
@@ -306,6 +307,7 @@ soul-bridge = { path = "soul-bridge" }
 spinner = { path = "spinner" }
 terminal-stream = { path = "terminal-stream" }
 soulsystem-common = { path = "crates/soulsystem-common" }
+soul-prod-guard = { path = "crates/soul-prod-guard" }
 ccos = { path = "ccos" }
 octasoma = { path = "octasoma" }
 
@@ -321,6 +323,7 @@ bus = { workspace = true }
 soul-bridge = { workspace = true }
 soul-memory = { workspace = true }
 soulsystem-common = { workspace = true }
+soul-prod-guard = { workspace = true }
 bound-system = { workspace = true }
 clawd = { workspace = true }
 ansi-converter = { workspace = true }
