@@ -25,7 +25,7 @@ PR sequence (A–P).
 |----|-----------|----|--------|
 | INV-TOOL-1 | An unregistered tool name can only produce `UnknownTool`; it can never reach process execution. | B | HELD (`soul_tools`: `unknown_tool_never_executes`, `malformed_tool_names_rejected`) |
 | INV-TOOL-2 | Every tool has a trusted, statically-registered capability that the caller cannot downgrade. | C | HELD (`soul_tools`: `write_tools_are_not_classified_as_read`, `capability_classification_is_trusted_and_correct`) |
-| INV-EXEC-1 | No production-reachable code path invokes `std::process::Command` / `tokio::process::Command` / `libc::exec*` outside the single approved sandbox executor. | D | TARGET |
+| INV-EXEC-1 | No production-reachable code path invokes `std::process::Command` / `tokio::process::Command` / `libc::exec*` outside the single approved sandbox executor. | D | PARTIAL (`soul_tools::execute_shell` — the agent dispatch path, and the `execute_tool` helper that calls it — now route through `soul_sandbox`; `execute_shell_routes_through_sandbox` test. A repo-wide architecture ban on bare `Command` is PR D-2) |
 | INV-EXEC-2 | Process tools fail closed when the mandatory OS isolation backend is unavailable in production. | A/D | PARTIAL (guard checks availability; enforcement in D) |
 | INV-EXEC-3 | Process tools have no network access by default; egress is per-tool allowlisted. | D | TARGET |
 | INV-EXEC-4 | Process output and CPU/memory/pids/fd/time are bounded; the process group is killed on timeout. | D | TARGET |

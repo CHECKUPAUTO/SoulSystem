@@ -484,23 +484,26 @@ pub async fn async_dispatch_tool(
 // ── Exécution synchronisée (legacy) ───────────────────────────
 
 pub fn execute_shell(cmd: &str) -> std::result::Result<String, String> {
-    let parts: Vec<&str> = cmd.split_whitespace().collect();
-    if parts.is_empty() {
-        return Err("command vide".into());
-    }
-
-    let output = Command::new(parts[0])
-        .args(&parts[1..])
-        .output()
-        .map_err(|e| format!("échec exécution: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    if output.status.success() {
-        Ok(stdout)
-    } else {
-        Err(stderr)
+    // Single, mandatory process-execution path. Routes through
+    // `soul_sandbox::Sandbox`, which applies command filtering (dangerous
+    // patterns, sensitive paths, banned shell interpreters), a timeout, and
+    // process-group termination. There is no bare `std::process::Command` on
+    // this path anymore (CRIT-001 / INV-EXEC-1). The unused `execute_tool`
+    // helper also runs through here.
+    let sandbox = Sandbox::new(SandboxPolicy::default());
+    match sandbox.execute(cmd) {
+        Ok(verdict) => match verdict.exit_code {
+            Some(0) => Ok(verdict.stdout),
+            other => {
+                let msg = verdict.stderr;
+                if msg.trim().is_empty() {
+                    Err(format!("command exited with status {other:?}"))
+                } else {
+                    Err(msg)
+                }
+            }
+        },
+        Err(blocked) => Err(format!("blocked by sandbox: {blocked}")),
     }
 }
 
@@ -731,5 +734,23 @@ mod compat_tests {
             .await
             .unwrap();
         assert!(out.contains("hi"));
+    }
+
+    #[test]
+    fn execute_shell_routes_through_sandbox() {
+        // A safe command runs through the sandbox.
+        let out = execute_shell("echo sandboxed").unwrap();
+        assert!(out.contains("sandboxed"), "got: {out}");
+
+        // A destructive command is blocked BY THE SANDBOX before execution — a
+        // bare std::process::Command would instead have attempted to run it.
+        // This proves execute_shell no longer bypasses OS-level filtering
+        // (CRIT-001 / INV-EXEC-1).
+        let err = execute_shell("rm -rf /").unwrap_err();
+        assert!(err.contains("blocked by sandbox"), "got: {err}");
+
+        // Shell-bypass interpreters (bash -c / sh -c) are refused.
+        let err2 = execute_shell("bash -c 'echo x'").unwrap_err();
+        assert!(err2.contains("blocked by sandbox"), "got: {err2}");
     }
 }
