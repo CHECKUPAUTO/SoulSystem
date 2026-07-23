@@ -34,10 +34,10 @@ PR sequence (A–P).
 
 | ID | Invariant | PR | Status |
 |----|-----------|----|--------|
-| INV-FS-1 | File tools cannot write outside their declared canonical root. | E | TARGET |
-| INV-FS-2 | Symlink escape and check-then-open races are prevented. | E | TARGET |
-| INV-FS-3 | `.git`, config, and secret paths are protected from tool writes. | E | TARGET |
-| INV-FS-4 | All durable writes are atomic (temp + fsync + rename). | E/L | TARGET |
+| INV-FS-1 | File tools cannot write outside their declared canonical root. | E | HELD (`soul_tools`: `outside_root_absolute_path_rejected`, `parent_traversal_rejected`, `absolute_path_within_root_is_allowed`) |
+| INV-FS-2 | Symlink escape and check-then-open races are prevented. | E | HELD (`soul_tools`: `symlink_escape_of_existing_target_rejected`, `symlink_escape_of_directory_ancestor_rejected` — resolution canonicalises the nearest existing ancestor before the containment check) |
+| INV-FS-3 | `.git`, config, and secret paths are protected from tool writes. | E | PARTIAL (`.git` protected — `dot_git_is_protected`; config/secret path protection is deployment-specific and deferred) |
+| INV-FS-4 | All durable writes are atomic (temp + fsync + rename). | E/L | HELD for file-tool writes (`soul_tools::atomic_write` — `atomic_write_leaves_no_temp_file_and_is_readable_immediately`, `atomic_write_preserves_original_on_directory_failure`); other persistence backends (CCOS, journals) are PR L |
 
 ## Network services
 
