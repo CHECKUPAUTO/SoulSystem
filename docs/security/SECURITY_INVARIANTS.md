@@ -23,8 +23,8 @@ PR sequence (A–P).
 
 | ID | Invariant | PR | Status |
 |----|-----------|----|--------|
-| INV-TOOL-1 | An unregistered tool name can only produce `UnknownTool`; it can never reach process execution. | B | TARGET |
-| INV-TOOL-2 | Every tool has a trusted, statically-registered capability that the caller cannot downgrade. | C | TARGET |
+| INV-TOOL-1 | An unregistered tool name can only produce `UnknownTool`; it can never reach process execution. | B | HELD (`soul_tools`: `unknown_tool_never_executes`, `malformed_tool_names_rejected`) |
+| INV-TOOL-2 | Every tool has a trusted, statically-registered capability that the caller cannot downgrade. | C | HELD (`soul_tools`: `write_tools_are_not_classified_as_read`, `capability_classification_is_trusted_and_correct`) |
 | INV-EXEC-1 | No production-reachable code path invokes `std::process::Command` / `tokio::process::Command` / `libc::exec*` outside the single approved sandbox executor. | D | TARGET |
 | INV-EXEC-2 | Process tools fail closed when the mandatory OS isolation backend is unavailable in production. | A/D | PARTIAL (guard checks availability; enforcement in D) |
 | INV-EXEC-3 | Process tools have no network access by default; egress is per-tool allowlisted. | D | TARGET |

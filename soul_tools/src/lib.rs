@@ -332,6 +332,112 @@ impl ToolId {
     pub fn is_registered(name: &str) -> bool {
         Self::from_name(name).is_ok()
     }
+
+    /// The trusted, statically-registered capability of this tool.
+    ///
+    /// Decided here by trusted code — never by a caller or by LLM input — and it
+    /// cannot be downgraded by a request (INV-TOOL-2). See
+    /// `docs/security/SECURITY_INVARIANTS.md`.
+    pub fn capability(self) -> ToolCapability {
+        match self {
+            Self::ExecuteShell => ToolCapability::ProcessExecution,
+            Self::ReadFile => ToolCapability::ReadOnly,
+            Self::WriteFile | Self::PatchFile => ToolCapability::FileWrite,
+        }
+    }
+}
+
+// ── Capabilities and policy ────────────────────────────────────
+
+/// The kind of side effect a tool is authorised to cause.
+///
+/// The capability is a property of the *registered* tool. It sets a floor on the
+/// approval a tool call requires; a request can never lower it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolCapability {
+    /// Reads only; no state change.
+    ReadOnly,
+    /// Reads data over the network.
+    NetworkRead,
+    /// Sends state-changing requests over the network.
+    NetworkWrite,
+    /// Writes to the filesystem.
+    FileWrite,
+    /// Executes a process.
+    ProcessExecution,
+    /// Accesses credentials/secrets.
+    CredentialAccess,
+    /// Mutates persistent memory.
+    MemoryMutation,
+    /// Modifies the agent's own code/skills.
+    SelfModification,
+    /// Administrative / privileged control.
+    Administrative,
+}
+
+impl ToolCapability {
+    /// The minimum [`PermissionLevel`] a tool with this capability requires.
+    ///
+    /// A floor, not the final answer: for the shell tool the effective
+    /// requirement is refined per-command (see [`required_permission_for`]).
+    pub fn required_permission(self) -> PermissionLevel {
+        match self {
+            Self::ReadOnly | Self::NetworkRead => PermissionLevel::Read,
+            Self::FileWrite | Self::NetworkWrite | Self::MemoryMutation => PermissionLevel::Write,
+            Self::ProcessExecution
+            | Self::CredentialAccess
+            | Self::SelfModification
+            | Self::Administrative => PermissionLevel::Destructive,
+        }
+    }
+}
+
+/// A request to authorise a tool call. Carries only the trusted tool name and,
+/// for the shell tool, the concrete command — never a caller-supplied
+/// permission level.
+#[derive(Debug, Clone)]
+pub struct CapabilityRequest<'a> {
+    /// The requested tool name (resolved against the registry).
+    pub tool_name: &'a str,
+    /// The concrete command, for the shell tool only.
+    pub command: Option<&'a str>,
+}
+
+/// The single interface every runtime uses to derive a tool call's required
+/// permission. Deterministic and fail-closed.
+pub trait PolicyEngine {
+    /// Derive the effective required permission for a request.
+    fn required_permission(&self, request: &CapabilityRequest<'_>) -> PermissionLevel;
+}
+
+/// The default capability-based policy.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CapabilityPolicy;
+
+impl PolicyEngine for CapabilityPolicy {
+    fn required_permission(&self, request: &CapabilityRequest<'_>) -> PermissionLevel {
+        required_permission_for(request.tool_name, request.command)
+    }
+}
+
+/// Canonical classification: derive the required permission for a tool call from
+/// the trusted registry. This is the one authorization-input decision point.
+///
+/// - `read_file` → `Read`; `write_file` / `patch_file` → `Write` (their
+///   `FileWrite` capability floor) — this is the CRIT-003 fix.
+/// - `execute_shell` → the per-command sensitivity ([`PermissionLevel::from_command`]),
+///   the correct granularity for a shell tool.
+/// - An unregistered name → `Destructive` (fail closed); it is additionally
+///   rejected at dispatch (INV-TOOL-1).
+///
+/// The caller never supplies a permission — it is always derived here, so a
+/// request cannot downgrade a tool's requirement (INV-TOOL-2).
+pub fn required_permission_for(name: &str, command: Option<&str>) -> PermissionLevel {
+    match ToolId::from_name(name) {
+        Ok(ToolId::ExecuteShell) => PermissionLevel::from_command(command.unwrap_or("")),
+        Ok(other) => other.capability().required_permission(),
+        Err(_) => PermissionLevel::Destructive,
+    }
 }
 
 // ── Dispatch ───────────────────────────────────────────────────
@@ -541,6 +647,82 @@ mod compat_tests {
         }
         assert!(!ToolId::is_registered("bash"));
         assert!(!ToolId::is_registered(""));
+    }
+
+    #[test]
+    fn capability_classification_is_trusted_and_correct() {
+        assert_eq!(ToolId::ReadFile.capability(), ToolCapability::ReadOnly);
+        assert_eq!(ToolId::WriteFile.capability(), ToolCapability::FileWrite);
+        assert_eq!(ToolId::PatchFile.capability(), ToolCapability::FileWrite);
+        assert_eq!(
+            ToolId::ExecuteShell.capability(),
+            ToolCapability::ProcessExecution
+        );
+    }
+
+    #[test]
+    fn write_tools_are_not_classified_as_read() {
+        // The CRIT-003 fix: write_file / patch_file must require Write, not Read.
+        assert_eq!(
+            required_permission_for("write_file", None),
+            PermissionLevel::Write
+        );
+        assert_eq!(
+            required_permission_for("patch_file", None),
+            PermissionLevel::Write
+        );
+        // read_file remains Read.
+        assert_eq!(
+            required_permission_for("read_file", None),
+            PermissionLevel::Read
+        );
+    }
+
+    #[test]
+    fn execute_shell_is_classified_per_command() {
+        assert_eq!(
+            required_permission_for("execute_shell", Some("ls -la")),
+            PermissionLevel::Read
+        );
+        assert_eq!(
+            required_permission_for("execute_shell", Some("rm foo")),
+            PermissionLevel::Write
+        );
+        assert_eq!(
+            required_permission_for("execute_shell", Some("sudo rm -rf /")),
+            PermissionLevel::Destructive
+        );
+    }
+
+    #[test]
+    fn unknown_tool_classified_most_restrictive() {
+        assert_eq!(
+            required_permission_for("bash", None),
+            PermissionLevel::Destructive
+        );
+        assert_eq!(
+            required_permission_for("", None),
+            PermissionLevel::Destructive
+        );
+    }
+
+    #[test]
+    fn policy_engine_matches_canonical_classifier() {
+        let policy = CapabilityPolicy;
+        assert_eq!(
+            policy.required_permission(&CapabilityRequest {
+                tool_name: "write_file",
+                command: None
+            }),
+            PermissionLevel::Write
+        );
+        assert_eq!(
+            policy.required_permission(&CapabilityRequest {
+                tool_name: "execute_shell",
+                command: Some("ls")
+            }),
+            PermissionLevel::Read
+        );
     }
 
     #[tokio::test]
