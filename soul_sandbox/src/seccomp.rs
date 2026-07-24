@@ -290,13 +290,16 @@ const DANGEROUS_SYSCALLS: &[i64] = &[
 ];
 
 fn dangerous_syscalls() -> Vec<i64> {
-    let mut syscalls = DANGEROUS_SYSCALLS.to_vec();
-
     // Port I/O privilege syscalls only exist on Linux x86. Keeping them out
     // of the ARM64 build preserves the same policy without referring to
     // libc constants that are unavailable on that architecture.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    syscalls.extend([libc::SYS_iopl, libc::SYS_ioperm]);
+    {
+        let mut syscalls = DANGEROUS_SYSCALLS.to_vec();
+        syscalls.extend([libc::SYS_iopl, libc::SYS_ioperm]);
+        syscalls
+    }
 
-    syscalls
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    DANGEROUS_SYSCALLS.to_vec()
 }
