@@ -1565,26 +1565,29 @@ async fn run_doctor(cli: &Cli, settings: &soulsystem::config::Settings) -> Resul
     }
 
     let provider_url = cli.llm_url.trim_end_matches('/');
-    let health_url = format!("{provider_url}/api/tags");
-    match reqwest::Client::new()
-        .get(&health_url)
+    let client = reqwest::Client::new();
+    match doctor_llm_request(&client, cli.provider, provider_url, cli.api_key.as_deref())
         .timeout(Duration::from_secs(3))
         .send()
         .await
     {
         Ok(response) if response.status().is_success() => {
-            println!("  llm:     reachable at {provider_url}");
+            println!("  llm:     {} reachable at {provider_url}", cli.provider);
         }
         Ok(response) => {
             warnings += 1;
             println!(
-                "  llm:     WARNING {provider_url} returned HTTP {}",
+                "  llm:     WARNING {} at {provider_url} returned HTTP {}",
+                cli.provider,
                 response.status()
             );
         }
         Err(error) => {
             warnings += 1;
-            println!("  llm:     WARNING {provider_url} is unavailable ({error})");
+            println!(
+                "  llm:     WARNING {} at {provider_url} is unavailable ({error})",
+                cli.provider
+            );
         }
     }
 
@@ -1612,6 +1615,46 @@ async fn run_doctor(cli: &Cli, settings: &soulsystem::config::Settings) -> Resul
         println!("Doctor result: {warnings} warning(s); see docs/GETTING_STARTED.md");
     }
     Ok(())
+}
+
+fn doctor_llm_request(
+    client: &reqwest::Client,
+    provider: soul_llm::ProviderKind,
+    base_url: &str,
+    api_key: Option<&str>,
+) -> reqwest::RequestBuilder {
+    use soul_llm::ProviderKind;
+
+    let base_url = base_url.trim_end_matches('/');
+    match provider {
+        ProviderKind::Ollama => client.get(format!("{base_url}/api/tags")),
+        ProviderKind::OpenAI => {
+            let models_url = provider_models_url(base_url);
+            let request = client.get(models_url);
+            match api_key.filter(|key| !key.is_empty()) {
+                Some(key) => request.bearer_auth(key),
+                None => request,
+            }
+        }
+        ProviderKind::Anthropic => {
+            let models_url = provider_models_url(base_url);
+            let request = client
+                .get(models_url)
+                .header("anthropic-version", "2023-06-01");
+            match api_key.filter(|key| !key.is_empty()) {
+                Some(key) => request.header("x-api-key", key),
+                None => request,
+            }
+        }
+    }
+}
+
+fn provider_models_url(base_url: &str) -> String {
+    if base_url.ends_with("/v1") {
+        format!("{base_url}/models")
+    } else {
+        format!("{base_url}/v1/models")
+    }
 }
 
 /// Run an interactive first-time setup wizard and persist configuration.
@@ -1741,5 +1784,85 @@ fn mask_key(key: Option<&str>) -> String {
         None => "(none)".into(),
         Some(k) if k.len() <= 8 => "***".into(),
         Some(k) => format!("{}...***", &k[..4]),
+    }
+}
+
+#[cfg(test)]
+mod doctor_tests {
+    use super::*;
+    use reqwest::header::{HeaderValue, AUTHORIZATION};
+    use soul_llm::ProviderKind;
+
+    #[test]
+    fn doctor_uses_provider_specific_health_endpoints() {
+        let client = reqwest::Client::new();
+
+        let ollama = doctor_llm_request(
+            &client,
+            ProviderKind::Ollama,
+            "http://localhost:11434/",
+            None,
+        )
+        .build()
+        .expect("valid Ollama request");
+        assert_eq!(ollama.url().as_str(), "http://localhost:11434/api/tags");
+
+        let openai = doctor_llm_request(
+            &client,
+            ProviderKind::OpenAI,
+            "https://api.openai.com/v1",
+            None,
+        )
+        .build()
+        .expect("valid OpenAI request");
+        assert_eq!(openai.url().as_str(), "https://api.openai.com/v1/models");
+
+        let compatible =
+            doctor_llm_request(&client, ProviderKind::OpenAI, "http://localhost:8080", None)
+                .build()
+                .expect("valid OpenAI-compatible request");
+        assert_eq!(compatible.url().as_str(), "http://localhost:8080/v1/models");
+    }
+
+    #[test]
+    fn doctor_applies_provider_auth_without_putting_it_in_the_url() {
+        let client = reqwest::Client::new();
+        let secret = "test-secret-value";
+
+        let openai = doctor_llm_request(
+            &client,
+            ProviderKind::OpenAI,
+            "https://api.openai.com",
+            Some(secret),
+        )
+        .build()
+        .expect("valid OpenAI request");
+        assert_eq!(
+            openai.headers().get(AUTHORIZATION),
+            Some(&HeaderValue::from_static("Bearer test-secret-value"))
+        );
+        assert!(!openai.url().as_str().contains(secret));
+
+        let anthropic = doctor_llm_request(
+            &client,
+            ProviderKind::Anthropic,
+            "https://api.anthropic.com/v1/",
+            Some(secret),
+        )
+        .build()
+        .expect("valid Anthropic request");
+        assert_eq!(
+            anthropic.url().as_str(),
+            "https://api.anthropic.com/v1/models"
+        );
+        assert_eq!(
+            anthropic.headers().get("x-api-key"),
+            Some(&HeaderValue::from_static(secret))
+        );
+        assert_eq!(
+            anthropic.headers().get("anthropic-version"),
+            Some(&HeaderValue::from_static("2023-06-01"))
+        );
+        assert!(!anthropic.url().as_str().contains(secret));
     }
 }
