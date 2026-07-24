@@ -2,6 +2,7 @@
 name = "soullink-moe"
 version = "13.5.0"
 edition = "2021"
+license.workspace = true
 description = "SoulSystem — Mixture of Experts: task routing to specialized models"
 
 [dependencies]

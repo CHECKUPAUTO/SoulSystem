@@ -2,6 +2,7 @@
 name = "forge"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Binaire de demonstration: prouve que la boucle du moteur se ferme et generalise."
 
 [[bin]]

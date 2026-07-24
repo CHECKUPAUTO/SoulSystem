@@ -2,6 +2,7 @@
 name = "soullink-registry"
 version = "13.5.0"
 edition = "2021"
+license.workspace = true
 description = "SoulSystem — Service registry for multi-node mesh discovery"
 
 [dependencies]

@@ -35,7 +35,7 @@ pub fn parse_sitemap(xml: &str) -> Vec<SitemapUrl> {
                 current_tag = name;
             }
             Ok(Event::Text(e)) => {
-                let text = e.unescape().unwrap_or_default().into_owned();
+                let text = e.decode().unwrap_or_default().into_owned();
                 if !in_url {
                     continue;
                 }

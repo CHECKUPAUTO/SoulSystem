@@ -2,6 +2,7 @@
 name = "soullink-secrets"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "AES-256-GCM encrypted secret store with HKDF key derivation (IronClaw-inspired)"
 
 [dependencies]

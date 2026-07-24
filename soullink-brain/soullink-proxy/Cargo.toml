@@ -2,6 +2,7 @@
 name = "soullink-proxy"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Reverse proxy and TLS gateway for SoulLink V13.5 APIs"
 
 [dependencies]

@@ -63,7 +63,7 @@ fn parse_rss(xml: &str) -> Vec<FeedEntry> {
                 current_tag = name;
             }
             Ok(Event::Text(e)) if in_item => {
-                let text = e.unescape().unwrap_or_default().into_owned();
+                let text = e.decode().unwrap_or_default().into_owned();
                 match current_tag.as_str() {
                     "title" => current.title = text,
                     "link" => current.link = text,
@@ -112,7 +112,7 @@ fn parse_atom(xml: &str) -> Vec<FeedEntry> {
                 current_tag = name;
             }
             Ok(Event::Text(e)) if in_entry => {
-                let text = e.unescape().unwrap_or_default().into_owned();
+                let text = e.decode().unwrap_or_default().into_owned();
                 match current_tag.as_str() {
                     "title" => current.title = text,
                     "id" if current.link.is_empty() => current.link = text,

@@ -2,6 +2,7 @@
 name = "agent-registry"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Agent d'orchestration — wire SoulSystem, orchestrateur, AVID, scirust, SoulNeural, openevolve, synergie en un point central"
 
 [[bin]]

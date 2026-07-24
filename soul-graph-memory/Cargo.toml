@@ -2,6 +2,7 @@
 name = "soul_graph_memory"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Knowledge graph memory with typed node/edge relations"
 
 [dependencies]

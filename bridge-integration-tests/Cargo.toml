@@ -2,6 +2,7 @@
 name = "bridge-integration-tests"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Tests d'intégration des 9 bridges SoulSystem ↔ écosystème"
 
 [[bin]]

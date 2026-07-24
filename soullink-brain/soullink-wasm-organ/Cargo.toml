@@ -2,6 +2,7 @@
 name = "soullink-wasm-organ"
 version = "13.5.0"
 edition = "2021"
+license.workspace = true
 description = "WASM-based organ sandbox interface for SoulLink neural mesh"
 
 [dependencies]

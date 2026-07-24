@@ -2,6 +2,7 @@
 name = "soul_persist"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Persistent storage for agent memory, goals, and conversations"
 
 [dependencies]
