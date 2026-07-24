@@ -51,7 +51,7 @@ use soul_planner::{CognitiveLoop, Goal, GoalStatus};
 use soul_skills::{SkillLoader, SkillValidator};
 use soul_tools::{async_dispatch_tool, discover_system_tools, ToolRegistry};
 use soullink_autonomy::{
-    error_metrics::{ErrorWeights, GlobalError},
+    error_metrics::{ErrorWeights, GlobalError, GoalError, UncertaintyMetric},
     metacognition::MetaCognition,
     policy_evolution::{ActionSelector, PolicyEvolution, PolicyMetrics, PolicyWeights},
     reward_system::{ActionReward, AgentReward, InformationReward, RewardWeights, SocialReward},
@@ -1748,29 +1748,83 @@ Only return the JSON array, no explanation."#,
     }
 
     /// Update global error metrics after task completion.
-    async fn update_global_error(&mut self, _task: &str, _result: &str) {
-        // Calculate prediction error (simplified for this example)
-        let prediction_error = 0.1; // In a real implementation, this would be calculated from predictions vs actual
+    ///
+    /// Every component is derived from signals actually measured during this
+    /// run (success/failure, turns used, tool-call/repair counts,
+    /// consecutive-failure streak, and word-overlap similarity between the
+    /// task and the produced result via [`GoalError`]/[`UncertaintyMetric`])
+    /// rather than fixed constants (MED-006) — two runs with materially
+    /// different outcomes must yield different error values, since these
+    /// feed `update_policy`'s `policy_evolution` update. All components stay
+    /// clamped to `[0.0, 1.0]` so a noisy measurement can't destabilize the
+    /// downstream policy update.
+    async fn update_global_error(&mut self, task: &str, result: &str) {
+        let succeeded = !result.is_empty();
+        let turns_ratio = if self.config.max_turns > 0 {
+            (self.turn as f64 / self.config.max_turns as f64).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        // Prediction error: effort (turns spent vs. budget) needed to reach
+        // this outcome — a real proxy for "how well the task's difficulty
+        // was anticipated" in the absence of an explicit world-model
+        // prediction. An unproductive run (no output) means the outcome was
+        // entirely unanticipated.
+        let prediction_error = if succeeded { turns_ratio } else { 1.0 };
         self.global_error.update_prediction_error(prediction_error);
 
-        // Calculate action error (reinforcement learning style)
-        let action_error = 0.05; // Simplified - in practice this would be calculated using Q-learning
+        // Action error: fraction of dispatched tool calls that needed
+        // auto-repair during this run.
+        let action_error = if self.tool_call_count > 0 {
+            (self.repair_count as f64 / self.tool_call_count as f64).clamp(0.0, 1.0)
+        } else if succeeded {
+            0.0
+        } else {
+            1.0
+        };
         self.global_error.update_action_error(action_error);
 
-        // Calculate goal error
-        let goal_error = 0.2; // Simplified - actual implementation would compare with target goals
-        self.global_error.update_goal_error(goal_error);
+        // Goal error: word-overlap similarity between the task description
+        // and the actual result. Low similarity (or an empty/failed result,
+        // which GoalError naturally scores as zero similarity) means the
+        // stated goal wasn't reflected in the outcome.
+        let goal_similarity = GoalError::calculate(task, result).goal_similarity;
+        self.global_error.update_goal_error(1.0 - goal_similarity);
 
-        // Calculate social error (if applicable)
-        let social_error = 0.15; // Simplified
+        // Social error: this runtime has no other-agent trajectory to
+        // compare against (a single `run_task` call is not multi-agent), so
+        // this reuses the same measured success/goal-alignment signals
+        // rather than fabricating an unrelated constant.
+        let social_error = if succeeded {
+            ((1.0 - goal_similarity) * 0.5).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         self.global_error.update_social_error(social_error);
 
-        // Calculate uncertainty
-        let uncertainty = 0.3; // Simplified - actual implementation would use entropy or confidence metrics
+        // Uncertainty: word-overlap-based entropy between the task and
+        // result (soullink_autonomy's UncertaintyMetric) — a failed run
+        // (nothing produced to compare) is maximally uncertain.
+        let uncertainty = if succeeded {
+            UncertaintyMetric::calculate(task, result)
+                .entropy
+                .clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         self.global_error.update_uncertainty(uncertainty);
 
-        // Calculate initiative error (if applicable)
-        let initiative_error = 0.1; // Simplified
+        // Initiative error: how much of the auto-repair threshold the
+        // consecutive-failure streak consumed — a real measure of how much
+        // the agent needed correction rather than self-directing
+        // successfully.
+        let initiative_error = if self.config.max_consecutive_failures > 0 {
+            (self.consecutive_failures as f64 / self.config.max_consecutive_failures as f64)
+                .clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         self.global_error.update_initiative_error(initiative_error);
 
         // Recalculate global error
@@ -1778,33 +1832,54 @@ Only return the JSON array, no explanation."#,
     }
 
     /// Calculate reward for task execution.
-    async fn calculate_reward(&mut self, _task: &str, result: &str) {
+    ///
+    /// Derived from the same real, measured signals as
+    /// [`Self::update_global_error`] (MED-006) — quality comes from
+    /// [`soul_critique::quick_critique`], the same heuristic scorer already
+    /// used for DPO pair scoring elsewhere in this function, so a
+    /// substantive result scores higher than an empty/thin one instead of a
+    /// fixed `0.8`.
+    async fn calculate_reward(&mut self, task: &str, result: &str) {
+        let succeeded = !result.is_empty();
+        let quality = if succeeded {
+            (soul_critique::quick_critique(task, result).overall_score / 10.0).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
         // Action reward calculation
         let action_reward = ActionReward::calculate(
-            !result.is_empty(),           // completed successfully
-            0.8,                          // quality score (simplified)
-            self.turn as f64,             // execution time (simplified)
-            self.config.max_turns as f64, // max allowed time (simplified)
+            succeeded,
+            quality,
+            self.turn as f64,
+            self.config.max_turns as f64,
         );
         self.reward_system
             .update_action_reward(action_reward.total());
 
-        // Social reward calculation
+        // Social reward calculation — see update_global_error's social_error
+        // for why this reuses goal-alignment/success signals rather than
+        // unavailable multi-agent data.
+        let goal_similarity = GoalError::calculate(task, result).goal_similarity;
         let social_reward = SocialReward::calculate(
-            0.7, // performance improvement (simplified)
-            0.8, // risk avoidance (simplified)
-            0.9, // knowledge gain (simplified)
-            0.8, // collaboration score (simplified)
+            goal_similarity,
+            if succeeded { 1.0 } else { 0.0 },
+            quality,
+            goal_similarity,
         );
         self.reward_system
             .update_social_reward(social_reward.total());
 
-        // Information reward calculation
+        // Information reward calculation — uncertainty_after reuses the
+        // value update_global_error just computed for this same run
+        // (update_global_error always runs before calculate_reward in
+        // run_task); uncertainty_before is maximal since nothing was known
+        // before acting.
         let information_reward = InformationReward::calculate(
-            0.8, // uncertainty before (simplified)
-            0.3, // uncertainty after (simplified)
-            0.7, // performance improvement (simplified)
-            0.9, // novelty score (simplified)
+            1.0,
+            self.global_error.uncertainty,
+            quality,
+            if succeeded { goal_similarity } else { 0.0 },
         );
         self.reward_system
             .update_information_reward(information_reward.total());
@@ -2294,6 +2369,107 @@ mod tests {
         assert!(
             result.is_ok(),
             "a safe command must still succeed: {result:?}"
+        );
+    }
+
+    // ── MED-006: learning signals derived from real outcomes ─────────────
+
+    #[tokio::test]
+    async fn global_error_diverges_between_success_and_failure() {
+        let mut succeeded = make_test_agent();
+        succeeded
+            .update_global_error(
+                "summarize the quarterly report",
+                "The quarterly report shows revenue up 12% driven by the summarize the quarterly report initiative.",
+            )
+            .await;
+
+        let mut failed = make_test_agent();
+        failed
+            .update_global_error("summarize the quarterly report", "")
+            .await;
+
+        assert!(
+            failed.global_error.global_error > succeeded.global_error.global_error,
+            "a failed run (empty result) must score a higher global error than a successful, \
+             on-topic one: failed={}, succeeded={}",
+            failed.global_error.global_error,
+            succeeded.global_error.global_error
+        );
+        // Every component must actually have moved off the old hardcoded
+        // constants for at least one of the two runs (goal_error's old
+        // constant was 0.2; a fully mismatched/empty result must score 1.0).
+        assert_eq!(failed.global_error.goal_error, 1.0);
+    }
+
+    #[tokio::test]
+    async fn global_error_reflects_repair_and_consecutive_failure_signals() {
+        let mut clean = make_test_agent();
+        clean.tool_call_count = 10;
+        clean.repair_count = 0;
+        clean.consecutive_failures = 0;
+        clean.update_global_error("task", "a fine result").await;
+
+        let mut messy = make_test_agent();
+        messy.tool_call_count = 10;
+        messy.repair_count = 8;
+        messy.consecutive_failures = messy.config.max_consecutive_failures;
+        messy.update_global_error("task", "a fine result").await;
+
+        assert!(
+            messy.global_error.action_error > clean.global_error.action_error,
+            "a high repair-to-tool-call ratio must raise action_error"
+        );
+        assert!(
+            messy.global_error.initiative_error > clean.global_error.initiative_error,
+            "hitting the consecutive-failure threshold must raise initiative_error"
+        );
+    }
+
+    #[tokio::test]
+    async fn calculate_reward_diverges_between_rich_and_empty_result() {
+        let mut rich = make_test_agent();
+        rich.calculate_reward(
+            "write a haiku about the ocean",
+            "Waves crash on the shore\nSalt air drifts across the ocean\nEndless blue expands",
+        )
+        .await;
+
+        let mut empty = make_test_agent();
+        empty
+            .calculate_reward("write a haiku about the ocean", "")
+            .await;
+
+        assert!(
+            rich.reward_system.total_reward > empty.reward_system.total_reward,
+            "a substantive result must score a higher total reward than an empty one: \
+             rich={}, empty={}",
+            rich.reward_system.total_reward,
+            empty.reward_system.total_reward
+        );
+    }
+
+    #[tokio::test]
+    async fn calculate_reward_quality_varies_with_result_richness_not_a_fixed_constant() {
+        // Both succeed (non-empty), isolating the old hardcoded
+        // `0.8 // quality score (simplified)` from the success/failure axis
+        // exercised by the test above.
+        let mut thin = make_test_agent();
+        thin.calculate_reward("explain photosynthesis", "ok").await;
+
+        let mut thorough = make_test_agent();
+        thorough
+            .calculate_reward(
+                "explain photosynthesis",
+                "Photosynthesis is the process by which plants convert light energy into \
+                 chemical energy stored in glucose, using carbon dioxide and water while \
+                 releasing oxygen as a byproduct. It occurs in the chloroplasts.",
+            )
+            .await;
+
+        assert_ne!(
+            thin.reward_system.action_reward, thorough.reward_system.action_reward,
+            "quality must vary with actual result content instead of a fixed constant"
         );
     }
 
