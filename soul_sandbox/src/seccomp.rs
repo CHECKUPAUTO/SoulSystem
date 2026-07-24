@@ -190,7 +190,8 @@ pub fn install_filter(profile: &str) -> Result<(), std::io::Error> {
         // ...) that no legitimate sandboxed command requires, and allows
         // everything else.
         "default" => {
-            let prog = build_bpf_denylist_filter(DANGEROUS_SYSCALLS, libc::EPERM as u32);
+            let dangerous_syscalls = dangerous_syscalls();
+            let prog = build_bpf_denylist_filter(&dangerous_syscalls, libc::EPERM as u32);
             load_bpf(&prog)
         }
         "unconfined" => Ok(()),
@@ -272,8 +273,6 @@ const DANGEROUS_SYSCALLS: &[i64] = &[
     libc::SYS_init_module,
     libc::SYS_finit_module,
     libc::SYS_delete_module,
-    libc::SYS_iopl,
-    libc::SYS_ioperm,
     libc::SYS_acct,
     libc::SYS_swapon,
     libc::SYS_swapoff,
@@ -289,3 +288,18 @@ const DANGEROUS_SYSCALLS: &[i64] = &[
     libc::SYS_perf_event_open,
     libc::SYS_quotactl,
 ];
+
+fn dangerous_syscalls() -> Vec<i64> {
+    // Port I/O privilege syscalls only exist on Linux x86. Keeping them out
+    // of the ARM64 build preserves the same policy without referring to
+    // libc constants that are unavailable on that architecture.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        let mut syscalls = DANGEROUS_SYSCALLS.to_vec();
+        syscalls.extend([libc::SYS_iopl, libc::SYS_ioperm]);
+        syscalls
+    }
+
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    DANGEROUS_SYSCALLS.to_vec()
+}

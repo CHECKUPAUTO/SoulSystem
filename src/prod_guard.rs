@@ -70,11 +70,27 @@ fn is_default_secret(value: &str) -> bool {
     DEFAULT_SECRET_SENTINELS.contains(&normalized.as_str())
 }
 
-/// Read the gateway auth token from the environment, if any non-empty.
-fn gateway_token() -> Option<String> {
-    std::env::var("SOULSYSTEM_GATEWAY_TOKEN")
-        .ok()
-        .filter(|s| !s.is_empty())
+/// Read all gateway auth material from the environment.
+fn gateway_tokens() -> Vec<(String, String)> {
+    let mut tokens = Vec::new();
+    if let Ok(entries) = std::env::var("SOULSYSTEM_GATEWAY_TOKENS") {
+        for entry in entries.split(',') {
+            if let Some((principal, token)) = entry.split_once('=') {
+                if !principal.trim().is_empty() && !token.trim().is_empty() {
+                    tokens.push((
+                        format!("SOULSYSTEM_GATEWAY_TOKENS:{}", principal.trim()),
+                        token.trim().to_string(),
+                    ));
+                }
+            }
+        }
+    }
+    if let Ok(token) = std::env::var("SOULSYSTEM_GATEWAY_TOKEN") {
+        if !token.is_empty() {
+            tokens.push(("SOULSYSTEM_GATEWAY_TOKEN".into(), token));
+        }
+    }
+    tokens
 }
 
 /// Detect group/world-accessible permissions on a config path (Unix only).
@@ -103,29 +119,31 @@ fn assemble_posture(
     gateway_addr: &str,
     settings: &Settings,
     gateway_authenticated: bool,
+    gateway_tls_enabled: bool,
 ) -> SecurityPosture {
-    let token = gateway_token();
-    let auth_material_present = token
-        .as_deref()
-        .map(|t| !is_default_secret(t))
-        .unwrap_or(false);
+    let tokens = gateway_tokens();
+    let auth_material_present =
+        !tokens.is_empty() && tokens.iter().all(|(_, token)| !is_default_secret(token));
 
     let mut default_or_example_secret_names = Vec::new();
-    if let Some(t) = &token {
-        if is_default_secret(t) {
-            default_or_example_secret_names.push("SOULSYSTEM_GATEWAY_TOKEN".to_string());
+    for (name, token) in &tokens {
+        if is_default_secret(token) {
+            default_or_example_secret_names.push(name.clone());
         }
     }
 
     // The gateway's operator routes are protected by the GatewayAuth bearer
     // middleware. The API and local WS bridge below do not use that middleware
     // and must remain reported as unauthenticated.
-    let tls_enabled = false;
-
     let listeners = vec![
-        ListenerPosture::new("gateway", gateway_addr, tls_enabled, gateway_authenticated),
-        ListenerPosture::new("api", "127.0.0.1:9023", tls_enabled, false),
-        ListenerPosture::new("ws_bridge", "127.0.0.1:9022", tls_enabled, false),
+        ListenerPosture::new(
+            "gateway",
+            gateway_addr,
+            gateway_tls_enabled,
+            gateway_authenticated,
+        ),
+        ListenerPosture::new("api", "127.0.0.1:9023", false, false),
+        ListenerPosture::new("ws_bridge", "127.0.0.1:9022", false, false),
     ];
 
     let workspace_root_canonical = std::fs::canonicalize(&settings.paths.data_dir).is_ok();
@@ -167,9 +185,15 @@ pub fn enforce_startup_security(
     gateway_addr: &str,
     settings: &Settings,
     gateway_auth: &GatewayAuth,
+    gateway_tls_enabled: bool,
 ) -> anyhow::Result<GuardReport> {
     let mode = resolve_mode()?;
-    let posture = assemble_posture(gateway_addr, settings, gateway_auth.is_configured());
+    let posture = assemble_posture(
+        gateway_addr,
+        settings,
+        gateway_auth.is_configured(),
+        gateway_tls_enabled,
+    );
 
     match evaluate(mode, &posture) {
         Ok(report) => {
@@ -223,7 +247,7 @@ mod tests {
         let settings = Settings::default();
         let auth = GatewayAuth::configured("a-real-operator-token");
 
-        let posture = assemble_posture("127.0.0.1:7878", &settings, auth.is_configured());
+        let posture = assemble_posture("127.0.0.1:7878", &settings, auth.is_configured(), false);
 
         assert!(listener(&posture, "gateway").authenticated);
         assert!(!listener(&posture, "api").authenticated);
@@ -235,7 +259,7 @@ mod tests {
         let settings = Settings::default();
         let auth = GatewayAuth::unconfigured();
 
-        let posture = assemble_posture("127.0.0.1:7878", &settings, auth.is_configured());
+        let posture = assemble_posture("127.0.0.1:7878", &settings, auth.is_configured(), false);
 
         assert!(!listener(&posture, "gateway").authenticated);
         assert!(!listener(&posture, "api").authenticated);

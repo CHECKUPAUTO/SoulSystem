@@ -9,6 +9,8 @@ use crate::{EntityEvent, EntityHandle};
 use std::sync::Arc;
 
 pub mod discord;
+pub mod imessage;
+pub mod signal;
 pub mod slack;
 pub mod telegram;
 pub mod whatsapp;
@@ -52,6 +54,8 @@ pub async fn start_all(config: ChannelConfig) {
         Box::new(discord::DiscordProvider::from_env()),
         Box::new(slack::SlackProvider::from_env()),
         Box::new(whatsapp::WhatsAppProvider::from_env()),
+        Box::new(signal::SignalProvider::from_env()),
+        Box::new(imessage::IMessageProvider::from_env()),
     ];
 
     for p in providers {

@@ -5,7 +5,6 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
-seccompiler = "0.4"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal", "io-util"] }
 tracing = { workspace = true }
 anyhow = { workspace = true }

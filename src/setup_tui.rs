@@ -86,14 +86,10 @@ impl App {
     }
 
     fn mask_key(&self) -> String {
-        let key = self.temp_api_key.as_str();
-        if key.is_empty() {
+        if self.temp_api_key.is_empty() {
             return "(none)".into();
         }
-        if key.len() <= 8 {
-            return "***".into();
-        }
-        format!("{}...***", &key[..4])
+        "configured in system credential store".into()
     }
 
     fn next_field(&mut self) {

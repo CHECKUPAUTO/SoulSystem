@@ -289,6 +289,10 @@ pub enum ToolId {
     WriteFile,
     /// Patch a file (search/replace).
     PatchFile,
+    /// Read a web page through a locally running Chrome CDP endpoint.
+    BrowserRead,
+    /// Invoke an explicitly configured MCP tool over WebSocket.
+    McpCall,
 }
 
 impl ToolId {
@@ -299,16 +303,20 @@ impl ToolId {
             Self::ReadFile => "read_file",
             Self::WriteFile => "write_file",
             Self::PatchFile => "patch_file",
+            Self::BrowserRead => "browser_read",
+            Self::McpCall => "mcp_call",
         }
     }
 
     /// Every registered tool id.
-    pub fn all() -> [ToolId; 4] {
+    pub fn all() -> [ToolId; 6] {
         [
             Self::ExecuteShell,
             Self::ReadFile,
             Self::WriteFile,
             Self::PatchFile,
+            Self::BrowserRead,
+            Self::McpCall,
         ]
     }
 
@@ -323,6 +331,8 @@ impl ToolId {
             "read_file" => Ok(Self::ReadFile),
             "write_file" => Ok(Self::WriteFile),
             "patch_file" => Ok(Self::PatchFile),
+            "browser_read" => Ok(Self::BrowserRead),
+            "mcp_call" => Ok(Self::McpCall),
             _ => Err(ToolError::UnknownTool {
                 name: name.to_string(),
             }),
@@ -344,6 +354,8 @@ impl ToolId {
             Self::ExecuteShell => ToolCapability::ProcessExecution,
             Self::ReadFile => ToolCapability::ReadOnly,
             Self::WriteFile | Self::PatchFile => ToolCapability::FileWrite,
+            Self::BrowserRead => ToolCapability::NetworkRead,
+            Self::McpCall => ToolCapability::NetworkWrite,
         }
     }
 }
@@ -698,6 +710,9 @@ pub fn dispatch_tool_in(
             let path = policy.resolve_read(requested).map_err(|e| e.to_string())?;
             patch_file(&path, old_text, new_text)
         }
+        ToolId::BrowserRead | ToolId::McpCall => {
+            Err(format!("tool {name:?} requires asynchronous dispatch"))
+        }
     }
 }
 
@@ -711,10 +726,71 @@ pub async fn async_dispatch_tool(
     name: &str,
     args: serde_json::Value,
 ) -> std::result::Result<String, String> {
-    let name = name.to_string();
-    tokio::task::spawn_blocking(move || dispatch_tool(&name, args))
-        .await
-        .map_err(|e| format!("tool dispatch join error: {e}"))?
+    match ToolId::from_name(name).map_err(|error| error.to_string())? {
+        ToolId::BrowserRead => {
+            let url = args
+                .get("url")
+                .and_then(serde_json::Value::as_str)
+                .ok_or("browser_read requires a url")?;
+            let endpoint = args
+                .get("cdp_endpoint")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("http://127.0.0.1:9222");
+            let mut browser = soul_browser::BrowserController::with_endpoint(
+                soul_browser::BrowserConfig::default(),
+                endpoint,
+            )
+            .map_err(|error| error.to_string())?;
+            browser.connect().await.map_err(|error| error.to_string())?;
+            browser
+                .navigate(url)
+                .await
+                .map_err(|error| error.to_string())?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            browser.get_text().await.map_err(|error| error.to_string())
+        }
+        ToolId::McpCall => {
+            let server_url = args
+                .get("server_url")
+                .and_then(serde_json::Value::as_str)
+                .ok_or("mcp_call requires server_url")?;
+            if !server_url.starts_with("ws://") && !server_url.starts_with("wss://") {
+                return Err("mcp_call server_url must use ws:// or wss://".into());
+            }
+            let tool = args
+                .get("tool")
+                .and_then(serde_json::Value::as_str)
+                .ok_or("mcp_call requires tool")?;
+            let arguments = args
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let transport = soul_mcp::WsTransport::new(server_url);
+            let (request_tx, response_rx) = transport
+                .connect_client()
+                .await
+                .map_err(|error| error.to_string())?;
+            let client = soul_mcp::McpClient::new(request_tx, response_rx);
+            client
+                .initialize(soul_mcp::McpServerInfo {
+                    name: "soulsystem".into(),
+                    version: env!("CARGO_PKG_VERSION").into(),
+                })
+                .await
+                .map_err(|error| error.to_string())?;
+            let result = client
+                .call_tool(tool, arguments)
+                .await
+                .map_err(|error| error.to_string())?;
+            serde_json::to_string(&result).map_err(|error| error.to_string())
+        }
+        _ => {
+            let name = name.to_string();
+            tokio::task::spawn_blocking(move || dispatch_tool(&name, args))
+                .await
+                .map_err(|e| format!("tool dispatch join error: {e}"))?
+        }
+    }
 }
 
 // ── Exécution synchronisée (legacy) ───────────────────────────
@@ -1099,6 +1175,11 @@ mod compat_tests {
         assert_eq!(ToolId::ReadFile.capability(), ToolCapability::ReadOnly);
         assert_eq!(ToolId::WriteFile.capability(), ToolCapability::FileWrite);
         assert_eq!(ToolId::PatchFile.capability(), ToolCapability::FileWrite);
+        assert_eq!(
+            ToolId::BrowserRead.capability(),
+            ToolCapability::NetworkRead
+        );
+        assert_eq!(ToolId::McpCall.capability(), ToolCapability::NetworkWrite);
         assert_eq!(
             ToolId::ExecuteShell.capability(),
             ToolCapability::ProcessExecution

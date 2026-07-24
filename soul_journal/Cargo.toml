@@ -9,4 +9,4 @@ keywords = ["wal", "write-ahead-log", "persistence", "crash-recovery", "durabili
 categories = ["database", "embedded", "os", "filesystem"]
 
 [dependencies]
-libc = "0.2"
+memmap2 = "0.9"

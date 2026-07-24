@@ -14,7 +14,7 @@
 //! 6. **Journalisation** complète.
 
 mod policy;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 mod seccomp;
 mod types;
 
@@ -243,7 +243,7 @@ impl Sandbox {
     /// worked around. If `unshare` fails, this logs a warning and continues
     /// without network isolation for that execution; seccomp (which has no
     /// such host-policy dependency) still applies.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn apply_sandbox_pre_exec(&self, command: &mut Command) {
         let profile = self.policy.seccomp_profile.clone();
         let network_isolated = self.policy.network_isolated;
@@ -290,6 +290,21 @@ impl Sandbox {
         }
     }
 
+    /// Non-Linux Unix hosts do not provide Linux seccomp or network
+    /// namespaces. Keep process-group isolation so timeouts still terminate
+    /// the complete child tree; command and path policy checks remain active.
+    #[cfg(all(unix, not(target_os = "linux")))]
+    fn apply_sandbox_pre_exec(&self, command: &mut Command) {
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setpgid(0, 0) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+
     /// Build command, apply sandbox pre_exec, and spawn.
     fn spawn_with_sandbox(
         &self,
@@ -312,6 +327,9 @@ impl Sandbox {
         child: &mut std::process::Child,
         pid: i32,
     ) -> (Option<i32>, String, String) {
+        #[cfg(not(unix))]
+        let _ = pid;
+
         let timeout = self.policy.timeout;
         let start = Instant::now();
         let mut stdout = String::new();
@@ -895,7 +913,7 @@ mod tests {
     /// unprivileged `CLONE_NEWUSER` (e.g. Ubuntu 23.10+'s default AppArmor
     /// policy, including standard GitHub Actions runners) execution must
     /// still succeed even though isolation itself silently degrades.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn sandboxed_process_got_isolated_netns(
         policy: SandboxPolicy,
         verdict: &SandboxVerdict,
@@ -911,7 +929,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn network_isolated_gets_a_fresh_network_namespace_when_the_host_permits_it() {
         // /proc/ is normally a blocked sensitive path; disabled here only so
         // the probe command (which reads its own netns identity) can run —
@@ -932,7 +950,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn network_not_isolated_shares_host_namespace_when_disabled() {
         let sb = Sandbox::new(SandboxPolicy {
             block_sensitive_paths: false,
@@ -964,6 +982,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn unknown_seccomp_profile_fails_closed_refuses_to_execute() {
         let sb = Sandbox::new(SandboxPolicy {
             seccomp_profile: Some("totally-bogus-profile".to_string()),
@@ -977,7 +996,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn execute_with_stdin_also_gets_network_isolation_when_the_host_permits_it() {
         // execute_with_stdin previously built its own Command with only
         // setpgid in pre_exec, bypassing seccomp and network isolation

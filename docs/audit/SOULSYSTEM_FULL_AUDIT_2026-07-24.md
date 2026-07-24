@@ -167,3 +167,24 @@ with optimizations, while all debug-mode correctness invariants passed.
 
 Detailed finding status is tracked in
 `.planning/phases/99-soulsystem-audit/99-UAT.md`.
+
+## Remediation update — 2026-07-24
+
+The following findings described above have now been addressed on the active
+implementation branch:
+
+- setup and configuration use hidden input plus the native operating-system
+  credential store; LLM keys are not serialized to TOML;
+- the gateway has an active native Rustls serving path and named multi-operator
+  bearer tokens;
+- Linux arm64 and Windows x86-64 release/install paths were added;
+- persistent cron automations create real `SoulEntity` goals;
+- browser and MCP tools, Markdown skills, and subagents reach live runtime
+  paths;
+- Signal is bidirectional through `signal-cli`; iMessage is truthfully scoped
+  to outbound macOS Messages automation.
+
+These changes do not make the framework fully production-ready: per-route
+RBAC, tenant data isolation, signed/replay-protected webhooks, non-gateway
+listener hardening, release provenance, and backup/restore operations remain
+open.

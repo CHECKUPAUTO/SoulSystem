@@ -12,10 +12,16 @@ This repository is a unified Rust workspace that merges the original SoulSystem 
 curl -fsSL https://raw.githubusercontent.com/Memorithm/SoulSystem/main/install.sh | sh
 ```
 
-This downloads a prebuilt `soulsystem` binary for your platform (Linux/macOS,
+This downloads a prebuilt `soulsystem` binary for your platform (Linux/macOS
 x86_64/arm64), or builds from source if no release matches — installing the Rust
 toolchain automatically if needed. Override the target dir with
 `SOULSYSTEM_INSTALL_DIR` or pin a version with `SOULSYSTEM_VERSION`.
+
+**Windows PowerShell (x86-64):**
+
+```powershell
+irm https://raw.githubusercontent.com/Memorithm/SoulSystem/main/install.ps1 | iex
+```
 
 **npm:**
 
@@ -58,6 +64,12 @@ soulsystem --setup
 # Installation and environment diagnostics
 soulsystem --doctor
 
+# Native secret storage
+soulsystem secrets set llm/openai
+
+# Persistent scheduled goals
+soulsystem automation add morning --schedule daily@08:30 --goal "Prepare my brief"
+
 # Autonomous REPL
 cargo run -p soul_repl --release
 
@@ -71,7 +83,7 @@ sudo cp target/release/souls /usr/local/bin/
 | Couche | Crates | Rôle |
 |--------|--------|------|
 | **Runtime** | `soul_scheduler`, `soul_ipc`, `soul_storage`, `soul_matrix_engine` | Ordonnancement temps-réel, IPC, stockage vectoriel, GEMM SIMD |
-| **Cognitive** | `soul_llm`, `soul_planner`, `soul_tools`, `soul_sandbox` | Multi-provider LLM, planification, outils, sandbox |
+| **Cognitive** | `soul_llm`, `soul_planner`, `soul_tools`, `soul_sandbox`, `soul_browser`, `soul_mcp`, `soul_skills` | Multi-provider LLM, planification, outils, navigateur, MCP, skills, sandbox |
 | **Entity** | `soul_entity`, `soul_gateway`, `soul_repl`, `soul_agent_core` | Entité autonome, API HTTP/WS, TUI |
 | **Neuro** | `neural_*`, `semantic_*`, `soullink-*` | Métacognition, CRDT, chaos monkey, auto-guérison, HNN mesh |
 | **Persistence** | `soul_journal`, `soul_persistence` | WAL mmap, KV store Sled |

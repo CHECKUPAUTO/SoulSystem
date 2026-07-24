@@ -1,16 +1,50 @@
 //! Chargeur à chaud de code machine natif pour l'auto-évolution des agents.
-//! Utilise `dlopen`/`dlsym`/`dlclose` du système POSIX pour charger des modules .so compilés
-//! et les injecter dynamiquement dans le planificateur sans redémarrer le superviseur.
+//! Utilise le chargeur natif de chaque plateforme pour charger des modules
+//! `.so`, `.dylib` ou `.dll` et les injecter dynamiquement dans le
+//! planificateur sans redémarrer le superviseur.
 
 #[allow(unused_imports)]
 use soul_scheduler::queue::Task;
 #[allow(unused_imports)]
 use soul_scheduler::scheduler::AgentScheduler;
-use std::ffi::CString;
-
 /// Répertoires autorisés pour le chargement de modules dynamiques.
-/// Tout .so hors de ces chemins est rejeté pour éviter le chargement de code arbitraire.
+/// Toute bibliothèque hors de ces chemins est rejetée pour éviter le
+/// chargement de code arbitraire.
+#[cfg(target_os = "linux")]
 const TRUSTED_MODULE_PATHS: &[&str] = &["/usr/lib/soul_system", "/opt/soul_system/modules"];
+#[cfg(target_os = "macos")]
+const TRUSTED_MODULE_PATHS: &[&str] = &[
+    "/Library/Application Support/SoulSystem/modules",
+    "/usr/local/lib/soul_system",
+];
+#[cfg(windows)]
+const TRUSTED_MODULE_PATHS: &[&str] = &[
+    r"C:\Program Files\SoulSystem\modules",
+    r"C:\ProgramData\SoulSystem\modules",
+];
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+const TRUSTED_MODULE_PATHS: &[&str] = &[];
+
+fn is_trusted_module_path(path: &std::path::Path) -> bool {
+    TRUSTED_MODULE_PATHS
+        .iter()
+        .any(|trusted| path.starts_with(std::path::Path::new(trusted)))
+}
+
+fn has_native_library_extension(path: &std::path::Path) -> bool {
+    let extension = path.extension().and_then(|value| value.to_str());
+    #[cfg(target_os = "linux")]
+    return extension == Some("so");
+    #[cfg(target_os = "macos")]
+    return extension == Some("dylib");
+    #[cfg(windows)]
+    return extension.is_some_and(|value| value.eq_ignore_ascii_case("dll"));
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    {
+        let _ = extension;
+        false
+    }
+}
 
 /// Chargeur de modules dynamiques — supporte le hot-swap de routines agents au runtime.
 pub struct DynamicModuleLoader;
@@ -25,7 +59,8 @@ impl DynamicModuleLoader {
     /// # Safety
     /// Le chemin du fichier doit pointer vers une bibliothèque partagée valide.
     /// Le symbole doit exister dans la bibliothèque avec la signature `extern "C" fn(*mut u8)`.
-    /// La bibliothèque reste chargée en mémoire jusqu'à ce que dlclose soit appelé explicitement.
+    /// La bibliothèque reste chargée en mémoire jusqu'à ce que
+    /// `unload_module` soit appelé explicitement.
     ///
     /// # Sécurité
     /// Le chemin doit être dans un répertoire de confiance (TRUSTED_MODULE_PATHS).
@@ -33,64 +68,43 @@ impl DynamicModuleLoader {
     pub unsafe fn load_agent_routine(
         library_path: &str,
     ) -> Option<(*mut libc::c_void, extern "C" fn(*mut u8))> {
-        let c_path = CString::new(library_path).ok()?;
-
-        // Validation du chemin : le .so doit être dans un répertoire de confiance
+        // Validation du chemin : la bibliothèque doit être dans un répertoire
+        // de confiance et avoir l'extension native de la plateforme.
         let path = std::path::Path::new(library_path);
         let canonical = path.canonicalize().ok()?;
-        let path_str = canonical.to_str()?;
-        if !TRUSTED_MODULE_PATHS
-            .iter()
-            .any(|trusted| path_str.starts_with(trusted))
-        {
+        if !is_trusted_module_path(&canonical) || !has_native_library_extension(&canonical) {
             tracing::error!(
                 path = %library_path,
-                "Module path rejected: not in a trusted directory"
+                "Module path rejected: untrusted directory or unsupported extension"
             );
             return None;
         }
 
-        // RT_NOW : résolution immédiate de tous les symboles du binaire importé.
-        let handle = libc::dlopen(c_path.as_ptr(), libc::RTLD_NOW);
-        if handle.is_null() {
-            let err = libc::dlerror();
-            let msg = if err.is_null() {
-                "unknown error".to_string()
-            } else {
-                std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned()
-            };
-            tracing::error!(
-                path = %library_path,
-                dlopen_error = %msg,
-                "Failed to load native module"
-            );
-            return None;
-        }
+        let library = match libloading::Library::new(&canonical) {
+            Ok(library) => library,
+            Err(error) => {
+                tracing::error!(
+                    path = %library_path,
+                    load_error = %error,
+                    "Failed to load native module"
+                );
+                return None;
+            }
+        };
 
         // Chercher le symbole "soul_agent_main" — convention de nommage standard SoulSystem.
-        let c_symbol = CString::new("soul_agent_main").ok()?;
-        let symbol = libc::dlsym(handle, c_symbol.as_ptr());
-
-        if symbol.is_null() {
-            let err = libc::dlerror();
-            let msg = if err.is_null() {
-                "unknown error".to_string()
-            } else {
-                std::ffi::CStr::from_ptr(err).to_string_lossy().into_owned()
-            };
-            libc::dlclose(handle);
-            tracing::error!(
-                path = %library_path,
-                dlsym_error = %msg,
-                "Symbol 'soul_agent_main' not found in module"
-            );
-            return None;
-        }
-
-        // SAFETY: dlsym retourne un pointeur vers une fonction C.
-        // On ne charge que le symbole "soul_agent_main" dont la signature est connue
-        // et documentée par la convention de nommage du workspace.
-        let routine: extern "C" fn(*mut u8) = std::mem::transmute(symbol);
+        let routine = match library.get::<extern "C" fn(*mut u8)>(b"soul_agent_main\0") {
+            Ok(symbol) => *symbol,
+            Err(error) => {
+                tracing::error!(
+                    path = %library_path,
+                    symbol_error = %error,
+                    "Symbol 'soul_agent_main' not found in module"
+                );
+                return None;
+            }
+        };
+        let handle = Box::into_raw(Box::new(library)).cast::<libc::c_void>();
         Some((handle, routine))
     }
 
@@ -98,7 +112,7 @@ impl DynamicModuleLoader {
     /// handle must be a valid pointer returned by `load_agent_routine`.
     pub unsafe fn unload_module(handle: *mut libc::c_void) {
         if !handle.is_null() {
-            libc::dlclose(handle);
+            drop(Box::from_raw(handle.cast::<libloading::Library>()));
         }
     }
 
@@ -130,16 +144,12 @@ impl DynamicModuleLoader {
     /// Vérifie qu'une bibliothèque partagée est chargeable sans réellement l'ouvrir.
     pub fn can_load(library_path: &str) -> bool {
         let path = std::path::Path::new(library_path);
-        if !path.exists() || !library_path.ends_with(".so") {
+        if !path.exists() || !has_native_library_extension(path) {
             return false;
         }
         // Vérifier que le chemin est dans un répertoire de confiance
         if let Ok(canonical) = path.canonicalize() {
-            if let Some(path_str) = canonical.to_str() {
-                return TRUSTED_MODULE_PATHS
-                    .iter()
-                    .any(|trusted| path_str.starts_with(trusted));
-            }
+            return is_trusted_module_path(&canonical);
         }
         false
     }

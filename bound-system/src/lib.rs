@@ -122,9 +122,23 @@ impl BoundSystem {
             }
             Ok(())
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
         {
-            anyhow::bail!("kill_process is only supported on Unix");
+            let mut command = std::process::Command::new("taskkill");
+            command.args(["/PID", &pid.to_string(), "/T"]);
+            if signal == 9 {
+                command.arg("/F");
+            }
+            let status = command.status()?;
+            if !status.success() {
+                anyhow::bail!("taskkill({}, {}) failed with {}", pid, signal, status);
+            }
+            Ok(())
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (pid, signal);
+            anyhow::bail!("kill_process is unsupported on this platform");
         }
     }
 

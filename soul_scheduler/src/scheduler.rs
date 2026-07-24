@@ -66,6 +66,7 @@ fn register_scheduler_metrics() {
 }
 
 /// Pin the calling thread to a specific CPU core via sched_setaffinity.
+#[cfg(target_os = "linux")]
 fn enforce_cpu_affinity(core_id: usize) -> bool {
     // SAFETY:
     // 1. `cpuset` is stack-allocated and zero-initialized via `std::mem::zeroed()` —
@@ -88,6 +89,14 @@ fn enforce_cpu_affinity(core_id: usize) -> bool {
         libc::CPU_SET(core_id, &mut cpuset);
         libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) == 0
     }
+}
+
+/// Strict CPU pinning is a Linux optimization. macOS exposes affinity tags
+/// rather than a stable core-pinning API, and Windows requires processor-group
+/// handling, so those schedulers safely retain the operating system default.
+#[cfg(not(target_os = "linux"))]
+fn enforce_cpu_affinity(_core_id: usize) -> bool {
+    false
 }
 
 /// Per-core worker state. Aligned to 64 bytes to prevent false sharing between workers.

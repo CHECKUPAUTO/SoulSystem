@@ -45,7 +45,7 @@ PR sequence (A–P).
 | ID | Invariant | PR | Status |
 |----|-----------|----|--------|
 | INV-NET-1 | Every state-changing endpoint requires authentication and an authorization scope. | F | PARTIAL (`soul_gateway`: mandatory bearer auth on all `/v1/*` operator routes incl. read/status/disclosure routes, fail-closed when unconfigured — `operator_route_rejects_*`, `state_changing_operator_route_also_requires_auth`, `goals_and_events_disclosure_routes_require_auth`; distinct per-scope authorization, `src/api.rs`, and MCP/PTY endpoints remain TARGET) |
-| INV-NET-2 | Binding a non-loopback address requires an active TLS serving path. | A/G | PARTIAL (guard rejects non-loopback-without-TLS in production; active TLS path in G) |
+| INV-NET-2 | Binding a non-loopback address requires an active TLS serving path. | A/G | HELD for `soul_gateway` (`serve_with_tls` uses Rustls and CLI certificate/key arguments are paired; the production guard receives the state of that exact serving path). Other listeners remain loopback-only and are not covered by gateway TLS. |
 | INV-NET-3 | Webhooks fail closed when a secret is unset and reject invalid/replayed signatures. | F | PARTIAL (fail-closed on unset secret HELD — `soul_gateway`: `discord_webhook_fails_closed_when_secret_unset`, `slack_webhook_fails_closed_when_secret_unset`, `whatsapp_webhook_fails_closed_when_secret_unset`; cryptographic signature verification and replay protection remain TARGET, follow-up PR) |
 | INV-NET-4 | Production CORS is an explicit origin allowlist, never permissive. | G | TARGET |
 | INV-NET-5 | Request body, message, connection, and concurrency limits are enforced. | G | TARGET |
@@ -54,7 +54,7 @@ PR sequence (A–P).
 
 | ID | Invariant | PR | Status |
 |----|-----------|----|--------|
-| INV-SEC-1 | Secrets use redacting/zeroizing types; `Debug`/`Display` never reveal them. | J | HELD for `soullink-secrets` (`SecretsCrypto::master_key` is `secrecy::Secret<Vec<u8>>`; derived keys and decrypted plaintext are `zeroize::Zeroizing<Vec<u8>>`; `SecretValue`/`DecryptedSecret` redact `Debug` and drop `Clone` — `zeroize_actually_clears_key_bytes`, `secret_value_debug_redacts_bytes`, `decrypted_secret_debug_does_not_leak_value`). Not yet extended to other secret-holding code (LLM API keys, webhook secrets in `soul_gateway`) — follow-up. |
+| INV-SEC-1 | Secrets use redacting/zeroizing types; `Debug`/`Display` never reveal them. | J | PARTIAL: `soullink-secrets` uses redacting/zeroizing types; LLM provider keys now use the OS credential store, return `Zeroizing<String>`, never serialize to TOML, and use hidden setup input. Gateway/webhook provider fields still use ordinary `String` values and need a follow-up sweep. |
 | INV-SEC-2 | No secret appears in logs, metrics, traces, panic messages, or URLs. | J | PARTIAL (guard and `soullink-secrets` are secret-free/redacted; full workspace sweep is a follow-up) |
 | INV-SEC-3 | Default/example secrets are rejected in production. | A | HELD (`default_secret_rejected`) |
 

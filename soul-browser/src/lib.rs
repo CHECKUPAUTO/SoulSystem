@@ -134,6 +134,26 @@ impl BrowserController {
         }
     }
 
+    /// Override the CDP HTTP endpoint. Only loopback endpoints are accepted;
+    /// remote browser access should be tunnelled explicitly.
+    pub fn with_endpoint(config: BrowserConfig, endpoint: &str) -> Result<Self, BrowserError> {
+        let parsed = url::Url::parse(endpoint)
+            .map_err(|error| BrowserError::Connection(error.to_string()))?;
+        let loopback = parsed
+            .host_str()
+            .and_then(|host| host.parse::<std::net::IpAddr>().ok())
+            .map(|address| address.is_loopback())
+            .unwrap_or_else(|| parsed.host_str() == Some("localhost"));
+        if !loopback || !matches!(parsed.scheme(), "http" | "https") {
+            return Err(BrowserError::Connection(
+                "CDP endpoint must be an HTTP(S) loopback address".into(),
+            ));
+        }
+        let mut controller = Self::new(config);
+        controller.chrome_url = endpoint.trim_end_matches('/').to_string();
+        Ok(controller)
+    }
+
     fn next_id(&self) -> u64 {
         self.msg_id
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
@@ -385,7 +405,11 @@ impl BrowserController {
     /// Get page text content
     pub async fn get_text(&self) -> Result<String, BrowserError> {
         let result = self.evaluate_js("document.body.innerText").await?;
-        Ok(result.as_str().unwrap_or("").to_string())
+        Ok(result
+            .get("value")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string())
     }
 
     /// Get full HTML
@@ -393,7 +417,11 @@ impl BrowserController {
         let result = self
             .evaluate_js("document.documentElement.outerHTML")
             .await?;
-        Ok(result.as_str().unwrap_or("").to_string())
+        Ok(result
+            .get("value")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string())
     }
 
     /// List open tabs

@@ -20,19 +20,19 @@ Legend: `READY` · `PARTIAL` · `NOT_READY`.
 | 5 | Capability gating | Every side effect capability-checked | NOT_READY | — | C |
 | 6 | OS isolation | Mandatory sandbox for all execution | NOT_READY | — | D |
 | 7 | Filesystem confinement | Writes confined to canonical roots | NOT_READY | — | E |
-| 8 | Authentication | All state-changing endpoints authenticated | NOT_READY | — | F |
-| 9 | Transport security | Non-loopback requires TLS | PARTIAL | Guard rejects non-loopback-without-TLS in prod; active TLS path pending | A, G |
+| 8 | Authentication | All state-changing endpoints authenticated | PARTIAL | Gateway `/v1/*` routes fail closed and accept named operators; per-route RBAC and other listeners remain | F |
+| 9 | Transport security | Non-loopback requires TLS | PARTIAL | Gateway has active native Rustls TLS and production guard linkage; non-gateway listeners remain local/reverse-proxy only | A, G |
 | 10 | Webhook verification | Signatures verified, fail closed | NOT_READY | — | F |
 | 11 | Memory trust | Screen before persist; provenance | NOT_READY | — | H |
 | 12 | Persistence durability | Atomic, integrity-checked, recoverable | NOT_READY | — | L |
 | 13 | Self-modification safety | Off by default; PR-only promotion | PARTIAL | Guard rejects unsigned self-mod in prod; safe flow pending | A, K |
-| 14 | Secret handling | Zeroizing/redacting types; no leaks | PARTIAL | Guard is secret-free; crate-wide sweep pending | A, J |
+| 14 | Secret handling | Zeroizing/redacting types; no leaks | PARTIAL | LLM keys use native OS credential stores, hidden input, no TOML serialization; webhook/provider field sweep pending | A, J |
 | 15 | Planner/metrics truth | Real outcomes reported | NOT_READY | — | I |
 | 16 | Single canonical runtime | One supported runtime & deploy path | NOT_READY | — | N |
 | 17 | Truthful capabilities | No simulated/placeholder success in prod | NOT_READY | — | O |
 | 18 | Observability | Structured audit/metrics; health/readiness | NOT_READY | Guard emits structured startup audit events | A, M |
 | 19 | CI production gates | deny/audit/MSRV/fuzz/release/container | NOT_READY | — | P |
-| 20 | Operability | Install/config/start/monitor/upgrade/backup/restore/stop | NOT_READY | — | P |
+| 20 | Operability | Install/config/start/monitor/upgrade/backup/restore/stop | PARTIAL | Linux/macOS arm64+x64 and Windows x64 releases/installers; doctor, secrets and automation CLI present; upgrade/backup/restore incomplete | P |
 
 ## How to read this
 

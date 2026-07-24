@@ -7,7 +7,6 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 const crypto = require("crypto");
-const zlib = require("zlib");
 const { execFileSync } = require("child_process");
 
 const REPO = "Memorithm/SoulSystem";
@@ -15,7 +14,11 @@ const VERSION = process.env.SOULSYSTEM_VERSION || `v${require("../package.json")
 
 function target() {
   const arch = { x64: "x86_64", arm64: "aarch64" }[process.arch];
-  const os = { linux: "unknown-linux-gnu", darwin: "apple-darwin" }[process.platform];
+  const os = {
+    linux: "unknown-linux-gnu",
+    darwin: "apple-darwin",
+    win32: "pc-windows-msvc",
+  }[process.platform];
   if (!arch || !os) {
     throw new Error(`unsupported platform: ${process.platform}/${process.arch}`);
   }
@@ -35,10 +38,11 @@ function get(url, cb, redirects = 0) {
 
 function main() {
   const tgt = target();
-  const url = `https://github.com/${REPO}/releases/download/${VERSION}/soulsystem-${tgt}.tar.gz`;
+  const extension = process.platform === "win32" ? "zip" : "tar.gz";
+  const url = `https://github.com/${REPO}/releases/download/${VERSION}/soulsystem-${tgt}.${extension}`;
   const binDir = path.join(__dirname, "..", "bin");
   fs.mkdirSync(binDir, { recursive: true });
-  const tarPath = path.join(binDir, "soulsystem.tar.gz");
+  const archivePath = path.join(binDir, `soulsystem.${extension}`);
 
   console.log(`Downloading ${url}`);
   get(url, (err, res) => {
@@ -48,7 +52,7 @@ function main() {
       console.error("  cargo install --git https://github.com/" + REPO + " soulsystem\n");
       process.exit(1);
     }
-    const out = fs.createWriteStream(tarPath);
+    const out = fs.createWriteStream(archivePath);
     res.pipe(out);
     out.on("finish", () => {
       out.close(() => {
@@ -64,16 +68,26 @@ function main() {
             const expected = checksumText.trim().split(/\s+/)[0];
             const actual = crypto
               .createHash("sha256")
-              .update(fs.readFileSync(tarPath))
+              .update(fs.readFileSync(archivePath))
               .digest("hex");
             if (!/^[a-f0-9]{64}$/i.test(expected) || actual !== expected.toLowerCase()) {
               console.error("Release checksum verification failed.");
               process.exit(1);
             }
-            // Extract the single binary from the verified gzipped tarball via `tar`.
-            execFileSync("tar", ["-xzf", tarPath, "-C", binDir]);
-            fs.chmodSync(path.join(binDir, "soulsystem"), 0o755);
-            fs.unlinkSync(tarPath);
+            if (process.platform === "win32") {
+              execFileSync("powershell.exe", [
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
+                archivePath,
+                binDir,
+              ]);
+            } else {
+              execFileSync("tar", ["-xzf", archivePath, "-C", binDir]);
+              fs.chmodSync(path.join(binDir, "soulsystem"), 0o755);
+            }
+            fs.unlinkSync(archivePath);
             console.log("soulsystem installed.");
           });
         });

@@ -107,6 +107,12 @@ impl HardwareManifest {
     }
 
     fn count_cores() -> usize {
+        let available = || {
+            std::thread::available_parallelism()
+                .map(std::num::NonZeroUsize::get)
+                .unwrap_or(1)
+        };
+
         fs::read_to_string("/sys/devices/system/cpu/online")
             .map(|s| {
                 let trimmed = s.trim();
@@ -115,9 +121,9 @@ impl HardwareManifest {
                         return max_core + 1;
                     }
                 }
-                unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) as usize }
+                available()
             })
-            .unwrap_or_else(|_| unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) as usize })
+            .unwrap_or_else(|_| available())
     }
 
     fn build_topology_map(total_cores: usize) -> (MemoryTopology, Vec<usize>) {
