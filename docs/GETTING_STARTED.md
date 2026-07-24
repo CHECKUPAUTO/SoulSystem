@@ -77,7 +77,7 @@ cargo build --release --bin soulsystem
 ./target/release/soulsystem --doctor
 ```
 
-GPU crates live in the dedicated `workspaces/gpu` workspace and are not needed
+GPU crates use standalone manifests and are not needed
 for the default CPU/local installation.
 
 ## Troubleshooting
@@ -88,4 +88,4 @@ for the default CPU/local installation.
 - `SOULSYSTEM_GATEWAY_TOKEN` warning: keep the gateway on loopback or configure
   a strong random token.
 - Build failures in CUDA crates: build the root workspace only; use
-  `workspaces/gpu` explicitly when the matching GPU toolchain is installed.
+  each GPU manifest explicitly when the matching GPU toolchain is installed.

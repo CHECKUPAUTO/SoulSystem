@@ -27,10 +27,9 @@ ignore = [
     "RUSTSEC-2025-0057", # fxhash unmaintained; transitive via sled. No safe upgrade available upstream in sled. Tracked, not blocking.
     "RUSTSEC-2024-0384", # `instant` unmaintained; transitive via sled. No safe upgrade available upstream in sled. Tracked, not blocking.
     "RUSTSEC-2024-0436", # paste unmaintained. No safe upgrade available. Tracked, not blocking.
-    "RUSTSEC-2024-0370", # proc-macro-error unmaintained; transitive via teloxide -> aquamarine. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2026-0173", # proc-macro-error2 unmaintained; transitive via teloxide 0.17 -> aquamarine. No safe upgrade available upstream. Tracked, not blocking.
     "RUSTSEC-2025-0052", # async-std discontinued (unmaintained). No safe upgrade available upstream. Tracked, not blocking.
     "RUSTSEC-2025-0012", # `backoff` unmaintained. No safe upgrade available upstream. Tracked, not blocking.
-    "RUSTSEC-2026-0002", # lru unsound (IterMut/Stacked Borrows); transitive via ratatui 0.29.0 (avid-tui). Fix requires an upstream ratatui bump to a version depending on lru >=0.16.3; not available as of this check. Tracked, not blocking.
     "RUSTSEC-2025-0081", # unic-char-property unmaintained; transitive via rustpython-parser (avid Python-execution tooling). No safe upgrade available upstream. Tracked, not blocking.
     "RUSTSEC-2025-0075", # unic-char-range unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
     "RUSTSEC-2025-0080", # unic-common unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
@@ -105,6 +104,17 @@ name = "malachite-nz"
 [[licenses.exceptions]]
 allow = ["LGPL-3.0-only"]
 name = "malachite-q"
+
+# First-party commercial components use repository-local licensing rather than
+# the permissive workspace default. Keep these exceptions package-scoped so
+# neither license is silently accepted for third-party dependencies.
+[[licenses.exceptions]]
+allow = ["LicenseRef-CheckupAuto-Dual"]
+name = "ccos-memory-runtime"
+
+[[licenses.exceptions]]
+allow = ["PolyForm-Noncommercial-1.0.0"]
+name = "scirust-multivariate"
 
 [licenses.private]
 # Crates marked `publish = false` (never published to crates.io) are

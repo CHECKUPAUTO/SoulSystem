@@ -783,7 +783,7 @@ async fn handle_callback(
         // Répondre au callback (sinon le bouton reste en "loading")
         if let Some(msg) = q.message {
             let _ = bot
-                .answer_callback_query(&q.id)
+                .answer_callback_query(q.id)
                 .text("Commande arrêtée")
                 .await;
             // Supprimer le clavier du message

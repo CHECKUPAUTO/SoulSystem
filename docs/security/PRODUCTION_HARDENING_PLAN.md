@@ -63,13 +63,13 @@ classified `CONFIRMED_CURRENT` / `PARTIALLY_FIXED` / `FIXED_BY_PRIOR_CHANGE` /
 ```bash
 cargo fmt --all -- --check
 cargo metadata --locked --no-deps --format-version 1 > /tmp/root-metadata.json
-cargo metadata --locked --manifest-path workspaces/gpu/Cargo.toml --no-deps --format-version 1 > /tmp/gpu-metadata.json
+cargo metadata --manifest-path scirust-gpu/Cargo.toml --no-deps --format-version 1 > /tmp/gpu-metadata.json
 cargo check  --locked --workspace --all-targets
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test   --locked --workspace --lib --exclude soulsystem --exclude soul-kernel
 cargo test   --locked -p soulsystem --tests -- --test-threads=2
-cargo check  --locked --manifest-path workspaces/gpu/Cargo.toml --workspace --all-targets
-cargo clippy --locked --manifest-path workspaces/gpu/Cargo.toml --workspace --all-targets -- -D warnings
+cargo check --manifest-path scirust-gpu/Cargo.toml --all-targets
+cargo clippy --manifest-path scirust-gpu/Cargo.toml --all-targets -- -D warnings
 ```
 
 Plus, once introduced as gates: `cargo deny check`, `cargo audit`, the feature

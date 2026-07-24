@@ -11,5 +11,5 @@ categories = ["embedded", "os", "concurrency"]
 [dependencies]
 soul_ipc = { path = "../soul_ipc" }
 soul_telemetry = { path = "../soul_telemetry" }
-prometheus = "0.13"
+prometheus = "0.14"
 lazy_static = "1.4"

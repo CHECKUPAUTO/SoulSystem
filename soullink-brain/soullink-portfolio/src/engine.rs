@@ -93,7 +93,7 @@ impl PortfolioEngine {
             }
 
             // Log status every 1000 ticks
-            if tick_count % 1000 == 0 {
+            if tick_count.is_multiple_of(1000) {
                 let snap = self.portfolio.snapshot(&prices);
                 info!(
                     "📊 Portfolio: ${} | P&L: ${} | Trades: {} | Win: {:.1}%",

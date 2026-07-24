@@ -143,7 +143,7 @@ async fn handle_request(
                 return error_response(&req.id, "AUTH_REQUIRED", "Missing token");
             };
 
-            let Some(token_info) = state.auth.validate_token(&token) else {
+            let Some(_token_info) = state.auth.validate_token(&token) else {
                 return error_response(&req.id, "AUTH_FAILED", "Invalid token");
             };
 

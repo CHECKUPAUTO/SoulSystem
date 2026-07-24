@@ -3,6 +3,7 @@ name = "cervo-mcp"
 version = "0.1.0"
 edition = "2021"
 description = "MCP server for CERVO — expose swarm brain operations as JSON-RPC tools"
+license.workspace = true
 
 [dependencies]
 tokio = { workspace = true }

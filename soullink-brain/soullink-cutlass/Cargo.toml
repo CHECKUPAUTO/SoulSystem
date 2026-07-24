@@ -2,15 +2,14 @@
 name = "soullink-cutlass"
 version = "0.1.0"
 edition = "2021"
-workspace = "../../workspaces/gpu"
 
 [features]
 default = []
 cutlass = ["dep:cust"]
 
 [dependencies]
-thiserror = { workspace = true }
-tracing = { workspace = true }
+thiserror = "2"
+tracing = "0.1"
 cust = { version = "0.3", optional = true }
 
 [build-dependencies]

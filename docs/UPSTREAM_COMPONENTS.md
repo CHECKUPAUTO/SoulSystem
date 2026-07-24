@@ -13,7 +13,7 @@ absolute local paths, private checkout state, or nested Git repositories.
 The SciRust integration includes `scirust-core`, `scirust-simd`,
 `scirust-autodiff`, `scirust-gpu`, `scirust-learning`, `scirust-symbolic`,
 `scirust-reasoning`, and the local crates required by their current manifests.
-GPU-only crates remain owned by `workspaces/gpu`.
+GPU-only crates remain standalone manifests and are validated individually by CI.
 
 CCOS upstream uses single-threaded interior-mutability caches. SoulSystem
 replaces those cache cells with synchronized locks because its autonomous

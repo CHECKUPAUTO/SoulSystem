@@ -356,7 +356,7 @@ fn ui(f: &mut Frame, app: &App) {
         })
         .collect();
 
-    let mut history_state = app.history_state.clone();
+    let mut history_state = app.history_state;
     let history_list = List::new(history_items)
         .block(
             Block::default()

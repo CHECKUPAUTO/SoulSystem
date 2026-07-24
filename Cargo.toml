@@ -233,10 +233,9 @@ exclude = [
     "avid-soullink",
     "avid-rstdp",
     "turbovec",
-    # Dedicated GPU/CUDA sub-workspace (./workspaces/gpu). These crates are
-    # owned exclusively by that workspace so the root and GPU workspaces do
-    # not both claim ownership. They may still be consumed as path
-    # dependencies across the workspace boundary (e.g. scirust-core -> scirust-gpu-macros).
+    # GPU/CUDA crates are standalone manifests validated individually by CI.
+    # Keeping them out of the root workspace avoids the 7 GB runner OOM while
+    # preserving path dependencies such as scirust-core -> scirust-gpu-macros.
     "scirust-gpu",
     "scirust-gpu-macros",
     "soullink-brain/soullink-cutlass",
@@ -366,7 +365,7 @@ clap = { workspace = true }
 tar = "0.4"
 flate2 = "1"
 reqwest = { workspace = true }
-teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
+teloxide = { version = "0.17", features = ["macros", "ctrlc_handler"] }
 tokio-stream = { workspace = true }
 axum = { workspace = true }
 soullink-memory = { path = "soullink-brain/soullink-memory" }
