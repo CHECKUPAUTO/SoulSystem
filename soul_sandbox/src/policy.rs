@@ -96,8 +96,22 @@ pub struct SandboxPolicy {
     pub block_sensitive_paths: bool,
     /// Si vrai, refuse les shell-bypass.
     pub block_shell_bypass: bool,
-    /// Profil seccomp-BPF (optionnel).
+    /// Profil seccomp-BPF. `SandboxPolicy::default()` always sets this to
+    /// `Some("default")` — every sandboxed execution runs under an active
+    /// seccomp filter unless a caller explicitly opts out (`Some("unconfined")`
+    /// or a custom profile), so isolation can never silently degrade to
+    /// string-filtering-only.
     pub seccomp_profile: Option<String>,
+    /// If true (the default), the sandboxed process runs in its own network
+    /// namespace with no configured interfaces — no network access at all,
+    /// including loopback. Isolation setup failure aborts the spawn rather
+    /// than falling back to running the command with host networking.
+    pub network_isolated: bool,
+    /// Maximum bytes captured from stdout (and, separately, stderr) per
+    /// execution. Output beyond this cap is dropped rather than
+    /// accumulated, bounding worst-case memory use regardless of how much
+    /// a sandboxed command writes.
+    pub max_output_bytes: usize,
 }
 
 impl Default for SandboxPolicy {
@@ -108,7 +122,9 @@ impl Default for SandboxPolicy {
             log_all: true,
             block_sensitive_paths: true,
             block_shell_bypass: true,
-            seccomp_profile: None,
+            seccomp_profile: Some("default".to_string()),
+            network_isolated: true,
+            max_output_bytes: 2 * 1024 * 1024,
         }
     }
 }

@@ -164,6 +164,18 @@ pub fn sanitize_for_execution(cmd: &str) -> String {
     neutralize_redirects_and_pipes(cmd)
 }
 
+/// Read at most `max_bytes` from `reader` and lossily decode as UTF-8.
+/// Bounds worst-case memory use regardless of how much the source writes;
+/// any bytes beyond the cap are left unread and dropped rather than
+/// accumulated. Lossy decoding (rather than `read_to_string`) means a cut
+/// that lands mid multi-byte UTF-8 sequence at the cap boundary can't turn
+/// into a read error.
+fn read_capped(reader: impl Read, max_bytes: usize) -> String {
+    let mut buf = Vec::new();
+    let _ = reader.take(max_bytes as u64).read_to_end(&mut buf);
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
 pub struct Sandbox {
     policy: SandboxPolicy,
     history: Arc<Mutex<VecDeque<SandboxVerdict>>>,
@@ -206,7 +218,50 @@ impl Sandbox {
         (command, parts[0].clone(), parts)
     }
 
-    /// Build command, apply sandbox pre_exec (setpgid + seccomp), and spawn.
+    /// Register the sandbox's `pre_exec` hook (setpgid + network isolation +
+    /// seccomp) on an already-built `Command`. Every spawn path (`execute`,
+    /// `execute_streaming`, `execute_with_stdin`) must call this — it is the
+    /// single place isolation is applied, so no path can silently spawn
+    /// with weaker isolation than another.
+    ///
+    /// Isolation is fail-closed: if network-namespace setup or seccomp
+    /// install fails, `pre_exec` returns `Err`, which aborts the fork
+    /// before `exec()` runs and surfaces as a `spawn()` error — the command
+    /// never executes unsandboxed as a silent fallback.
+    #[cfg(unix)]
+    fn apply_sandbox_pre_exec(&self, command: &mut Command) {
+        let profile = self.policy.seccomp_profile.clone();
+        let network_isolated = self.policy.network_isolated;
+        unsafe {
+            command.pre_exec(move || {
+                libc::setpgid(0, 0);
+
+                if network_isolated {
+                    // CLONE_NEWUSER alongside CLONE_NEWNET so this works
+                    // whether the host process is root (dev) or
+                    // unprivileged (production): creating a fresh user
+                    // namespace grants the creating process full
+                    // capabilities *within that namespace*, which is
+                    // enough to also create the network namespace even
+                    // without CAP_SYS_ADMIN on the host. The resulting
+                    // netns has no configured interfaces (not even a
+                    // loopback that's up), so the sandboxed process has
+                    // no network path at all.
+                    let ret = libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWNET);
+                    if ret != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+
+                if let Some(ref p) = profile {
+                    crate::seccomp::install_filter(p)?;
+                }
+                Ok(())
+            });
+        }
+    }
+
+    /// Build command, apply sandbox pre_exec, and spawn.
     fn spawn_with_sandbox(
         &self,
         cmd: &str,
@@ -215,20 +270,7 @@ impl Sandbox {
         let (mut command, _, _) = self.build_command(cmd, stdin_mode);
 
         #[cfg(unix)]
-        {
-            let profile = self.policy.seccomp_profile.clone();
-            unsafe {
-                command.pre_exec(move || {
-                    libc::setpgid(0, 0);
-                    if let Some(ref p) = profile {
-                        if let Err(e) = crate::seccomp::install_filter(p) {
-                            tracing::error!("[sandbox] seccomp install failed: {e}");
-                        }
-                    }
-                    Ok(())
-                });
-            }
-        }
+        self.apply_sandbox_pre_exec(&mut command);
 
         let child = command.spawn()?;
         let pid = child.id() as i32;
@@ -251,11 +293,12 @@ impl Sandbox {
             match child.try_wait() {
                 Ok(Some(status)) => {
                     exit_code = status.code();
-                    if let Some(mut out) = child.stdout.take() {
-                        let _ = out.read_to_string(&mut stdout);
+                    let cap = self.policy.max_output_bytes;
+                    if let Some(out) = child.stdout.take() {
+                        stdout = read_capped(out, cap);
                     }
-                    if let Some(mut err) = child.stderr.take() {
-                        let _ = err.read_to_string(&mut stderr);
+                    if let Some(err) = child.stderr.take() {
+                        stderr = read_capped(err, cap);
                     }
                     break;
                 }
@@ -523,12 +566,7 @@ impl Sandbox {
         let (mut command, _, _) = self.build_command(cmd, Stdio::piped());
 
         #[cfg(unix)]
-        unsafe {
-            command.pre_exec(|| {
-                libc::setpgid(0, 0);
-                Ok(())
-            });
-        }
+        self.apply_sandbox_pre_exec(&mut command);
 
         let mut child = command.spawn()?;
         let pid = child.id() as i32;
@@ -803,6 +841,104 @@ mod tests {
             sb.check("rm -rf ~"),
             Err(SandboxError::Forbidden(_))
         ));
+    }
+
+    // ── HIGH-003 hardening: mandatory isolation ─────────────────
+
+    #[test]
+    fn default_policy_has_mandatory_isolation_active() {
+        let policy = SandboxPolicy::default();
+        assert!(
+            policy.seccomp_profile.is_some(),
+            "seccomp must be mandatory by default, never None — a caller must opt out explicitly"
+        );
+        assert!(
+            policy.network_isolated,
+            "network isolation must be on by default"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn network_isolated_gets_a_fresh_network_namespace() {
+        // /proc/ is normally a blocked sensitive path; disabled here only so
+        // the probe command (which reads its own netns identity) can run —
+        // orthogonal to the network-isolation property under test.
+        let sb = Sandbox::new(SandboxPolicy {
+            block_sensitive_paths: false,
+            ..Default::default()
+        });
+        let verdict = sb.execute("readlink /proc/self/ns/net").unwrap();
+        assert_eq!(verdict.exit_code, Some(0));
+        let host_ns = std::fs::read_link("/proc/self/ns/net").unwrap();
+        assert_ne!(
+            verdict.stdout.trim(),
+            host_ns.to_string_lossy().trim(),
+            "a network_isolated sandboxed process must not share the host's network namespace"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn network_not_isolated_shares_host_namespace_when_disabled() {
+        let sb = Sandbox::new(SandboxPolicy {
+            block_sensitive_paths: false,
+            network_isolated: false,
+            ..Default::default()
+        });
+        let verdict = sb.execute("readlink /proc/self/ns/net").unwrap();
+        assert_eq!(verdict.exit_code, Some(0));
+        let host_ns = std::fs::read_link("/proc/self/ns/net").unwrap();
+        assert_eq!(
+            verdict.stdout.trim(),
+            host_ns.to_string_lossy().trim(),
+            "with network_isolated: false, the sandboxed process should share the host's netns"
+        );
+    }
+
+    #[test]
+    fn output_is_capped_to_max_output_bytes() {
+        let sb = Sandbox::new(SandboxPolicy {
+            max_output_bytes: 100,
+            ..Default::default()
+        });
+        let verdict = sb.execute("head -c 5000 /dev/zero").unwrap();
+        assert_eq!(
+            verdict.stdout.len(),
+            100,
+            "stdout capture must be capped to policy.max_output_bytes regardless of how much the command writes"
+        );
+    }
+
+    #[test]
+    fn unknown_seccomp_profile_fails_closed_refuses_to_execute() {
+        let sb = Sandbox::new(SandboxPolicy {
+            seccomp_profile: Some("totally-bogus-profile".to_string()),
+            ..Default::default()
+        });
+        let result = sb.execute("echo should-not-run");
+        assert!(
+            result.is_err(),
+            "an isolation setup failure must abort the spawn rather than silently running unsandboxed"
+        );
+    }
+
+    #[test]
+    fn execute_with_stdin_also_gets_network_isolation() {
+        // execute_with_stdin previously built its own Command with only
+        // setpgid in pre_exec, bypassing seccomp and network isolation
+        // entirely. It must now go through the same apply_sandbox_pre_exec
+        // path as execute().
+        let sb = Sandbox::new(SandboxPolicy {
+            block_sensitive_paths: false,
+            ..Default::default()
+        });
+        let verdict = sb
+            .execute_with_stdin("readlink /proc/self/ns/net", "")
+            .unwrap();
+        assert_eq!(verdict.exit_code, Some(0));
+        let host_ns = std::fs::read_link("/proc/self/ns/net").unwrap();
+        assert_ne!(verdict.stdout.trim(), host_ns.to_string_lossy().trim());
     }
 }
 
