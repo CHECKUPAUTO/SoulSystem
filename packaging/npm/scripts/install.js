@@ -6,10 +6,11 @@
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
+const crypto = require("crypto");
 const zlib = require("zlib");
 const { execFileSync } = require("child_process");
 
-const REPO = "CHECKUPAUTO/SoulSystem";
+const REPO = "Memorithm/SoulSystem";
 const VERSION = process.env.SOULSYSTEM_VERSION || `v${require("../package.json").version}`;
 
 function target() {
@@ -51,11 +52,31 @@ function main() {
     res.pipe(out);
     out.on("finish", () => {
       out.close(() => {
-        // Extract the single binary from the gzipped tarball via `tar`.
-        execFileSync("tar", ["-xzf", tarPath, "-C", binDir]);
-        fs.chmodSync(path.join(binDir, "soulsystem"), 0o755);
-        fs.unlinkSync(tarPath);
-        console.log("soulsystem installed.");
+        get(`${url}.sha256`, (checksumErr, checksumRes) => {
+          if (checksumErr) {
+            console.error(`Could not download release checksum: ${checksumErr.message}`);
+            process.exit(1);
+          }
+          let checksumText = "";
+          checksumRes.setEncoding("utf8");
+          checksumRes.on("data", (chunk) => { checksumText += chunk; });
+          checksumRes.on("end", () => {
+            const expected = checksumText.trim().split(/\s+/)[0];
+            const actual = crypto
+              .createHash("sha256")
+              .update(fs.readFileSync(tarPath))
+              .digest("hex");
+            if (!/^[a-f0-9]{64}$/i.test(expected) || actual !== expected.toLowerCase()) {
+              console.error("Release checksum verification failed.");
+              process.exit(1);
+            }
+            // Extract the single binary from the verified gzipped tarball via `tar`.
+            execFileSync("tar", ["-xzf", tarPath, "-C", binDir]);
+            fs.chmodSync(path.join(binDir, "soulsystem"), 0o755);
+            fs.unlinkSync(tarPath);
+            console.log("soulsystem installed.");
+          });
+        });
       });
     });
   });

@@ -79,8 +79,8 @@ impl IbpLinear {
     pub fn from_nd_linear(lin: &NdLinear) -> Self {
         let shape = &lin.weight().shape;
         Self::new(
-            lin.weight().data.clone(),
-            lin.bias().data.clone(),
+            lin.weight().data.to_vec(),
+            lin.bias().data.to_vec(),
             shape[0],
             shape[1],
         )
@@ -138,6 +138,14 @@ impl IbpMlp {
     pub fn new(layers: Vec<IbpLinear>) -> Self {
         assert!(!layers.is_empty(), "IbpMlp: needs at least one layer");
         Self { layers }
+    }
+
+    /// The network's output dimensionality (units of the last affine layer).
+    pub fn output_dim(&self) -> usize {
+        self.layers
+            .last()
+            .expect("IbpMlp: needs at least one layer")
+            .out_f
     }
 
     /// Concrete forward over the whole network.
@@ -339,17 +347,15 @@ pub enum BabResult {
     Unknown,
 }
 
-/// **Complete** robustness verification by **branch-and-bound** (the engine behind
-/// GCP-CROWN, Zhang et al., NeurIPS 2022). Where IBP/CROWN/DeepPoly give a single
-/// *sound but incomplete* bound, BaB refines: it bounds the per-class **margins**
+/// Robustness verification by deterministic **input-space branch-and-bound**.
+/// Where IBP/CROWN/DeepPoly give a single *sound but incomplete* bound, this
+/// routine refines the input domain: it bounds the per-class **margins**
 /// over the input box with [`deeppoly_certify`]; if every margin lower bound is
 /// `> 0` the box is **robust**; otherwise it probes the box centre for a genuine
 /// **counterexample**, and failing that **splits** the box along its widest axis and
-/// recurses. As the boxes shrink the DeepPoly relaxation becomes exact, so the search
-/// **decides** robustness (up to `tol`) — proving cases a single bound cannot and
-/// returning a concrete counterexample when the class really can change. Branching
-/// is over the **input domain** (GCP-CROWN's ReLU-activation splitting and cutting
-/// planes are not implemented). Deterministic.
+/// recurses. It returns [`BabResult::Unknown`] when `tol` or `max_boxes` is
+/// reached, so it does not claim the activation splitting or cutting-plane
+/// completeness of GCP-CROWN. Deterministic.
 pub fn verify_robustness(
     layers: &[IbpLinear],
     input: &Interval,
@@ -482,11 +488,11 @@ pub fn milp_min_margin(
                     cons.push((w0, w1, -b1i)); // inactive: zᵢ ≤ 0 (contributes 0)
                 }
             }
-            if let Some((val, pt)) = lp_min_2d(&cons, (a0, a1)) {
-                if val + d < best {
-                    best = val + d;
-                    witness = pt.to_vec();
-                }
+            if let Some((val, pt)) = lp_min_2d(&cons, (a0, a1))
+                && val + d < best
+            {
+                best = val + d;
+                witness = pt.to_vec();
             }
         }
     }
@@ -546,10 +552,10 @@ fn pattern_min_margin(
                 d += coef * l1.b[i];
             }
         }
-        if let Some((val, pt)) = lp_min_2d(&region, (a0, a1)) {
-            if best.as_ref().is_none_or(|(bm, _)| val + d < *bm) {
-                best = Some((val + d, pt.to_vec()));
-            }
+        if let Some((val, pt)) = lp_min_2d(&region, (a0, a1))
+            && best.as_ref().is_none_or(|(bm, _)| val + d < *bm)
+        {
+            best = Some((val + d, pt.to_vec()));
         }
     }
     best
@@ -601,10 +607,10 @@ pub fn reluplex_verify(
                 active[nu] = true;
             }
         }
-        if let Some((m, witness)) = pattern_min_margin(l1, l2, &base, &active, true_class) {
-            if m <= 0.0 {
-                return BabResult::Unsafe(witness); // SAT: a real counterexample
-            }
+        if let Some((m, witness)) = pattern_min_margin(l1, l2, &base, &active, true_class)
+            && m <= 0.0
+        {
+            return BabResult::Unsafe(witness); // SAT: a real counterexample
         }
     }
     BabResult::Robust

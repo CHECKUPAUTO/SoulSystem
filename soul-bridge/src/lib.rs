@@ -1,6 +1,9 @@
 pub mod avid;
 pub mod brain;
+pub mod ccos;
+pub mod cervo;
 pub mod mesh;
+pub mod octasoma;
 pub mod openevolve;
 pub mod orchestrator;
 pub mod organs;
@@ -114,5 +117,20 @@ mod tests {
     #[test]
     fn test_init_openevolve() {
         let _ = openevolve::init;
+    }
+
+    #[test]
+    fn test_init_ccos() {
+        let _ = ccos::init;
+    }
+
+    #[test]
+    fn test_init_cervo() {
+        let _ = cervo::init;
+    }
+
+    #[test]
+    fn test_init_octasoma() {
+        let _ = octasoma::init;
     }
 }

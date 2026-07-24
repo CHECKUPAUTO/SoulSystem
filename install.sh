@@ -1,7 +1,7 @@
 #!/bin/sh
 # SoulSystem installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/CHECKUPAUTO/SoulSystem/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/Memorithm/SoulSystem/main/install.sh | sh
 #
 # Installs the `soulsystem` binary. Prefers a prebuilt release binary for your
 # platform; falls back to building from source with cargo (installing the Rust
@@ -9,7 +9,7 @@
 
 set -eu
 
-REPO="CHECKUPAUTO/SoulSystem"
+REPO="Memorithm/SoulSystem"
 BIN="soulsystem"
 # Override with: SOULSYSTEM_INSTALL_DIR=/usr/local/bin sh install.sh
 INSTALL_DIR="${SOULSYSTEM_INSTALL_DIR:-$HOME/.local/bin}"
@@ -47,8 +47,21 @@ try_prebuilt() {
   fi
   info "Looking for a prebuilt binary: $url"
   tmp="$(mktemp -d)"
-  if curl -fsSL "$url" -o "$tmp/$BIN.tar.gz" 2>/dev/null; then
-    tar -xzf "$tmp/$BIN.tar.gz" -C "$tmp"
+  archive="$tmp/${BIN}-${target}.tar.gz"
+  checksum="${archive}.sha256"
+  if curl -fsSL "$url" -o "$archive" 2>/dev/null &&
+     curl -fsSL "${url}.sha256" -o "$checksum" 2>/dev/null; then
+    if command -v sha256sum >/dev/null 2>&1; then
+      (cd "$tmp" && sha256sum -c "$(basename "$checksum")") >/dev/null ||
+        err "release checksum verification failed"
+    elif command -v shasum >/dev/null 2>&1; then
+      (cd "$tmp" && shasum -a 256 -c "$(basename "$checksum")") >/dev/null ||
+        err "release checksum verification failed"
+    else
+      err "sha256sum or shasum is required to verify the release"
+    fi
+    tar -xzf "$archive" -C "$tmp"
+    [ -f "$tmp/$BIN" ] || err "release archive does not contain $BIN"
     mkdir -p "$INSTALL_DIR"
     install -m 0755 "$tmp/$BIN" "$INSTALL_DIR/$BIN"
     rm -rf "$tmp"

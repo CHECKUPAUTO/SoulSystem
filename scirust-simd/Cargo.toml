@@ -3,14 +3,107 @@ name = "scirust-simd"
 version = "0.1.0"
 edition = "2021"
 publish = false
+rust-version = "1.89"
 authors = ["SciRust Team"]
 description = "SIMD auto-vectorization primitives for SciRust"
 license-file = "../LICENSE.md"
 
 [dependencies]
-scirust-simd-macros = { path = "../scirust-simd-macros" }
 libc = "0.2"
 
 [features]
 portable-simd = []
+nightly-simd = []
+# Transformer-inference stack (attention, KV cache, RMSNorm/LayerNorm,
+# int8/bf16 quantization, the block/model assembly) — a real, tested subsystem
+# with zero consumers anywhere in the workspace as of 2026-07. Gated off by
+# default so the ~4k LoC / ~15% of this crate's public API it represents
+# isn't compiled into every one of the ~54 workspace crates that depend on
+# scirust-core (which re-exports this crate's public API), for no benefit to
+# any of them today. Opt in with `--features transformer-inference`.
+transformer-inference = []
 default = []
+# Compile les sondes assembleur autonomes (src/hypercomplex/asm_probe.rs)
+# utilisées par scripts/asm_spill_check.sh pour compter les spills vectoriels
+# AArch64. Hors chemin de compilation normal (build / test / clippy).
+asm-probe = ["portable-simd"]
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "hypercomplex_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "reductions_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "fixed_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "transcendental_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "geometry_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "dsp_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "linalg_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "cnn_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "cnn2d_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "attention_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "norm_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "kv_cache_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[bench]]
+name = "transformer_bench"
+harness = false
+required-features = ["portable-simd"]
+
+[[example]]
+name = "amx_bench"
+required-features = ["nightly-simd", "transformer-inference"]
+
+[[example]]
+name = "qtransformer_bench"
+required-features = ["nightly-simd", "transformer-inference"]
+
+[[example]]
+name = "qkv_bench"
+required-features = ["transformer-inference"]

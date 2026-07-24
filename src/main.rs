@@ -31,6 +31,8 @@ use std::time::Duration;
 use soul_bridge::avid as avid_bridge;
 #[cfg(feature = "brain_system")]
 use soul_bridge::brain as brain_bridge;
+use soul_bridge::ccos as ccos_bridge;
+use soul_bridge::cervo as cervo_bridge;
 #[cfg(feature = "mesh")]
 use soul_bridge::mesh as mesh_bridge;
 #[cfg(feature = "openevolve")]
@@ -53,10 +55,14 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser)]
 #[command(
     name = "soulsystem",
-    version = "0.5.0",
-    about = "SoulSystem — Ecosysteme d'agent numerique autonome (Enriched Operator Edition)"
+    version,
+    about = "SoulSystem — secure autonomous-agent runtime and operator CLI"
 )]
 struct Cli {
+    /// Check configuration, local services, sandboxing and security prerequisites
+    #[arg(long)]
+    doctor: bool,
+
     /// Mode développement (dashboard web :9090 + détection anomalies)
     #[arg(long)]
     dev: bool,
@@ -162,6 +168,10 @@ async fn main() -> Result<()> {
         if let Err(e) = std::fs::create_dir_all(dir) {
             tracing::warn!("Impossible de créer {:?}: {}", dir, e);
         }
+    }
+
+    if cli.doctor {
+        return run_doctor(&cli, &settings).await;
     }
 
     // ── Fail-closed production readiness guard ─────────────────────────────
@@ -748,6 +758,67 @@ async fn main() -> Result<()> {
             Err(e) => tracing::warn!("services-bridge init failed: {}", e),
         }
     }
+
+    // ── CCOS Bridge (Causal Context Memory) ─────────────────────────────
+    let _ccos_client = match ccos_bridge::init().await {
+        Ok(client) => {
+            info!("CCOS bridge: actif");
+            let c = client.clone();
+            tokio::spawn(async move {
+                let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(300));
+                loop {
+                    iv.tick().await;
+                    match c.ping().await {
+                        Ok(true) => {
+                            if let Ok(stats) = c.stats().await {
+                                tracing::trace!(
+                                    "CCOS heartbeat: {} nodes, {} edges",
+                                    stats.nodes,
+                                    stats.edges
+                                );
+                            }
+                        }
+                        _ => tracing::warn!("CCOS bridge: ping échoué"),
+                    }
+                }
+            });
+            Some(client)
+        }
+        Err(e) => {
+            tracing::warn!("CCOS bridge: init échouée (mode dégradé): {}", e);
+            None
+        }
+    };
+
+    let _cervo_bridge = match cervo_bridge::init().await {
+        Ok(bridge) => {
+            info!("CERVO bridge: actif");
+            let b = bridge.clone();
+            tokio::spawn(async move {
+                let mut iv = tokio::time::interval(tokio::time::Duration::from_secs(60));
+                loop {
+                    iv.tick().await;
+                    let status = b.status().await;
+                    if status.running {
+                        tracing::trace!(
+                            "CERVO heartbeat: {} units, {} mutations, {} processed",
+                            status.unit_count,
+                            status.total_mutations,
+                            status.total_processed
+                        );
+                        let _ = b.tick_all().await;
+                    } else {
+                        tracing::warn!("CERVO bridge: arrêté");
+                    }
+                }
+            });
+            Some(bridge)
+        }
+        Err(e) => {
+            tracing::warn!("CERVO bridge: init échouée (mode dégradé): {}", e);
+            None
+        }
+    };
 
     // Souscripteur memoire permanent (log des events)
     let mem_bus = bus.clone();
@@ -1475,6 +1546,71 @@ async fn main() -> Result<()> {
     // Attendre SIGINT
     tokio::signal::ctrl_c().await?;
     info!("Signal reçu, arrêt de SoulSystem...");
+    Ok(())
+}
+
+async fn run_doctor(cli: &Cli, settings: &soulsystem::config::Settings) -> Result<()> {
+    let mut warnings = 0usize;
+
+    println!("SoulSystem doctor {}", env!("CARGO_PKG_VERSION"));
+    println!("  config: {}", settings.paths.config_dir.display());
+    println!("  data:   {}", settings.paths.data_dir.display());
+    println!("  logs:   {}", settings.paths.log_dir.display());
+
+    if which::which("bwrap").is_ok() {
+        println!("  sandbox: bubblewrap available");
+    } else {
+        warnings += 1;
+        println!("  sandbox: WARNING bubblewrap not found (required for strong Linux isolation)");
+    }
+
+    let provider_url = cli.llm_url.trim_end_matches('/');
+    let health_url = format!("{provider_url}/api/tags");
+    match reqwest::Client::new()
+        .get(&health_url)
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+    {
+        Ok(response) if response.status().is_success() => {
+            println!("  llm:     reachable at {provider_url}");
+        }
+        Ok(response) => {
+            warnings += 1;
+            println!(
+                "  llm:     WARNING {provider_url} returned HTTP {}",
+                response.status()
+            );
+        }
+        Err(error) => {
+            warnings += 1;
+            println!("  llm:     WARNING {provider_url} is unavailable ({error})");
+        }
+    }
+
+    let loopback_gateway = cli.gateway_addr.starts_with("127.")
+        || cli.gateway_addr.starts_with("localhost:")
+        || cli.gateway_addr.starts_with("[::1]:");
+    let gateway_token = std::env::var("SOULSYSTEM_GATEWAY_TOKEN")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    if loopback_gateway {
+        println!("  gateway: loopback-only ({})", cli.gateway_addr);
+    } else if gateway_token.is_some() {
+        println!("  gateway: remote bind with authentication configured");
+    } else {
+        warnings += 1;
+        println!(
+            "  gateway: WARNING remote bind {} has no SOULSYSTEM_GATEWAY_TOKEN",
+            cli.gateway_addr
+        );
+    }
+
+    if warnings == 0 {
+        println!("Doctor result: ready");
+    } else {
+        println!("Doctor result: {warnings} warning(s); see docs/GETTING_STARTED.md");
+    }
     Ok(())
 }
 

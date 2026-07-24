@@ -1,0 +1,211 @@
+// scirust-simd/src/fixed/mod.rs
+//
+// # Virgule fixe SIMD — calcul déterministe & reproductible
+//
+// Sous-système de nombres en virgule fixe pour SciRust : calcul scientifique,
+// IA déterministe, traitement du signal et algèbres hypercomplexes, en
+// complément (jamais en remplacement) des chemins flottants.
+//
+// ## Pourquoi la virgule fixe ?
+//
+// Un flottant a une résolution **relative** (le pas croît avec la magnitude) et
+// une somme **non associative** : le résultat dépend de l'ordre, donc du nombre
+// de threads et de la vectorisation. Un nombre en virgule fixe a une résolution
+// **absolue et constante** et une addition **exacte** (tant qu'il n'y a pas
+// d'overflow) : `a + b + c` donne le même bit quel que soit l'ordre. C'est la
+// base d'un déterminisme bit-à-bit indépendant de l'architecture et du nombre
+// de threads.
+//
+// ## Représentation
+//
+// [`Fixed<I, FRAC>`] enveloppe un entier signé `I` ; la valeur réelle est
+// `raw / 2^FRAC`. Le type est générique sur le stockage ([`repr::FixedStorage`],
+// implémenté pour `i32` et `i64`) : **tout l'algorithme est écrit une seule
+// fois**. Ajouter le stockage `i16` (audio) n'a demandé que deux lignes ; un
+// `i128` (très haute précision) s'ajouterait de même, sans réécriture.
+//
+// ## Alias fournis
+//
+// | Alias | Type | Plage approximative | Résolution |
+// |---|---|---|---|
+// | [`Q1_15`]  | `FixedI16<15>` | ±1 | 3.1e-5 |
+// | [`Q8_8`]   | `FixedI16<8>`  | ±128 | 3.9e-3 |
+// | [`Q16_16`] | `FixedI32<16>` | ±32 768 | 1.5e-5 |
+// | [`Q8_24`]  | `FixedI32<24>` | ±128 | 6.0e-8 |
+// | [`Q24_8`]  | `FixedI32<8>`  | ±8.4e6 | 3.9e-3 |
+// | [`Q32_32`] | `FixedI64<32>` | ±2.1e9 | 2.3e-10 |
+//
+// [`Q1_15`] (audio 16 bits) valide la **généricité du stockage** : ajouter
+// `i16` n'a demandé que deux lignes ([`repr`]), aucun algorithme réécrit.
+//
+// ## Politiques explicites (jamais cachées)
+//
+// * **Arrondi** ([`RoundingMode`]) : `TowardZero` (défaut), `Floor`, `Ceil`,
+//   `NearestEven`.
+// * **Overflow** ([`OverflowMode`]) : `Wrap` (défaut des opérateurs), `Checked`,
+//   `Saturate`.
+//
+// Les opérateurs `+ − * / -x` **enveloppent et tronquent** (déterministe quel
+// que soit le profil debug/release, contrairement à l'entier Rust). Les
+// méthodes `checked_*` / `saturating_*` / `*_rounded` donnent le contrôle total.
+//
+// ## Généricité
+//
+// [`NumericScalar`] (anneau ordonné + `abs`) est implémenté pour `f32`, `f64`
+// et tout [`Fixed`], si bien qu'un futur `Quaternion<T: NumericScalar>` couvrira
+// aussi bien `Quaternion<f32>` que `Quaternion<FixedI32<16>>` sans réécriture.
+//
+// ## Différences avec le flottant (résumé)
+//
+// * Pas de NaN ni d'infini : l'overflow est géré par politique explicite.
+// * Résolution constante, addition exacte, reproductibilité bit-à-bit.
+// * Division/multiplication plus lentes (accumulateur élargi) ; add/sub plus
+//   rapides (une instruction entière).
+//
+// ## Modules
+//
+// * [`repr`] — plomberie entière générique (`FixedStorage`, `WideInt`).
+// * [`rounding`] / [`overflow`] — politiques.
+// * [`types`] — le type [`Fixed`] et son arithmétique.
+// * [`ops`] — surcharge d'opérateurs.
+// * [`convert`] — conversions.
+// * [`traits`] — [`NumericScalar`] et [`RealScalar`].
+// * [`simd`] — vecteurs [`FixedI16x8`], [`FixedI32x8`], [`FixedI64x4`].
+// * [`reductions`] — sommes, `dot`, normes, extrema, cosinus, moments
+//   statistiques (`mean`, variances de population/d'échantillon,
+//   écarts-types).
+// * [`linalg`] — GEMM déterministe (`matmul`, `matmul_bt`, `matvec`,
+//   `transpose`) et décompositions directes (`cholesky`, `lu_decompose`/
+//   `lu_solve`, `determinant`, `qr_decompose`/`qr_solve`) pour résoudre
+//   `A·x = b` ou les moindres carrés, la décomposition spectrale itérative
+//   (`jacobi_eigen`, `svd`/`svd_solve`) des matrices symétriques, le
+//   **problème aux valeurs propres généralisé** `A·x = λ·B·x`
+//   (`generalized_eig_symmetric`, réduction de Cholesky puis `jacobi_eigen`),
+//   les valeurs propres d'une matrice **quelconque** (`hessenberg` +
+//   `eigenvalues_general`, réelles ou complexes conjuguées via
+//   [`linalg::Eigenvalue`]), leurs **vecteurs propres réels** par itération
+//   inverse (`linalg::eigenvector_real`/`linalg::eigenvectors_general`), et
+//   les **racines d'un polynôme**
+//   (`companion_matrix`/`poly_roots`, valeurs propres de sa matrice
+//   compagnon), et l'**exponentielle de matrice** (`matrix_exp`, mise à
+//   l'échelle et carrés répétés — fonctionne pour toute matrice, y compris
+//   antisymétrique, l'application exponentielle `so(3) → SO(3)` de
+//   [`crate::geometry::Quaternion`]). `matrix_sqrt` (Denman-Beavers) et
+//   `matrix_log`/`matrix_pow_real` (mise à l'échelle inverse de Higham)
+//   complètent ce trio pour les matrices **symétriques définies
+//   positives** — le pendant matriciel de
+//   [`crate::hypercomplex::OctonionSimd::exp`]/`ln`/`powf`. Le recalage
+//   rigide de nuages de points via SVD (`orthogonal_procrustes`, `kabsch`,
+//   `kabsch_align`) retrouve la rotation (propre ou avec réflexion) et la
+//   translation alignant deux nuages de points — étalonnage de capteurs,
+//   ICP, alignement de structures. Les solveurs itératifs de Krylov
+//   (`conjugate_gradient`, `preconditioned_conjugate_gradient`, `bicgstab`)
+//   complètent Cholesky/LU/QR par une résolution de `A·x = b` qui n'a besoin
+//   que du produit matrice-vecteur à chaque étape — pas de factorisation
+//   `O(n³)`/`O(n²)` en mémoire, avantageux pour les grands systèmes.
+// * [`activation`] — activations quantifiées (`relu`, `relu6`, `hardswish`…).
+// * [`layer`] — couche linéaire quantifiée [`layer::Linear`] (`W·x + b`, +
+//   activation), avec inférence par lot (`forward_batch` et variantes).
+// * [`conv`] — convolution 1D quantifiée [`conv::conv1d`] (im2col + GEMM),
+//   avec inférence par lot ([`conv::conv1d_batch`]).
+// * [`conv2d`] — convolution 2D quantifiée [`conv2d::conv2d`] (im2col +
+//   GEMM), avec inférence par lot ([`conv2d::conv2d_batch`]), et la
+//   convolution séparable en profondeur ([`conv2d::depthwise_conv2d`],
+//   [`conv2d::separable_conv2d`], style MobileNet). [`conv2d::conv2d_transpose`]
+//   est l'opération **adjointe** (déconvolution/suréchantillonnage), utilisée
+//   dans les décodeurs convolutifs et GAN génératifs. [`conv2d::dilated_conv2d`]
+//   élargit le champ réceptif sans augmenter le nombre de paramètres ni
+//   sous-échantillonner (segmentation sémantique, `WaveNet`).
+// * [`pool`] — pooling 1D quantifié ([`pool::max_pool1d`], [`pool::avg_pool1d`]).
+// * [`pool2d`] — pooling 2D quantifié ([`pool2d::max_pool2d`], [`pool2d::avg_pool2d`]).
+// * [`rescale`] — requantification entre résolutions (`FRAC` différent, même stockage).
+// * [`math`] — `sqrt`, `rsqrt`, `reciprocal` (Newton entier exact).
+// * [`transcendental`] — `exp`/`ln`/`sin`/`cos`/`tanh`/`sigmoid`/`softmax`
+//   (minimax + réduction d'argument, bornes ULP prouvées ; `FixedI32<FRAC>`).
+// * [`attention`] — attention produit-scalaire quantifiée
+//   ([`attention::attention`], [`attention::causal_attention`],
+//   [`attention::multi_head_attention`]) : le pendant déterministe du module
+//   flottant [`crate::attention`], côté séquences/Transformers.
+// * [`norm`] — normalisations et encodage positionnel quantifiés
+//   ([`norm::rmsnorm`], [`norm::layer_norm`], [`norm::rope_apply`]), le
+//   pendant déterministe du module flottant [`crate::norm`], et
+//   [`norm::batch_norm`]/[`norm::batch_norm_batched`] (BatchNorm,
+//   inférence) côté CNN, statistiques figées par canal plutôt que
+//   recalculées par ligne.
+// * [`kv_cache`] — cache clés/valeurs quantifié ([`kv_cache::KvCache`]) pour
+//   le décodage autoregressif incrémental, construit sur [`attention`] ; le
+//   pendant déterministe du module flottant [`crate::kv_cache`].
+// * [`transformer`] — bloc décodeur Transformer pre-norm complet
+//   ([`transformer::TransformerBlock`]), assemblant [`layer`], [`norm`],
+//   [`attention`] et [`kv_cache`] (préremplissage par lot **et** décodage
+//   incrémental) ; le pendant déterministe du module flottant
+//   [`crate::transformer`].
+// * [`model`] — pile de blocs décodeur ([`model::TransformerModel`]) :
+//   préremplissage par lot, décodage incrémental à travers toute la pile
+//   (un cache KV par couche) et boucle de génération sur l'état caché ; le
+//   pendant déterministe du module flottant [`crate::model`].
+
+pub mod activation;
+pub mod attention;
+pub mod conv;
+pub mod conv2d;
+pub mod convert;
+pub mod kv_cache;
+pub mod layer;
+pub mod linalg;
+pub mod math;
+pub mod model;
+pub mod norm;
+pub mod ops;
+pub mod overflow;
+pub mod pool;
+pub mod pool2d;
+pub mod reductions;
+pub mod repr;
+pub mod rescale;
+pub mod rounding;
+pub mod simd;
+pub mod traits;
+pub mod transcendental;
+pub mod transformer;
+pub mod types;
+
+#[cfg(test)]
+mod tests;
+
+pub use convert::TryFromFloatError;
+pub use overflow::OverflowMode;
+pub use repr::{FixedStorage, WideInt};
+pub use rounding::RoundingMode;
+pub use simd::{FixedI16x8, FixedI32x8, FixedI64x4};
+pub use traits::{NumericScalar, RealScalar};
+pub use types::Fixed;
+
+/// Virgule fixe sur `i16` : `FixedI16<FRAC>` = `raw / 2^FRAC` (audio, embarqué).
+///
+/// Fournit l'algèbre d'anneau ([`NumericScalar`]) — donc filtres DSP, produit
+/// hypercomplexe générique, etc. Les transcendantes ([`RealScalar`]) restent
+/// réservées au stockage `i32` (précision interne Q32).
+pub type FixedI16<const FRAC: u32> = Fixed<i16, FRAC>;
+/// Virgule fixe sur `i32` : `FixedI32<FRAC>` = `raw / 2^FRAC`.
+pub type FixedI32<const FRAC: u32> = Fixed<i32, FRAC>;
+/// Virgule fixe sur `i64` : `FixedI64<FRAC>` = `raw / 2^FRAC`.
+pub type FixedI64<const FRAC: u32> = Fixed<i64, FRAC>;
+
+/// Q1.15 — format audio 16 bits canonique (échantillons dans `[−1, 1)`).
+///
+/// **Attention** : `1.0` n'est **pas** représentable (`FRAC = BITS − 1`), donc
+/// [`Fixed::one`] enveloppe vers `−1.0`. Ce format sert aux **échantillons**
+/// dans `[−1, 1)`, pas à une algèbre nécessitant l'unité (coefficients de
+/// filtre, quaternions…) — pour cela, utiliser [`Q8_8`] (`FRAC = 8`).
+pub type Q1_15 = FixedI16<15>;
+/// Q8.8 — 16 bits, plage modérée (±128), résolution 3.9e-3.
+pub type Q8_8 = FixedI16<8>;
+/// Q8.24 — 8 bits entiers, 24 fractionnaires (haute résolution, faible plage).
+pub type Q8_24 = FixedI32<24>;
+/// Q16.16 — équilibre plage/résolution le plus courant en DSP.
+pub type Q16_16 = FixedI32<16>;
+/// Q24.8 — large plage, résolution modérée.
+pub type Q24_8 = FixedI32<8>;
+/// Q32.32 — 64 bits, large plage et très haute résolution.
+pub type Q32_32 = FixedI64<32>;

@@ -54,7 +54,11 @@ reproduces it --- but that regime does not occur on real code. The contribution 
 therefore \emph{not} better retrieval. It is the infrastructure a retrieval stack
 structurally lacks: a \emph{deterministic, replayable, auditable} agent memory in
 which one can rewind the exact context state at any step and replay it under
-different parameters (\emph{time-travel debugging}). We release the engine, the
+different parameters (\emph{time-travel debugging}). To our knowledge CCOS is the
+first system to treat an agent's \emph{working memory itself} as a transactional
+subsystem --- deterministic, hash-chained, replayable bit-for-bit, and
+\emph{post-mortem debuggable}: a flight recorder for attention, with a breakpoint
+on the exact step at which the right information was evicted from the window. We release the engine, the
 honest validation harness, and this paper, labelling throughout what is
 \emph{proven} (formal structure, determinism, replay), \emph{measured} (retrieval
 coverage --- where CCOS does \emph{not} beat lexical RAG on real bugs), and the one
@@ -104,7 +108,11 @@ recorded in a hash-chained event log, so the memory is not a black box but an
   recall) is logged; the exact context state at any step is reconstructible; and a
   recall can be \emph{replayed under different parameters} to ask whether the agent
   would have decided better --- the capability a probabilistic retrieval stack
-  structurally lacks.
+  structurally lacks. To our knowledge this is the first treatment of context
+  assembly \emph{itself} as a replayable, post-mortem-debuggable subsystem --- a
+  \emph{flight recorder for an agent's attention} --- with an \emph{eviction
+  watchpoint} that names the exact step and operation at which the true cause was
+  squeezed out of the budgeted window.
   \item An \textbf{honest validation harness and a negative result}
   (\S\ref{sec:protocol}): on $70$ real bug-fix commits, causal selection
   \emph{does not} beat a lexical TF-IDF retriever at placing a fix's files in the
@@ -277,6 +285,25 @@ This extends CCOS's existing guarantees: the primary event log is hash-chained a
 tamper-evident, so the region history is auditable, and a 10\,000-cycle test
 exhibits no drift in region count or temperatures.
 
+\paragraph{An auditable input boundary.} The same deterministic, replayable
+substrate hardens the text an agent ingests. Hidden-character injection vectors
+--- bidirectional overrides (the \emph{Trojan Source} attack, CVE-2021-42574),
+zero-width formatting, and the Unicode \emph{Tags} block used for invisible ASCII
+smuggling --- are de-obfuscated at ingest into explicit, visible literals
+(\code{[U+202E RLO]}) rather than silently stripped, and the findings are
+recorded against the same hash-chained log, so a replay reproduces the cleaned
+state. A downstream linear log-space classifier --- the closed form of
+multinomial Naive Bayes, $\mathrm{logit}=b+W\!\cdot\!X$ over a hashing-trick
+feature vector, its weights locked in a checksum-verified blob --- adds a
+\emph{deterministic, forensically decomposable} injection signal (a held-out
+red-team measures $F_1=0.90$; precision $0.87$, recall $0.93$). We are deliberate
+that this is a \emph{signal, not a solution}: a bag-of-features model is evaded by
+paraphrase, and no character-level pass addresses semantic injection --- the real
+mitigation is privilege separation in the host. The contribution is not a novel
+detector but that de-obfuscation and scoring inherit CCOS's defining property:
+every security decision is reproducible and auditable down to the exact feature
+that moved it.
+
 \section{Event-sourced sessions and time-travel debugging}\label{sec:timetravel}
 
 Determinism is not only a correctness property; it is the basis of the capability
@@ -294,12 +321,38 @@ query $q$ or token budget $b$, returning the window the agent \emph{would} have
 seen. When an agent emits a bad patch at step 15, an operator can replay its exact
 context at step 14, widen the budget or change the anchor, and observe whether the
 decision improves --- a closed-loop, reproducible debugger for an agent's working
-memory. A RAG or framework stack mutates its store probabilistically across a
+memory.
+
+\paragraph{A breakpoint on attention.} Replay also localises \emph{drift}. The
+\code{missing} watchpoint scans the timeline for the exact step at which a given
+node --- typically the true cause of a failure --- was squeezed out of the budgeted
+window by competing pressure, naming the triggering operation and the token gap;
+a complementary \code{energy} view surfaces the causal-heat migration through the
+graph that a file-level diff misses. It is, in effect, a \emph{breakpoint on an
+agent's attention}: the precise moment the right information left the window. An
+opaque retrieval stack can show only the final, corrupted context; CCOS can point
+to the step --- and the operation --- at which it went wrong. A RAG or framework
+stack mutates its store probabilistically across a
 session and keeps no canonical, replayable transition log, so the same question
 (\emph{why, and when, did the representation corrupt?}) has no answer there. We do
 not claim this improves task success; we claim it is a property the alternatives do
 not have, and that it is the honest locus of CCOS's contribution
 (\S\ref{sec:protocol}).
+
+\paragraph{The log as training data.} Because the timeline is deterministic and
+replayable, it is also a \emph{counterfactual evaluation set} for retrieval
+itself. We read a reward straight off it: for each recorded recall, was the node
+the agent engaged \emph{next} --- a failure signal or page-fault, taken as a
+post-hoc relevance signal --- present in the window that recall \emph{would} have
+produced under candidate scoring weights? Maximising this hit rate by deterministic
+coordinate ascent (each candidate scored by a full replay) yields scoring weights
+tuned to the session's own history; adopting them is recorded as an operation, so
+the learned policy is itself auditable and reproduced on replay. The reward is an
+honest proxy and the optimiser is greedy, so we claim only that this is retrieval
+that \emph{trains on a substrate the alternatives lack}: a probabilistic RAG store
+keeps no canonical, replayable log to learn from. This closes the loop the title
+implies --- the working memory is not only inspectable but \emph{self-improving}
+from its own auditable record.
 
 \section{Implementation}\label{sec:impl}
 
@@ -312,7 +365,51 @@ core. The public surface is: \code{ContextRegionEngine} (\code{cluster\_nodes},
 (\code{RegionCreated}, \code{RegionActivated}, \code{RegionMerged},
 \code{RegionEvicted}, \code{ContextWindowGenerated}). A \code{ccos regions} CLI
 exposes clustering, activation and the locality report. The whole crate builds
-warning-clean under \code{clippy -D warnings} and passes 202 tests.
+warning-clean under \code{clippy -D warnings} and passes 431 tests.
+
+\paragraph{The cognitive MMU, made real.} Paging lives in the code, not only the
+prose: eviction is \emph{non-destructive}. When the resident node set exceeds its
+cap, the lowest-scored nodes are \emph{demoted}---with their incident edges---into
+a COLD tier rather than dropped, and any node faults back on demand
+(\code{page\_in}). A failure signal, or a recall \emph{around} a demoted node,
+resurrects it and its cold neighbours transparently; the page-in is a
+\emph{replayed} side effect, so \mbox{\code{replay}\,$=$\,\code{live}} still holds.
+The COLD tier's unbounded \emph{content} optionally spills to a content-addressed
+on-disk store (SHA-256 keys, deduplicated, and \emph{hash-verified} on read---a
+tampered or missing blob is a cold-miss, never a silent empty restore), bounding
+the resident-plus-cold \emph{content} footprint in RAM while the backing store on
+disk is unbounded. At the deepest tier, once the backing store \emph{itself} must
+stay frugal, an optional budget \emph{compacts} the coldest content---code
+skeletonised, prose summarised---to a causal summary, discarding the original. This
+is genuine, \emph{auditable forgetting}: it is lossy, but observable
+(\code{cold\_compacted}) and never a silent drop. This is the sense in which working
+memory is ``unbounded'': a \emph{direction}, frugality~$\times$~available RAM, rather
+than a literal claim---and at the floor frugality is the master, exactly as the
+demand-paging analogy demands. Honestly scoped: spill moves only \emph{content} to
+disk (per-cold-node metadata still grows in RAM---an on-disk index is future work),
+blobs are stored verbatim (dedup, no compression codec yet), and compaction bounds
+the cold \emph{content} footprint, not the entry \emph{count}. Both spill and
+compaction are opt-in; the default path keeps them off and serialization
+byte-identical, so the determinism guarantees of \S\ref{sec:determinism} are
+untouched.
+
+\paragraph{Hybrid entry fusion.} A free-text recall resolves its entry node by
+\emph{reciprocal-rank fusion}~\cite{cormack2009reciprocal} of three independent
+rankings---lexical token overlap, semantic INT4-TF-IDF cosine, and a causal
+\emph{active-failure} focus---before the usual region expansion. RRF compares
+ranks, not raw scores, so the three incomparable signals fuse without
+calibration. The causal vote is deliberately \emph{sparse}: it ranks only nodes
+under failure pressure, so it abstains on a quiet graph (no spurious id-ordered
+bias when scores are flat) and speaks for the active problem region once a failure
+is signalled---the CCOS-native attention signal rather than a generic importance
+prior. Deterministic, and an honest improvement to \emph{entry selection} only:
+the downstream region expansion and the evaluation of \S\ref{sec:eval} are
+unchanged. The semantic signal itself is, by default, deterministic INT4 TF-IDF;
+an opt-in build distils it into a learned \emph{latent-semantic} projection (LSA /
+truncated SVD of the corpus's document--term matrix, via a fixed Jacobi sweep),
+which captures synonymy raw TF-IDF cannot while remaining zero-dependency and
+deterministic --- the ``distil, don't couple'' rule that lets a learned component
+respect the replay invariant.
 
 \section{Evaluation: what we can measure today}\label{sec:eval}
 
@@ -632,6 +729,13 @@ retriever at a sufficient budget and loses to it at a tight one; on real fix
 commits the files a fix touches are lexically similar, so the simulation's premise
 of a lexically-dissimilar cause does not hold. The strong absolute numbers are a
 \emph{necessary} condition that a baseline also satisfies, not a CCOS win.
+(A complementary measurement on the engine's own source isolates a different,
+structurally-defined relation: a lexical TF-IDF retriever recovers only $49\%$
+(recall@$10$) of the AST-resolved \emph{import} dependencies---pairs that routinely
+share no vocabulary, dependency cosine $0.53$ vs $0.43$ random---so RAG's blind spot
+is real, but it lies off the fix-\emph{cohesion} axis the headline metric measures,
+where a fix's files do share vocabulary. The structural layer recovers those edges by
+construction; the now-default AST is what makes that recovery complete.)
 \textbf{(2) Necessary $\neq$ sufficient.} We never measure whether a region
 \emph{helps an agent fix} a bug (Phase 4: a patch passing the hidden tests) ---
 only whether the relevant files are retrievable.
@@ -641,12 +745,17 @@ exercise the regime where a symptom is lexically far from its cause --- the regi
 most favourable to causal selection.
 \textbf{(4) Scale and statistics.} Three single-crate repositories, $n\!\approx\!20$
 each; differences are reported with their standard deviation but not cross-validated.
-\textbf{(5) Engine.} The parser is a line/AST heuristic (shallow neighbourhoods);
-regions are file-granular and merge only on explicit cross-file edges;
-temperature/policy and scoring weights are hand-tuned, not learned. None of these
-affect the \emph{proven} properties (partition, determinism, replay) or the
-measured locality --- but the empirical case for a downstream agent benefit is, at
-this point, \emph{unproven}.
+\textbf{(5) Engine.} The parser now \emph{defaults} to a real \texttt{syn} AST ---
+measured $36.5\%$ more accurate than the former line heuristic on the engine's own
+source (two-thirds vs.\ full import recall), the heuristic kept only as a fallback for
+non-Rust input --- and ingestion was hardened to reconstruct bit-identically across
+processes (sorted import resolution; order-invariant centrality). Regions remain
+file-granular and merge only on explicit cross-file edges; scoring weights are
+hand-tuned, though off-by-default eigenvector-centrality and node-lifecycle
+(\texttt{Stable}/\texttt{Working}/\texttt{Orphan}) refinements are now available. None of
+these affect the \emph{proven} properties (partition, determinism, replay) or the
+measured locality --- but the empirical case for a downstream agent benefit is, at this
+point, \emph{unproven}.
 
 \section{Conclusion}
 
@@ -692,6 +801,9 @@ Long Contexts. \emph{TACL}, 2024. arXiv:2307.03172.
 Language Model Serving with PagedAttention. \emph{SOSP}, 2023. arXiv:2309.06180.
 \bibitem{haber1991timestamp} S.~Haber and W.~S.~Stornetta. How to Time-Stamp a
 Digital Document. \emph{Journal of Cryptology}, 3(2), 1991.
+\bibitem{cormack2009reciprocal} G.~V.~Cormack, C.~L.~A.~Clarke, and S.~B\"uttcher.
+Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank Learning Methods.
+\emph{SIGIR}, 2009.
 \bibitem{jimenez2023swebench} C.~E.~Jimenez et al. SWE-bench: Can Language Models
 Resolve Real-World GitHub Issues? \emph{ICLR}, 2024. arXiv:2310.06770.
 \end{thebibliography}

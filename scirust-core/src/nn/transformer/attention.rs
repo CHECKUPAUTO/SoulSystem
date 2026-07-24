@@ -12,13 +12,16 @@ use crate::tensor::tensor3d::Var3D;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+/// Attention multi-têtes **standard** (MHA) : toutes les têtes Q ont leur
+/// propre tête KV. Cette implémentation 2D ne fait ni GQA/MQA ni RoPE — pour
+/// ces variantes, utiliser `nn::nd_layers::NdMultiHeadAttention` (`new_gqa`,
+/// RoPE/ALiBi). Les anciens champs `num_kv_heads`/`use_rope`/`rope_theta`
+/// étaient acceptés mais jamais appliqués (piège silencieux) ; ils ont été
+/// retirés.
 pub struct MultiHeadAttention {
     pub d_model: usize,
     pub n_heads: usize,
     pub d_head: usize,
-    pub num_kv_heads: usize,
-    pub use_rope: bool,
-    pub rope_theta: f32,
     pub w_q: Linear,
     pub w_k: Linear,
     pub w_v: Linear,
@@ -32,14 +35,13 @@ impl MultiHeadAttention {
     pub fn new<W: Initializer, B: Initializer>(
         d_model: usize,
         n_heads: usize,
-        num_kv_heads: usize,
         causal: bool,
         w_init: &W,
         b_init: &B,
         rng: &mut PcgEngine,
     ) -> Self {
         assert!(
-            d_model % n_heads == 0,
+            d_model.is_multiple_of(n_heads),
             "MultiHeadAttention: d_model ({d_model}) doit etre divisible par n_heads ({n_heads})"
         );
         let d_head = d_model / n_heads;
@@ -48,13 +50,6 @@ impl MultiHeadAttention {
             d_model,
             n_heads,
             d_head,
-            num_kv_heads: if num_kv_heads > 0 {
-                num_kv_heads
-            } else {
-                n_heads
-            },
-            use_rope: false,
-            rope_theta: 10000.0,
             w_q: Linear::new(d_model, d_model, w_init, b_init, rng),
             w_k: Linear::new(d_model, d_model, w_init, b_init, rng),
             w_v: Linear::new(d_model, d_model, w_init, b_init, rng),
@@ -119,55 +114,34 @@ impl MultiHeadAttention {
         let d_h = self.d_head;
         let scale = 1.0 / (d_h as f32).sqrt();
 
-        let mut q_per_head: Vec<Var<'t>> = Vec::with_capacity(h_n);
-        let mut k_per_head: Vec<Var<'t>> = Vec::with_capacity(h_n);
-        let mut v_per_head: Vec<Var<'t>> = Vec::with_capacity(h_n);
-        for h in 0..h_n {
-            q_per_head.push(q.try_slice_cols(h * d_h, d_h).unwrap());
-            k_per_head.push(k.try_slice_cols(h * d_h, d_h).unwrap());
-            v_per_head.push(v.try_slice_cols(h * d_h, d_h).unwrap());
-        }
-
-        let mut head_outputs: Vec<Vec<Var<'t>>> =
-            (0..h_n).map(|_| Vec::with_capacity(batch)).collect();
-        for h in 0..h_n {
-            let q_h = &q_per_head[h];
-            let k_h = &k_per_head[h];
-            let v_h = &v_per_head[h];
-            for b in 0..batch {
-                let q_hb = q_h.try_slice_rows(b * seq_len, seq_len).unwrap();
-                let k_hb = k_h.try_slice_rows(b * seq_len, seq_len).unwrap();
-                let v_hb = v_h.try_slice_rows(b * seq_len, seq_len).unwrap();
-
-                let k_hb_t = k_hb.transpose_2d();
-                let scores = q_hb.try_matmul(k_hb_t).unwrap();
-                let scaled = scores.scale(scale);
-                let pre_softmax = if self.causal {
-                    scaled.causal_mask(seq_len)
-                } else {
-                    scaled
-                };
-                let attn = pre_softmax.try_softmax(1).unwrap();
-                let out_hb = attn.try_matmul(v_hb).unwrap();
-                head_outputs[h].push(out_hb);
-            }
-        }
-
+        // Each head's slice `(batch·seq × d_h)` already stacks the `batch`
+        // per-sequence matrices row-wise, which is exactly `bmm2d`'s layout — so
+        // the whole head's `batch` score/context GEMMs collapse into two batched
+        // nodes (parallel over batches) instead of `batch` separate `matmul`s.
         let mut head_full: Vec<Var<'t>> = Vec::with_capacity(h_n);
-        for outputs in &head_outputs {
-            head_full.push(concat_rows(tape, outputs));
+        for h in 0..h_n {
+            let q_h = q.try_slice_cols(h * d_h, d_h).unwrap();
+            let k_h = k.try_slice_cols(h * d_h, d_h).unwrap();
+            let v_h = v.try_slice_cols(h * d_h, d_h).unwrap();
+
+            // scores = Q·Kᵀ per batch, no transpose node → (batch·seq × seq).
+            let scores = q_h.try_bmm2d(k_h, batch, true).unwrap();
+            let scaled = scores.scale(scale);
+            // causal_mask keys off `row % seq_len`, so it masks each batch block
+            // independently on the stacked layout.
+            let pre_softmax = if self.causal {
+                scaled.causal_mask(seq_len)
+            } else {
+                scaled
+            };
+            let attn = pre_softmax.try_softmax(1).unwrap();
+            // context = attn·V per batch → (batch·seq × d_h), already the
+            // row-stacked layout `combine_heads` expects (no concat needed).
+            let out_h = attn.try_bmm2d(v_h, batch, false).unwrap();
+            head_full.push(out_h);
         }
 
-        let mut accumulator: Option<Var<'t>> = None;
-        for (h, head) in head_full.iter().enumerate() {
-            let pad = build_pad_matrix(tape, h, d_h, self.d_model);
-            let padded = head.try_matmul(pad).unwrap();
-            accumulator = Some(match accumulator {
-                None => padded,
-                Some(acc) => acc.try_add(padded).unwrap(),
-            });
-        }
-        accumulator.unwrap()
+        combine_heads(tape, &head_full)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -178,58 +152,32 @@ impl MultiHeadAttention {
         k: Var<'t>,
         v: Var<'t>,
         batch: usize,
-        q_seq_len: usize,
-        kv_seq_len: usize,
+        // Sequence lengths are recovered from the operand shapes by `bmm2d`
+        // (`rows / batch`); kept in the signature to document the caller's intent.
+        _q_seq_len: usize,
+        _kv_seq_len: usize,
     ) -> Var<'t> {
         let h_n = self.n_heads;
         let d_h = self.d_head;
         let scale = 1.0 / (d_h as f32).sqrt();
 
-        let mut q_per_head: Vec<Var<'t>> = Vec::with_capacity(h_n);
-        let mut k_per_head: Vec<Var<'t>> = Vec::with_capacity(h_n);
-        let mut v_per_head: Vec<Var<'t>> = Vec::with_capacity(h_n);
-        for h in 0..h_n {
-            q_per_head.push(q.slice_cols(h * d_h, d_h));
-            k_per_head.push(k.slice_cols(h * d_h, d_h));
-            v_per_head.push(v.slice_cols(h * d_h, d_h));
-        }
-
-        let mut head_outputs: Vec<Vec<Var<'t>>> =
-            (0..h_n).map(|_| Vec::with_capacity(batch)).collect();
-        for h in 0..h_n {
-            let q_h = q_per_head[h];
-            let k_h = k_per_head[h];
-            let v_h = v_per_head[h];
-            for b in 0..batch {
-                let q_hb = q_h.slice_rows(b * q_seq_len, q_seq_len);
-                let k_hb = k_h.slice_rows(b * kv_seq_len, kv_seq_len);
-                let v_hb = v_h.slice_rows(b * kv_seq_len, kv_seq_len);
-
-                let k_hb_t = k_hb.transpose_2d();
-                let scores = q_hb.matmul(k_hb_t);
-                let scaled = scores.scale(scale);
-                // Cross-attention n'est jamais causal
-                let attn = scaled.softmax(1);
-                let out_hb = attn.matmul(v_hb);
-                head_outputs[h].push(out_hb);
-            }
-        }
-
+        // Same batched collapse as self-attention, but Q and K/V have different
+        // sequence lengths: scores are `(batch·q_seq × kv_seq)`, context is
+        // `(batch·q_seq × d_h)`. Cross-attention is never causal.
         let mut head_full: Vec<Var<'t>> = Vec::with_capacity(h_n);
-        for outputs in &head_outputs {
-            head_full.push(concat_rows(tape, outputs));
+        for h in 0..h_n {
+            let q_h = q.slice_cols(h * d_h, d_h);
+            let k_h = k.slice_cols(h * d_h, d_h);
+            let v_h = v.slice_cols(h * d_h, d_h);
+
+            let scores = q_h.try_bmm2d(k_h, batch, true).unwrap(); // Q·Kᵀ per batch
+            let scaled = scores.scale(scale);
+            let attn = scaled.softmax(1);
+            let out_h = attn.try_bmm2d(v_h, batch, false).unwrap();
+            head_full.push(out_h);
         }
 
-        let mut accumulator: Option<Var<'t>> = None;
-        for (h, head) in head_full.iter().enumerate() {
-            let pad = build_pad_matrix(tape, h, d_h, self.d_model);
-            let padded = head.matmul(pad);
-            accumulator = Some(match accumulator {
-                None => padded,
-                Some(acc) => acc.add(padded),
-            });
-        }
-        accumulator.unwrap()
+        combine_heads(tape, &head_full)
     }
 
     /// Inférence incrémentale avec KV-Cache (mode token unique).
@@ -268,21 +216,14 @@ impl MultiHeadAttention {
             let kh = k_cached.slice_cols(h * d_h, d_h);
             let vh = v_cached.slice_cols(h * d_h, d_h);
             heads.push(
-                qh.matmul(kh.transpose_2d())
+                qh.matmul_bt(kh) // Q·Kᵀ, no transpose node
                     .scale(scale)
                     .softmax(1)
                     .matmul(vh),
             );
         }
-        let mut acc: Option<Var> = None;
-        for (h, hd) in heads.iter().enumerate() {
-            let pd = hd.matmul(build_pad_matrix(tape, h, d_h, self.d_model));
-            acc = Some(match acc {
-                None => pd,
-                Some(a) => a.add(pd),
-            });
-        }
-        self.w_o.forward(tape, acc.unwrap())
+        let combined = combine_heads(tape, &heads);
+        self.w_o.forward(tape, combined)
     }
 
     pub fn parameter_indices(&self) -> Vec<usize> {
@@ -299,27 +240,6 @@ impl MultiHeadAttention {
         self.w_k.sync(tape);
         self.w_v.sync(tape);
         self.w_o.sync(tape);
-    }
-
-    /// GQA: répète les têtes KV pour correspondre au nombre de têtes Q.
-    /// Si num_kv_heads == num_heads, c'est un no-op (MHA standard).
-    ///
-    /// La concaténation au niveau `Var` (tape) est fournie par `concat_rows`
-    /// (importée depuis `autodiff::reverse`). Pour le niveau `Tensor` brut,
-    /// on concatène les données manuellement.
-    #[allow(dead_code)]
-    fn repeat_kv_heads(&self, x: Tensor, _seq_len: usize, _d_head: usize) -> Tensor {
-        let repeat = self.n_heads / self.num_kv_heads;
-        if repeat <= 1 {
-            return x;
-        }
-        let x_data = &x.data;
-        let (rows, cols) = (x.rows, x.cols);
-        let mut out = Vec::with_capacity(x_data.len() * repeat);
-        for _ in 0..repeat {
-            out.extend_from_slice(x_data);
-        }
-        Tensor::from_vec(out, rows * repeat, cols)
     }
 
     pub fn state_dict(&self) -> HashMap<String, Tensor> {
@@ -375,14 +295,27 @@ impl MultiHeadAttention {
     }
 }
 
-/// pad[i, j] = 1 si j == h*d_h + i, sinon 0. Shape (d_h, d_model).
-fn build_pad_matrix<'t>(tape: &'t Tape, h: usize, d_h: usize, d_model: usize) -> Var<'t> {
-    let mut data = vec![0.0f32; d_h * d_model];
-    for i in 0..d_h {
-        let j = h * d_h + i;
-        data[i * d_model + j] = 1.0;
-    }
-    tape.input(Tensor::from_vec(data, d_h, d_model))
+/// Recombine per-head outputs into a single `(rows, d_model)` tensor by placing
+/// head `h`'s `(rows, d_head)` block into columns `[h*d_head, (h+1)*d_head)`.
+///
+/// This is a pure column-concatenation, expressed through the existing
+/// `transpose_2d` / `concat_rows` primitives: each head is transposed to
+/// `(d_head, rows)`, the heads are row-concatenated into `(d_model, rows)`, and
+/// the result is transposed back to `(rows, d_model)`.
+///
+/// It replaces the previous per-head "pad matrix" approach, where each head was
+/// multiplied by a `(d_head, d_model)` scatter matrix and the padded results
+/// summed. That cost `O(rows · d_head · d_model)` FLOPs *per head* (an
+/// `O(rows · d_model²)` matmul chain overall) purely to move data around. The
+/// concat moves the same bytes in `O(rows · d_model)`.
+///
+/// The output is **bit-for-bit identical** to the pad-matrix version: the old
+/// accumulator wrote each head's value into its target column exactly once and
+/// added zeros everywhere else (`x + 0.0 == x` in IEEE-754), so the sum of the
+/// scattered blocks equals the concatenation of those blocks.
+fn combine_heads<'t>(tape: &'t Tape, heads: &[Var<'t>]) -> Var<'t> {
+    let transposed: Vec<Var<'t>> = heads.iter().map(|h| h.transpose_2d()).collect();
+    concat_rows(tape, &transposed).transpose_2d()
 }
 
 impl Clone for MultiHeadAttention {
@@ -391,9 +324,6 @@ impl Clone for MultiHeadAttention {
             d_model: self.d_model,
             n_heads: self.n_heads,
             d_head: self.d_head,
-            num_kv_heads: self.num_kv_heads,
-            use_rope: self.use_rope,
-            rope_theta: self.rope_theta,
             w_q: self.w_q.clone(),
             w_k: self.w_k.clone(),
             w_v: self.w_v.clone(),
@@ -413,20 +343,20 @@ mod tests {
     #[test]
     fn mha_construction_validates_d_h() {
         let mut rng = PcgEngine::new(0);
-        let _ = MultiHeadAttention::new(64, 4, 0, false, &KaimingNormal, &Zeros, &mut rng);
+        let _ = MultiHeadAttention::new(64, 4, false, &KaimingNormal, &Zeros, &mut rng);
     }
 
     #[test]
     #[should_panic(expected = "divisible")]
     fn mha_panics_if_d_not_divisible() {
         let mut rng = PcgEngine::new(0);
-        let _ = MultiHeadAttention::new(63, 4, 0, false, &KaimingNormal, &Zeros, &mut rng);
+        let _ = MultiHeadAttention::new(63, 4, false, &KaimingNormal, &Zeros, &mut rng);
     }
 
     #[test]
     fn mha_forward_shape() {
         let mut rng = PcgEngine::new(0);
-        let mut mha = MultiHeadAttention::new(8, 2, 0, false, &KaimingNormal, &Zeros, &mut rng);
+        let mut mha = MultiHeadAttention::new(8, 2, false, &KaimingNormal, &Zeros, &mut rng);
         let tape = Tape::new();
         let x = Tensor::from_vec((0..48).map(|x| x as f32 * 0.01).collect(), 6, 8);
         let x_var = tape.input(x);
@@ -438,7 +368,7 @@ mod tests {
     #[test]
     fn mha_gradient_flows_to_inputs() {
         let mut rng = PcgEngine::new(42);
-        let mut mha = MultiHeadAttention::new(4, 2, 0, false, &KaimingNormal, &Zeros, &mut rng);
+        let mut mha = MultiHeadAttention::new(4, 2, false, &KaimingNormal, &Zeros, &mut rng);
         let tape = Tape::new();
         let x_var = tape.input(Tensor::from_vec(
             vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
@@ -454,10 +384,73 @@ mod tests {
         assert!(max_abs > 1e-6, "gradient is zero — autograd broken");
     }
 
+    /// Finite-difference check of the **input** gradient through the full
+    /// attention backward (QKᵀ, scale, softmax, ·V, head split/merge). This
+    /// pins the gradient *values*, not just non-zeroness, so a future
+    /// batched-matmul rewrite of `scaled_dot_attention` can't silently change
+    /// them. Covers both causal and non-causal.
+    fn mha_finite_diff_case(causal: bool) {
+        mha_finite_diff_case_shaped(causal, 1, 3);
+        // batch>1 exercises the batched-attention path where each head runs
+        // `batch` independent per-sequence GEMMs through one `bmm2d` node.
+        mha_finite_diff_case_shaped(causal, 2, 3);
+    }
+
+    fn mha_finite_diff_case_shaped(causal: bool, batch: usize, seq: usize) {
+        let mut rng = PcgEngine::new(7);
+        let (d_model, n_heads) = (4usize, 2usize);
+        let mut mha =
+            MultiHeadAttention::new(d_model, n_heads, causal, &KaimingNormal, &Zeros, &mut rng);
+        let n = batch * seq * d_model;
+        let x0: Vec<f32> = (0..n).map(|i| (i as f32 * 0.13).sin()).collect();
+        // Non-uniform output weighting so the input gradient isn't degenerate.
+        let wl: Vec<f32> = (0..n).map(|i| (i as f32 * 0.21).cos()).collect();
+
+        let loss_at = |mha: &mut MultiHeadAttention, x: &[f32]| -> f32 {
+            let tape = Tape::new();
+            let xv = tape.input(Tensor::from_vec(x.to_vec(), batch * seq, d_model));
+            let out = mha.forward_3d(&tape, Var3D::from_var(xv, batch, seq, d_model));
+            let w = tape.input(Tensor::from_vec(wl.clone(), batch * seq, d_model));
+            let loss = out.as_var().hadamard(w).sum();
+            tape.value(loss.idx()).data[0]
+        };
+
+        // Analytic input gradient.
+        let tape = Tape::new();
+        let xv = tape.input(Tensor::from_vec(x0.clone(), batch * seq, d_model));
+        let out = mha.forward_3d(&tape, Var3D::from_var(xv, batch, seq, d_model));
+        let w = tape.input(Tensor::from_vec(wl.clone(), batch * seq, d_model));
+        let loss = out.as_var().hadamard(w).sum();
+        loss.backward();
+        let analytic = tape.grad(xv.idx()).data;
+
+        // Central finite differences.
+        let eps = 1e-3f32;
+        for i in 0..n {
+            let mut xp = x0.clone();
+            xp[i] += eps;
+            let mut xm = x0.clone();
+            xm[i] -= eps;
+            let num = (loss_at(&mut mha, &xp) - loss_at(&mut mha, &xm)) / (2.0 * eps);
+            let a = analytic[i];
+            let tol = 5e-2 * (1.0 + a.abs().max(num.abs()));
+            assert!(
+                (a - num).abs() < tol,
+                "causal={causal} dL/dx[{i}]: analytic {a} vs finite-diff {num}"
+            );
+        }
+    }
+
+    #[test]
+    fn mha_input_gradient_matches_finite_differences() {
+        mha_finite_diff_case(false);
+        mha_finite_diff_case(true);
+    }
+
     #[test]
     fn mha_causal_mask_shape_preserved() {
         let mut rng = PcgEngine::new(0);
-        let mut mha = MultiHeadAttention::new(8, 2, 0, true, &KaimingNormal, &Zeros, &mut rng);
+        let mut mha = MultiHeadAttention::new(8, 2, true, &KaimingNormal, &Zeros, &mut rng);
         let tape = Tape::new();
         let x = tape.input(Tensor::from_vec(vec![0.1; 32], 4, 8));
         let x_3d = Var3D::from_var(x, 2, 2, 8);
@@ -468,16 +461,62 @@ mod tests {
     #[test]
     fn mha_state_dict_round_trip() {
         let mut rng = PcgEngine::new(0);
-        let mha1 = MultiHeadAttention::new(8, 2, 0, false, &KaimingNormal, &Zeros, &mut rng);
+        let mha1 = MultiHeadAttention::new(8, 2, false, &KaimingNormal, &Zeros, &mut rng);
         let sd = mha1.state_dict();
         assert_eq!(sd.len(), 8);
 
         let mut rng2 = PcgEngine::new(99);
-        let mut mha2 = MultiHeadAttention::new(8, 2, 0, false, &Zeros, &Zeros, &mut rng2);
+        let mut mha2 = MultiHeadAttention::new(8, 2, false, &Zeros, &Zeros, &mut rng2);
         mha2.load_state_dict(&sd).unwrap();
 
         assert_eq!(mha2.w_q.weight.data, mha1.w_q.weight.data);
         assert_eq!(mha2.w_o.bias.data, mha1.w_o.bias.data);
+    }
+
+    /// `combine_heads` must place head `h`'s block into columns
+    /// `[h*d_head, (h+1)*d_head)` — the same layout the old pad-matrix
+    /// scatter-and-sum produced. We build two heads of shape (rows, d_head)
+    /// with distinct, easily-recognisable values and check every cell of the
+    /// combined (rows, d_model) tensor, then confirm gradients flow back to
+    /// both heads.
+    #[test]
+    fn combine_heads_places_columns_and_backprops() {
+        let tape = Tape::new();
+        let rows = 3;
+        let d_head = 2;
+        // Head 0: values 1,2 / 3,4 / 5,6 ; Head 1: 10,20 / 30,40 / 50,60.
+        let h0 = tape.input(Tensor::from_vec(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            rows,
+            d_head,
+        ));
+        let h1 = tape.input(Tensor::from_vec(
+            vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+            rows,
+            d_head,
+        ));
+        let combined = combine_heads(&tape, &[h0, h1]);
+        let val = tape.value(combined.idx());
+        assert_eq!(val.shape(), (rows, 4));
+        // Row-major (rows, d_model=4): [h0_col0, h0_col1, h1_col0, h1_col1].
+        let expected = [
+            1.0, 2.0, 10.0, 20.0, //
+            3.0, 4.0, 30.0, 40.0, //
+            5.0, 6.0, 50.0, 60.0,
+        ];
+        for (i, (&got, &exp)) in val.data.iter().zip(expected.iter()).enumerate() {
+            assert_eq!(got, exp, "combined[{i}] = {got}, expected {exp}");
+        }
+
+        // Pure data movement ⇒ each input cell has gradient 1 under sum().
+        let loss = combined.sum();
+        loss.backward();
+        for &g in &tape.grad(h0.idx()).data {
+            assert_eq!(g, 1.0, "h0 grad should be 1");
+        }
+        for &g in &tape.grad(h1.idx()).data {
+            assert_eq!(g, 1.0, "h1 grad should be 1");
+        }
     }
 
     /// KV-cache correctness: feeding a sequence token-by-token through
@@ -490,15 +529,8 @@ mod tests {
         let n_heads = 2;
         let seq = 4;
         let mut rng = PcgEngine::new(123);
-        let mut attn = MultiHeadAttention::new(
-            d_model,
-            n_heads,
-            n_heads,
-            true,
-            &KaimingNormal,
-            &Zeros,
-            &mut rng,
-        );
+        let mut attn =
+            MultiHeadAttention::new(d_model, n_heads, true, &KaimingNormal, &Zeros, &mut rng);
 
         let x: Vec<f32> = (0..seq * d_model)
             .map(|i| (i as f32 * 0.13).sin())

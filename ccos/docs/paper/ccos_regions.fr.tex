@@ -60,7 +60,12 @@ produit pas sur du vrai code. La contribution n'est donc \emph{pas} une meilleur
 récupération. C'est l'infrastructure qui manque structurellement à une pile de
 récupération : une mémoire d'agent \emph{déterministe, rejouable, auditable} dans
 laquelle on peut rembobiner l'état exact du contexte à n'importe quelle étape et le
-rejouer sous d'autres paramètres (\emph{débogage par voyage dans le temps}). Nous
+rejouer sous d'autres paramètres (\emph{débogage par voyage dans le temps}). À notre
+connaissance, CCOS est le \emph{premier} système à traiter la \emph{mémoire de travail
+elle-même} d'un agent comme un sous-système transactionnel --- déterministe, chaîné
+par hachage, rejouable bit-à-bit et \emph{déboguable a posteriori} : un enregistreur
+de vol de l'attention, avec un point d'arrêt sur l'étape exacte où la bonne
+information a été évincée de la fenêtre. Nous
 publions le moteur, le harnais de validation honnête et cet article, en étiquetant
 partout ce qui est \emph{prouvé} (structure formelle, déterminisme, rejeu),
 \emph{mesuré} (couverture de récupération --- où CCOS ne bat \emph{pas} le RAG
@@ -117,7 +122,11 @@ par hachage, si bien que la mémoire n'est pas une boîte noire mais un artefact
   d'échec, rappel) est journalisée ; l'état exact du contexte à toute étape est
   reconstructible ; et un rappel peut être \emph{rejoué sous d'autres paramètres}
   pour demander si l'agent aurait mieux décidé --- la capacité qui manque
-  structurellement à une pile de récupération probabiliste.
+  structurellement à une pile de récupération probabiliste. À notre connaissance,
+  c'est le premier traitement de l'\emph{assemblage du contexte lui-même} comme un
+  sous-système rejouable et déboguable a posteriori --- un \emph{enregistreur de vol
+  de l'attention} --- doté d'un \emph{point d'arrêt d'éviction} qui nomme l'étape et
+  l'opération exactes où la vraie cause a été expulsée de la fenêtre budgétée.
   \item Un \textbf{harnais de validation honnête et un résultat négatif}
   (\S\ref{sec:protocol}) : sur $70$ commits réels de correction de bogues, la
   sélection causale \emph{ne bat pas} un récupérateur lexical TF-IDF pour placer les
@@ -303,6 +312,27 @@ chaîné par hachage et à l'épreuve de la falsification, si bien que l'histori
 régions est auditable, et un test de 10\,000 cycles n'exhibe aucune dérive du nombre
 de régions ni des températures.
 
+\paragraph{Une frontière d'entrée auditable.} Le même substrat déterministe et
+rejouable durcit le texte qu'un agent ingère. Les vecteurs d'injection par
+caractères cachés --- surcharges bidirectionnelles (l'attaque \emph{Trojan
+Source}, CVE-2021-42574), formatage de largeur nulle, et le bloc Unicode
+\emph{Tags} servant à la contrebande d'ASCII invisible --- sont dé-obfusqués à
+l'ingestion en littéraux explicites et visibles (\code{[U+202E RLO]}) plutôt que
+silencieusement supprimés, et les \emph{findings} sont consignés dans le même
+journal chaîné par hachage, de sorte qu'un rejeu reproduit l'état nettoyé. Un
+classifieur linéaire en log-espace en aval --- la forme close du Naïve Bayes
+multinomial, $\mathrm{logit}=b+W\!\cdot\!X$ sur un vecteur de caractéristiques
+par \emph{hashing trick}, ses poids verrouillés dans un blob vérifié par somme de
+contrôle --- ajoute un signal d'injection \emph{déterministe et décomposable
+forensiquement} (un red-team en données réservées mesure $F_1=0{,}90$ ; précision
+$0{,}87$, rappel $0{,}93$). Nous l'affirmons délibérément : c'est un \emph{signal,
+pas une solution} --- un modèle sac-de-caractéristiques est contourné par
+paraphrase, et aucune passe au niveau caractère ne traite l'injection sémantique ;
+la vraie mitigation est la séparation des privilèges dans l'hôte. La contribution
+n'est pas un détecteur inédit, mais que la dé-obfuscation et le score héritent de
+la propriété distinctive de CCOS : toute décision de sécurité est reproductible et
+auditable jusqu'à la caractéristique exacte qui l'a fait basculer.
+
 \section{Sessions event-sourced et débogage par voyage dans le temps}\label{sec:timetravel}
 
 Le déterminisme n'est pas seulement une propriété de correction ; il est le fondement
@@ -321,6 +351,18 @@ renvoyant la fenêtre que l'agent \emph{aurait} vue. Quand un agent émet un mau
 correctif à l'étape 15, un opérateur peut rejouer son contexte exact à l'étape 14,
 élargir le budget ou changer l'ancre, et observer si la décision s'améliore --- un
 débogueur en boucle fermée et reproductible pour la mémoire de travail d'un agent.
+
+\paragraph{Un point d'arrêt sur l'attention.} Le rejeu localise aussi la
+\emph{dérive}. Le point d'observation \code{missing} parcourt la chronologie pour
+trouver l'étape exacte où un nœud donné --- typiquement la vraie cause d'un échec ---
+a été expulsé de la fenêtre budgétée par la pression concurrente, en nommant
+l'opération déclenchante et l'écart de jetons ; une vue \code{energy} complémentaire
+révèle la migration de chaleur causale à travers le graphe qu'un diff au niveau
+fichier manque. C'est, de fait, un \emph{point d'arrêt sur l'attention d'un agent} :
+l'instant précis où la bonne information a quitté la fenêtre. Une pile de récupération
+opaque ne peut montrer que le contexte final, corrompu ; CCOS peut désigner l'étape
+--- et l'opération --- où cela a déraillé.
+
 Une pile RAG ou de framework mute son magasin de façon probabiliste au cours d'une
 session et ne conserve aucun journal de transitions canonique et rejouable, de sorte
 que la même question (\emph{pourquoi, et quand, la représentation s'est-elle
@@ -341,7 +383,7 @@ nouvelles variantes d'événement (\code{RegionCreated}, \code{RegionActivated},
 \code{RegionMerged}, \code{RegionEvicted}, \code{ContextWindowGenerated}). Une CLI
 \code{ccos regions} expose le clustering, l'activation et le rapport de localité.
 L'ensemble de la crate se compile sans avertissement sous \code{clippy -D warnings}
-et passe 202 tests.
+et passe 364 tests.
 
 \section{Évaluation : ce que nous pouvons mesurer aujourd'hui}\label{sec:eval}
 
@@ -676,6 +718,14 @@ sur de vrais commits de correction, les fichiers qu'un correctif touche se resse
 lexicalement, donc la prémisse de la simulation d'une cause lexicalement dissemblable ne
 tient pas. Les chiffres absolus forts sont une condition \emph{nécessaire} qu'une référence
 satisfait aussi, non une victoire de CCOS.
+(Une mesure complémentaire sur le code source du moteur lui-même isole une relation
+différente, définie structurellement : un récupérateur lexical TF-IDF ne retrouve que
+$49\%$ (rappel@$10$) des dépendances d'\emph{import} résolues par l'AST --- des paires
+qui ne partagent souvent aucun vocabulaire, cosinus de dépendance $0{,}53$ contre $0{,}43$
+aléatoire --- de sorte que l'angle mort du RAG est réel, mais il se situe hors de l'axe de
+\emph{cohésion} d'un correctif que mesure la métrique phare, où les fichiers d'un correctif
+partagent bien leur vocabulaire. La couche structurelle retrouve ces arêtes par construction ;
+l'AST désormais par défaut est ce qui rend cette récupération complète.)
 \textbf{(2) Nécessaire $\neq$ suffisant.} Nous ne mesurons jamais si une région \emph{aide
 un agent à corriger} un bogue (Phase 4 : un correctif qui passe les tests cachés) --- seulement
 si les fichiers pertinents sont récupérables.
@@ -685,12 +735,18 @@ où un symptôme est lexicalement loin de sa cause --- le régime le plus favora
 sélection causale.
 \textbf{(4) Échelle et statistiques.} Trois dépôts mono-crate, $n\!\approx\!20$ chacun ; les
 différences sont rapportées avec leur écart-type mais non validées de façon croisée.
-\textbf{(5) Moteur.} Le parseur est une heuristique ligne/AST (voisinages peu profonds) ; les
-régions sont à granularité fichier et ne fusionnent que sur des arêtes inter-fichiers
-explicites ; les poids de température/politique et de score sont réglés à la main, non appris.
-Rien de tout cela n'affecte les propriétés \emph{prouvées} (partition, déterminisme, rejeu)
-ni la localité mesurée --- mais le dossier empirique d'un bénéfice pour l'agent en aval est, à
-ce stade, \emph{non prouvé}.
+\textbf{(5) Moteur.} Le parseur utilise désormais \emph{par défaut} un vrai AST \texttt{syn}
+--- mesuré $36{,}5\%$ plus précis que l'ancienne heuristique ligne sur le code source du moteur
+lui-même (deux tiers contre la totalité du rappel d'imports), l'heuristique n'étant conservée
+que comme repli pour les entrées non-Rust --- et l'ingestion a été durcie pour se reconstruire
+bit à bit à l'identique entre processus (résolution d'imports triée ; centralité invariante à
+l'ordre). Les régions restent à granularité fichier et ne fusionnent que sur des arêtes
+inter-fichiers explicites ; les poids de score sont réglés à la main, bien que des raffinements
+optionnels (désactivés par défaut) de centralité par vecteur propre et d'états de cycle de vie
+des nœuds (\texttt{Stable}/\texttt{Working}/\texttt{Orphan}) soient désormais disponibles. Rien
+de tout cela n'affecte les propriétés \emph{prouvées} (partition, déterminisme, rejeu) ni la
+localité mesurée --- mais le dossier empirique d'un bénéfice pour l'agent en aval est, à ce
+stade, \emph{non prouvé}.
 
 \section{Conclusion}
 

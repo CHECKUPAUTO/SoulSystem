@@ -1,9 +1,36 @@
 // scirust-core/src/autodiff/parallel.rs
 // Phase 4: Data Parallelism Engine — Send + Sync tape wrapper
-//
-// ParallelTape is a Send + Sync tape that stores the computation graph
-// behind Arc<RwLock> for safe sharing across threads.
-// Gradients are stored as scalar f64 values (summed from full tensor grads).
+
+//! `ParallelTape` — tape autodiff `Send + Sync` à gradients **scalaires**.
+//!
+//! ## Rôle
+//!
+//! Cette tape stocke le graphe derrière des `Arc<RwLock<…>>` pour être
+//! partageable entre threads, et réduit chaque gradient tenseur en un seul
+//! `f64` (somme des composantes). Elle sert de support à la **preuve de
+//! réduction déterministe** du papier : les tests de
+//! [`data_parallel`](super::data_parallel) (T1–T3 de
+//! `paper/PAPER_PLAN.md`) montrent qu'un batch multi-thread est
+//! bit-identique pour 1/2/4/8 workers.
+//!
+//! ## Statut
+//!
+//! Code de preuve / test uniquement — **aucun consommateur de production**
+//! dans le workspace (seuls `data_parallel.rs`, ses tests et le bench
+//! `bin/bench_reduction_overhead.rs` s'y réfèrent). Ne l'utilisez pas pour
+//! entraîner : la tape séquentielle [`Tape`](super::reverse::Tape) reste la
+//! référence.
+//!
+//! ## Contrat de maintenance
+//!
+//! `backward` duplique intégralement le match backward de
+//! [`Tape::backward`](super::reverse::Tape::backward) : **tout nouveau
+//! `Op` doit être ajouté ici aussi** — le match est exhaustif
+//! volontairement (pas de bras `_`) pour que l'oubli soit une erreur de
+//! compilation, pas un bug silencieux. Les variantes fusionnées
+//! (`FlashAttention`, `Conv2dTransposeForward`, `TtContract`) sont
+//! délibérément des `panic!` : elles ne font pas partie du jeu d'ops
+//! data-parallel et un gradient zéro silencieux serait pire.
 
 use super::reverse::{Node, Op, SavedData, Tensor};
 use std::sync::{Arc, RwLock};
@@ -137,6 +164,9 @@ impl ParallelTape {
 
             match nodes[i].op {
                 Op::Input => {}
+                Op::QuantumExpectations { .. } => {
+                    panic!("ParallelTape does not support quantum expectations nodes")
+                }
 
                 Op::Add(a, b) => {
                     t_grads[a] = t_grads[a].add(&g);
@@ -269,6 +299,60 @@ impl ParallelTape {
                     t_grads[a] = t_grads[a].add(&ga);
                     t_grads[b] = t_grads[b].add(&gb);
                 }
+                Op::MatMulBt(a, b) => {
+                    // C = A·Bᵀ ⇒ dA = g·B, dB = gᵀ·A.
+                    let av = &values[a];
+                    let bv = &values[b];
+                    let ga = g.matmul(bv);
+                    let gb = g.transpose().matmul(av);
+                    t_grads[a] = t_grads[a].add(&ga);
+                    t_grads[b] = t_grads[b].add(&gb);
+                }
+                Op::BatchMatMul {
+                    a,
+                    b,
+                    batch,
+                    transpose_b,
+                } => {
+                    // Reference (per-block) backward; mirrors the batched GEMM in
+                    // `Tape::backward`. A[i]=(m×k), g[i]=(m×n) per block.
+                    let av = &values[a];
+                    let bv = &values[b];
+                    let m = av.rows / batch;
+                    let k = av.cols;
+                    let n = g.cols;
+                    let mut ga = Vec::with_capacity(av.data.len());
+                    let mut gb = Vec::with_capacity(bv.data.len());
+                    for i in 0..batch {
+                        let g_i =
+                            Tensor::from_vec(g.data[i * m * n..(i + 1) * m * n].to_vec(), m, n);
+                        let a_i =
+                            Tensor::from_vec(av.data[i * m * k..(i + 1) * m * k].to_vec(), m, k);
+                        if transpose_b {
+                            // B[i]=(n×k): dA[i]=g[i]·B[i], dB[i]=g[i]ᵀ·A[i].
+                            let b_i = Tensor::from_vec(
+                                bv.data[i * n * k..(i + 1) * n * k].to_vec(),
+                                n,
+                                k,
+                            );
+                            ga.extend_from_slice(&g_i.matmul(&b_i).data);
+                            gb.extend_from_slice(&g_i.transpose().matmul(&a_i).data);
+                        } else {
+                            // B[i]=(k×n): dA[i]=g[i]·B[i]ᵀ, dB[i]=A[i]ᵀ·g[i].
+                            let b_i = Tensor::from_vec(
+                                bv.data[i * k * n..(i + 1) * k * n].to_vec(),
+                                k,
+                                n,
+                            );
+                            ga.extend_from_slice(&g_i.matmul(&b_i.transpose()).data);
+                            gb.extend_from_slice(&a_i.transpose().matmul(&g_i).data);
+                        }
+                    }
+                    let ga = Tensor::from_vec(ga, av.rows, av.cols);
+                    let gb = Tensor::from_vec(gb, bv.rows, bv.cols);
+                    t_grads[a] = t_grads[a].add(&ga);
+                    t_grads[b] = t_grads[b].add(&gb);
+                }
 
                 Op::Scale { input, scalar } => {
                     t_grads[input] = t_grads[input].add(&g.scale(scalar));
@@ -279,6 +363,20 @@ impl ParallelTape {
                 Op::Exp(a) => {
                     let av = &values[a];
                     t_grads[a] = t_grads[a].add(&g.hadamard(&av.exp()));
+                }
+                Op::ExpPortable(a) => {
+                    // depuis la sortie stockée — aucun appel libm.
+                    t_grads[a] = t_grads[a].add(&g.hadamard(&values[i]));
+                }
+                Op::LnPortable(a) => {
+                    let av = &values[a];
+                    t_grads[a] = t_grads[a].add(&g.hadamard(&av.reciprocal()));
+                }
+                Op::MatMulPortable(a, b) => {
+                    // dA = g · Bᵀ ; dB = Aᵀ · g — via le GEMM portable.
+                    let (av, bv) = (values[a].clone(), values[b].clone());
+                    t_grads[a] = t_grads[a].add(&g.matmul_portable(&bv.transpose()));
+                    t_grads[b] = t_grads[b].add(&av.transpose().matmul_portable(&g));
                 }
                 Op::Log(a) => {
                     let av = &values[a];
@@ -435,6 +533,15 @@ impl ParallelTape {
                     let gs = g_broadcast.hadamard(&sm);
                     let sum_gs = gs.sum_axis(axis);
                     let diff = gs.sub(&sm.hadamard(&sum_gs.broadcast_to(av.rows, av.cols)));
+                    t_grads[input] = t_grads[input].add(&diff);
+                }
+                Op::SoftmaxPortable { input } => {
+                    // Jacobien depuis la sortie stockée (cf. reverse.rs) :
+                    // aucun appel libm, bit-exact inter-plates-formes.
+                    let sm = &values[i];
+                    let gs = g.hadamard(sm);
+                    let sum_gs = gs.sum_axis(1);
+                    let diff = gs.sub(&sm.hadamard(&sum_gs.broadcast_to(sm.rows, sm.cols)));
                     t_grads[input] = t_grads[input].add(&diff);
                 }
                 Op::LogSoftmax { input, axis } => {
@@ -617,23 +724,138 @@ impl ParallelTape {
                     gamma_idx,
                     beta_idx,
                 } => {
-                    let gv = &values[gamma_idx];
-                    let g_b = g.broadcast_to(values[input_idx].rows, values[input_idx].cols);
-                    t_grads[input_idx] = t_grads[input_idx].add(&g_b.hadamard(gv));
-                    t_grads[gamma_idx] = t_grads[gamma_idx].add(&g.sum_axis(0));
+                    // Exact per-row backward (matches reverse.rs). No in-crate
+                    // forward constructs this Op; kept correct for external callers.
+                    let input = &values[input_idx];
+                    let g_v = &values[gamma_idx];
+                    let (rows, cols) = (input.rows, input.cols);
+                    let n = cols as f32;
+
+                    let mut grad_x = Tensor::zeros(rows, cols);
+                    let mut xnorm = Tensor::zeros(rows, cols);
+                    for r in 0..rows {
+                        let mut mean = 0.0f32;
+                        for c in 0..cols {
+                            mean += input.data[r * cols + c];
+                        }
+                        mean /= n;
+                        let mut var = 0.0f32;
+                        for c in 0..cols {
+                            let d = input.data[r * cols + c] - mean;
+                            var += d * d;
+                        }
+                        var = var / n + 1e-5f32;
+                        let sigma = var.sqrt();
+                        for c in 0..cols {
+                            xnorm.data[r * cols + c] = (input.data[r * cols + c] - mean) / sigma;
+                        }
+                        let mut a_mean = 0.0f32;
+                        let mut ax_mean = 0.0f32;
+                        for c in 0..cols {
+                            let a = g.data[r * cols + c] * g_v.data[c];
+                            a_mean += a;
+                            ax_mean += a * xnorm.data[r * cols + c];
+                        }
+                        a_mean /= n;
+                        ax_mean /= n;
+                        for c in 0..cols {
+                            let a = g.data[r * cols + c] * g_v.data[c];
+                            grad_x.data[r * cols + c] =
+                                (a - a_mean - xnorm.data[r * cols + c] * ax_mean) / sigma;
+                        }
+                    }
+                    t_grads[input_idx] = t_grads[input_idx].add(&grad_x);
+                    t_grads[gamma_idx] = t_grads[gamma_idx].add(&g.hadamard(&xnorm).sum_axis(0));
                     t_grads[beta_idx] = t_grads[beta_idx].add(&g.sum_axis(0));
                 }
                 Op::LayerNorm {
                     input_idx,
                     gamma_idx,
                     beta_idx,
-                    ..
+                    eps,
                 } => {
-                    let gv = &values[gamma_idx];
-                    let g_b = g.broadcast_to(values[input_idx].rows, values[input_idx].cols);
-                    t_grads[input_idx] = t_grads[input_idx].add(&g_b.hadamard(gv));
-                    t_grads[gamma_idx] = t_grads[gamma_idx].add(&g.sum_axis(0));
+                    // Exact reverse-mode backward, mirroring reverse.rs. The previous
+                    // formula (g⊙γ for dx, sum(g) for both dγ and dβ) dropped the
+                    // 1/σ factor, the whole mean-subtraction Jacobian, and the
+                    // x_norm weighting of dγ. x_norm is taken from the cached
+                    // SavedData when present, otherwise recomputed.
+                    let cached_norm = match &nodes[i].saved {
+                        SavedData::LayerNormNormed(t) => Some(t),
+                        _ => None,
+                    };
+                    let input = &values[input_idx];
+                    let g_v = &values[gamma_idx];
+                    let (rows, cols) = (input.rows, input.cols);
+                    let n = cols as f32;
+
+                    let mut grad_x = Tensor::zeros(rows, cols);
+                    let mut xnorm = Tensor::zeros(rows, cols);
+                    for r in 0..rows {
+                        let mut mean = 0.0f32;
+                        for c in 0..cols {
+                            mean += input.data[r * cols + c];
+                        }
+                        mean /= n;
+                        let mut var = 0.0f32;
+                        for c in 0..cols {
+                            let d = input.data[r * cols + c] - mean;
+                            var += d * d;
+                        }
+                        var /= n;
+                        let sigma = (var + eps).sqrt();
+                        for c in 0..cols {
+                            xnorm.data[r * cols + c] = match cached_norm {
+                                Some(t) => t.data[r * cols + c],
+                                None => (input.data[r * cols + c] - mean) / sigma,
+                            };
+                        }
+                        let mut a_mean = 0.0f32;
+                        let mut ax_mean = 0.0f32;
+                        for c in 0..cols {
+                            let a = g.data[r * cols + c] * g_v.data[c];
+                            a_mean += a;
+                            ax_mean += a * xnorm.data[r * cols + c];
+                        }
+                        a_mean /= n;
+                        ax_mean /= n;
+                        for c in 0..cols {
+                            let a = g.data[r * cols + c] * g_v.data[c];
+                            grad_x.data[r * cols + c] =
+                                (a - a_mean - xnorm.data[r * cols + c] * ax_mean) / sigma;
+                        }
+                    }
+                    t_grads[input_idx] = t_grads[input_idx].add(&grad_x);
+                    t_grads[gamma_idx] = t_grads[gamma_idx].add(&g.hadamard(&xnorm).sum_axis(0));
                     t_grads[beta_idx] = t_grads[beta_idx].add(&g.sum_axis(0));
+                }
+                Op::L2Normalize { input_idx } => {
+                    // Analytic backward: grad_x = (g − ŷ·(g·ŷ)) / n, per row, with
+                    // the dot summed left-to-right. The node's own value is ŷ, and
+                    // n is recomputed from the input (fixed-order f32).
+                    let y_hat = &values[i];
+                    let x = &values[input_idx];
+                    let (rows, cols) = (x.rows, x.cols);
+                    let mut grad_x = Tensor::zeros(rows, cols);
+                    for r in 0..rows {
+                        let mut sumsq = 0.0f32;
+                        for c in 0..cols {
+                            let v = x.data[r * cols + c];
+                            sumsq += v * v;
+                        }
+                        let norm = sumsq.sqrt();
+                        if norm > 0.0 {
+                            let mut s = 0.0f32;
+                            for c in 0..cols {
+                                s += g.data[r * cols + c] * y_hat.data[r * cols + c];
+                            }
+                            let inv = 1.0 / norm;
+                            for c in 0..cols {
+                                grad_x.data[r * cols + c] =
+                                    (g.data[r * cols + c] - y_hat.data[r * cols + c] * s) * inv;
+                            }
+                        }
+                    }
+                    t_grads[input_idx] = t_grads[input_idx].add(&grad_x);
                 }
                 Op::Conv2dForward {
                     input,
@@ -727,15 +949,33 @@ impl ParallelTape {
                 Op::FakeQuantize { input, .. } => {
                     t_grads[input] = t_grads[input].add(&g);
                 }
+                // The fused ops below are not part of the data-parallel op set:
+                // `ParallelTape` carries the elementwise / matmul / nn-layer graph
+                // that data-parallel SGD builds via `alloc_node`, and nothing in the
+                // workspace ever allocates one of these on it. Rather than silently
+                // emit a zero gradient (which would let a mis-wired graph train on
+                // garbage), refuse them loudly — their backward lives on the
+                // sequential `Tape`, which implements all three.
                 Op::FlashAttention { .. } => {
-                    // FlashAttention backward non implémenté en parallèle
-                    // Le forward séquentiel gère la backward pass complète
+                    panic!(
+                        "FlashAttention backward is not available on ParallelTape; \
+                         run attention on the sequential `Tape`, whose backward \
+                         implements it"
+                    );
                 }
                 Op::Conv2dTransposeForward { .. } => {
-                    // Conv2dTranspose backward non implémenté en parallèle
+                    panic!(
+                        "Conv2dTranspose backward is not available on ParallelTape; \
+                         run the transposed convolution on the sequential `Tape`, \
+                         whose backward implements it"
+                    );
                 }
                 Op::TtContract { .. } => {
-                    // TtContract backward non implémenté en parallèle
+                    panic!(
+                        "TtContract backward is not available on ParallelTape; run \
+                         the TT-Linear layer on the sequential `Tape`, whose backward \
+                         implements the general N-core gradient"
+                    );
                 }
             }
         }
@@ -940,6 +1180,105 @@ mod tests {
         );
     }
 
+    // LayerNorm backward parity: the ParallelTape arm must agree with the
+    // (finite-difference-verified) reverse.rs LayerNorm backward. A NON-UNIFORM
+    // upstream gradient is essential — with a uniform (all-ones) upstream the LN
+    // input/gamma gradients sum to ~0, which would hide the historical bug. We
+    // get a non-uniform upstream by multiplying the LN output by a weight `w`
+    // before the (implicit) sum.
+    #[test]
+    fn layer_norm_backward_matches_sequential_tape() {
+        use crate::autodiff::reverse::Tape;
+        let (rows, cols) = (2usize, 3usize);
+        let eps = 1e-5f32;
+        let x0 = vec![2.0f32, -1.0, 0.5, 3.0, -2.5, 0.7];
+        let gamma0 = vec![1.5f32, -0.5, 2.0];
+        let beta0 = vec![0.1f32, -0.2, 0.3];
+        let w0 = vec![0.9f32, 1.7, -0.3, 1.1, -0.6, 0.8];
+
+        // Sequential reference: loss = sum((layer_norm(x) ⊙ w)).
+        let (sx, sg, sb) = {
+            let seq = Tape::new();
+            let x = seq.input(Tensor::from_vec(x0.clone(), rows, cols));
+            let g = seq.input(Tensor::from_vec(gamma0.clone(), 1, cols));
+            let b = seq.input(Tensor::from_vec(beta0.clone(), 1, cols));
+            let w = seq.input(Tensor::from_vec(w0.clone(), rows, cols));
+            let (xi, gi, bi) = (x.idx(), g.idx(), b.idx());
+            let loss = x.layer_norm(g, b, eps).hadamard(w).sum();
+            seq.backward(loss.idx());
+            (
+                seq.grad(xi).sum() as f64,
+                seq.grad(gi).sum() as f64,
+                seq.grad(bi).sum() as f64,
+            )
+        };
+
+        // Parallel: manual graph out = LayerNorm(x) * w, seeded with ones.
+        let p = ParallelTape::new();
+        let px = p.alloc_node(Node {
+            op: Op::Input,
+            shape: (rows, cols),
+            saved: SavedData::None,
+        });
+        let pg = p.alloc_node(Node {
+            op: Op::Input,
+            shape: (1, cols),
+            saved: SavedData::None,
+        });
+        let pb = p.alloc_node(Node {
+            op: Op::Input,
+            shape: (1, cols),
+            saved: SavedData::None,
+        });
+        let pw = p.alloc_node(Node {
+            op: Op::Input,
+            shape: (rows, cols),
+            saved: SavedData::None,
+        });
+        let pln = p.alloc_node(Node {
+            op: Op::LayerNorm {
+                input_idx: px,
+                gamma_idx: pg,
+                beta_idx: pb,
+                eps,
+            },
+            shape: (rows, cols),
+            saved: SavedData::None,
+        });
+        let pout = p.alloc_node(Node {
+            op: Op::Mul(pln, pw),
+            shape: (rows, cols),
+            saved: SavedData::None,
+        });
+        p.set_value(px, &x0);
+        p.set_value(pg, &gamma0);
+        p.set_value(pb, &beta0);
+        p.set_value(pw, &w0);
+        // pln value is not read by the LayerNorm arm; zeros suffice for shape.
+        p.set_value(pln, &vec![0.0f32; rows * cols]);
+        p.set_value(pout, &vec![0.0f32; rows * cols]);
+        p.backward(pout);
+
+        assert!(
+            (p.grad(px) - sx).abs() < 1e-4,
+            "dL/dx sum: parallel {} vs sequential {}",
+            p.grad(px),
+            sx
+        );
+        assert!(
+            (p.grad(pg) - sg).abs() < 1e-4,
+            "dL/dgamma sum: parallel {} vs sequential {}",
+            p.grad(pg),
+            sg
+        );
+        assert!(
+            (p.grad(pb) - sb).abs() < 1e-4,
+            "dL/dbeta sum: parallel {} vs sequential {}",
+            p.grad(pb),
+            sb
+        );
+    }
+
     #[test]
     fn test_reset() {
         let tape = ParallelTape::new();
@@ -962,5 +1301,35 @@ mod tests {
         assert!((tape.grad(x) - 2.0).abs() < 1e-6);
         tape.reset();
         assert!((tape.grad(x)).abs() < 1e-12);
+    }
+
+    #[test]
+    #[should_panic(expected = "TtContract backward is not available on ParallelTape")]
+    fn tt_contract_backward_is_refused_not_silently_zeroed() {
+        // A fused TT contraction has no data-parallel backward. The pass must fail
+        // loudly rather than silently return a zero gradient and train on garbage.
+        let tape = ParallelTape::new();
+        let x = tape.alloc_node(Node {
+            op: Op::Input,
+            shape: (1, 1),
+            saved: SavedData::None,
+        });
+        let y = tape.alloc_node(Node {
+            op: Op::TtContract {
+                input_idx: x,
+                core_indices: [0; 8],
+                num_cores: 2,
+                bias_idx: None,
+                in_dims: [2, 3, 0, 0, 0, 0, 0, 0],
+                out_dims: [2, 2, 0, 0, 0, 0, 0, 0],
+                ranks: [1, 2, 1, 0, 0, 0, 0, 0, 0],
+                d: 2,
+            },
+            shape: (1, 1),
+            saved: SavedData::None,
+        });
+        tape.set_value(x, &[1.0]);
+        tape.set_value(y, &[1.0]);
+        tape.backward(y);
     }
 }

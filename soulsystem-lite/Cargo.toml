@@ -1,0 +1,23 @@
+[package]
+name = "soulsystem-lite"
+version = "0.1.0"
+edition = "2021"
+description = "SoulSystem minimal gateway — REST:9023 + WS:9022"
+
+[dependencies]
+soul-bridge = { path = "../soul-bridge" }
+cervo = { path = "../cervo" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+axum = { version = "0.8", features = ["ws"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors"] }
+tokio-tungstenite = "0.29"
+futures-util = { version = "0.3", features = ["sink"] }
+hyper = { version = "1", features = ["server", "http1"] }

@@ -57,7 +57,9 @@ pub fn solve_linear(a: f64, b: f64) -> Result<f64, String> {
 
 /// Solve a quadratic equation `a*x^2 + b*x + c = 0`.
 ///
-/// Returns the two real roots.  Errors if `a == 0` or the discriminant is negative.
+/// Returns the two real roots (first the "+√disc" root, then the "−√disc"
+/// root — the same order the naive formula would give). Errors if `a == 0`
+/// or the discriminant is negative.
 pub fn solve_quadratic(a: f64, b: f64, c: f64) -> Result<(f64, f64), String> {
     if a == 0.0 {
         return Err("a must be non-zero".into());
@@ -67,7 +69,26 @@ pub fn solve_quadratic(a: f64, b: f64, c: f64) -> Result<(f64, f64), String> {
         return Err("no real solutions".into());
     }
     let sqrt_disc = disc.sqrt();
-    Ok(((-b + sqrt_disc) / (2.0 * a), (-b - sqrt_disc) / (2.0 * a)))
+    // Stable form (Numerical Recipes §5.6; Goldberg 1991, "What Every
+    // Computer Scientist Should Know About Floating-Point Arithmetic"):
+    // computing q = -½(b + sign(b)·√disc) — always a sum of same-signed
+    // terms — and then the roots q/a and c/q (Vieta) avoids the
+    // catastrophic cancellation of the naive (-b ± √disc)/(2a) when
+    // b² ≫ 4ac (well-separated roots).
+    if sqrt_disc.abs() < 1e-300 && b.abs() < 1e-300 {
+        // q would be 0 (disc == 0 and b == 0, i.e. a repeated root at 0).
+        let x = -b / (2.0 * a);
+        return Ok((x, x));
+    }
+    let sign_b = if b < 0.0 { -1.0 } else { 1.0 };
+    let q = -0.5 * (b + sign_b * sqrt_disc);
+    // q = a·root₊ when b < 0, or a·root₋ when b ≥ 0 (Vieta: root₊·root₋ = c/a
+    // pins down the other root as c/q either way).
+    Ok(if b < 0.0 {
+        (q / a, c / q)
+    } else {
+        (c / q, q / a)
+    })
 }
 
 /// Prove that two expression strings are approximately equal by parsing and
@@ -102,27 +123,45 @@ pub fn prove_equal(a: &str, b: &str) -> bool {
         }
     }
 
-    for i in 0..20 {
+    // Sample on a larger deterministic grid than before. A denser, more varied
+    // set of points makes accidental agreement (false positives) far less likely
+    // than the original 20-point grid, while remaining fully deterministic.
+    //
+    // A sample point where *either* side fails to evaluate (division by zero,
+    // ln/sqrt of a non-positive value, …) is outside the common domain, so it is
+    // not evidence of inequality — such points are skipped rather than treated as
+    // a disproof. To avoid vacuously "proving" equality when the two expressions
+    // never share a defined point, we require a minimum number of agreeing
+    // evaluations before returning `true`.
+    const SAMPLES: usize = 200;
+    const MIN_AGREEING: usize = 8;
+    let mut agreeing = 0usize;
+
+    for i in 0..SAMPLES {
         let mut bindings = HashMap::new();
         for (j, v) in vars.iter().enumerate() {
-            let val = ((i * 7919 + j * 6271 + 127) as f64 / 1000.0) % 20.0 - 10.0;
+            // Spread the samples across a wide range that includes the positive
+            // half-line (so domain-restricted expressions like ln/sqrt still get
+            // evaluated) as well as negative and near-zero values.
+            let raw = (i * 7919 + j * 6271 + 127) as f64;
+            let val = (raw / 733.0) % 40.0 - 15.0;
             bindings.insert((*v).clone(), val);
         }
 
-        match (
+        // When at least one side is undefined — outside the common domain — skip
+        // the point instead of concluding inequality (hence `if let`, not `match`).
+        if let (Ok(va), Ok(vb)) = (
             scirust_symbolic::eval(&expr_a, &bindings),
             scirust_symbolic::eval(&expr_b, &bindings),
         ) {
-            (Ok(va), Ok(vb)) => {
-                if (va - vb).abs() > 1e-8 {
-                    return false;
-                }
+            if (va - vb).abs() > 1e-8 {
+                return false;
             }
-            _ => return false,
+            agreeing += 1;
         }
     }
 
-    true
+    agreeing >= MIN_AGREEING
 }
 
 /// Recursively collect all variable names from an expression tree.
@@ -191,8 +230,15 @@ pub fn apply_trig_identity(expr: &str) -> String {
                 }
             }
         }
-        result.push(bytes[i] as char);
-        i += 1;
+        // No identity matched at `i`. Copy the whole UTF-8 character that starts
+        // here (not a single raw byte reinterpreted as a `char`, which would
+        // corrupt multi-byte characters) and advance past it. `sin(`/`cos(`,
+        // `^2` and the parentheses are all ASCII, so the matched branches above
+        // only ever start on a character boundary; `i` is therefore always on a
+        // boundary here too.
+        let ch = expr[i..].chars().next().expect("i is on a char boundary");
+        result.push(ch);
+        i += ch.len_utf8();
     }
 
     result
@@ -282,6 +328,37 @@ mod tests {
         assert!(!prove_equal("sin((", "x"));
     }
 
+    #[test]
+    fn test_prove_equal_domain_restricted_still_proves() {
+        // Regression: these are genuinely equal on their common domain, but the
+        // old fixed grid sampled negative/zero points where `sqrt`/`ln` are
+        // undefined and treated the resulting eval error as a *disproof*,
+        // returning false. Out-of-domain points must be skipped, not counted
+        // against equality.
+        //
+        // sqrt(x)^2 == x  (both require x >= 0)
+        assert!(prove_equal("sqrt(x)^2", "x"));
+        // ln(exp(x)) == x  (ln's argument exp(x) is always positive)
+        assert!(prove_equal("ln(exp(x))", "x"));
+        // A restricted expression compared with itself must still hold.
+        assert!(prove_equal("ln(x)", "ln(x)"));
+    }
+
+    #[test]
+    fn test_prove_equal_domain_restricted_rejects_unequal() {
+        // Guard against the fix vacuously returning true: distinct expressions
+        // that share a domain must still be rejected.
+        assert!(!prove_equal("sqrt(x)", "sqrt(x) + 1"));
+    }
+
+    #[test]
+    fn test_prove_equal_no_common_domain_is_not_true() {
+        // If the two sides never share a defined sample point, we must not
+        // vacuously "prove" them equal. `ln(x)` needs x > 0 while `ln(-x)`
+        // needs x < 0, so they never both evaluate at the same sample.
+        assert!(!prove_equal("ln(x)", "ln(-x)"));
+    }
+
     // ── apply_trig_identity ──
 
     #[test]
@@ -308,6 +385,32 @@ mod tests {
         assert_eq!(result, "2*(1-cos(2*y))/2");
     }
 
+    #[test]
+    fn test_trig_preserves_non_ascii_passthrough() {
+        // Regression: the copy-through path used `bytes[i] as char`, which
+        // reinterprets each raw UTF-8 byte as a `char` and mangles multi-byte
+        // characters. Text with no matching identity must be returned verbatim.
+        let input = "α + β·sin(θ) + 漢字";
+        assert_eq!(apply_trig_identity(input), input);
+    }
+
+    #[test]
+    fn test_trig_rewrites_with_non_ascii_argument() {
+        // A genuine sin(...)^2 whose argument contains multi-byte characters:
+        // the identity must fire and the non-ASCII argument survive intact.
+        let result = apply_trig_identity("sin(θ)^2");
+        assert_eq!(result, "(1-cos(2*θ))/2");
+    }
+
+    #[test]
+    fn test_trig_no_panic_on_multibyte_before_match() {
+        // A multi-byte character sits before a real match so the byte cursor
+        // advances through it; the old byte-at-a-time slicing risked landing on
+        // a non-char boundary. This must neither panic nor corrupt output.
+        let result = apply_trig_identity("漢cos(x)^2");
+        assert_eq!(result, "漢(1+cos(2*x))/2");
+    }
+
     // ── solve_linear / solve_quadratic (kept from original) ──
 
     #[test]
@@ -326,6 +429,24 @@ mod tests {
         let (r1, r2) = solve_quadratic(1.0, 0.0, -4.0).unwrap();
         assert!((r1 - 2.0).abs() < 1e-10);
         assert!((r2 + 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_solve_quadratic_no_cancellation_with_well_separated_roots() {
+        // Regression test for a P1 audit finding: the naive
+        // (-b ± √disc)/(2a) formula subtracts two ~1e8-magnitude quantities
+        // that agree to ~8 digits when b² ≫ 4ac, losing essentially all
+        // precision on the small root. True roots of x² + 1e8·x + 1 = 0 are
+        // ≈ -1e-8 and ≈ -1e8 (product = c/a = 1, by Vieta).
+        let (r_plus, r_minus) = solve_quadratic(1.0, 1e8, 1.0).unwrap();
+        assert!(
+            ((r_plus - (-1e-8)) / 1e-8).abs() < 1e-6,
+            "small root should be accurate to ~1e-6 relative, got {r_plus:e}"
+        );
+        assert!(
+            ((r_minus - (-1e8)) / 1e8).abs() < 1e-12,
+            "large root: {r_minus:e}"
+        );
     }
 
     #[test]

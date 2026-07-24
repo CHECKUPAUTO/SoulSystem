@@ -12,6 +12,17 @@
 // This module contains architecture-specific backends using `#[target_feature]`
 // and `unsafe` intrinsics. Safety invariants for ALL `unsafe` functions:
 //
+// **Runtime feature detection is enforced by construction, not just convention**:
+// `Avx2Backend`, `Avx512Backend`, `Sse2Backend`, `NeonBackend` each carry a
+// private `()` field, so — unlike a bare marker unit struct — they cannot be
+// constructed outside this module. `runtime_backend()` is the only place that
+// builds one, and only after `detect_backend()` has confirmed the matching
+// `is_x86_feature_detected!`/`is_aarch64_feature_detected!` check. This is
+// what makes the "only called after runtime feature detection" claim below
+// actually true rather than merely intended: nothing else in the crate (or
+// outside it — these structs are `pub`) can reach one of these types without
+// going through that check.
+//
 // **AVX2/SSE2 backends (x86_64)**:
 // - Functions marked `#[target_feature(enable = "avx2")]` or `#[target_feature(enable = "sse2")]`
 //   are only called after runtime feature detection (`std::is_x86_feature_detected!`)
@@ -24,6 +35,12 @@
 // - `_mm256_storeu_ps` / `_mm_storeu_ps` / etc.: Same unaligned store guarantee.
 // - Scalar remainder loops handle non-multiple-of-vector-width lengths safely.
 // - No pointers escape; all borrows are bounded by slice lifetimes.
+//
+// **AVX-512 backend (x86_64)**: same argument as AVX2/SSE2 above, gated on
+// `is_x86_feature_detected!("avx512f")` (and `"fma"` where the kernel uses
+// `_mm512_fmadd_*`); masked remainder handling replaces the scalar tail loop
+// where the kernel uses `_mm512_maskz_*`/`_mm512_mask_*` intrinsics, with the
+// mask itself derived from the same in-bounds length check.
 //
 // **NEON backend (aarch64)**:
 // - `#[target_feature(enable = "neon")]` only used after `std::arch::is_aarch64_feature_detected!("neon")`
@@ -38,7 +55,8 @@
 // - All `unsafe` blocks are internal; public trait methods are `safe` and perform validation.
 //
 // **Soundness summary**: Each `unsafe` intrinsic call is guarded by:
-// 1. Compile-time `#[target_feature]` matching runtime detection
+// 1. Compile-time `#[target_feature]` matching runtime detection, enforced by
+//    construction (private-field backend markers) rather than caller discipline
 // 2. Loop bounds checking ensuring pointer arithmetic stays in-bounds
 // 3. Unaligned load/store intrinsics removing alignment constraints
 // 4. Valid slice references from safe Rust guaranteeing pointer validity
@@ -52,13 +70,14 @@ use std::sync::OnceLock;
 //  Énumération des backends disponibles                               //
 // ------------------------------------------------------------------ //
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BackendKind {
     Scalar,
     Sse2,
     Avx2,
     Avx512,
     Neon,
+    Sve,
     PortableSimd,
 }
 
@@ -70,6 +89,7 @@ impl BackendKind {
             BackendKind::Avx2 => "x86_64/AVX2",
             BackendKind::Avx512 => "x86_64/AVX-512",
             BackendKind::Neon => "aarch64/NEON",
+            BackendKind::Sve => "aarch64/SVE",
             BackendKind::PortableSimd => "portable_simd",
         }
     }
@@ -98,11 +118,16 @@ pub fn detect_backend() -> BackendKind {
             // Détection runtime x86_64
             #[cfg(target_arch = "x86_64")]
             {
-                // AVX-512 d'abord (plus large)
-                if std::is_x86_feature_detected!("avx512f") {
+                // AVX-512 d'abord (plus large). Le noyau utilise FMA
+                // (`_mm512_fmadd_ps`), garanti sur toute puce avx512f réelle.
+                if std::is_x86_feature_detected!("avx512f") && std::is_x86_feature_detected!("fma")
+                {
                     return BackendKind::Avx512;
                 }
-                if std::is_x86_feature_detected!("avx2") {
+                // Le backend AVX2 fait des `_mm256_fmadd_ps` : n'y router que si
+                // FMA est bien présent (sinon instruction illégale sur les rares
+                // puces AVX2-sans-FMA). Repli SSE2 le cas échéant.
+                if std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma") {
                     return BackendKind::Avx2;
                 }
                 if std::is_x86_feature_detected!("sse2") {
@@ -110,9 +135,14 @@ pub fn detect_backend() -> BackendKind {
                 }
             }
 
-            // ARM64 — NEON est baseline depuis ARMv8, toujours dispo
+            // ARM64 — SVE d'abord lorsque le chemin nightly est activé, puis
+            // NEON (baseline ARMv8, toujours disponible sur stable).
             #[cfg(target_arch = "aarch64")]
             {
+                #[cfg(feature = "nightly-simd")]
+                if std::arch::is_aarch64_feature_detected!("sve") {
+                    return BackendKind::Sve;
+                }
                 if std::arch::is_aarch64_feature_detected!("neon") {
                     return BackendKind::Neon;
                 }
@@ -131,14 +161,16 @@ pub fn runtime_backend() -> &'static dyn SimdBackend {
         BackendKind::PortableSimd => &PortableSimdBackend,
 
         #[cfg(target_arch = "x86_64")]
-        BackendKind::Avx2 => &Avx2Backend,
+        BackendKind::Avx2 => &Avx2Backend(()),
         #[cfg(target_arch = "x86_64")]
-        BackendKind::Sse2 => &Sse2Backend,
+        BackendKind::Sse2 => &Sse2Backend(()),
         #[cfg(target_arch = "x86_64")]
-        BackendKind::Avx512 => &Avx2Backend, // fallback Avx2 tant qu'on n'a pas écrit le 512
+        BackendKind::Avx512 => &Avx512Backend(()),
 
         #[cfg(target_arch = "aarch64")]
-        BackendKind::Neon => &NeonBackend,
+        BackendKind::Neon => &NeonBackend(()),
+        #[cfg(all(feature = "nightly-simd", target_arch = "aarch64"))]
+        BackendKind::Sve => &SveBackend,
 
         _ => &ScalarBackend,
     }
@@ -169,6 +201,7 @@ pub fn print_capabilities() {
             "  - NEON : {}",
             std::arch::is_aarch64_feature_detected!("neon")
         );
+        #[cfg(feature = "nightly-simd")]
         println!(
             "  - SVE  : {}",
             std::arch::is_aarch64_feature_detected!("sve")
@@ -182,14 +215,23 @@ pub fn print_capabilities() {
 //  Les vraies implémentations utilisent #[target_feature(enable=...)] //
 // ------------------------------------------------------------------ //
 
+/// Marker for the AVX2 backend. The private field keeps this un-constructible
+/// outside `dispatch.rs`, so the only way to obtain one is `runtime_backend()`
+/// after it has confirmed `is_x86_feature_detected!("avx2")` — every method
+/// below calls into `#[target_feature(enable = "avx2")]` code, which is
+/// undefined behavior to run without that guarantee.
 #[cfg(target_arch = "x86_64")]
-pub struct Avx2Backend;
+pub struct Avx2Backend(());
 
 #[cfg(target_arch = "x86_64")]
 impl SimdBackend for Avx2Backend {
     fn name(&self) -> &'static str {
         "avx2"
     }
+    // SAFETY (all blocks below): `self: &Avx2Backend` can only exist after
+    // `runtime_backend()` confirmed `is_x86_feature_detected!("avx2")` — see
+    // the struct doc above and the module-level `## Safety` note. That's the
+    // precondition every `_avx2` free function below requires.
     fn saxpy_f32(&self, alpha: f32, x: &[f32], y: &mut [f32]) {
         unsafe { saxpy_f32_avx2(alpha, x, y) }
     }
@@ -213,6 +255,7 @@ impl SimdBackend for Avx2Backend {
         let m = a.rows();
         for (i, item) in y.iter_mut().enumerate().take(m) {
             let row = a.row_slice(i).expect("row_slice");
+            // SAFETY: see the note on `saxpy_f32` above.
             let dot = unsafe { sdot_f32_avx2(row, x) };
             *item = alpha * dot + beta * *item;
         }
@@ -225,19 +268,31 @@ impl SimdBackend for Avx2Backend {
         beta: f32,
         c: crate::matrix::view::MatrixViewMut<f32>,
     ) {
-        ScalarBackend.sgemm_f32(alpha, a, b, beta, c)
+        // SAFETY: see the note on `saxpy_f32` above.
+        unsafe { sgemm_f32_avx2(alpha, a, b, beta, c) }
     }
     fn relu_f32(&self, v: &mut [f32]) {
+        // SAFETY: see the note on `saxpy_f32` above.
         unsafe { relu_f32_avx2(v) }
     }
 }
 
 // ---- AVX2 kernel free functions ----
 
+/// # Safety
+/// Caller must ensure the CPU supports AVX2 (`is_x86_feature_detected!("avx2")`).
+/// Bounds/aliasing are otherwise self-contained: every `loadu`/`storeu` offset
+/// is kept `< x.len() == y.len()` by the loop condition, and the equal-length
+/// assert above rules out the only way `x`/`y` could disagree in size.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn saxpy_f32_avx2(alpha: f32, x: &[f32], y: &mut [f32]) {
     use core::arch::x86_64::*;
+    // `x` and `y` must be the same length: the loop indexes both at `0..x.len()`
+    // through raw `loadu`/`storeu`, so a shorter `y` would be an out-of-bounds
+    // read *and write*. Validate up front (panics in every profile) rather than
+    // relying on the caller.
+    assert_eq!(x.len(), y.len(), "saxpy: x.len() != y.len()");
     let alpha8 = _mm256_set1_ps(alpha);
     let n = x.len();
     let mut i = 0;
@@ -252,10 +307,13 @@ unsafe fn saxpy_f32_avx2(alpha: f32, x: &[f32], y: &mut [f32]) {
     }
 }
 
+/// # Safety
+/// Same contract as [`saxpy_f32_avx2`] (f64 lanes, AVX2 handles 4 at a time).
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn daxpy_f64_avx2(alpha: f64, x: &[f64], y: &mut [f64]) {
     use core::arch::x86_64::*;
+    assert_eq!(x.len(), y.len(), "daxpy: x.len() != y.len()");
     let alpha4 = _mm256_set1_pd(alpha);
     let n = x.len();
     let mut i = 0;
@@ -270,10 +328,15 @@ unsafe fn daxpy_f64_avx2(alpha: f64, x: &[f64], y: &mut [f64]) {
     }
 }
 
+/// # Safety
+/// Caller must ensure the CPU supports AVX2. Bounds/aliasing are otherwise
+/// self-contained, as in [`saxpy_f32_avx2`]; `tmp` is a stack array sized to
+/// the fixed AVX2 f32 lane count, so the horizontal-sum store can't overflow.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn sdot_f32_avx2(x: &[f32], y: &[f32]) -> f32 {
     use core::arch::x86_64::*;
+    assert_eq!(x.len(), y.len(), "sdot: x.len() != y.len()");
     let n = x.len();
     let mut acc = _mm256_setzero_ps();
     let mut i = 0;
@@ -294,10 +357,13 @@ unsafe fn sdot_f32_avx2(x: &[f32], y: &[f32]) -> f32 {
     sum
 }
 
+/// # Safety
+/// Same contract as [`sdot_f32_avx2`] (f64 lanes, AVX2 handles 4 at a time).
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn ddot_f64_avx2(x: &[f64], y: &[f64]) -> f64 {
     use core::arch::x86_64::*;
+    assert_eq!(x.len(), y.len(), "ddot: x.len() != y.len()");
     let n = x.len();
     let mut acc = _mm256_setzero_pd();
     let mut i = 0;
@@ -318,6 +384,10 @@ unsafe fn ddot_f64_avx2(x: &[f64], y: &[f64]) -> f64 {
     sum
 }
 
+/// # Safety
+/// Caller must ensure the CPU supports AVX2. Bounds are self-contained: every
+/// `loadu`/`storeu` offset is kept `< v.len()` by the loop condition, and the
+/// read/write in each iteration target the exact same in-place range.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn relu_f32_avx2(v: &mut [f32]) {
@@ -337,9 +407,353 @@ unsafe fn relu_f32_avx2(v: &mut [f32]) {
     }
 }
 
-// SSE2 backend — real SIMD using _mm_* intrinsics (4-wide f32, 2-wide f64)
+/// In-place scale `c[j] *= beta`, vectorized (AVX2). Used by the tiled GEMM to
+/// apply `beta * C` before the rank-1 updates.
+///
+/// # Safety
+/// Caller must ensure the CPU supports AVX2. Bounds are self-contained: every
+/// `loadu`/`storeu` offset is kept `< c.len()` by the loop condition.
 #[cfg(target_arch = "x86_64")]
-pub struct Sse2Backend;
+#[target_feature(enable = "avx2")]
+unsafe fn scal_f32_avx2(beta: f32, c: &mut [f32]) {
+    use core::arch::x86_64::*;
+    let b8 = _mm256_set1_ps(beta);
+    let n = c.len();
+    let mut i = 0;
+    while i + 8 <= n {
+        let v = _mm256_loadu_ps(c.as_ptr().add(i));
+        _mm256_storeu_ps(c.as_mut_ptr().add(i), _mm256_mul_ps(v, b8));
+        i += 8;
+    }
+    for x in &mut c[i..n] {
+        *x *= beta;
+    }
+}
+
+/// AVX2 SGEMM: `C = alpha·A·B + beta·C`, row-major, via the axpy-over-rows
+/// (rank-1 update) formulation. Each output row `C_i` is first scaled by `beta`,
+/// then for every `p` a single scaled B-row is fused-multiply-added into it —
+/// which streams `B` contiguously in row-major order (cache-friendly) and lets
+/// the inner loop reuse the FMA `saxpy` kernel. Bit-close to the scalar
+/// reference (differs only by summation order), cross-checked in tests.
+///
+/// # Safety
+/// Caller must ensure the CPU supports AVX2. The calls into `scal_f32_avx2`/
+/// `saxpy_f32_avx2` inherit that same requirement; `row_slice`/`row_slice_mut`
+/// already validate `i`/`p` against the view's own dimensions (`.expect`
+/// panics rather than indexing out of bounds), so this function's own unsafe
+/// surface is limited to the feature requirement.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn sgemm_f32_avx2(
+    alpha: f32,
+    a: crate::matrix::view::MatrixView<f32>,
+    b: crate::matrix::view::MatrixView<f32>,
+    beta: f32,
+    mut c: crate::matrix::view::MatrixViewMut<f32>,
+) {
+    let m = a.rows();
+    let k = a.cols();
+    for i in 0..m {
+        let a_row = a.row_slice(i).expect("A row");
+        let c_row = c.row_slice_mut(i).expect("C row");
+        scal_f32_avx2(beta, c_row);
+        for (p, &a_ip) in a_row.iter().enumerate().take(k) {
+            let s = alpha * a_ip;
+            if s == 0.0 {
+                continue;
+            }
+            let b_row = b.row_slice(p).expect("B row");
+            saxpy_f32_avx2(s, b_row, c_row);
+        }
+    }
+}
+
+// =================================================================== //
+//  AVX-512 backend — 16-wide f32 / 8-wide f64, FMA, masked remainders //
+// =================================================================== //
+
+/// Marker for the AVX-512 backend. The private field keeps this
+/// un-constructible outside `dispatch.rs`, so the only way to obtain one is
+/// `runtime_backend()` after it has confirmed
+/// `is_x86_feature_detected!("avx512f")` — every method below calls into
+/// `#[target_feature(enable = "avx512f")]` code, which is undefined behavior
+/// to run without that guarantee.
+#[cfg(target_arch = "x86_64")]
+pub struct Avx512Backend(());
+
+#[cfg(target_arch = "x86_64")]
+impl SimdBackend for Avx512Backend {
+    fn name(&self) -> &'static str {
+        "avx512"
+    }
+    // SAFETY (all blocks below): `self: &Avx512Backend` can only exist after
+    // `runtime_backend()` confirmed `is_x86_feature_detected!("avx512f")`
+    // (and `"fma"`) — see the struct doc above and the module-level
+    // `## Safety` note. That's the precondition every `_avx512` free
+    // function below requires.
+    fn saxpy_f32(&self, alpha: f32, x: &[f32], y: &mut [f32]) {
+        unsafe { saxpy_f32_avx512(alpha, x, y) }
+    }
+    fn daxpy_f64(&self, alpha: f64, x: &[f64], y: &mut [f64]) {
+        unsafe { daxpy_f64_avx512(alpha, x, y) }
+    }
+    fn sdot_f32(&self, x: &[f32], y: &[f32]) -> f32 {
+        unsafe { sdot_f32_avx512(x, y) }
+    }
+    fn ddot_f64(&self, x: &[f64], y: &[f64]) -> f64 {
+        unsafe { ddot_f64_avx512(x, y) }
+    }
+    fn sgemv_f32(
+        &self,
+        alpha: f32,
+        a: crate::matrix::view::MatrixView<f32>,
+        x: &[f32],
+        beta: f32,
+        y: &mut [f32],
+    ) {
+        let m = a.rows();
+        for (i, item) in y.iter_mut().enumerate().take(m) {
+            let row = a.row_slice(i).expect("row_slice");
+            // SAFETY: see the note on `saxpy_f32` above.
+            let dot = unsafe { sdot_f32_avx512(row, x) };
+            *item = alpha * dot + beta * *item;
+        }
+    }
+    fn sgemm_f32(
+        &self,
+        alpha: f32,
+        a: crate::matrix::view::MatrixView<f32>,
+        b: crate::matrix::view::MatrixView<f32>,
+        beta: f32,
+        c: crate::matrix::view::MatrixViewMut<f32>,
+    ) {
+        // SAFETY: see the note on `saxpy_f32` above.
+        unsafe { sgemm_f32_avx512(alpha, a, b, beta, c) }
+    }
+    fn relu_f32(&self, v: &mut [f32]) {
+        // SAFETY: see the note on `saxpy_f32` above.
+        unsafe { relu_f32_avx512(v) }
+    }
+}
+
+// ---- AVX-512 kernel free functions ----
+//
+// The tail of every array is handled with an AVX-512 **write-mask** rather than
+// a scalar loop: `(1u16 << r) - 1` selects the `r < 16` live f32 lanes (or
+// `(1u8 << r) - 1` for the `r < 8` f64 lanes). `maskz` loads zero-fill the
+// inactive lanes so they never contribute to an FMA accumulation, and masked
+// stores leave the corresponding memory untouched. This keeps the whole kernel
+// branch-light and avoids a separate scalar epilogue.
+
+/// # Safety
+/// Caller must ensure the CPU supports AVX-512F *and* FMA
+/// (`is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("fma")`
+/// — `detect_backend()` checks both before routing here, since this kernel
+/// uses `_mm512_fmadd_ps`). Bounds/aliasing are self-contained: the main loop
+/// keeps every offset `< x.len() == y.len()` (asserted above), and the masked
+/// remainder (`mask = (1u16 << r) - 1`, `r = n - i < 16`) only ever touches
+/// lanes `< r`, i.e. offsets still `< n`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+unsafe fn saxpy_f32_avx512(alpha: f32, x: &[f32], y: &mut [f32]) {
+    use core::arch::x86_64::*;
+    assert_eq!(x.len(), y.len(), "saxpy: x.len() != y.len()");
+    let a16 = _mm512_set1_ps(alpha);
+    let n = x.len();
+    let mut i = 0;
+    while i + 16 <= n {
+        let xv = _mm512_loadu_ps(x.as_ptr().add(i));
+        let yv = _mm512_loadu_ps(y.as_ptr().add(i));
+        _mm512_storeu_ps(y.as_mut_ptr().add(i), _mm512_fmadd_ps(a16, xv, yv));
+        i += 16;
+    }
+    let r = n - i;
+    if r > 0 {
+        let mask = (1u16 << r) - 1;
+        let xv = _mm512_maskz_loadu_ps(mask, x.as_ptr().add(i));
+        let yv = _mm512_maskz_loadu_ps(mask, y.as_ptr().add(i));
+        let res = _mm512_fmadd_ps(a16, xv, yv);
+        _mm512_mask_storeu_ps(y.as_mut_ptr().add(i), mask, res);
+    }
+}
+
+/// # Safety
+/// Same contract as [`saxpy_f32_avx512`] (f64 lanes: 8 per full step,
+/// `mask = (1u8 << r) - 1` for the remainder).
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+unsafe fn daxpy_f64_avx512(alpha: f64, x: &[f64], y: &mut [f64]) {
+    use core::arch::x86_64::*;
+    assert_eq!(x.len(), y.len(), "daxpy: x.len() != y.len()");
+    let a8 = _mm512_set1_pd(alpha);
+    let n = x.len();
+    let mut i = 0;
+    while i + 8 <= n {
+        let xv = _mm512_loadu_pd(x.as_ptr().add(i));
+        let yv = _mm512_loadu_pd(y.as_ptr().add(i));
+        _mm512_storeu_pd(y.as_mut_ptr().add(i), _mm512_fmadd_pd(a8, xv, yv));
+        i += 8;
+    }
+    let r = n - i;
+    if r > 0 {
+        let mask = (1u8 << r) - 1;
+        let xv = _mm512_maskz_loadu_pd(mask, x.as_ptr().add(i));
+        let yv = _mm512_maskz_loadu_pd(mask, y.as_ptr().add(i));
+        let res = _mm512_fmadd_pd(a8, xv, yv);
+        _mm512_mask_storeu_pd(y.as_mut_ptr().add(i), mask, res);
+    }
+}
+
+/// # Safety
+/// Same contract as [`saxpy_f32_avx512`]; `_mm512_reduce_add_ps` operates
+/// purely on the register value `acc`, no additional memory access.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+unsafe fn sdot_f32_avx512(x: &[f32], y: &[f32]) -> f32 {
+    use core::arch::x86_64::*;
+    assert_eq!(x.len(), y.len(), "sdot: x.len() != y.len()");
+    let n = x.len();
+    let mut acc = _mm512_setzero_ps();
+    let mut i = 0;
+    while i + 16 <= n {
+        acc = _mm512_fmadd_ps(
+            _mm512_loadu_ps(x.as_ptr().add(i)),
+            _mm512_loadu_ps(y.as_ptr().add(i)),
+            acc,
+        );
+        i += 16;
+    }
+    let r = n - i;
+    if r > 0 {
+        let mask = (1u16 << r) - 1;
+        acc = _mm512_fmadd_ps(
+            _mm512_maskz_loadu_ps(mask, x.as_ptr().add(i)),
+            _mm512_maskz_loadu_ps(mask, y.as_ptr().add(i)),
+            acc,
+        );
+    }
+    _mm512_reduce_add_ps(acc)
+}
+
+/// # Safety
+/// Same contract as [`sdot_f32_avx512`] (f64 lanes: 8 per full step).
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+unsafe fn ddot_f64_avx512(x: &[f64], y: &[f64]) -> f64 {
+    use core::arch::x86_64::*;
+    assert_eq!(x.len(), y.len(), "ddot: x.len() != y.len()");
+    let n = x.len();
+    let mut acc = _mm512_setzero_pd();
+    let mut i = 0;
+    while i + 8 <= n {
+        acc = _mm512_fmadd_pd(
+            _mm512_loadu_pd(x.as_ptr().add(i)),
+            _mm512_loadu_pd(y.as_ptr().add(i)),
+            acc,
+        );
+        i += 8;
+    }
+    let r = n - i;
+    if r > 0 {
+        let mask = (1u8 << r) - 1;
+        acc = _mm512_fmadd_pd(
+            _mm512_maskz_loadu_pd(mask, x.as_ptr().add(i)),
+            _mm512_maskz_loadu_pd(mask, y.as_ptr().add(i)),
+            acc,
+        );
+    }
+    _mm512_reduce_add_pd(acc)
+}
+
+/// # Safety
+/// Caller must ensure the CPU supports AVX-512F. Bounds are self-contained
+/// as in [`saxpy_f32_avx512`], in place on `v` alone.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+unsafe fn relu_f32_avx512(v: &mut [f32]) {
+    use core::arch::x86_64::*;
+    let zero = _mm512_setzero_ps();
+    let n = v.len();
+    let mut i = 0;
+    while i + 16 <= n {
+        _mm512_storeu_ps(
+            v.as_mut_ptr().add(i),
+            _mm512_max_ps(_mm512_loadu_ps(v.as_ptr().add(i)), zero),
+        );
+        i += 16;
+    }
+    let r = n - i;
+    if r > 0 {
+        let mask = (1u16 << r) - 1;
+        let vv = _mm512_maskz_loadu_ps(mask, v.as_ptr().add(i));
+        _mm512_mask_storeu_ps(v.as_mut_ptr().add(i), mask, _mm512_max_ps(vv, zero));
+    }
+}
+
+/// # Safety
+/// Same contract as [`relu_f32_avx512`], in place on `c` alone.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+unsafe fn scal_f32_avx512(beta: f32, c: &mut [f32]) {
+    use core::arch::x86_64::*;
+    let b16 = _mm512_set1_ps(beta);
+    let n = c.len();
+    let mut i = 0;
+    while i + 16 <= n {
+        let v = _mm512_loadu_ps(c.as_ptr().add(i));
+        _mm512_storeu_ps(c.as_mut_ptr().add(i), _mm512_mul_ps(v, b16));
+        i += 16;
+    }
+    let r = n - i;
+    if r > 0 {
+        let mask = (1u16 << r) - 1;
+        let v = _mm512_maskz_loadu_ps(mask, c.as_ptr().add(i));
+        _mm512_mask_storeu_ps(c.as_mut_ptr().add(i), mask, _mm512_mul_ps(v, b16));
+    }
+}
+
+/// AVX-512 SGEMM (`C = alpha·A·B + beta·C`, row-major), same rank-1-update
+/// structure as [`sgemm_f32_avx2`] but 16 f32 lanes per FMA.
+///
+/// # Safety
+/// Same contract as [`sgemm_f32_avx2`]: caller must ensure the CPU supports
+/// AVX-512F, which the calls into `scal_f32_avx512`/`saxpy_f32_avx512`
+/// inherit.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+unsafe fn sgemm_f32_avx512(
+    alpha: f32,
+    a: crate::matrix::view::MatrixView<f32>,
+    b: crate::matrix::view::MatrixView<f32>,
+    beta: f32,
+    mut c: crate::matrix::view::MatrixViewMut<f32>,
+) {
+    let m = a.rows();
+    let k = a.cols();
+    for i in 0..m {
+        let a_row = a.row_slice(i).expect("A row");
+        let c_row = c.row_slice_mut(i).expect("C row");
+        scal_f32_avx512(beta, c_row);
+        for (p, &a_ip) in a_row.iter().enumerate().take(k) {
+            let s = alpha * a_ip;
+            if s == 0.0 {
+                continue;
+            }
+            let b_row = b.row_slice(p).expect("B row");
+            saxpy_f32_avx512(s, b_row, c_row);
+        }
+    }
+}
+
+// SSE2 backend — real SIMD using _mm_* intrinsics (4-wide f32, 2-wide f64)
+/// Marker for the SSE2 backend. The private field keeps this
+/// un-constructible outside `dispatch.rs`, so the only way to obtain one is
+/// `runtime_backend()` after it has confirmed `is_x86_feature_detected!("sse2")`
+/// — every method below calls into `#[target_feature(enable = "sse2")]` code,
+/// which is undefined behavior to run without that guarantee.
+#[cfg(target_arch = "x86_64")]
+pub struct Sse2Backend(());
 
 #[cfg(target_arch = "x86_64")]
 impl SimdBackend for Sse2Backend {
@@ -347,6 +761,10 @@ impl SimdBackend for Sse2Backend {
         "sse2"
     }
 
+    // SAFETY (all blocks below): `self: &Sse2Backend` can only exist after
+    // `runtime_backend()` confirmed `is_x86_feature_detected!("sse2")` — see
+    // the struct doc above and the module-level `## Safety` note. That's the
+    // precondition every `_sse2` free function below requires.
     fn saxpy_f32(&self, a: f32, x: &[f32], y: &mut [f32]) {
         unsafe { saxpy_f32_sse2(a, x, y) }
     }
@@ -370,6 +788,7 @@ impl SimdBackend for Sse2Backend {
         let m = a.rows();
         for (i, item) in y.iter_mut().enumerate().take(m) {
             let row = a.row_slice(i).expect("row_slice");
+            // SAFETY: see the note on `saxpy_f32` above.
             let dot = unsafe { sdot_f32_sse2(row, x) };
             *item = alpha * dot + beta * *item;
         }
@@ -382,19 +801,30 @@ impl SimdBackend for Sse2Backend {
         b: f32,
         mc: crate::matrix::view::MatrixViewMut<f32>,
     ) {
-        ScalarBackend.sgemm_f32(a, ma, mb, b, mc);
+        // SAFETY: see the note on `saxpy_f32` above.
+        unsafe { sgemm_f32_sse2(a, ma, mb, b, mc) }
     }
     fn relu_f32(&self, v: &mut [f32]) {
+        // SAFETY: see the note on `saxpy_f32` above.
         unsafe { relu_f32_sse2(v) }
     }
 }
 
 // ---- SSE2 kernel free functions (target_feature) ----
 
+/// # Safety
+/// Caller must ensure the CPU supports SSE2. Bounds/aliasing are otherwise
+/// self-contained: every `loadu`/`storeu` offset is kept `< x.len() ==
+/// y.len()` by the loop condition and the equal-length assert below (the
+/// AVX2/AVX-512 siblings of this kernel already assert this; a P1 bug found
+/// while writing this doc — SSE2 alone was missing it, meaning a caller on
+/// SSE2-only hardware with `y.len() < x.len()` would read/write past the end
+/// of `y`).
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
 unsafe fn saxpy_f32_sse2(alpha: f32, x: &[f32], y: &mut [f32]) {
     use core::arch::x86_64::*;
+    assert_eq!(x.len(), y.len(), "saxpy: x.len() != y.len()");
     let a4 = _mm_set1_ps(alpha);
     let n = x.len();
     let mut i = 0;
@@ -410,10 +840,13 @@ unsafe fn saxpy_f32_sse2(alpha: f32, x: &[f32], y: &mut [f32]) {
     }
 }
 
+/// # Safety
+/// Same contract as [`saxpy_f32_sse2`] (f64 lanes, SSE2 handles 2 at a time).
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
 unsafe fn daxpy_f64_sse2(alpha: f64, x: &[f64], y: &mut [f64]) {
     use core::arch::x86_64::*;
+    assert_eq!(x.len(), y.len(), "daxpy: x.len() != y.len()");
     let a2 = _mm_set1_pd(alpha);
     let n = x.len();
     let mut i = 0;
@@ -429,10 +862,14 @@ unsafe fn daxpy_f64_sse2(alpha: f64, x: &[f64], y: &mut [f64]) {
     }
 }
 
+/// # Safety
+/// Same contract as [`saxpy_f32_sse2`]; `tmp` is a stack array sized to the
+/// fixed SSE2 f32 lane count, so the horizontal-sum store can't overflow.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
 unsafe fn sdot_f32_sse2(x: &[f32], y: &[f32]) -> f32 {
     use core::arch::x86_64::*;
+    assert_eq!(x.len(), y.len(), "sdot: x.len() != y.len()");
     let n = x.len();
     let mut acc = _mm_setzero_ps();
     let mut i = 0;
@@ -451,10 +888,13 @@ unsafe fn sdot_f32_sse2(x: &[f32], y: &[f32]) -> f32 {
     sum
 }
 
+/// # Safety
+/// Same contract as [`sdot_f32_sse2`] (f64 lanes, SSE2 handles 2 at a time).
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
 unsafe fn ddot_f64_sse2(x: &[f64], y: &[f64]) -> f64 {
     use core::arch::x86_64::*;
+    assert_eq!(x.len(), y.len(), "ddot: x.len() != y.len()");
     let n = x.len();
     let mut acc = _mm_setzero_pd();
     let mut i = 0;
@@ -473,6 +913,10 @@ unsafe fn ddot_f64_sse2(x: &[f64], y: &[f64]) -> f64 {
     sum
 }
 
+/// # Safety
+/// Caller must ensure the CPU supports SSE2. Bounds are self-contained: every
+/// `loadu`/`storeu` offset is kept `< v.len()` by the loop condition, in
+/// place on `v` alone.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
 unsafe fn relu_f32_sse2(v: &mut [f32]) {
@@ -491,14 +935,76 @@ unsafe fn relu_f32_sse2(v: &mut [f32]) {
     }
 }
 
+/// # Safety
+/// Same contract as [`relu_f32_sse2`], in place on `c` alone.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "sse2")]
+unsafe fn scal_f32_sse2(beta: f32, c: &mut [f32]) {
+    use core::arch::x86_64::*;
+    let b4 = _mm_set1_ps(beta);
+    let n = c.len();
+    let mut i = 0;
+    while i + 4 <= n {
+        let v = _mm_loadu_ps(c.as_ptr().add(i));
+        _mm_storeu_ps(c.as_mut_ptr().add(i), _mm_mul_ps(v, b4));
+        i += 4;
+    }
+    for x in &mut c[i..n] {
+        *x *= beta;
+    }
+}
+
+/// SSE2 SGEMM (`C = alpha·A·B + beta·C`, row-major), rank-1-update formulation
+/// (4 f32 lanes). See [`sgemm_f32_avx2`] for the algorithm.
+///
+/// # Safety
+/// Same contract as [`sgemm_f32_avx2`]: caller must ensure the CPU supports
+/// SSE2, which the calls into `scal_f32_sse2`/`saxpy_f32_sse2` inherit.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "sse2")]
+unsafe fn sgemm_f32_sse2(
+    alpha: f32,
+    a: crate::matrix::view::MatrixView<f32>,
+    b: crate::matrix::view::MatrixView<f32>,
+    beta: f32,
+    mut c: crate::matrix::view::MatrixViewMut<f32>,
+) {
+    let m = a.rows();
+    let k = a.cols();
+    for i in 0..m {
+        let a_row = a.row_slice(i).expect("A row");
+        let c_row = c.row_slice_mut(i).expect("C row");
+        scal_f32_sse2(beta, c_row);
+        for (p, &a_ip) in a_row.iter().enumerate().take(k) {
+            let s = alpha * a_ip;
+            if s == 0.0 {
+                continue;
+            }
+            let b_row = b.row_slice(p).expect("B row");
+            saxpy_f32_sse2(s, b_row, c_row);
+        }
+    }
+}
+
+/// Marker for the NEON backend. The private field keeps this
+/// un-constructible outside `dispatch.rs`, so the only way to obtain one is
+/// `runtime_backend()` after it has confirmed
+/// `is_aarch64_feature_detected!("neon")` — every method below calls into
+/// `#[target_feature(enable = "neon")]` code, which is undefined behavior to
+/// run without that guarantee.
 #[cfg(target_arch = "aarch64")]
-pub struct NeonBackend;
+pub struct NeonBackend(());
 
 #[cfg(target_arch = "aarch64")]
 impl SimdBackend for NeonBackend {
     fn name(&self) -> &'static str {
         "neon"
     }
+    // SAFETY (all blocks below): `self: &NeonBackend` can only exist after
+    // `runtime_backend()` confirmed `is_aarch64_feature_detected!("neon")` —
+    // see the struct doc above and the module-level `## Safety` note (also
+    // guaranteed unconditionally on every ARMv8+ CPU). That's the
+    // precondition every `_neon` free function below requires.
     fn saxpy_f32(&self, alpha: f32, x: &[f32], y: &mut [f32]) {
         unsafe { saxpy_f32_neon(alpha, x, y) }
     }
@@ -523,6 +1029,7 @@ impl SimdBackend for NeonBackend {
         let m = a.rows();
         for (i, item) in y.iter_mut().enumerate().take(m) {
             let row = a.row_slice(i).expect("row_slice");
+            // SAFETY: see the note on `saxpy_f32` above.
             let dot = unsafe { sdot_f32_neon(row, x) };
             *item = alpha * dot + beta * *item;
         }
@@ -535,7 +1042,8 @@ impl SimdBackend for NeonBackend {
         b: f32,
         mc: crate::matrix::view::MatrixViewMut<f32>,
     ) {
-        ScalarBackend.sgemm_f32(a, ma, mb, b, mc);
+        // SAFETY: see the note on `saxpy_f32` above.
+        unsafe { sgemm_f32_neon(a, ma, mb, b, mc) }
     }
     fn relu_f32(&self, v: &mut [f32]) {
         ScalarBackend.relu_f32(v);
@@ -543,10 +1051,73 @@ impl SimdBackend for NeonBackend {
 }
 
 // ---- NEON kernel free functions ----
+
+/// # Safety
+/// Caller must ensure the CPU supports NEON. Bounds are self-contained: every
+/// `vld1q_f32`/`vst1q_f32` offset is kept `< c.len()` by the loop condition,
+/// in place on `c` alone.
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+unsafe fn scal_f32_neon(beta: f32, c: &mut [f32]) {
+    use std::arch::aarch64::*;
+    let bv = vdupq_n_f32(beta);
+    let n = c.len();
+    let mut i = 0;
+    while i + 4 <= n {
+        let v = vld1q_f32(c.as_ptr().add(i));
+        vst1q_f32(c.as_mut_ptr().add(i), vmulq_f32(v, bv));
+        i += 4;
+    }
+    for x in &mut c[i..n] {
+        *x *= beta;
+    }
+}
+
+/// NEON SGEMM (`C = alpha·A·B + beta·C`, row-major), même formulation
+/// rank-1 / axpy-sur-lignes que le palier x86 — porte le gain multi-plateforme
+/// sur Jetson / Raspberry Pi / RK3588 (remplaçait un fallback scalaire).
+///
+/// # Safety
+/// Same contract as [`sgemm_f32_avx2`]: caller must ensure the CPU supports
+/// NEON, which the calls into `scal_f32_neon`/`saxpy_f32_neon` inherit.
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+unsafe fn sgemm_f32_neon(
+    alpha: f32,
+    a: crate::matrix::view::MatrixView<f32>,
+    b: crate::matrix::view::MatrixView<f32>,
+    beta: f32,
+    mut c: crate::matrix::view::MatrixViewMut<f32>,
+) {
+    let m = a.rows();
+    let k = a.cols();
+    for i in 0..m {
+        let a_row = a.row_slice(i).expect("A row");
+        let c_row = c.row_slice_mut(i).expect("C row");
+        scal_f32_neon(beta, c_row);
+        for (p, &a_ip) in a_row.iter().enumerate().take(k) {
+            let s = alpha * a_ip;
+            if s == 0.0 {
+                continue;
+            }
+            let b_row = b.row_slice(p).expect("B row");
+            saxpy_f32_neon(s, b_row, c_row);
+        }
+    }
+}
+/// # Safety
+/// Caller must ensure the CPU supports NEON (unconditionally true on ARMv8+,
+/// per `is_aarch64_feature_detected!("neon")`). Bounds/aliasing are otherwise
+/// self-contained: every `vld1q_f32`/`vst1q_f32` offset is kept `< x.len() ==
+/// y.len()` by the equal-length assert below and the `chunks`/`start`
+/// bookkeeping (same P1 bug class as [`saxpy_f32_sse2`] — this assert was
+/// also missing here before this fix, so `y.len() < x.len()` would write past
+/// the end of `y`).
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
 unsafe fn saxpy_f32_neon(alpha: f32, x: &[f32], y: &mut [f32]) {
     use std::arch::aarch64::*;
+    assert_eq!(x.len(), y.len(), "saxpy: x.len() != y.len()");
     let alpha_v = vdupq_n_f32(alpha);
     let chunks = x.len() / 4;
     for c in 0..chunks {
@@ -563,10 +1134,14 @@ unsafe fn saxpy_f32_neon(alpha: f32, x: &[f32], y: &mut [f32]) {
     }
 }
 
+/// # Safety
+/// Same contract as [`saxpy_f32_neon`]; `tmp` is a stack array sized to the
+/// fixed NEON f32 lane count, so the horizontal-sum store can't overflow.
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
 unsafe fn sdot_f32_neon(x: &[f32], y: &[f32]) -> f32 {
     use std::arch::aarch64::*;
+    assert_eq!(x.len(), y.len(), "sdot: x.len() != y.len()");
     let mut acc = vdupq_n_f32(0.0);
     let n = x.len();
     let mut i = 0;
@@ -585,6 +1160,69 @@ unsafe fn sdot_f32_neon(x: &[f32], y: &[f32]) -> f32 {
     sum
 }
 
+// =================================================================== //
+//  SVE backend (aarch64) — kernels scalables, longueur vectorielle    //
+//  runtime. Réutilise les noyaux validés de `crate::sve`.             //
+// =================================================================== //
+
+/// Backend **SVE** : `saxpy`/`sdot`/`sscal` scalables (largeur vectorielle
+/// déterminée au runtime, cf. [`crate::sve`]). Construit uniquement quand
+/// `is_aarch64_feature_detected!("sve")` réussit (Graviton 3, A64FX, Neoverse
+/// V2…). `f64` et `relu` retombent sur le scalaire, comme le backend NEON.
+#[cfg(all(feature = "nightly-simd", target_arch = "aarch64"))]
+pub struct SveBackend;
+
+#[cfg(all(feature = "nightly-simd", target_arch = "aarch64"))]
+impl SimdBackend for SveBackend {
+    fn name(&self) -> &'static str {
+        "sve"
+    }
+    fn saxpy_f32(&self, alpha: f32, x: &[f32], y: &mut [f32]) {
+        crate::sve::saxpy_f32_sve(alpha, x, y);
+    }
+    fn daxpy_f64(&self, a: f64, x: &[f64], y: &mut [f64]) {
+        ScalarBackend.daxpy_f64(a, x, y);
+    }
+    fn sdot_f32(&self, x: &[f32], y: &[f32]) -> f32 {
+        crate::sve::sdot_f32_sve(x, y)
+    }
+    fn ddot_f64(&self, x: &[f64], y: &[f64]) -> f64 {
+        ScalarBackend.ddot_f64(x, y)
+    }
+    fn sgemv_f32(
+        &self,
+        alpha: f32,
+        a: crate::matrix::view::MatrixView<f32>,
+        x: &[f32],
+        beta: f32,
+        y: &mut [f32],
+    ) {
+        let m = a.rows();
+        for (i, item) in y.iter_mut().enumerate().take(m) {
+            let row = a.row_slice(i).expect("row_slice");
+            let dot = crate::sve::sdot_f32_sve(row, x);
+            *item = alpha * dot + beta * *item;
+        }
+    }
+    /// SGEMM **packé / register-blocked** SVE : tuile `MR×VL` de `C` maintenue
+    /// dans les registres sur tout `K` (`C` écrite une seule fois), au lieu de la
+    /// formulation rank-1 (`sscal`+`saxpy` par ligne, `C` touchée `k+1` fois).
+    /// Cf. [`crate::sve::sgemm_f32_sve`].
+    fn sgemm_f32(
+        &self,
+        alpha: f32,
+        a: crate::matrix::view::MatrixView<f32>,
+        b: crate::matrix::view::MatrixView<f32>,
+        beta: f32,
+        c: crate::matrix::view::MatrixViewMut<f32>,
+    ) {
+        crate::sve::sgemm_f32_sve(alpha, a, b, beta, c);
+    }
+    fn relu_f32(&self, v: &mut [f32]) {
+        ScalarBackend.relu_f32(v);
+    }
+}
+
 // ------------------------------------------------------------------ //
 //  Tests                                                              //
 // ------------------------------------------------------------------ //
@@ -597,17 +1235,24 @@ mod tests {
         let mut v: Vec<(&'static dyn SimdBackend, &'static str)> = vec![(&ScalarBackend, "scalar")];
         #[cfg(target_arch = "x86_64")]
         {
-            if std::is_x86_feature_detected!("avx2") {
-                v.push((&Avx2Backend, "avx2"));
+            if std::is_x86_feature_detected!("avx512f") && std::is_x86_feature_detected!("fma") {
+                v.push((&Avx512Backend(()), "avx512"));
+            }
+            if std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma") {
+                v.push((&Avx2Backend(()), "avx2"));
             }
             if std::is_x86_feature_detected!("sse2") {
-                v.push((&Sse2Backend, "sse2"));
+                v.push((&Sse2Backend(()), "sse2"));
             }
         }
         #[cfg(target_arch = "aarch64")]
         {
             if std::arch::is_aarch64_feature_detected!("neon") {
-                v.push((&NeonBackend, "neon"));
+                v.push((&NeonBackend(()), "neon"));
+            }
+            #[cfg(feature = "nightly-simd")]
+            if std::arch::is_aarch64_feature_detected!("sve") {
+                v.push((&SveBackend, "sve"));
             }
         }
         v
@@ -623,6 +1268,7 @@ mod tests {
                 | BackendKind::Avx2
                 | BackendKind::Avx512
                 | BackendKind::Neon
+                | BackendKind::Sve
                 | BackendKind::PortableSimd
         ));
     }
@@ -641,6 +1287,44 @@ mod tests {
         let y = vec![1.0f32; 4];
         b.saxpy_f32(2.0, &y, &mut x);
         assert_eq!(x, vec![3.0, 4.0, 5.0, 6.0]);
+    }
+
+    /// Regression test for a bug found while writing the `# Safety` docs on
+    /// this file's unsafe kernels: `saxpy_f32_sse2`/`daxpy_f64_sse2`/
+    /// `sdot_f32_sse2`/`ddot_f64_sse2` and `saxpy_f32_neon`/`sdot_f32_neon`
+    /// were missing the `assert_eq!(x.len(), y.len())` guard their AVX2/
+    /// AVX-512 siblings already had — on SSE2-only or NEON hardware, a
+    /// mismatched-length call would silently read/write past the end of the
+    /// shorter slice instead of panicking. Every available backend must now
+    /// panic instead.
+    #[test]
+    fn saxpy_and_sdot_panic_on_length_mismatch_every_backend() {
+        let backends = available_backends();
+        for (b, name) in &backends {
+            if *name == "scalar" {
+                // ScalarBackend has its own (correct, pre-existing) contract;
+                // this regression is specifically about the SIMD kernels.
+                continue;
+            }
+            let x = vec![1.0f32, 2.0, 3.0];
+            let mut y_short = vec![1.0f32, 2.0];
+            let saxpy_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                b.saxpy_f32(1.0, &x, &mut y_short);
+            }));
+            assert!(
+                saxpy_result.is_err(),
+                "[{name}] saxpy_f32 must panic on x.len() != y.len(), not read/write out of bounds"
+            );
+
+            let y_short_ro = vec![1.0f32, 2.0];
+            let sdot_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                b.sdot_f32(&x, &y_short_ro)
+            }));
+            assert!(
+                sdot_result.is_err(),
+                "[{name}] sdot_f32 must panic on x.len() != y.len(), not read/write out of bounds"
+            );
+        }
     }
 
     #[test]
@@ -812,6 +1496,129 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// Every non-scalar backend's SGEMM must match the scalar reference for a
+    /// spread of shapes (including K/N not a multiple of any vector width) and
+    /// non-trivial `alpha`/`beta`. This is what promotes the vectorized GEMM
+    /// (and the newly-wired AVX-512 backend) from "compiles" to "correct".
+    #[test]
+    fn sgemm_cross_backend_matches_scalar() {
+        use crate::matrix::view::MatrixViewMut;
+        let backends = available_backends();
+        let shapes = [
+            (1usize, 1usize, 1usize),
+            (2, 3, 2),
+            (4, 4, 4),
+            (7, 5, 9),
+            (9, 17, 3),
+            (16, 16, 16),
+            (17, 31, 13),
+            (33, 8, 20),
+        ];
+        let alphas = [1.0f32, -0.5, 2.0];
+        let betas = [0.0f32, 1.0, -0.75];
+
+        for &(m, k, n) in &shapes {
+            let a_data: Vec<f32> = (0..m * k).map(|t| (t as f32 * 0.017 - 0.3).sin()).collect();
+            let b_data: Vec<f32> = (0..k * n).map(|t| (t as f32 * 0.023 + 0.1).cos()).collect();
+            let c0: Vec<f32> = (0..m * n).map(|t| (t as f32) * 0.05 - 0.5).collect();
+
+            for &alpha in &alphas {
+                for &beta in &betas {
+                    let mut expected = c0.clone();
+                    ScalarBackend.sgemm_f32(
+                        alpha,
+                        MatrixView::new(&a_data, m, k),
+                        MatrixView::new(&b_data, k, n),
+                        beta,
+                        MatrixViewMut::new(&mut expected, m, n),
+                    );
+
+                    for (backend, name) in &backends {
+                        if name == &"scalar" {
+                            continue;
+                        }
+                        let mut result = c0.clone();
+                        backend.sgemm_f32(
+                            alpha,
+                            MatrixView::new(&a_data, m, k),
+                            MatrixView::new(&b_data, k, n),
+                            beta,
+                            MatrixViewMut::new(&mut result, m, n),
+                        );
+                        for t in 0..m * n {
+                            let diff = (result[t] - expected[t]).abs();
+                            let tol = 1e-4 * (1.0 + expected[t].abs());
+                            assert!(
+                                diff <= tol,
+                                "[{name}] sgemm m={m} k={k} n={n} alpha={alpha} beta={beta} t={t}: \
+                                 expected={}, got={}",
+                                expected[t],
+                                result[t]
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// AVX-512 axpy / dot / relu vs scalar, exercising the masked-remainder path
+    /// at every length `0..=40` (so tails of 1..15 f32 lanes are all covered).
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn avx512_kernels_match_scalar_all_lengths() {
+        if !(std::is_x86_feature_detected!("avx512f") && std::is_x86_feature_detected!("fma")) {
+            return; // no AVX-512 on this host — nothing to verify
+        }
+        for len in 0..=40usize {
+            let x: Vec<f32> = (0..len).map(|t| (t as f32) * 0.3 - 2.0).collect();
+            let y: Vec<f32> = (0..len).map(|t| (t as f32) * -0.11 + 1.0).collect();
+
+            // saxpy
+            let mut got = y.clone();
+            Avx512Backend(()).saxpy_f32(1.5, &x, &mut got);
+            let mut want = y.clone();
+            ScalarBackend.saxpy_f32(1.5, &x, &mut want);
+            for t in 0..len {
+                assert!((got[t] - want[t]).abs() <= 1e-4, "saxpy len={len} t={t}");
+            }
+
+            // sdot
+            let d = Avx512Backend(()).sdot_f32(&x, &y);
+            let dref = ScalarBackend.sdot_f32(&x, &y);
+            assert!(
+                (d - dref).abs() <= 1e-3 * (1.0 + dref.abs()),
+                "sdot len={len}: {d} vs {dref}"
+            );
+
+            // relu
+            let mut r = x.clone();
+            Avx512Backend(()).relu_f32(&mut r);
+            for t in 0..len {
+                assert_eq!(r[t], x[t].max(0.0), "relu len={len} t={t}");
+            }
+        }
+
+        // f64 daxpy / ddot at f64-tail lengths (0..=20).
+        for len in 0..=20usize {
+            let x: Vec<f64> = (0..len).map(|t| (t as f64) * 0.7 - 3.0).collect();
+            let y: Vec<f64> = (0..len).map(|t| (t as f64) * 0.2 + 0.5).collect();
+            let mut got = y.clone();
+            Avx512Backend(()).daxpy_f64(-0.25, &x, &mut got);
+            let mut want = y.clone();
+            ScalarBackend.daxpy_f64(-0.25, &x, &mut want);
+            for t in 0..len {
+                assert!((got[t] - want[t]).abs() <= 1e-9, "daxpy len={len} t={t}");
+            }
+            let d = Avx512Backend(()).ddot_f64(&x, &y);
+            let dref = ScalarBackend.ddot_f64(&x, &y);
+            assert!(
+                (d - dref).abs() <= 1e-9 * (1.0 + dref.abs()),
+                "ddot len={len}: {d} vs {dref}"
+            );
         }
     }
 }

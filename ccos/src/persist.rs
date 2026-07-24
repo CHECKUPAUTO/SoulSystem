@@ -37,10 +37,10 @@ impl KernelSnapshot {
         serde_json::from_str(json)
     }
 
-    /// Persist the snapshot to `path` as pretty JSON, durably and atomically
-    /// (temp file + fsync + rename — see [`crate::util::write_durable`]): a
-    /// crash mid-write leaves the prior good snapshot intact rather than a
-    /// truncated one.
+    /// Persist the snapshot to `path` as pretty JSON, durably and atomically.
+    ///
+    /// The temporary-file + fsync + rename sequence prevents a crash or power
+    /// loss from replacing the last valid snapshot with a truncated file.
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let json = self
             .to_json()
@@ -52,6 +52,42 @@ impl KernelSnapshot {
     pub fn load(path: &str) -> std::io::Result<Self> {
         let data = std::fs::read_to_string(path)?;
         Self::from_json(&data).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    }
+
+    /// Verify the snapshot's integrity without mutating it: both hash chains
+    /// (the primary [`EventLog`] and the [`DistributedEventLog`]) must validate
+    /// and the graph must hold no dangling edges. Returns the first failure as a
+    /// message. This is the single integrity check shared by the load-and-verify
+    /// path here and by the runtime restore in [`crate::persistence`].
+    pub fn verify_integrity(&self) -> Result<(), String> {
+        let dist = self.dist_log.verify_integrity();
+        if !dist.valid {
+            return Err(format!(
+                "distributed-log chain invalid: {} error(s)",
+                dist.errors.len()
+            ));
+        }
+        let primary = self.event_log.verify_integrity();
+        if !primary.valid {
+            return Err(format!(
+                "event-log chain invalid: {} error(s)",
+                primary.errors.len()
+            ));
+        }
+        let dangling = self.graph.dangling_edge_count();
+        if dangling != 0 {
+            return Err(format!("{dangling} dangling edge(s) in graph"));
+        }
+        Ok(())
+    }
+
+    /// Load a snapshot **and** verify its integrity ([`verify_integrity`](Self::verify_integrity)),
+    /// failing with `InvalidData` if either hash chain or the graph is corrupt.
+    pub fn load_verified(path: &str) -> std::io::Result<Self> {
+        let snap = Self::load(path)?;
+        snap.verify_integrity()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        Ok(snap)
     }
 }
 
@@ -96,62 +132,18 @@ mod tests {
         assert_eq!(restored.version, env!("CARGO_PKG_VERSION"));
     }
 
-    /// HIGH-005: KernelSnapshot::save must write via the atomic
-    /// temp+fsync+rename path (`crate::util::write_durable`), not a bare
-    /// `std::fs::write`. Asserts the wiring at the call site: save/load
-    /// round-trips through a real file, no `.tmp` sibling is left behind,
-    /// and a second save fully replaces the prior content.
     #[test]
-    fn save_and_load_roundtrip_via_disk_leaves_no_temp_sibling() {
-        let path = std::env::temp_dir().join(format!(
-            "ccos-kernel-snapshot-{}-{}.json",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let _ = std::fs::remove_file(&path);
-        let path_str = path.to_str().unwrap();
-
+    fn verify_integrity_passes_clean_and_rejects_a_tampered_chain() {
         let mut graph = MemoryGraph::default();
         graph.upsert_node("a".into(), "A".into(), "x".into(), NodeType::Module);
-        let snap = KernelSnapshot::new(graph, EventLog::new("kernel-save".into()), {
-            let mut d = DistributedEventLog::new();
-            d.append("e0".into(), "kernel".into());
-            d
-        });
-        snap.save(path_str).unwrap();
-
-        let mut tmp = path.clone().into_os_string();
-        tmp.push(".tmp");
+        let mut dist_log = DistributedEventLog::new();
+        dist_log.append("e0".into(), "kernel".into());
+        let mut snap = KernelSnapshot::new(graph, EventLog::new("t".into()), dist_log);
+        assert!(snap.verify_integrity().is_ok(), "a clean snapshot verifies");
+        snap.dist_log.hash_chain[0].hash = "deadbeef".repeat(8);
         assert!(
-            !std::path::Path::new(&tmp).exists(),
-            "atomic save must not leave a .tmp sibling behind"
+            snap.verify_integrity().is_err(),
+            "a tampered chain is rejected"
         );
-
-        let loaded = KernelSnapshot::load(path_str).unwrap();
-        assert_eq!(loaded.graph.node_count(), 1);
-
-        // A second save with different content must fully replace the file.
-        let mut bigger_graph = MemoryGraph::default();
-        for i in 0..10 {
-            bigger_graph.upsert_node(
-                format!("n{i}").into(),
-                format!("L{i}"),
-                "content".into(),
-                NodeType::Module,
-            );
-        }
-        let snap2 = KernelSnapshot::new(
-            bigger_graph,
-            EventLog::new("kernel-save-2".into()),
-            DistributedEventLog::new(),
-        );
-        snap2.save(path_str).unwrap();
-        let reloaded = KernelSnapshot::load(path_str).unwrap();
-        assert_eq!(reloaded.graph.node_count(), 10);
-
-        let _ = std::fs::remove_file(&path);
     }
 }

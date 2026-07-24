@@ -41,6 +41,9 @@ commands:
   diff A B | d             which files entered/left the working set between A and B
   energy A B | e           node-level Δscore + failure-pressure between A and B
   missing <node> [budget] | m   the step a node is first evicted from the budgeted window
+  cause <node> | c         which recorded op moved a node's score most (drift attribution)
+  impact <node> | i        do(X): the nodes a change to X would force (its dependents)
+  blame <node> | bl        the candidate causes of X — what it depends on (dual of impact)
   stats | s                memory counts at the cursor
   help | h | ?             this help
   quit | q                 leave";
@@ -137,6 +140,18 @@ impl Debugger {
                     Outcome::Print(self.render_missing(node, budget))
                 }
                 None => Outcome::Print("usage: missing <node> [budget]".to_string()),
+            },
+            "cause" | "c" => match rest.first() {
+                Some(node) => Outcome::Print(self.render_cause(node)),
+                None => Outcome::Print("usage: cause <node>".to_string()),
+            },
+            "impact" | "i" => match rest.first() {
+                Some(node) => Outcome::Print(self.render_impact(node)),
+                None => Outcome::Print("usage: impact <node>".to_string()),
+            },
+            "blame" | "bl" => match rest.first() {
+                Some(node) => Outcome::Print(self.render_blame(node)),
+                None => Outcome::Print("usage: blame <node>".to_string()),
             },
             other => Outcome::Print(format!("unknown command '{other}' (try 'help')")),
         }
@@ -389,6 +404,82 @@ impl Debugger {
         )
     }
 
+    /// Attribute a node's causal-score drift to the recorded operation that moved it most — the
+    /// CUSUM change-point over its replayed trajectory ([`AgentSession::attribute_drift`]). This is
+    /// the auditable "which op did this" that the `missing` watchpoint's raw trigger line only
+    /// guessed at: a tested change-point, not the op that merely happened at the eviction step.
+    fn render_cause(&self, node: &str) -> String {
+        let id = normalize_id(node);
+        match self.session.attribute_drift(&id) {
+            Some(c) => format!(
+                "drift attribution — {id}\n  {} {:+.3} at step {}\n  cause: {}\n  (CUSUM {:.3})",
+                if c.delta >= 0.0 {
+                    "score rose"
+                } else {
+                    "score fell"
+                },
+                c.delta,
+                c.step,
+                c.op,
+                c.cusum,
+            ),
+            None => format!(
+                "{id}: no attributable drift (flat trajectory, or the break is below the compaction floor)"
+            ),
+        }
+    }
+
+    /// `do(X)` at the cursor: the nodes a change to `node` would structurally force — its dependents,
+    /// ranked by attenuated impact ([`MemoryGraph::intervene`]). The interventional counterpart of the
+    /// `missing`/`cause` views: not "what is near X" but "what X *forces*". A probabilistic retriever
+    /// has no do-operator to answer this.
+    fn render_impact(&self, node: &str) -> String {
+        let id = normalize_id(node);
+        let mem = self.session.replay_to(self.cursor);
+        let impact = mem.graph().intervene(&NodeId(id.clone()), 1.0, 0.75, 4);
+        if impact.is_empty() {
+            return format!(
+                "do({id}) at t={}: nothing depends on it — no downstream impact",
+                self.cursor
+            );
+        }
+        let shown = impact.len().min(15);
+        let mut out = format!(
+            "do({id}) at t={} — nodes a change would force (impact, top {shown} of {}):\n",
+            self.cursor,
+            impact.len()
+        );
+        for (n, v) in impact.iter().take(shown) {
+            out.push_str(&format!("  {v:>6.3}  {}\n", n.0));
+        }
+        out
+    }
+
+    /// `blame(X)` at the cursor: the dependencies of `node` — what it relies on, the candidate root
+    /// causes of a failure in it ([`MemoryGraph::blame`]). The dual of `impact`, and the principled
+    /// form of "the culprit is in a different file": an upstream, low-similarity dependency.
+    fn render_blame(&self, node: &str) -> String {
+        let id = normalize_id(node);
+        let mem = self.session.replay_to(self.cursor);
+        let causes = mem.graph().blame(&NodeId(id.clone()), 0.75, 4);
+        if causes.is_empty() {
+            return format!(
+                "blame({id}) at t={}: it depends on nothing — no candidate cause",
+                self.cursor
+            );
+        }
+        let shown = causes.len().min(15);
+        let mut out = format!(
+            "blame({id}) at t={} — candidate causes it depends on (weight, top {shown} of {}):\n",
+            self.cursor,
+            causes.len()
+        );
+        for (n, v) in causes.iter().take(shown) {
+            out.push_str(&format!("  {v:>6.3}  {}\n", n.0));
+        }
+        out
+    }
+
     /// The journal line for a given logical step (e.g. `t=6  SignalFailure(…)`).
     fn op_at(&self, step: usize) -> Option<String> {
         self.session.timeline().into_iter().find(|l| {
@@ -585,6 +676,60 @@ mod tests {
             report.contains("fail 0.00→"),
             "pressure column present: {report}"
         );
+    }
+
+    #[test]
+    fn cause_attributes_drift_to_a_recorded_op() {
+        let mut d = Debugger::new(demo_session());
+        let report = out(d.command("cause src/db.rs"));
+        assert!(
+            report.contains("drift attribution") && report.contains("cause:"),
+            "reports the culprit op: {report}"
+        );
+        assert!(report.contains("step"), "names the timeline step: {report}");
+        // Bare `cause` prints usage; an unknown node reports no attributable drift.
+        assert_eq!(out(d.command("cause")), "usage: cause <node>");
+        assert!(out(d.command("cause src/ghost.rs")).contains("no attributable drift"));
+    }
+
+    #[test]
+    fn impact_lists_the_dependents_of_a_node() {
+        let mut d = Debugger::new(demo_session());
+        let report = out(d.command("impact src/db.rs"));
+        assert!(
+            report.contains("do(file:src/db.rs)"),
+            "framed as an intervention: {report}"
+        );
+        // repo imports db directly and api imports it transitively, so a change to db forces both.
+        assert!(
+            report.contains("file:src/repo.rs"),
+            "the direct dependent surfaces: {report}"
+        );
+        assert!(
+            report.contains("file:src/api.rs"),
+            "the transitive dependent surfaces: {report}"
+        );
+        // Bare `impact` prints usage; a top-level node forces nothing downstream.
+        assert_eq!(out(d.command("impact")), "usage: impact <node>");
+        assert!(out(d.command("impact src/api.rs")).contains("no downstream impact"));
+    }
+
+    #[test]
+    fn blame_lists_the_dependencies_of_a_node() {
+        let mut d = Debugger::new(demo_session());
+        // api depends on repo (directly) and db (transitively) — its candidate causes.
+        let report = out(d.command("blame src/api.rs"));
+        assert!(
+            report.contains("blame(file:src/api.rs)"),
+            "framed as blame: {report}"
+        );
+        assert!(
+            report.contains("file:src/repo.rs") && report.contains("file:src/db.rs"),
+            "dependencies surface as candidate causes: {report}"
+        );
+        // db is a leaf: it depends on nothing.
+        assert!(out(d.command("blame src/db.rs")).contains("no candidate cause"));
+        assert_eq!(out(d.command("blame")), "usage: blame <node>");
     }
 
     #[test]

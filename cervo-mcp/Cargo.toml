@@ -1,0 +1,19 @@
+[package]
+name = "cervo-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "MCP server for CERVO — expose swarm brain operations as JSON-RPC tools"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+cervo = { path = "../cervo" }
+soul-bridge = { path = "../soul-bridge" }
+
+[lints]
+workspace = true

@@ -1,103 +1,89 @@
-# SoulSystem — Quick Installation Guide (Debian 12)
+# Getting started with SoulSystem
 
-This guide lets you install and run SoulSystem on a Debian 12 (Bookworm) machine in minutes.
+SoulSystem is a local-first autonomous-agent runtime. The recommended first
+run keeps every listener on loopback and uses a local Ollama model.
 
-## Prerequisites
+## Install
 
-- Debian 12 (Bookworm) freshly installed
-- At least 8 GB RAM, 20 GB disk space
-- Internet connection
+Linux and macOS:
 
-## 1. Install system dependencies
-
-```bash
-sudo apt update
-sudo apt install -y curl build-essential pkg-config libssl-dev nftables
+```sh
+curl -fsSL https://raw.githubusercontent.com/Memorithm/SoulSystem/main/install.sh | sh
 ```
 
-## 2. Install Rust
+The installer verifies the SHA-256 checksum published with the GitHub release.
+If no binary exists for the platform, it installs Rust and builds SoulSystem
+from source. The default destination is `$HOME/.local/bin`; override it with
+`SOULSYSTEM_INSTALL_DIR`.
 
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
+Alternative installation methods:
+
+```sh
+npm install -g soulsystem
+cargo install --git https://github.com/Memorithm/SoulSystem soulsystem
 ```
 
-## 3. Install Ollama
+## Configure and verify
 
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
+Install and start [Ollama](https://ollama.com), then pull the default model:
+
+```sh
+ollama pull qwen3:8b
+soulsystem --setup
+soulsystem --doctor
 ```
 
-Start the Ollama server and pull a lightweight model:
+`--setup` writes the provider, model, entity name, and gateway settings.
+`--doctor` checks configuration directories, the LLM endpoint, bubblewrap
+sandboxing, and gateway authentication without starting the agent.
 
-```bash
-ollama serve &
-ollama pull tinyllama
+Start the interactive local agent:
+
+```sh
+soulsystem --entity --repl
 ```
 
-## 4. Clone SoulSystem
+One-shot and planning modes:
 
-```bash
-git clone https://github.com/CHECKUPAUTO/SoulSystem.git
+```sh
+soulsystem --ask "Summarize this workspace"
+soulsystem --plan "Add tests for the parser"
+```
+
+Run `soulsystem --help` for the complete CLI.
+
+## Security defaults
+
+- Keep the gateway on `127.0.0.1` unless remote access is required.
+- Set `SOULSYSTEM_GATEWAY_TOKEN` before any non-loopback deployment.
+- Use `SOULSYSTEM_ENV=production` to enable fail-closed startup checks.
+- Install `bubblewrap` on Linux for strong process isolation.
+- Prefer provider API keys in environment variables or a secret manager. CLI
+  arguments can be visible in process listings.
+
+Review [Security](SECURITY.md), [security invariants](security/SECURITY_INVARIANTS.md),
+and the repository threat model before exposing a service.
+
+## Build from a clone
+
+```sh
+git clone https://github.com/Memorithm/SoulSystem.git
 cd SoulSystem
+cargo check -p soulsystem
+cargo test -p soul_agent_core -p soul_tools -p soul_gateway -p ccos
+cargo build --release --bin soulsystem
+./target/release/soulsystem --doctor
 ```
 
-## 5. Compile
-
-```bash
-cargo build --release
-```
-
-Compilation takes a few minutes. The main binary is at `target/release/soulsystem`.
-
-## 6. Minimum configuration
-
-Create the default config:
-
-```bash
-mkdir -p /opt/soulsystem/config /var/lib/soulsystem/data /var/log/soulsystem
-cp soulsystem.toml /opt/soulsystem/config/
-```
-
-The `soulsystem.toml` file contains default paths:
-
-```toml
-[paths]
-config_dir = "/opt/soulsystem/config"
-data_dir = "/var/lib/soulsystem/data"
-log_dir = "/var/log/soulsystem"
-```
-
-## 7. Configure Telegram bot (Clawd Assistant)
-
-1. Open Telegram and contact [@BotFather](https://t.me/BotFather)
-2. Send `/newbot` and follow instructions
-3. Note the **token** provided (e.g. `123456:ABC-DEF1234ghikl...`)
-
-Export the token:
-
-```bash
-export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
-```
-
-## 8. Launch SoulSystem
-
-```bash
-./target/release/soulsystem
-```
-
-The system starts:
-- The SoulKernelkernel
-- The SoulLink HNN neural mesh
-- The Clawd assistant connected to Telegram
-- Optional modules (AVID, OpenEvolve, SciRust, SYNERGIE) are **not** started by default.
-
-## 9. Interact with Clawd
-
-Open Telegram, find your bot, and start chatting. Clawd responds via the local tinyllama model.
+GPU crates live in the dedicated `workspaces/gpu` workspace and are not needed
+for the default CPU/local installation.
 
 ## Troubleshooting
 
-- **Ollama won't start**: check service with `ollama ps`
-- **Compilation error**: run `rustup update` then retry
-- **Clawd not responding**: check `export | grep TELEGRAM_BOT_TOKEN`
+- `LLM unavailable`: start Ollama or pass the correct `--llm-url`.
+- `bubblewrap not found`: install the `bubblewrap` package; development can
+  continue with reduced isolation, but production should not.
+- `SOULSYSTEM_GATEWAY_TOKEN` warning: keep the gateway on loopback or configure
+  a strong random token.
+- Build failures in CUDA crates: build the root workspace only; use
+  `workspaces/gpu` explicitly when the matching GPU toolchain is installed.

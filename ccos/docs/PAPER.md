@@ -16,12 +16,24 @@ abstractions. Source code is parsed into a **causal memory graph** whose nodes
 importance, *failure relevance*, recency and access frequency. A bounded
 **context window** is paged in and out of this graph the way an OS pages memory,
 and every state transition is recorded in an append-only, **deterministically
-replayable** event log backed by a tamper-evident hash chain. We describe the
-architecture, the core algorithms, and an audit-driven hardening pass that
-eliminated an unbounded edge-leak (reducing a 10,000-cycle workload from 9,036
-edges and an 11× slowdown to ~30 edges and a 1.08× slowdown), closed a guard
-bypass, and made eviction deterministic. The prototype is 6 KLoC of Rust, passes
-156 tests with zero linter warnings, and can analyze its own source tree.
+replayable** (`replay == live`, bit-for-bit) event log backed by a tamper-evident
+hash chain. Beyond retrieval, CCOS holds **beliefs**: a Q-Page dual-evidence layer
+records support and contradiction for each claim, so a *refuted* fact can be
+actively suppressed rather than silently retrieved, and tracks their **temporal
+dynamics** (a decaying "fever curve" of belief and conflict). We describe the
+architecture and the core algorithms — causal scoring, failure propagation, a
+`syn`-based call-graph and data-flow, causal-topology-weighted LSA, and the belief
+and temporal layers — and an audit-driven hardening pass that eliminated an
+unbounded edge-leak (reducing a 10,000-cycle workload from 9,036 edges and an 11×
+slowdown to ~30 edges and a 1.08× slowdown), closed a guard bypass, and made
+eviction deterministic. We further show, *measured*, that CCOS's deterministic
+retrieval **ties** a lexical RAG and **beats** it on semantic recall (Recall@3
+17%→83% via a distilled LSA encoder), while suppressing a refuted contradiction a
+similarity-only retriever structurally cannot (precision@1 2/2 vs 1/2) — all
+bit-for-bit reproducible, with zero extra dependencies. The prototype is ~37 KLoC
+of dependency-light Rust, passes 640+ tests with zero linter warnings, and can
+analyze its own source tree — resolving, on it, 963 fn→fn call edges and 43
+fn→const data-flow edges under a strict resolve-uniquely-or-skip discipline.
 
 ---
 
@@ -89,10 +101,12 @@ the prototype after a correctness-focused audit.
                                  └──────────────────────────────────────┘
 ```
 
-Nine library modules (`parser`, `memory`, `incremental`, `event_log`,
-`distributed_event_log`, `llm`, `guard`, `consensus`, `adversarial`) plus a
-`persist` layer compose the kernel; a CLI (`demo`, `analyze`, `verify`,
-`replay`, `chaos`) drives them.
+Roughly thirty library modules compose the kernel — from `parser`, `memory`,
+`incremental` and the two logs through the `retrieval`, `lsa`, belief
+(`memory::qbelief`), `spectral` (temporal-tensor) and `guard` / `consensus` /
+`adversarial` layers — driven by a CLI (`analyze`, `verify`, `replay`, `chaos`,
+`doctor`, `license`, …) and a dependency-free MCP server exposing CCOS as native
+agent working memory.
 
 ## 4. Core algorithms
 
@@ -168,19 +182,43 @@ State is derived from an append-only log of typed events
 (`EventReplayer`) or — via `record_graph` + `GraphReconstructor` — **rebuilds the
 graph itself**, faithfully, from `NodeUpserted`/`EdgeAdded` events. Because all
 kernel ordering is total (P3), replay is reproducible. This closes the
-event-sourcing loop: state is fully derivable from the log.
+event-sourcing loop: state is fully derivable from the log. On top of it, a
+dynamic-time-warping alignment (`src/dtw.rs`) lines up two *recorded timelines*
+step by step, so a cross-run behavioural drift can be localized to the first
+diverging operation — regression hunting over cognitive histories, not just text
+diffs.
 
-### 4.7 Tamper-evident distributed log
+### 4.7 Tamper-evidence everywhere, and the distributed store
 
-In parallel, a `DistributedEventLog` chains each event to its predecessor:
+All three logs are hash-chained. The `DistributedEventLog` chains each event to
+its predecessor:
 
 ```
 hashᵢ = SHA256( idᵢ ‖ payloadᵢ ‖ tsᵢ ‖ hashᵢ₋₁ ),   hash₋₁ = "GENESIS"
 ```
 
-Any mutation to a past event invalidates every subsequent link, which
-`verify_integrity()` detects. This gives an auditable, append-only history
-suitable for multi-agent or untrusted-transport settings.
+the primary `EventLog` chains every append over its *replayable* content
+(sequence + type + payload, excluding the non-deterministic `id`/`timestamp`,
+so the chain itself is bit-reproducible), and — closing the loop — the
+**session op-log** (§4.6's `replay == live` timeline) chains every recorded
+`Op`, pins its replay *baseline* with a commitment, and keeps one head across
+compaction (the folded prefix's head becomes the chain anchor). Enforcement has
+teeth: opening a workspace whose sidecar fails the check is **refused** (the
+sidecar is left intact as forensic evidence), while chain-valid staleness still
+self-heals; `ccos verify <workspace>` audits a sidecar without opening it.
+
+The same chain is what makes the **multi-agent store** sound. Sharing is the
+exchange of chain-verified timeline segments (`ccos sync export|import`) — a
+plain JSON file over any transport, including sneakernet, so the air-gapped
+posture survives federation. Imports re-verify every link, refuse gaps, and
+refuse **equivocation** (one agent id publishing two divergent histories — the
+overlap must agree link-for-link). Imported logs stay per-agent; the *shared
+brain* is a pure function (`merged_view`) that replays all known timelines from
+empty in canonical agent order, so agents holding the same logs materialize
+**bit-identical** views (`state_fingerprint`, measured live in
+`examples/sync_crux.rs`) — a state-based CRDT of grow-only per-agent logs, with
+no consensus protocol, no network stack, and no new dependency. See
+`docs/SYNC.md`.
 
 ### 4.8 Multi-model consensus
 
@@ -201,13 +239,55 @@ hallucination, prompt injection, and timeout/empty responses — to continuously
 exercise the guard and the graph. It powers both the test suite and the `ccos
 chaos` command.
 
+### 4.10 Q-Page dual-evidence belief
+
+Retrieval decides *what to read*; belief decides *what to trust*. Each claim node
+carries a **Q-Page**: `Supports` and `Contradicts` edges accumulate authority-
+weighted evidence into a signed belief `b ∈ [−1, 1]` and a geometric conflict
+`c ∈ [0, 1]`:
+
+```
+b = (S − C) / (S + C + ε)      c = 2·√(S·C) / (S + C + ε)
+```
+
+where `S`, `C` are the support/contradiction sums. Belief **decays** with a
+knowledge half-life (`0.5^(age/half_life)`), so stale, never-reaffirmed evidence
+relaxes toward neutral, and **propagates** one hop along `Causes` edges. This is
+the axis a similarity-only retriever lacks: a refuted fact has `b < 0` and is
+*suppressed* at recall rather than surfaced by vocabulary overlap (§6.7). Its
+temporal trajectory `Θ[node, {belief, tension}, t]` is a system "fever curve" — the
+belief/conflict of a claim as a contradiction is injected, propagates, and decays.
+
+### 4.11 Deterministic semantic retrieval
+
+An exact-cosine `DenseIndex`, a BM25 lexical index, and their reciprocal-rank
+fusion index the corpus over a pluggable `Encoder`. The default encoders are CCOS's
+own TF-IDF (lexical) and its **LSA** projection (semantic) — the latter a
+fixed-order Jacobi solve on the corpus Gram matrix that bridges synonymy TF-IDF
+misses. A causal-topology-weighted variant scales each document's LSA row by
+`(1 + λc·centrality)·(1 + λa·belief)` before the reduction, so the latent space is
+shaped by what the causal graph deems important and the Q-Page deems trustworthy.
+Every reduction is a fixed-order `f32` sum and every ranking is id-tie-broken, so
+retrieval is a pure function of the corpus — `replay == live` at the retrieval
+layer, not only the graph (§6.7).
+
 ## 5. Implementation
 
-CCOS is ~6,000 lines of Rust (edition 2021), dependency-light (`tokio`,
-`reqwest`, `serde`, `sha2`, `chrono`, `uuid`, `rand`). The parser is a
-**line-based heuristic** rather than a full `syn` AST — a deliberate trade-off
-for zero parse-dependencies, at the cost of missing multi-line declarations
-(see §7). The CLI exposes:
+CCOS is ~37,000 lines of Rust (edition 2021), dependency-light. The default parser
+is a real **`syn` AST** (behind the default `syn-parser` feature), extracting
+modules, `use` trees, symbols, call-sites and data-flow references; a
+zero-dependency line-based heuristic is the fallback when `syn` is disabled or the
+source does not parse. The retrieval, LSA, belief, and temporal layers add **no**
+runtime dependencies — the retrieval subsystem is *distilled* from SciRust's pure
+modules rather than linked, so the default build pulls neither the crate nor its
+`rayon`/`nalgebra` tree (an earlier optional bridge to the external crate was
+removed outright once its private pin became unfetchable — the distilled path is
+the only one, and it is dependency-free). The repository is a small Cargo
+workspace: an opt-in member crate, `ccos-memory-runtime`, provides an SLHAv2
+tile-memory backend (HOT → WARM compression frees the 32-byte residual, 128 → 96 B
+with the latent preserved) behind the off-by-default `slhav2` feature — itself
+**zero-dependency** (the tile decode is vendored; no `scirust` in any
+configuration). The CLI exposes:
 
 ```
 ccos demo                                  end-to-end subsystem demo
@@ -271,10 +351,12 @@ exposes this for saved snapshots.
 
 ### 6.5 Self-hosting
 
-`ccos analyze src` ingests CCOS's own source tree into a ~350-node / ~400-edge
-graph with **zero dangling edges**, ranking `dep:std`, `dep:serde`, `dep:ccos`
-as the highest-scored (most-referenced) nodes — a sanity check that the causal
-scoring surfaces genuine hubs.
+Ingesting CCOS's own source tree yields a graph of ~2,400 nodes and ~3,900 edges
+(files, symbols, imports; `Contains`/`DependsOn`/`Calls`/`DataFlow`) with **zero
+dangling edges** — the structural invariant holds at self-hosting scale, and the
+causal scoring surfaces the genuine hub files. (The figure has grown ~10× since
+the first self-hosting run as symbol-level call-graph and data-flow resolution
+landed — the graph deepened, the invariants held.)
 
 ### 6.6 Event-sourcing round-trip
 
@@ -283,23 +365,100 @@ events; `ccos replay run.json` then **rebuilds the graph from the log alone** an
 reports `matches snapshot: true` — an identical node/edge set — confirming state
 is fully derivable from the event stream (`GraphReconstructor`).
 
-### 6.7 Test posture
+### 6.7 Retrieval: challenging RAG, deterministically
 
-156 unit + integration tests pass; `cargo clippy --all-targets` is warning-clean.
-Stress harnesses (10k-cycle stability, snapshot differential, replay
-consistency, adversarial suite) run in CI-friendly time.
+The retrieval subsystem (`ccos::retrieval`, distilled from SciRust's pure modules,
+**zero extra dependencies**) is measured the way RAG benchmarks measure their
+retrievers — Recall@k, Precision@k, MRR, MAP, nDCG@k — over three honest crux
+corpora (`examples/*_crux.rs`), with bit-for-bit reproducible numbers:
+
+- **Ties lexical RAG.** Over CCOS's own source + AST dependency ground truth
+  (`pure_retrieval_vs_rag`), a pure dense retriever reproduces CCOS's TF-IDF lexical
+  RAG *to the digit* — the same signal, but as a clean, serialisable, auditable
+  exact-cosine index rather than an ad-hoc loop.
+- **Beats it on semantic recall.** Swapping the encoder to project TF-IDF through
+  CCOS's deterministic **LSA** latent space (`semantic_retrieval_crux`) captures the
+  synonymy a literal-term retriever cannot: on a corpus where each query and its
+  answer share *zero* vocabulary (linked only by co-occurrence bridge docs), the
+  lexical RAG cannot retrieve the answer while LSA recovers it — **Recall@3 17%→83%,
+  MRR 0.185→0.458 (2.5×)**.
+- **Sees contradictions RAG cannot.** On a *Conflict of Origins*
+  (`scirust_vs_rag_crux`), gating the latent score by Q-Page belief crushes a
+  *refuted* source (belief 0.12) to the bottom while holding the authoritative one
+  (0.95) at #1 — **precision@1 2/2 vs a blind 512-chunk RAG's 1/2**. A
+  similarity-only retriever has no belief axis and structurally cannot make this
+  distinction.
+- **Improves itself, deterministically.** A premium `ImprovementLoop`
+  (`retrieval_improvement`) learns a projection from confirmed (query, relevant-doc)
+  feedback by contrastive training with a **hand-derived, finite-difference-checked**
+  gradient: Recall@1 climbs **8%→100%** across cycles, seeded and fixed-order so the
+  curve is identical on every re-run.
+
+The unifying property is **determinism**: every number is reproducible bit-for-bit
+(fixed-order `f32`, id-tie-broken ranking, no RNG, no generative step), so an audit
+replay of a retrieval never diverges — a guarantee a neural / generative RAG stage
+cannot offer. See `docs/MEASUREMENT_pure_retrieval.md`.
+
+### 6.8 Call/data-flow resolution coverage
+
+The structural edges that everything above walks are only as good as the resolver
+that mints them. `examples/resolution_coverage.rs` measures it two ways. On
+crafted single-shape fixtures, **14/14** common Rust path shapes resolve —
+crate-rooted, imported fn/module, bare local submodule paths (`mod m; m::f()`,
+`a::b::f()`), typed receivers including references (`fn r(x: &T) { x.bar() }`),
+`Self` methods, bare/imported/renamed consts, and (Slice 4) field receivers
+(`self.db.q()`), fn-return receivers (`make().q()`), assoc `-> Self` chains and
+method chains (`x.b().q()`) — while **4/4** deliberately skipped shapes hold
+(bare `extern_crate::f()` without `use` — a local `mod` shadows a same-named
+crate, so linking would contradict Rust name resolution; global ambiguity;
+unknown modules; wrapper-typed fields). On CCOS's own `src/` (51 files), 2,801
+parsed call references yield **1,114** fn→fn `Calls` edges and 87 const/static
+references yield **45** `DataFlow` edges — every edge minted under
+resolve-uniquely-or-skip, so the remainder (calls into `std`/external crates,
+receivers typed outside the scope's declarations, macro paths) is *correctly*
+unresolved rather than guessed. The reference-receiver peel moved its corpus
+903 → 963 edges (≈ +7 %); Slice 4's field/chain receivers moved the current
+corpus 1,007 → **1,114** (+107, ≈ +10.6 % — the arc's largest recall gain). The candidate design for bare-module-path resolution was adversarially
+reviewed before landing; the review *empirically confirmed* two false-edge modes
+in the external-crate interpretation, which was excluded — both are regression
+tests now. Details: `docs/MEASUREMENT_resolution_coverage.md`.
+
+### 6.9 Test posture
+
+640+ unit, integration, and property tests pass (649 across all targets at the
+time of writing); `cargo clippy --all-targets
+--all-features` is warning-clean. Stress harnesses (10k-cycle stability, snapshot
+differential, `replay == live` property over random op streams, adversarial suite)
+run in CI-friendly time.
 
 ## 7. Limitations
 
-- **Heuristic parser.** Line-based extraction misses multi-line signatures,
-  nested-module bodies, grouped `use` imports and macro expansions. A `syn`-based
-  AST is the top future-work item.
-- **No semantic edges.** Edges capture containment/dependency, not call graphs or
-  data flow.
-- **Consensus/adversarial/distributed-log** are wired into the CLI but the LLM
+- **Lexical semantic floor.** The default embedder is a deterministic TF-IDF/LSA,
+  not a neural transformer — a deliberate trade to keep `replay == live` bit-exact
+  and the build dependency-free. On *pure* web-scale semantic recall a well-tuned
+  dense transformer retrieves more; CCOS instead invests its differentiation in
+  structure, belief, time, and auditability (§6.7 measures where the LSA encoder
+  does and does not close the gap).
+- **Method-call resolution is precision-first.** The `syn` call graph resolves
+  receiver types only from syntactically-certain declarations: typed params
+  (including `&T`/`&mut T`), annotations, constructors and struct literals, and —
+  since Slice 4 — declared **field types** (`self.field.bar()`) and declared
+  **return types** (`f().bar()`, method chains, `-> Self`). What remains skipped
+  is skipped *by design*: trait objects and generics have no statically-certain
+  concrete type, and an in-scope definition that contradicts the
+  `new()`-returns-`Self` convention refutes it (evidence beats convention) —
+  high precision, bounded recall on macro/generic-heavy code (§6.8 quantifies
+  the trade on CCOS's own source).
+- **Consensus / adversarial / distributed-log** are wired into the CLI but the LLM
   path is only exercised against an Ollama-style endpoint; offline runs fall back
   deterministically.
-- **In-memory only at runtime** (persistence is explicit via `--out`/`verify`).
+- **Single-node by default, federated by exchange.** Persistence is explicit
+  (`--out` / `verify` / checkpoint), and the working memory remains a local,
+  auditable, air-gappable kernel — not a horizontally-scaled vector database.
+  Multi-agent sharing exists (§4.7) but deliberately as *file-based, chain-verified
+  log exchange with deterministic convergence*: no server, no consensus
+  round, and agent identity is declarative (no PKI — the chain enforces
+  *consistency* of a claimed identity, not its ownership).
 
 ## 8. Related work
 
@@ -307,16 +466,42 @@ CCOS draws on **virtual memory & paging** (Denning's working-set model),
 **event sourcing / CQRS** and write-ahead logging, **Merkle/hash chains** for
 tamper-evidence, **N-version programming** for fault tolerance, and the recent
 line of work on **memory-augmented and retrieval-augmented agents**. Its novelty
-is the synthesis: a *causal* scoring function with failure propagation, made
-deterministic and auditable end-to-end.
+is the synthesis: a *causal* scoring function with failure propagation, a *belief*
+layer that suppresses refuted evidence, and a *deterministic* retrieval stack that
+ties lexical RAG and beats it on semantic recall — all made auditable and bit-for-bit
+replayable end-to-end. A dedicated comparison of CCOS against the RAG families
+(naïve, hybrid, re-ranked, GraphRAG, agentic) is in `docs/COMPARISON_vs_rag.md`.
 
 ## 9. Future work
 
-In priority order (tracked in `ROADMAP.md`): (1) `syn`-based AST parsing;
-(2) call-graph / data-flow (semantic) edges; (3) folding tamper-evidence into the
-primary log so every run is auditable; (4) configurable scoring weights and
-benchmarking of the O(Δ) claim with `criterion`; (5) property-based testing of
-the graph invariants under random edit sequences.
+The previous edition of this paper listed five items here; all five have since
+landed, each under the moat constraints this paper argues for: **(1)** the
+quarantined neural embedder (`neural-embed`, off by default — no new crate,
+local endpoint only, explicitly not replay-exact, which is the point of the
+flag; `docs/NEURAL_EMBED.md`); **(2)** tamper-evidence folded into the primary
+log — all three logs are now chained, including the `replay == live` op-log
+itself, with refusal-on-tamper and forensic preservation (§4.7); **(3)** richer
+receiver inference — field receivers and return-type chains, +10.6 % call-graph
+recall at unchanged precision (§6.8); **(4)** the BEIR-style standard-IR
+benchmark — zero-dependency BM25 within 0.003 nDCG@10 of published Anserini on
+SciFact (`docs/MEASUREMENT_beir.md`); and **(5)** the distributed multi-agent
+store — chain-verified log exchange with bit-identical convergence (§4.7,
+`docs/SYNC.md`).
+
+What remains, in priority order (tracked in `ROADMAP.md`): (1) **data-flow
+direction** — distinguishing writes from reads on `DataFlow` edges, so causal
+walks can separate producers from consumers; (2) **dynamic trait-object
+dispatch** in the call graph, currently skipped *by design* (a `dyn Trait`
+receiver has no statically-certain concrete type — any sound treatment needs
+trait-impl sets and points-to reasoning); (3) the **spectral design pass** —
+region clustering and the temporal tensor over eigenvector centrality;
+(4) ~~optional **cryptographic agent identity** for the multi-agent store~~ —
+*delivered*: the `signed-sync` feature signs each bundle with a per-workspace
+ed25519 key and the importer TOFU-pins the key per agent id (spoofing, key
+swaps, and stripped-signature downgrades all refuse; the default build stays
+crypto-free and unsigned federations keep working); (5) **belief fusion
+semantics** — Q-Page merge policies beyond union when federated agents assert
+contradictory evidence about the same claim.
 
 ## 10. Conclusion
 
@@ -333,11 +518,19 @@ substrate for further research on causal context management.
 ### Reproducibility
 
 ```bash
-cargo test                     # 156 tests
+cargo test                          # 640+ tests, warning-clean
 cargo run -- analyze src --cycles
 cargo run -- analyze src --out run.json
-cargo run -- verify run.json && cargo run -- replay run.json
+cargo run -- verify run.json && cargo run -- replay run.json   # replay == live
 cargo run -- chaos --iters 2000
+# retrieval, measured (§6.7) — every number bit-for-bit reproducible:
+cargo run --release --example pure_retrieval_vs_rag   # ties lexical RAG
+cargo run --release --example semantic_retrieval_crux # beats RAG on semantic recall
+cargo run --release --example scirust_vs_rag_crux     # contradiction-aware (2/2 vs 1/2)
+cargo run --release --example retrieval_improvement   # self-improving: Recall@1 8% → 100%
+# structure & the one-run tour:
+cargo run --release --example resolution_coverage     # §6.8: 10/10 idioms, 963+43 edges on src/
+cargo run --release --example flagship                # replay==live + belief + LSA-vs-RAG in one run
 ```
 
 *This document describes a research prototype; numbers are from local runs and

@@ -4,6 +4,7 @@ use crate::nn::linear::Linear;
 use crate::nn::module::Module;
 use crate::nn::rng::PcgEngine;
 use crate::nn::transformer::TransformerEncoder;
+use std::collections::HashMap;
 
 /// Vision Transformer (ViT) implementation.
 pub struct ViT {
@@ -75,22 +76,44 @@ impl ViT {
 
 impl Module for ViT {
     fn forward<'t>(&mut self, tape: &'t Tape, input: Var<'t>) -> Var<'t> {
+        use crate::tensor::tensor3d::Var3D;
         let patches = self.patch_embed.projection.forward(tape, input);
         let (batch, total_feat) = patches.shape();
         let seq_len = total_feat / self.d_model;
 
-        // Skip transformer for small tests to avoid LayerNorm dimension mismatch
-        // unless we can ensure d_model matches what transformer expects.
-        if seq_len == 1 {
-            use crate::tensor::tensor3d::Var3D;
-            let x_3d = Var3D::from_var(patches, batch, seq_len, self.d_model);
-            let encoded = self.encoder.forward_3d(tape, x_3d);
-            self.head.forward(tape, encoded.var)
+        // The encoder expects its 2D var as (batch*seq_len, d_model) (one row per
+        // token), so reshape the flat (batch, seq_len*d_model) patch embedding.
+        let tokens = patches.reshape(&[batch * seq_len, self.d_model]);
+        let x_3d = Var3D::from_var(tokens, batch, seq_len, self.d_model);
+        let encoded = self.encoder.forward_3d(tape, x_3d); // var: (batch*seq_len, d_model)
+
+        // Mean-pool over the sequence to (batch, d_model) before the head. This is
+        // what makes the classifier actually depend on the image; the previous
+        // seq_len>1 path fed a zeros tensor into the head (image-independent, with
+        // no gradient to patch_embed/encoder). Pooling is permutation-invariant,
+        // so it is robust to the patch flattening order.
+        let pooled = if seq_len <= 1 {
+            encoded.var
         } else {
-            // Simplified return for POC
-            let dummy = tape.input(Tensor::zeros(batch, self.d_model));
-            self.head.forward(tape, dummy)
-        }
+            // Constant pooling matrix P (batch, batch*seq_len): row b averages the
+            // seq_len token rows [b*seq_len, (b+1)*seq_len). P @ encoded = seq mean.
+            let mut p = Tensor::zeros(batch, batch * seq_len);
+            let inv = 1.0 / seq_len as f32;
+            for b in 0..batch {
+                for s in 0..seq_len {
+                    p.data[b * (batch * seq_len) + b * seq_len + s] = inv;
+                }
+            }
+            tape.input(p).matmul(encoded.var)
+        };
+        self.head.forward(tape, pooled)
+    }
+
+    fn train(&mut self, on: bool) {
+        // Ne propage qu'aux enfants qui implémentent Module :
+        // TransformerEncoder n'est PAS un Module, on ne peut pas lui propager.
+        self.patch_embed.projection.train(on);
+        self.head.train(on);
     }
 
     fn parameter_indices(&self) -> Vec<usize> {
@@ -105,5 +128,159 @@ impl Module for ViT {
         self.patch_embed.projection.sync(tape);
         self.encoder.sync(tape);
         self.head.sync(tape);
+    }
+
+    fn state_dict(&self) -> HashMap<String, Tensor> {
+        let mut map = HashMap::new();
+        let p = &self.name;
+        // Patch-embedding conv and classification head have no globally-unique
+        // names, prefix manually (same convention as the TransformerBlock FFN).
+        map.insert(
+            format!("{p}.patch_embed.weight"),
+            self.patch_embed.projection.weight.clone(),
+        );
+        if let Some(b) = &self.patch_embed.projection.bias {
+            map.insert(format!("{p}.patch_embed.bias"), b.clone());
+        }
+        // Encoder blocks already carry globally-unique names (enc_block_i.*).
+        for (k, v) in self.encoder.state_dict() {
+            map.insert(k, v);
+        }
+        map.insert(format!("{p}.head.weight"), self.head.weight.clone());
+        map.insert(format!("{p}.head.bias"), self.head.bias.clone());
+        map
+    }
+
+    fn load_state_dict(&mut self, sd: &HashMap<String, Tensor>) -> crate::error::Result<()> {
+        let p = self.name.clone();
+
+        // Patch embedding conv.
+        let conv = &mut self.patch_embed.projection;
+        let w = sd
+            .get(&format!("{p}.patch_embed.weight"))
+            .ok_or_else(|| format!("missing key: {p}.patch_embed.weight"))?;
+        let kk = conv.kernel * conv.kernel;
+        if w.shape() != (conv.out_c, conv.in_c * kk) {
+            crate::bail!(
+                "{p}.patch_embed.weight shape mismatch: expected {:?}, got {:?}",
+                (conv.out_c, conv.in_c * kk),
+                w.shape()
+            );
+        }
+        conv.weight = w.clone();
+        if conv.bias.is_some() {
+            let b = sd
+                .get(&format!("{p}.patch_embed.bias"))
+                .ok_or_else(|| format!("missing key: {p}.patch_embed.bias"))?;
+            if b.shape() != (1, conv.out_c) {
+                crate::bail!(
+                    "{p}.patch_embed.bias shape mismatch: expected {:?}, got {:?}",
+                    (1, conv.out_c),
+                    b.shape()
+                );
+            }
+            conv.bias = Some(b.clone());
+        }
+
+        // Encoder blocks (namespaced by their own names).
+        self.encoder.load_state_dict(sd)?;
+
+        // Classification head.
+        let hw = sd
+            .get(&format!("{p}.head.weight"))
+            .ok_or_else(|| format!("missing key: {p}.head.weight"))?;
+        let hb = sd
+            .get(&format!("{p}.head.bias"))
+            .ok_or_else(|| format!("missing key: {p}.head.bias"))?;
+        if hw.shape() != (self.head.in_features, self.head.out_features) {
+            crate::bail!(
+                "{p}.head.weight shape mismatch: expected {:?}, got {:?}",
+                (self.head.in_features, self.head.out_features),
+                hw.shape()
+            );
+        }
+        if hb.shape() != (1, self.head.out_features) {
+            crate::bail!(
+                "{p}.head.bias shape mismatch: expected {:?}, got {:?}",
+                (1, self.head.out_features),
+                hb.shape()
+            );
+        }
+        self.head.weight = hw.clone();
+        self.head.bias = hb.clone();
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nn::init::{KaimingNormal, Zeros};
+
+    #[test]
+    fn vit_output_depends_on_image_for_multiple_patches() {
+        // 4x4 single-channel image, patch 2 -> 4 patches (seq_len = 4 > 1).
+        let mut rng = PcgEngine::new(1);
+        let mut vit = ViT::new(4, 2, 1, 3, 8, 2, 1, 16, &KaimingNormal, &Zeros, &mut rng);
+
+        let tape = Tape::new();
+        let img_a = tape.input(Tensor::from_vec(
+            (0..16).map(|i| i as f32 * 0.1).collect(),
+            1,
+            16,
+        ));
+        let out_a = vit.forward(&tape, img_a);
+        assert_eq!(tape.value(out_a.idx()).shape(), (1, 3));
+        let logits_a = tape.value(out_a.idx()).data.clone();
+
+        let tape2 = Tape::new();
+        let img_b = tape2.input(Tensor::from_vec(
+            (0..16).map(|i| (16 - i) as f32 * 0.1).collect(),
+            1,
+            16,
+        ));
+        let out_b = vit.forward(&tape2, img_b);
+        let logits_b = tape2.value(out_b.idx()).data.clone();
+
+        // Regression: distinct images must yield distinct logits (pre-fix the
+        // multi-patch path fed zeros into the head, so every image was identical).
+        let differ = logits_a
+            .iter()
+            .zip(&logits_b)
+            .any(|(a, b)| (a - b).abs() > 1e-6);
+        assert!(differ, "ViT output must depend on the image content");
+
+        // Gradients must flow (no zeros dead-end): backward does not panic.
+        let loss = out_a.sum();
+        tape.backward(loss.idx());
+    }
+
+    #[test]
+    fn vit_state_dict_round_trip() {
+        let mut rng = PcgEngine::new(1);
+        let mut vit1 = ViT::new(4, 2, 1, 3, 8, 2, 1, 16, &KaimingNormal, &Zeros, &mut rng);
+        let sd = vit1.state_dict();
+        assert!(sd.contains_key("vit.patch_embed.weight"));
+        assert!(sd.contains_key("vit.head.weight"));
+
+        let mut rng2 = PcgEngine::new(99);
+        let mut vit2 = ViT::new(4, 2, 1, 3, 8, 2, 1, 16, &Zeros, &Zeros, &mut rng2);
+        // Missing keys must be an error, not a silent skip.
+        assert!(vit2.load_state_dict(&HashMap::new()).is_err());
+        vit2.load_state_dict(&sd).unwrap();
+
+        // Compare every parameter tensor through the tape values.
+        let tape1 = Tape::new();
+        let tape2 = Tape::new();
+        let img = Tensor::from_vec((0..16).map(|i| i as f32 * 0.1).collect(), 1, 16);
+        let _ = vit1.forward(&tape1, tape1.input(img.clone()));
+        let _ = vit2.forward(&tape2, tape2.input(img));
+        let idx1 = vit1.parameter_indices();
+        let idx2 = vit2.parameter_indices();
+        assert!(!idx1.is_empty());
+        assert_eq!(idx1.len(), idx2.len());
+        for (a, b) in idx1.iter().zip(&idx2) {
+            assert_eq!(tape1.value(*a).data, tape2.value(*b).data);
+        }
     }
 }

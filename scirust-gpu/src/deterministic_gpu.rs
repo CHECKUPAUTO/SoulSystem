@@ -148,7 +148,8 @@ impl DeterministicGpu {
         n: usize,
         q: i32,
     ) -> BackendResult<Vec<i32>> {
-        if a.len() != m * k || b.len() != k * n {
+        if a.len() != m * k || b.len() != k * n
+        {
             return Err(BackendError::ShapeMismatch(format!(
                 "crypto: A({}*{})={} B({}*{})={}",
                 m,
@@ -160,7 +161,8 @@ impl DeterministicGpu {
             )));
         }
         let elems = m * n;
-        if elems == 0 {
+        if elems == 0
+        {
             return Ok(Vec::new());
         }
 
@@ -306,7 +308,9 @@ impl DeterministicGpu {
         k: usize,
         n: usize,
     ) -> BackendResult<Vec<i32>> {
-        let Some(pipeline) = &self.fixed_i64_pipeline else {
+        let Some(pipeline) = &self.fixed_i64_pipeline
+        else
+        {
             // Fallback to emulated
             return self.fixed_point_gemm_q16_emulated(a, b, m, k, n);
         };
@@ -322,16 +326,20 @@ impl DeterministicGpu {
         k: usize,
         n: usize,
     ) -> BackendResult<Vec<i64>> {
-        let Some(pipeline) = &self.fixed_q32_i64_pipeline else {
+        let Some(pipeline) = &self.fixed_q32_i64_pipeline
+        else
+        {
             return Err(BackendError::Unavailable("SHADER_INT64"));
         };
-        if a.len() != m * k || b.len() != k * n {
+        if a.len() != m * k || b.len() != k * n
+        {
             return Err(BackendError::ShapeMismatch(
                 "Q32 shape mismatch".to_string(),
             ));
         }
         let elems = m * n;
-        if elems == 0 {
+        if elems == 0
+        {
             return Ok(Vec::new());
         }
 
@@ -480,7 +488,8 @@ impl DeterministicGpu {
         in_dim: usize,
         relu: bool,
     ) -> BackendResult<Vec<i32>> {
-        if b.len() != out_dim {
+        if b.len() != out_dim
+        {
             return Err(BackendError::ShapeMismatch(format!(
                 "dense bias: {} != out_dim {}",
                 b.len(),
@@ -489,7 +498,8 @@ impl DeterministicGpu {
         }
         let z = self.fixed_point_gemm_q16_emulated(w, x, out_dim, in_dim, 1)?;
         let mut y = vec![0i32; out_dim];
-        for (o, yo) in y.iter_mut().enumerate() {
+        for (o, yo) in y.iter_mut().enumerate()
+        {
             let v = z[o].wrapping_add(b[o]);
             *yo = if relu && v < 0 { 0 } else { v };
         }
@@ -508,13 +518,15 @@ impl DeterministicGpu {
         n: usize,
         label: &str,
     ) -> BackendResult<Vec<i32>> {
-        if a.len() != m * k || b.len() != k * n {
+        if a.len() != m * k || b.len() != k * n
+        {
             return Err(BackendError::ShapeMismatch(format!(
                 "{label}: shape mismatch"
             )));
         }
         let elems = m * n;
-        if elems == 0 {
+        if elems == 0
+        {
             return Ok(Vec::new());
         }
 
@@ -606,7 +618,8 @@ impl DeterministicGpu {
         let a_san: Vec<f32> = a.iter().map(|&x| deterministic::sanitize_f32(x)).collect();
         let b_san: Vec<f32> = b.iter().map(|&x| deterministic::sanitize_f32(x)).collect();
 
-        if m == 0 || n == 0 {
+        if m == 0 || n == 0
+        {
             return Ok(Vec::new());
         }
         let elems = m * n;
@@ -825,7 +838,8 @@ impl DeterministicValidator {
         let gpu_res = gpu
             .crypto_gemm(a, b, m, k, n, q)
             .map_err(|e| format!("GPU error: {e}"))?;
-        if cpu != gpu_res {
+        if cpu != gpu_res
+        {
             return Err(format!(
                 "crypto bit-exact mismatch: CPU has {} elements, GPU has {}",
                 cpu.len(),
@@ -849,7 +863,8 @@ impl DeterministicValidator {
         let gpu_res = gpu
             .fixed_point_gemm_q16(a, b, m, k, n)
             .map_err(|e| format!("GPU error: {e}"))?;
-        if cpu != gpu_res {
+        if cpu != gpu_res
+        {
             return Err("fixed-point Q16 i32 bit-exact mismatch".to_string());
         }
         Ok(cpu)
@@ -864,7 +879,8 @@ impl DeterministicValidator {
         k: usize,
         n: usize,
     ) -> Result<Vec<i32>, String> {
-        if !gpu.has_int64() {
+        if !gpu.has_int64()
+        {
             return Err("SHADER_INT64 not available".to_string());
         }
         let cpu = deterministic::fixed_point_gemm_q16(a, b, m, k, n)
@@ -872,7 +888,8 @@ impl DeterministicValidator {
         let gpu_res = gpu
             .fixed_point_gemm_q16_i64(a, b, m, k, n)
             .map_err(|e| format!("GPU error: {e}"))?;
-        if cpu != gpu_res {
+        if cpu != gpu_res
+        {
             return Err("fixed-point Q16 i64 bit-exact mismatch".to_string());
         }
         Ok(cpu)
@@ -892,7 +909,8 @@ impl DeterministicValidator {
         let gpu_res = gpu
             .fixed_point_gemm_q16_emulated(a, b, m, k, n)
             .map_err(|e| format!("GPU error: {e}"))?;
-        if cpu != gpu_res {
+        if cpu != gpu_res
+        {
             return Err(format!(
                 "fixed-point Q16 emulated mismatch: CPU[0]={} GPU[0]={}",
                 cpu.first().unwrap_or(&0),
@@ -911,7 +929,8 @@ impl DeterministicValidator {
         k: usize,
         n: usize,
     ) -> Result<Vec<i64>, String> {
-        if !gpu.has_int64() {
+        if !gpu.has_int64()
+        {
             return Err("SHADER_INT64 not available".to_string());
         }
         let cpu = deterministic::fixed_point_gemm_q32(a, b, m, k, n)
@@ -919,7 +938,8 @@ impl DeterministicValidator {
         let gpu_res = gpu
             .fixed_point_gemm_q32_i64(a, b, m, k, n)
             .map_err(|e| format!("GPU error: {e}"))?;
-        if cpu != gpu_res {
+        if cpu != gpu_res
+        {
             return Err("fixed-point Q32 i64 bit-exact mismatch".to_string());
         }
         Ok(cpu)
@@ -949,10 +969,12 @@ impl DeterministicValidator {
             .collect();
 
         // For f32, verify bit-exact with signed-zero tolerance
-        if let Err(e) = deterministic::verify_bit_exact(&gpu_res, &cpu_san) {
+        if let Err(e) = deterministic::verify_bit_exact(&gpu_res, &cpu_san)
+        {
             // Fallback: check relative error if bit-exact fails
             let rel = deterministic::rel_err(&gpu_res, &cpu_san);
-            if rel >= 1e-5 {
+            if rel >= 1e-5
+            {
                 return Err(format!("sanitized f32 mismatch: {e} (rel_err={rel})"));
             }
         }
@@ -1028,7 +1050,9 @@ mod tests {
 
     #[test]
     fn test_crypto_gpu_vs_cpu_bit_exact() {
-        let Some(det) = get_deterministic_gpu() else {
+        let Some(det) = get_deterministic_gpu()
+        else
+        {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -1049,7 +1073,9 @@ mod tests {
 
     #[test]
     fn test_crypto_gemm_verified_gpu() {
-        let Some(det) = get_deterministic_gpu() else {
+        let Some(det) = get_deterministic_gpu()
+        else
+        {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -1078,7 +1104,9 @@ mod tests {
 
     #[test]
     fn test_fixed_q16_gpu_vs_cpu_bit_exact() {
-        let Some(det) = get_deterministic_gpu() else {
+        let Some(det) = get_deterministic_gpu()
+        else
+        {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -1099,7 +1127,9 @@ mod tests {
     /// Piste B: emulated 64-bit — works on ANY GPU, full f32 range in Q16.
     #[test]
     fn test_fixed_q16_emulated_full_range() {
-        let Some(det) = get_deterministic_gpu() else {
+        let Some(det) = get_deterministic_gpu()
+        else
+        {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -1118,7 +1148,9 @@ mod tests {
     /// the emulated path bit-exact with the floor-shift i64 oracle for negatives.
     #[test]
     fn test_fixed_q16_emulated_signed() {
-        let Some(det) = get_deterministic_gpu() else {
+        let Some(det) = get_deterministic_gpu()
+        else
+        {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -1141,7 +1173,9 @@ mod tests {
     /// emulated path must be bit-for-bit identical to the CPU oracle.
     #[test]
     fn test_fixed_point_mlp_bit_exact_gpu_vs_cpu() {
-        let Some(det) = get_deterministic_gpu() else {
+        let Some(det) = get_deterministic_gpu()
+        else
+        {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -1177,11 +1211,14 @@ mod tests {
     /// Piste A: native i64 — works only if SHADER_INT64 is available.
     #[test]
     fn test_fixed_q16_i64_if_available() {
-        let Some(det) = get_deterministic_gpu() else {
+        let Some(det) = get_deterministic_gpu()
+        else
+        {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
-        if !det.has_int64() {
+        if !det.has_int64()
+        {
             eprintln!("SHADER_INT64 not available, skipping native i64 test");
             return;
         }
@@ -1198,11 +1235,14 @@ mod tests {
     /// Piste A étendue: Q31.32 i64 — ultra-haute précision.
     #[test]
     fn test_fixed_q32_i64_if_available() {
-        let Some(det) = get_deterministic_gpu() else {
+        let Some(det) = get_deterministic_gpu()
+        else
+        {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
-        if !det.has_int64() {
+        if !det.has_int64()
+        {
             eprintln!("SHADER_INT64 not available, skipping Q32 test");
             return;
         }
@@ -1226,7 +1266,9 @@ mod tests {
 
     #[test]
     fn test_sanitized_f32_gpu_vs_cpu() {
-        let Some(det) = get_deterministic_gpu() else {
+        let Some(det) = get_deterministic_gpu()
+        else
+        {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };
@@ -1243,7 +1285,9 @@ mod tests {
 
     #[test]
     fn test_sanitized_f32_handles_subnormals() {
-        let Some(det) = get_deterministic_gpu() else {
+        let Some(det) = get_deterministic_gpu()
+        else
+        {
             eprintln!("wgpu: no adapter, skipping");
             return;
         };

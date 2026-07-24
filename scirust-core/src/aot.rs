@@ -35,6 +35,7 @@ pub fn generate_static_pipeline(layers: &[LayerSpec], weights_bytes: &[u8]) -> S
 
     let mut current_offset = 0;
     let mut weight_arrays = Vec::new();
+    let mut bias_arrays = Vec::new();
 
     for (i, layer) in layers.iter().enumerate() {
         if let LayerSpec::Linear {
@@ -46,14 +47,26 @@ pub fn generate_static_pipeline(layers: &[LayerSpec], weights_bytes: &[u8]) -> S
             let end = current_offset + size * 4;
             let weights_slice = &weights_bytes[current_offset..end];
             let mut f32_weights = Vec::new();
-            for chunk in weights_slice.chunks_exact(4) {
-                f32_weights.push(f32::from_le_bytes(chunk.try_into().unwrap()));
+            for chunk in weights_slice.as_chunks::<4>().0 {
+                f32_weights.push(f32::from_le_bytes(*chunk));
+            }
+
+            // A Linear layer is `y = x·W + b`; the `out_features` bias values
+            // follow the weight matrix in the byte stream. Omitting them (as the
+            // generated code previously did) makes every compiled Linear layer
+            // numerically wrong for any real trained model.
+            let bias_end = end + out_features * 4;
+            let bias_slice = &weights_bytes[end..bias_end];
+            let mut f32_bias = Vec::new();
+            for chunk in bias_slice.as_chunks::<4>().0 {
+                f32_bias.push(f32::from_le_bytes(*chunk));
             }
 
             code.push_str(&format!(
                 "    pub weight_{}: [[f32; {}]; {}],\n",
                 i, out_features, in_features
             ));
+            code.push_str(&format!("    pub bias_{}: [f32; {}],\n", i, out_features));
 
             let mut val_str = String::new();
             val_str.push_str("[\n");
@@ -67,7 +80,14 @@ pub fn generate_static_pipeline(layers: &[LayerSpec], weights_bytes: &[u8]) -> S
             val_str.push_str("        ]");
             weight_arrays.push((i, val_str));
 
-            current_offset = end;
+            let mut bias_str = String::from("[");
+            for b in &f32_bias {
+                bias_str.push_str(&format!("{:.8}, ", b));
+            }
+            bias_str.push(']');
+            bias_arrays.push((i, bias_str));
+
+            current_offset = bias_end;
         }
     }
     code.push_str("}\n\n");
@@ -77,6 +97,12 @@ pub fn generate_static_pipeline(layers: &[LayerSpec], weights_bytes: &[u8]) -> S
     code.push_str("        Self {\n");
     for (i, val) in &weight_arrays {
         code.push_str(&format!("            weight_{}: {},\n", i, val));
+        let bias = &bias_arrays
+            .iter()
+            .find(|(bi, _)| bi == i)
+            .expect("every weight has a matching bias")
+            .1;
+        code.push_str(&format!("            bias_{}: {},\n", i, bias));
     }
     code.push_str("        }\n");
     code.push_str("    }\n\n");
@@ -100,7 +126,10 @@ pub fn generate_static_pipeline(layers: &[LayerSpec], weights_bytes: &[u8]) -> S
                 ));
                 code.push_str("        for b in 0..B {\n");
                 code.push_str(&format!("            for o in 0..{} {{\n", out_features));
-                code.push_str("                let mut acc = 0.0f32;\n");
+                code.push_str(&format!(
+                    "                let mut acc = self.bias_{}[o];\n",
+                    i
+                ));
                 code.push_str(&format!("                for i in 0..{} {{\n", in_features));
                 code.push_str(&format!(
                     "                    acc += buf{}[b][i] * self.weight_{}[i][o];\n",

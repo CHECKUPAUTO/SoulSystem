@@ -30,11 +30,16 @@ pub fn matmul_int8(a: &[i8], b: &[i8], m: usize, k: usize, n: usize) -> Vec<i32>
     let mut result = vec![0i32; m * n];
     for i in 0..m {
         for j in 0..n {
-            let mut sum = 0i32;
+            // Accumulate in i64: each i8*i8 product fits in i32, but summing
+            // more than ~133k of them overflows i32 (a debug-mode panic and a
+            // silent wraparound → wrong result in release). i64 holds any
+            // realistic contraction length; the final value is saturated into
+            // the i32 output range instead of wrapping.
+            let mut sum = 0i64;
             for kk in 0..k {
-                sum += a[i * k + kk] as i32 * b[kk * n + j] as i32;
+                sum += a[i * k + kk] as i64 * b[kk * n + j] as i64;
             }
-            result[i * n + j] = sum;
+            result[i * n + j] = sum.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
         }
     }
     result
@@ -124,6 +129,37 @@ pub fn quantized_linear_forward(
     bias: &[f32],
     out_features: usize,
 ) -> Vec<f32> {
+    // Validate lengths up front (matching the sibling quantized kernels) so a
+    // caller mismatch is a clear error rather than an opaque out-of-bounds panic
+    // deep inside matmul_int8 / the scale loop.
+    assert_eq!(
+        input.len(),
+        batch * in_features,
+        "quantized_linear_forward: input.len() {} != batch*in_features {}",
+        input.len(),
+        batch * in_features
+    );
+    assert_eq!(
+        w_q.len(),
+        in_features * out_features,
+        "quantized_linear_forward: w_q.len() {} != in_features*out_features {}",
+        w_q.len(),
+        in_features * out_features
+    );
+    assert_eq!(
+        w_scales.len(),
+        out_features,
+        "quantized_linear_forward: w_scales.len() {} != out_features {}",
+        w_scales.len(),
+        out_features
+    );
+    assert_eq!(
+        bias.len(),
+        out_features,
+        "quantized_linear_forward: bias.len() {} != out_features {}",
+        bias.len(),
+        out_features
+    );
     let scale_in = compute_scale(input);
     let x_q = quantize_tensor(input, scale_in);
     let acc = matmul_int8(&x_q, w_q, batch, in_features, out_features);
@@ -150,6 +186,17 @@ mod tests_quant_linear {
         assert!((scales[0] - 4.0 / 127.0).abs() < 1e-9);
         assert!((scales[1] - 2.0 / 127.0).abs() < 1e-9);
         assert!((scales[2] - 0.5 / 127.0).abs() < 1e-9);
+    }
+
+    #[test]
+    #[should_panic(expected = "input.len()")]
+    fn quantized_linear_forward_rejects_length_mismatch() {
+        // input should be batch*in_features = 2*4 = 8, but we pass 6.
+        let input = vec![0.0f32; 6];
+        let w_q = vec![0i8; 12]; // 4*3
+        let w_scales = vec![1.0f32; 3];
+        let bias = vec![0.0f32; 3];
+        let _ = quantized_linear_forward(&input, 2, 4, &w_q, &w_scales, &bias, 3);
     }
 
     #[test]
@@ -989,10 +1036,16 @@ pub fn nf4_quantize(w: &[f32]) -> (Vec<u8>, f32) {
 }
 
 /// Dequantise NF4 codes back to `f32`: `NF4_LEVELS[code] · absmax`.
+///
+/// NF4 codes are 4-bit; only the low nibble of each byte is meaningful. A
+/// corrupted or untrusted packed-weights buffer may carry bytes ≥ 16, which
+/// would index `NF4_LEVELS` (16 entries) out of bounds and panic (DoS). Masking
+/// to the low nibble decodes an out-of-range byte deterministically instead of
+/// aborting the process.
 pub fn nf4_dequantize(codes: &[u8], absmax: f32) -> Vec<f32> {
     codes
         .iter()
-        .map(|&c| NF4_LEVELS[c as usize] * absmax)
+        .map(|&c| NF4_LEVELS[(c & 0x0F) as usize] * absmax)
         .collect()
 }
 

@@ -8,6 +8,7 @@
 // En eval : utilise running_mean/running_var avec graphe AD minimal.
 
 use crate::autodiff::reverse::{Tape, Tensor, Var};
+use crate::error::Result;
 use crate::nn::module::Module;
 use std::collections::HashMap;
 
@@ -75,19 +76,31 @@ impl BatchNorm1d {
         (mean, var)
     }
 
-    fn update_running_stats(&mut self, batch_mean: &[f32], batch_var: &[f32]) {
+    fn update_running_stats(&mut self, batch_mean: &[f32], batch_var: &[f32], n: usize) {
         let alpha = self.momentum;
+        // Bessel's correction: the running variance tracks the *unbiased*
+        // estimator (÷(n-1)), matching PyTorch, while normalization above uses
+        // the biased one (÷n). `batch_var` is biased, so scale by n/(n-1).
+        let bessel = if n > 1 {
+            n as f32 / (n as f32 - 1.0)
+        } else {
+            1.0
+        };
         for j in 0..self.running_mean.cols {
             self.running_mean.data[j] =
                 (1.0 - alpha) * self.running_mean.data[j] + alpha * batch_mean[j];
             self.running_var.data[j] =
-                (1.0 - alpha) * self.running_var.data[j] + alpha * batch_var[j];
+                (1.0 - alpha) * self.running_var.data[j] + alpha * batch_var[j] * bessel;
         }
     }
 }
 
 impl Module for BatchNorm1d {
     fn forward<'t>(&mut self, tape: &'t Tape, input: Var<'t>) -> Var<'t> {
+        self.try_forward(tape, input).unwrap()
+    }
+
+    fn try_forward<'t>(&mut self, tape: &'t Tape, input: Var<'t>) -> Result<Var<'t>> {
         let (n, f) = input.shape();
         let inv_n = 1.0 / n as f32;
 
@@ -96,32 +109,56 @@ impl Module for BatchNorm1d {
         self.last_g_idx = Some(gamma_v.idx());
         self.last_b_idx = Some(beta_v.idx());
 
+        // Guard against a feature-width mismatch: without this, a wider
+        // `running_mean` (e.g. from a malformed checkpoint or a direct write to
+        // the pub field) or a narrower input makes `update_running_stats` index
+        // out of bounds. A clear panic beats a confusing OOB one
+        // (Module::forward cannot return a Result). Check the input AND both
+        // running buffers against the parameter width.
+        assert_eq!(
+            f, self.gamma.cols,
+            "BatchNorm1d '{}': input has {f} features but the layer was built for {}",
+            self.name, self.gamma.cols
+        );
+        assert!(
+            self.running_mean.cols == self.gamma.cols && self.running_var.cols == self.gamma.cols,
+            "BatchNorm1d '{}': running_mean/var width ({}, {}) must match the {} features",
+            self.name,
+            self.running_mean.cols,
+            self.running_var.cols,
+            self.gamma.cols
+        );
+
         if self.training {
             let input_t = tape.value(input.idx());
             let (batch_mean, batch_var) = self.compute_batch_stats(&input_t.data, n, f);
-            self.update_running_stats(&batch_mean, &batch_var);
+            self.update_running_stats(&batch_mean, &batch_var, n);
 
             let mu = input.sum_axis(0).scale(inv_n);
             let mu_neg = mu.neg();
-            let centered = input.try_add_broadcast(mu_neg).unwrap();
-            let centered_sq = centered.try_hadamard(centered).unwrap();
+            let centered = input.try_add_broadcast(mu_neg)?;
+            let centered_sq = centered.try_hadamard(centered)?;
             let var = centered_sq.sum_axis(0).scale(inv_n);
             let eps_t = tape.input(Tensor::from_vec(vec![self.eps; f], 1, f));
-            let std = var.try_add(eps_t).unwrap().sqrt();
+            let std = var.try_add(eps_t)?.sqrt();
             let inv_std = std.reciprocal();
-            let x_hat = centered.try_mul_broadcast(inv_std).unwrap();
-            let scaled = x_hat.try_mul_broadcast(gamma_v).unwrap();
-            scaled.try_add_broadcast(beta_v).unwrap()
+            let x_hat = centered.try_mul_broadcast(inv_std)?;
+            let scaled = x_hat.try_mul_broadcast(gamma_v)?;
+            scaled.try_add_broadcast(beta_v)
         } else {
             let rmean_v = tape.input(self.running_mean.clone());
             let rvar_v = tape.input(self.running_var.clone());
-            let centered = input.try_add_broadcast(rmean_v.neg()).unwrap();
+            let centered = input.try_add_broadcast(rmean_v.neg())?;
             let eps_t = tape.input(Tensor::from_vec(vec![self.eps; f], 1, f));
-            let std = rvar_v.try_add(eps_t).unwrap().sqrt();
-            let x_hat = centered.try_mul_broadcast(std.reciprocal()).unwrap();
-            let scaled = x_hat.try_mul_broadcast(gamma_v).unwrap();
-            scaled.try_add_broadcast(beta_v).unwrap()
+            let std = rvar_v.try_add(eps_t)?.sqrt();
+            let x_hat = centered.try_mul_broadcast(std.reciprocal())?;
+            let scaled = x_hat.try_mul_broadcast(gamma_v)?;
+            scaled.try_add_broadcast(beta_v)
         }
+    }
+
+    fn train(&mut self, on: bool) {
+        self.set_training(on);
     }
 
     fn parameter_indices(&self) -> Vec<usize> {
@@ -173,8 +210,23 @@ impl Module for BatchNorm1d {
             .get(&format!("{}.running_var", self.name))
             .ok_or_else(|| format!("missing key: {}.running_var", self.name))?;
 
-        if g.shape() != (1, self.gamma.cols) {
-            crate::bail!("gamma shape mismatch");
+        // Validate *every* tensor's shape, not just gamma: an accepted but
+        // wider running_mean/var would later make forward() index out of bounds.
+        let expected = (1, self.gamma.cols);
+        for (key, t) in [
+            ("gamma", g),
+            ("beta", b),
+            ("running_mean", rm),
+            ("running_var", rv),
+        ] {
+            if t.shape() != expected {
+                crate::bail!(
+                    "BatchNorm1d '{}': {key} shape {:?} != expected {:?}",
+                    self.name,
+                    t.shape(),
+                    expected
+                );
+            }
         }
         self.gamma = g.clone();
         self.beta = b.clone();

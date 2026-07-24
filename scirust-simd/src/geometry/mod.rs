@@ -1,0 +1,73 @@
+// scirust-simd/src/geometry/mod.rs
+//
+// # Géométrie générique — orientation & rotations 3D
+//
+// Types géométriques **génériques sur le scalaire**, construits sur les traits
+// [`NumericScalar`](crate::fixed::NumericScalar) /
+// [`RealScalar`](crate::fixed::RealScalar) du sous-système virgule fixe. La
+// même implémentation sert le flottant (`f32`/`f64`) **et** la virgule fixe
+// déterministe (`FixedI32<FRAC>`) — aucune duplication.
+//
+// ## Contenu
+//
+// * [`Quaternion`] — quaternion de Hamilton générique : produit, conjugaison,
+//   norme, normalisation, inverse, construction angle-axe, rotation de vecteur,
+//   matrice de rotation (aller-retour), angles d'Euler (aller-retour),
+//   interpolation `nlerp`/`slerp`.
+// * [`Transform`] — déplacement rigide `SE(3)` (rotation + translation) :
+//   composition, inverse, matrice homogène 4×4 (aller-retour).
+// * [`Se2`] — le pendant **plan** de [`Transform`] : déplacement rigide
+//   `SE(2)` (rotation `SO(2)` + translation 2D), composition/inverse en
+//   `O(1)` — l'algèbre de pose de la robotique mobile 2D (odométrie, SLAM
+//   plan) reproductible bit-à-bit.
+// * [`curves`] — splines d'interpolation ([`curves::bezier_cubic`] et sa
+//   tangente [`curves::bezier_cubic_tangent`], [`curves::catmull_rom`]),
+//   génériques sur le scalaire **et** la dimension `[T; D]` : lissage de
+//   trajectoires (Catmull–Rom **passe par** ses points de contrôle, Bézier
+//   les approche en restant tangente aux extrémités).
+// * [`DualQuaternion`] — le même déplacement `SE(3)`, encodé en un seul
+//   quaternion dual (`qᵣ + ε·q_d`) plutôt qu'une paire ; permet
+//   [`DualQuaternion::sclerp`] (*screw linear interpolation*), la
+//   généralisation exacte de `slerp` à `SE(3)` entier (vitesse angulaire
+//   **et** linéaire constantes), là où interpoler séparément rotation et
+//   translation de deux `Transform` ne suit pas la trajectoire physique
+//   réelle si l'axe de rotation ne passe pas par l'origine.
+//   [`DualQuaternion::to_screw`]/[`DualQuaternion::from_screw`] exposent les
+//   paramètres de Plücker/Chasles du vissage ([`Screw`] : axe, angle, pas,
+//   moment) en API autonome — utile pour extraire l'axe de vissage fini
+//   entre deux poses (calibrage/visualisation en robotique).
+// * [`ahrs`] — fusion de capteurs inertiels en orientation
+//   ([`ahrs::MadgwickFilter`] par descente de gradient,
+//   [`ahrs::MahonyFilter`] complémentaire explicite proportionnel-intégral) :
+//   combine gyroscope (intègre précisément à court terme, dérive à long
+//   terme) et accéléromètre/magnétomètre (bruités mais sans dérive) — le
+//   cœur de tout contrôleur de vol de drone ou carte AHRS/IMU. `update_imu`
+//   (6 ddl) ne contraint pas le lacet (invisible à la gravité seule) ;
+//   `update_marg` (9 ddl, magnétomètre) le corrige aussi.
+//
+// ## Pourquoi générique ?
+//
+// Un quaternion en `Quaternion<FixedI32<16>>` fait tourner un vecteur avec un
+// résultat **reproductible bit-à-bit** sur toute architecture — utile pour la
+// robotique déterministe, la simulation rejouable et l'embarqué sans FPU — tout
+// en réutilisant le **même code** que `Quaternion<f32>`. C'est la validation de
+// bout en bout du trait [`RealScalar`](crate::fixed::RealScalar). `Transform`
+// hérite de cette généricité : composer des poses `SE(3)` en virgule fixe
+// donne la même trajectoire, bit pour bit, sur toute plateforme.
+
+pub mod ahrs;
+pub mod curves;
+pub mod dual_quaternion;
+pub mod quaternion;
+pub mod se2;
+pub mod transform;
+
+pub use ahrs::{MadgwickFilter, MahonyFilter};
+pub use curves::{bezier_cubic, bezier_cubic_tangent, catmull_rom};
+pub use dual_quaternion::{DualQuaternion, Screw};
+pub use quaternion::Quaternion;
+pub use se2::Se2;
+pub use transform::Transform;
+
+#[cfg(test)]
+mod tests;

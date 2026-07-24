@@ -77,6 +77,11 @@ const STRATEGIES: [&str; 6] = [
     "ccos-region",
 ];
 
+/// The strategies to evaluate.
+fn strategies() -> Vec<&'static str> {
+    STRATEGIES.to_vec()
+}
+
 /// Per `(strategy, diameter)` tally: `(solved, hallucinations, covered, token_sum, n)`.
 type Tally = (usize, usize, usize, f32, usize);
 
@@ -661,10 +666,11 @@ pub async fn run_eval(cfg: &EvalConfig) -> EvalReport {
     let scenario = if cfg.noisy { "noisy" } else { "clean" };
 
     // strategy → diameter → tally
+    let strats = strategies();
     let mut acc: BTreeMap<(String, u32), Tally> = BTreeMap::new();
     for (ti, task) in tasks.iter().enumerate() {
         let (g, _text) = build_graph(task);
-        for strat in STRATEGIES {
+        for strat in strats.iter().copied() {
             let sel = select(strat, task, &g, cfg.budget_tokens);
             let covered = task.required.iter().all(|r| sel.contains(r));
             let (prompt, toks) = assemble_prompt(task, &sel);
@@ -686,7 +692,7 @@ pub async fn run_eval(cfg: &EvalConfig) -> EvalReport {
                 "\r  [{scenario}] {}/{} tasks ({} calls each)…   ",
                 ti + 1,
                 tasks.len(),
-                STRATEGIES.len()
+                strats.len()
             );
             let _ = std::io::stderr().flush();
         }
@@ -720,7 +726,7 @@ pub async fn run_eval(cfg: &EvalConfig) -> EvalReport {
     let mut per_diameter = Vec::new();
     for &d in &cfg.diameters {
         let mut row = Vec::new();
-        for strat in STRATEGIES {
+        for strat in strats.iter().copied() {
             if let Some((s, h, c, t, n)) = acc.get(&(strat.to_string(), d)) {
                 if *n > 0 {
                     row.push(mk(*s, *h, *c, *t, *n, strat));
@@ -732,7 +738,7 @@ pub async fn run_eval(cfg: &EvalConfig) -> EvalReport {
         }
     }
     let mut overall = Vec::new();
-    for strat in STRATEGIES {
+    for strat in strats.iter().copied() {
         let (mut s, mut h, mut c, mut t, mut n) = (0, 0, 0, 0.0, 0);
         for &d in &cfg.diameters {
             if let Some((ss, hh, cc, tt, nn)) = acc.get(&(strat.to_string(), d)) {
@@ -849,13 +855,23 @@ mod tests {
 
     #[tokio::test]
     async fn pipeline_runs_offline_stub() {
+        // Hermetic: `provider_label()` picks the provider from the process env
+        // (ANTHROPIC_API_KEY / OPENAI_API_KEY / OLLAMA_ENDPOINT). A contributor
+        // with a local Ollama server configured would otherwise see this test
+        // fail with a non-`none` provider. Strip them so the offline stub path
+        // is exercised deterministically. This is the only test that calls
+        // `run_eval`, so removing these vars cannot race with a parallel test.
+        for v in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_ENDPOINT"] {
+            std::env::remove_var(v);
+        }
         // With no LLM configured, the harness still runs; every answer is wrong.
         let report = run_eval(&EvalConfig {
             tasks: 6,
             ..Default::default()
         })
         .await;
-        assert_eq!(report.overall.len(), 6);
+        // One row per strategy.
+        assert_eq!(report.overall.len(), strategies().len());
         assert!(report.provider.starts_with("none"));
         for s in &report.overall {
             assert_eq!(s.solved, 0, "offline stub solves nothing");

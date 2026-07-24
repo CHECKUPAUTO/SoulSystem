@@ -4,7 +4,9 @@
 use crate::nn::conv_utils::im2col_raw;
 use crate::nn::rng::PcgEngine;
 use crate::tensor::tensor_nd::TensorND;
-use crate::tn::tt_decompose::{TTCores, interleave_weight, reconstruct_matrix};
+use crate::tn::tt_decompose::{
+    TTCores, interleave_weight, reconstruct_matrix, tt_contract_backward,
+};
 use matrixmultiply::sgemm;
 use std::cell::RefCell;
 
@@ -45,6 +47,239 @@ pub trait GpuEngine: std::fmt::Debug {
 //  Tensor — 2D dense row-major                                       //
 // ================================================================== //
 
+/// `C = alpha·op(A)·op(B) + beta·C`, with `C` an `m×n` **row-major** buffer
+/// (unit column stride, row stride `n`). `A`/`B` may carry arbitrary strides
+/// (`rs*`, `cs*`) — i.e. be transposed — which lets this serve the forward
+/// matmul *and* the two transposed backward GEMMs (`g·Bᵀ`, `Aᵀ·g`).
+///
+/// It parallelizes across **row blocks of `C`** (the `m` dimension) with rayon
+/// once the problem is large enough to amortize fork/join. Splitting the output
+/// rows offsets `A` and `C` by `i0·rs` and never reorders any dot product's
+/// k-accumulation, so the result is **bit-identical** to a single `sgemm` — this
+/// is the fast, architecture-dependent path (the cross-platform bit-exact path
+/// is [`Tensor::matmul_portable`]).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn par_sgemm(
+    m: usize,
+    k: usize,
+    n: usize,
+    alpha: f32,
+    a: &[f32],
+    rsa: isize,
+    csa: isize,
+    b: &[f32],
+    rsb: isize,
+    csb: isize,
+    beta: f32,
+    c: &mut [f32],
+) {
+    debug_assert_eq!(c.len(), m * n);
+    if m == 0 || n == 0 {
+        return;
+    }
+
+    #[cfg(feature = "rayon")]
+    {
+        // Only parallelize past ~16M fused multiply-adds. Below this a single
+        // sgemm is already sub-millisecond and rayon's fork/join plus the extra
+        // cache pressure make row-splitting a net loss (measured regression on a
+        // 128×256×256 GEMM at a lower threshold).
+        const PAR_MIN_OPS: usize = 1 << 24;
+        let ops = m.saturating_mul(k.max(1)).saturating_mul(n);
+        let nthreads = rayon::current_num_threads();
+        if ops >= PAR_MIN_OPS && nthreads > 1 && m >= 2 {
+            use rayon::prelude::*;
+            // ~one block per thread, but never thinner than 8 rows.
+            let block_rows = m.div_ceil(nthreads).max(8);
+            c.par_chunks_mut(block_rows * n)
+                .enumerate()
+                .for_each(|(bi, c_block)| {
+                    let i0 = bi * block_rows;
+                    let rows = c_block.len() / n; // last block may be shorter
+                    if rows == 0 {
+                        return;
+                    }
+                    // SAFETY: `a`/`b` are the shared read-only operand buffers and
+                    // `c_block` is this block's disjoint slice of `C`. Row `i0` of
+                    // op(A) begins at `a[i0·rsa]` (all strides positive, in bounds
+                    // for every call site); `C` is row-major (`n` cols, unit col
+                    // stride) so the chunk is exactly rows `i0..i0+rows`.
+                    unsafe {
+                        sgemm(
+                            rows,
+                            k,
+                            n,
+                            alpha,
+                            a.as_ptr().offset(i0 as isize * rsa),
+                            rsa,
+                            csa,
+                            b.as_ptr(),
+                            rsb,
+                            csb,
+                            beta,
+                            c_block.as_mut_ptr(),
+                            n as isize,
+                            1,
+                        );
+                    }
+                });
+            return;
+        }
+    }
+
+    // Single-threaded fallback (and the whole body without the `rayon` feature).
+    // SAFETY: shapes/strides are supplied by the caller; `C` is row-major.
+    unsafe {
+        sgemm(
+            m,
+            k,
+            n,
+            alpha,
+            a.as_ptr(),
+            rsa,
+            csa,
+            b.as_ptr(),
+            rsb,
+            csb,
+            beta,
+            c.as_mut_ptr(),
+            n as isize,
+            1,
+        );
+    }
+}
+
+/// Batched GEMM over `batch` independent blocks stacked row-wise, output
+/// `(batch·m × n)` row-major. Block `i` computes `alpha·op(A[i])·op(B[i]) +
+/// beta·C[i]`; the `*_bstride`/`rs*`/`cs*` strides let either operand be read
+/// transposed without a physical copy (attention needs `A·Bᵀ` for scores and
+/// `A·B` for context). Used by [`Op::BatchMatMul`] forward (`beta=0`) and
+/// backward (`beta=1`, accumulating into the running gradient).
+///
+/// The blocks are independent, so how they map onto rayon is chosen per block
+/// (see the gate below) — this is the crux of making batched attention a win,
+/// not a wash: cache-resident, work-heavy blocks fan out one `sgemm` per core,
+/// while large or thin blocks fall back to the row-parallel/serial path that the
+/// non-batched code already used, so nothing regresses.
+///
+/// Within a block the `k`-accumulation order is a single `sgemm`, identical to
+/// the sequential path, so the result is bit-identical whichever branch runs.
+#[allow(clippy::too_many_arguments)]
+fn batched_gemm(
+    batch: usize,
+    m: usize,
+    k: usize,
+    n: usize,
+    alpha: f32,
+    a: &[f32],
+    a_bstride: usize,
+    rsa: isize,
+    csa: isize,
+    b: &[f32],
+    b_bstride: usize,
+    rsb: isize,
+    csb: isize,
+    beta: f32,
+    c: &mut [f32],
+) {
+    debug_assert_eq!(c.len(), batch * m * n);
+    if batch == 0 || m == 0 || n == 0 {
+        return;
+    }
+
+    #[cfg(feature = "rayon")]
+    {
+        // Batch fan-out (one whole sgemm per core) is a win only for blocks that
+        // are both cache-resident AND big enough to amortize rayon's fork/join;
+        // otherwise the existing row-parallel path (below) is at least as good,
+        // so we gate on two block properties:
+        //
+        // * OUTPUT footprint (`m·n`): above ~1 MiB per block (long-sequence score
+        //   matrices) the cores each stream a different multi-MiB matrix and
+        //   thrash cache/bandwidth. 1<<18 f32 = 256K elems = 1 MiB keeps
+        //   `seq ≤ 512` scores batch-parallel and routes `seq ≥ 1024` to rows.
+        // * WORK per block (`m·k·n`): a small block (a `d_head = 32` head, or any
+        //   short-sequence attention) does too few FLOPs to hide the fork/join —
+        //   fanning it out measured 4–7 % *slower*. Blocks at/above 1<<22 ≈ 4 M
+        //   FLOPs (e.g. a `d_head = 64` head) turn the extra cores into an
+        //   8–21 % speedup. Below the floor we fall through to the serial/row
+        //   path, i.e. the pre-batching behaviour, so nothing regresses.
+        const OUT_ELEMS_MAX: usize = 1 << 18;
+        const MIN_BATCH_OPS: usize = 1 << 22;
+        let out_elems = m.saturating_mul(n);
+        let per_gemm = out_elems.saturating_mul(k.max(1));
+        let nthreads = rayon::current_num_threads();
+        if nthreads > 1 && batch > 1 && out_elems <= OUT_ELEMS_MAX && per_gemm >= MIN_BATCH_OPS {
+            // Cache-resident, work-heavy blocks: fan the batch across the pool,
+            // one sgemm per block.
+            use rayon::prelude::*;
+            c.par_chunks_mut(m * n).enumerate().for_each(|(i, c_i)| {
+                let a_i = &a[i * a_bstride..i * a_bstride + a_bstride];
+                let b_i = &b[i * b_bstride..i * b_bstride + b_bstride];
+                // SAFETY: a_i/b_i are batch i's read-only blocks; c_i is its
+                // disjoint row-major output block (n cols, unit col stride).
+                unsafe {
+                    sgemm(
+                        m,
+                        k,
+                        n,
+                        alpha,
+                        a_i.as_ptr(),
+                        rsa,
+                        csa,
+                        b_i.as_ptr(),
+                        rsb,
+                        csb,
+                        beta,
+                        c_i.as_mut_ptr(),
+                        n as isize,
+                        1,
+                    );
+                }
+            });
+            return;
+        }
+        if nthreads > 1 {
+            // Large-output blocks: row-parallelize each across all cores,
+            // batches sequential — identical to the non-batched path, so long
+            // sequences never regress. `par_sgemm` self-gates tiny blocks back
+            // to a serial sgemm, so nothing is over-parallelized here.
+            for (i, c_i) in c.chunks_mut(m * n).enumerate() {
+                let a_i = &a[i * a_bstride..i * a_bstride + a_bstride];
+                let b_i = &b[i * b_bstride..i * b_bstride + b_bstride];
+                par_sgemm(m, k, n, alpha, a_i, rsa, csa, b_i, rsb, csb, beta, c_i);
+            }
+            return;
+        }
+    }
+
+    // Serial fallback: no rayon, single thread, or a lone tiny block.
+    for (i, c_i) in c.chunks_mut(m * n).enumerate() {
+        let a_i = &a[i * a_bstride..i * a_bstride + a_bstride];
+        let b_i = &b[i * b_bstride..i * b_bstride + b_bstride];
+        // SAFETY: disjoint row-major output block; strides address the block
+        // extents; beta selects overwrite (forward) vs accumulate (backward).
+        unsafe {
+            sgemm(
+                m,
+                k,
+                n,
+                alpha,
+                a_i.as_ptr(),
+                rsa,
+                csa,
+                b_i.as_ptr(),
+                rsb,
+                csb,
+                beta,
+                c_i.as_mut_ptr(),
+                n as isize,
+                1,
+            );
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Tensor {
     pub rows: usize,
@@ -53,22 +288,56 @@ pub struct Tensor {
 }
 
 impl Tensor {
+    #[inline]
+    fn checked_len(rows: usize, cols: usize, context: &str) -> usize {
+        rows.checked_mul(cols)
+            .unwrap_or_else(|| panic!("{context}: rows * cols overflows usize"))
+    }
+
+    /// Checks the dense row-major representation invariant.
+    pub fn validate(&self) -> crate::error::Result<()> {
+        let expected = self.rows.checked_mul(self.cols).ok_or_else(|| {
+            crate::error::SciRustError::InvalidConfig(
+                "Tensor dimensions overflow usize".to_string(),
+            )
+        })?;
+        if self.data.len() != expected {
+            return Err(crate::error::SciRustError::InvalidConfig(format!(
+                "Tensor data length mismatch: shape {}x{} requires {expected} elements, got {}",
+                self.rows,
+                self.cols,
+                self.data.len()
+            )));
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn assert_valid(&self, context: &str) {
+        if let Err(error) = self.validate() {
+            panic!("{context}: invalid Tensor: {error}");
+        }
+    }
+
     pub fn zeros(rows: usize, cols: usize) -> Self {
+        let len = Self::checked_len(rows, cols, "Tensor::zeros");
         Self {
             rows,
             cols,
-            data: vec![0.0; rows * cols],
+            data: vec![0.0; len],
         }
     }
     pub fn ones(rows: usize, cols: usize) -> Self {
+        let len = Self::checked_len(rows, cols, "Tensor::ones");
         Self {
             rows,
             cols,
-            data: vec![1.0; rows * cols],
+            data: vec![1.0; len],
         }
     }
     pub fn from_vec(data: Vec<f32>, rows: usize, cols: usize) -> Self {
-        assert_eq!(data.len(), rows * cols, "Tensor::from_vec size mismatch");
+        let len = Self::checked_len(rows, cols, "Tensor::from_vec");
+        assert_eq!(data.len(), len, "Tensor::from_vec size mismatch");
         Self { rows, cols, data }
     }
     #[inline]
@@ -90,9 +359,19 @@ impl Tensor {
 
     pub fn add(&self, other: &Tensor) -> Tensor {
         assert_eq!(self.shape(), other.shape(), "Tensor::add shape mismatch");
-        let mut out = self.clone();
-        out.add_assign(other);
-        out
+        // One pass into a fresh buffer — avoids the extra memcpy that
+        // `self.clone()` + in-place would incur (~⅓ less memory traffic).
+        let data = self
+            .data
+            .iter()
+            .zip(&other.data)
+            .map(|(&a, &b)| a + b)
+            .collect();
+        Tensor {
+            rows: self.rows,
+            cols: self.cols,
+            data,
+        }
     }
     pub fn add_assign(&mut self, other: &Tensor) {
         assert_eq!(
@@ -106,9 +385,17 @@ impl Tensor {
     }
     pub fn sub(&self, other: &Tensor) -> Tensor {
         assert_eq!(self.shape(), other.shape(), "Tensor::sub shape mismatch");
-        let mut out = self.clone();
-        out.sub_assign(other);
-        out
+        let data = self
+            .data
+            .iter()
+            .zip(&other.data)
+            .map(|(&a, &b)| a - b)
+            .collect();
+        Tensor {
+            rows: self.rows,
+            cols: self.cols,
+            data,
+        }
     }
     pub fn sub_assign(&mut self, other: &Tensor) {
         assert_eq!(
@@ -120,16 +407,62 @@ impl Tensor {
             *a -= b;
         }
     }
+    /// Fused `self += other · s` in one pass, no temporary. Bit-identical to
+    /// `self.add_assign(&other.scale(s))` (multiply then add, no FMA) — used in
+    /// the backward pass to avoid materializing the scaled gradient.
+    pub fn add_scaled(&mut self, other: &Tensor, s: f32) {
+        assert_eq!(
+            self.shape(),
+            other.shape(),
+            "Tensor::add_scaled shape mismatch"
+        );
+        for (d, &o) in self.data.iter_mut().zip(&other.data) {
+            *d += o * s;
+        }
+    }
+    /// Fused `self += a ⊙ b` in one pass, no temporary. Bit-identical to
+    /// `self.add_assign(&a.hadamard(b))` (multiply then add, no FMA) — the
+    /// dominant backward pattern (`grad += upstream ⊙ local_deriv`).
+    pub fn add_hadamard(&mut self, a: &Tensor, b: &Tensor) {
+        assert_eq!(
+            self.shape(),
+            a.shape(),
+            "Tensor::add_hadamard shape mismatch"
+        );
+        assert_eq!(a.shape(), b.shape(), "Tensor::add_hadamard shape mismatch");
+        for ((d, &x), &y) in self.data.iter_mut().zip(&a.data).zip(&b.data) {
+            *d += x * y;
+        }
+    }
+    /// Fused `self -= a ⊙ b` in one pass, no temporary. Bit-identical to
+    /// `self.sub_assign(&a.hadamard(b))` (multiply then subtract, no FMA).
+    pub fn sub_hadamard(&mut self, a: &Tensor, b: &Tensor) {
+        assert_eq!(
+            self.shape(),
+            a.shape(),
+            "Tensor::sub_hadamard shape mismatch"
+        );
+        assert_eq!(a.shape(), b.shape(), "Tensor::sub_hadamard shape mismatch");
+        for ((d, &x), &y) in self.data.iter_mut().zip(&a.data).zip(&b.data) {
+            *d -= x * y;
+        }
+    }
     pub fn mul(&self, other: &Tensor) -> Tensor {
         self.hadamard(other)
     }
     pub fn div(&self, other: &Tensor) -> Tensor {
         assert_eq!(self.shape(), other.shape(), "Tensor::div shape mismatch");
-        let mut out = self.clone();
-        for (a, b) in out.data.iter_mut().zip(&other.data) {
-            *a /= b;
+        let data = self
+            .data
+            .iter()
+            .zip(&other.data)
+            .map(|(&a, &b)| a / b)
+            .collect();
+        Tensor {
+            rows: self.rows,
+            cols: self.cols,
+            data,
         }
-        out
     }
     pub fn hadamard(&self, other: &Tensor) -> Tensor {
         assert_eq!(
@@ -137,9 +470,17 @@ impl Tensor {
             other.shape(),
             "Tensor::hadamard shape mismatch"
         );
-        let mut out = self.clone();
-        out.hadamard_assign(other);
-        out
+        let data = self
+            .data
+            .iter()
+            .zip(&other.data)
+            .map(|(&a, &b)| a * b)
+            .collect();
+        Tensor {
+            rows: self.rows,
+            cols: self.cols,
+            data,
+        }
     }
     pub fn hadamard_assign(&mut self, other: &Tensor) {
         assert_eq!(
@@ -168,10 +509,30 @@ impl Tensor {
         }
         out
     }
+    /// exp élément par élément via la voie portable
+    /// ([`crate::portable_f32::exp_f32`], sans libm) : bit-exact
+    /// inter-plates-formes, contrairement à [`Tensor::exp`].
+    pub fn exp_portable(&self) -> Tensor {
+        let mut out = self.clone();
+        for x in &mut out.data {
+            *x = crate::portable_f32::exp_f32(*x);
+        }
+        out
+    }
     pub fn log(&self) -> Tensor {
         let mut out = self.clone();
         for x in &mut out.data {
             *x = x.ln();
+        }
+        out
+    }
+    /// ln élément par élément via la voie portable
+    /// ([`crate::portable_f32::ln_f32`], sans libm) : bit-exact
+    /// inter-plates-formes, contrairement à [`Tensor::log`].
+    pub fn ln_portable(&self) -> Tensor {
+        let mut out = self.clone();
+        for x in &mut out.data {
+            *x = crate::portable_f32::ln_f32(*x);
         }
         out
     }
@@ -348,6 +709,31 @@ impl Tensor {
         let sum = exp.sum_axis(axis);
         exp.div(&sum.broadcast_to(self.rows, self.cols))
     }
+    /// Softmax **portable** par ligne (équivalent de `softmax(axis = 1)`) :
+    /// chaque ligne passe par [`crate::portable_f32::softmax_f32`] — exp sans
+    /// libm, somme indépendante de l'ordre — donc résultat bit-exact
+    /// inter-plates-formes, contrairement à [`Tensor::softmax`] dont
+    /// l'`exp` dépend de la libm de la plate-forme.
+    pub fn softmax_portable(&self) -> Tensor {
+        let mut out = Tensor::zeros(self.rows, self.cols);
+        for r in 0..self.rows {
+            let row = &self.data[r * self.cols..(r + 1) * self.cols];
+            out.data[r * self.cols..(r + 1) * self.cols]
+                .copy_from_slice(&crate::portable_f32::softmax_f32(row));
+        }
+        out
+    }
+    /// Numerically stable log-softmax: `x - logsumexp(x)`, max-shifted.
+    /// Computing `log(softmax(x))` instead underflows a strongly-masked entry
+    /// (e.g. a `-1e9` causal-mask fill) to `softmax = 0` and then `log(0) = -inf`;
+    /// here the same entry stays a large FINITE negative.
+    pub fn log_softmax(&self, axis: u8) -> Tensor {
+        let max = self.max_axis(axis);
+        let shifted = self.sub(&max.broadcast_to(self.rows, self.cols));
+        let sum = shifted.exp().sum_axis(axis);
+        let logsum = sum.log(); // natural log; log_softmax = shifted - logsum
+        shifted.sub(&logsum.broadcast_to(self.rows, self.cols))
+    }
     pub fn transpose(&self) -> Tensor {
         let mut out = Tensor::zeros(self.cols, self.rows);
         for r in 0..self.rows {
@@ -358,40 +744,64 @@ impl Tensor {
         out
     }
     pub fn matmul(&self, other: &Tensor) -> Tensor {
+        self.assert_valid("Tensor::matmul left operand");
+        other.assert_valid("Tensor::matmul right operand");
         assert_eq!(
             self.cols, other.rows,
             "matmul: inner dim mismatch {}x{} @ {}x{}",
             self.rows, self.cols, other.rows, other.cols
         );
         let mut out = Tensor::zeros(self.rows, other.cols);
-        unsafe {
-            sgemm(
-                self.rows,
-                self.cols,
-                other.cols,
-                1.0,
-                self.data.as_ptr(),
-                self.cols as isize,
-                1,
-                other.data.as_ptr(),
-                other.cols as isize,
-                1,
-                0.0,
-                out.data.as_mut_ptr(),
-                out.cols as isize,
-                1,
-            );
+        if self.rows == 0 || other.cols == 0 || self.cols == 0 {
+            return out;
         }
+        // Cache-blocked, rayon-parallelized GEMM (fast, architecture-dependent
+        // path — the bit-exact cross-platform path is `Tensor::matmul_portable`).
+        par_sgemm(
+            self.rows,
+            self.cols,
+            other.cols,
+            1.0,
+            &self.data,
+            self.cols as isize,
+            1,
+            &other.data,
+            other.cols as isize,
+            1,
+            0.0,
+            &mut out.data,
+        );
         out
     }
 
+    /// Matmul via la voie portable ([`crate::portable_f32::gemm_f32`] :
+    /// produits f64 exacts, accumulation séquentielle en ordre fixe, aucun
+    /// noyau SIMD dépendant de l'architecture) : bit-exact
+    /// inter-plates-formes, contrairement à [`Tensor::matmul`] dont le
+    /// `sgemm` blocké change d'ordre d'accumulation selon le micro-noyau.
+    /// Voie de référence, plus lente.
+    pub fn matmul_portable(&self, other: &Tensor) -> Tensor {
+        self.assert_valid("Tensor::matmul_portable left operand");
+        other.assert_valid("Tensor::matmul_portable right operand");
+        assert_eq!(
+            self.cols, other.rows,
+            "matmul_portable: inner dim mismatch {}x{} @ {}x{}",
+            self.rows, self.cols, other.rows, other.cols
+        );
+        let data = crate::portable_f32::gemm_f32(
+            &self.data,
+            &other.data,
+            self.rows,
+            self.cols,
+            other.cols,
+        );
+        Tensor::from_vec(data, self.rows, other.cols)
+    }
+
     pub fn reshape(&self, rows: usize, cols: usize) -> Tensor {
-        assert_eq!(self.data.len(), rows * cols, "reshape: size mismatch");
-        Tensor {
-            rows,
-            cols,
-            data: self.data.clone(),
-        }
+        let len = Self::checked_len(rows, cols, "Tensor::reshape");
+        assert_eq!(self.data.len(), len, "reshape: size mismatch");
+        Tensor::from_vec(self.data.clone(), rows, cols)
     }
     pub fn broadcast_to(&self, rows: usize, cols: usize) -> Tensor {
         if self.rows == rows && self.cols == cols {
@@ -414,13 +824,70 @@ impl Tensor {
             }
             out
         } else if self.rows == 1 && self.cols == 1 {
-            Tensor::from_vec(vec![self.data[0]; rows * cols], rows, cols)
+            let len = Self::checked_len(rows, cols, "Tensor::broadcast_to");
+            Tensor::from_vec(vec![self.data[0]; len], rows, cols)
         } else {
             panic!(
                 "broadcast_to: incompatible shapes ({},{}) -> ({},{})",
                 self.rows, self.cols, rows, cols
             );
         }
+    }
+
+    /// `f(self, broadcast(b))` computed in a **single pass**, reading `b`
+    /// directly instead of materializing a full `(rows×cols)` replicate the way
+    /// `self.op(&b.broadcast_to(rows, cols))` does. `b` must broadcast to
+    /// `self`'s shape: equal, a row `(1×cols)`, a column `(rows×1)`, or a scalar
+    /// `(1×1)`. `f` is a plain `fn` pointer (Copy) so it threads through the
+    /// per-row closures cheaply.
+    pub fn zip_broadcasted(&self, b: &Tensor, f: fn(f32, f32) -> f32) -> Tensor {
+        let (rows, cols) = (self.rows, self.cols);
+        if rows == 0 || cols == 0 {
+            return self.clone();
+        }
+        // Write the output directly from `self` and `b` (no full replicate of
+        // `b`, and no read-back of the output as an in-place op would). The
+        // per-row slice loops autovectorize, unlike a chained flat_map iterator.
+        let mut out = Tensor::zeros(rows, cols);
+        if b.rows == rows && b.cols == cols {
+            for ((o, &x), &y) in out.data.iter_mut().zip(&self.data).zip(&b.data) {
+                *o = f(x, y);
+            }
+        } else if b.rows == 1 && b.cols == cols {
+            // Row vector broadcast over rows: b stays hot in cache.
+            for (orow, srow) in out
+                .data
+                .chunks_exact_mut(cols)
+                .zip(self.data.chunks_exact(cols))
+            {
+                for ((o, &x), &y) in orow.iter_mut().zip(srow).zip(&b.data) {
+                    *o = f(x, y);
+                }
+            }
+        } else if b.rows == rows && b.cols == 1 {
+            // Column vector broadcast over cols.
+            for ((orow, srow), &y) in out
+                .data
+                .chunks_exact_mut(cols)
+                .zip(self.data.chunks_exact(cols))
+                .zip(&b.data)
+            {
+                for (o, &x) in orow.iter_mut().zip(srow) {
+                    *o = f(x, y);
+                }
+            }
+        } else if b.rows == 1 && b.cols == 1 {
+            let y = b.data[0];
+            for (o, &x) in out.data.iter_mut().zip(&self.data) {
+                *o = f(x, y);
+            }
+        } else {
+            panic!(
+                "zip_broadcasted: incompatible shapes ({},{}) -> ({},{})",
+                b.rows, b.cols, rows, cols
+            );
+        }
+        out
     }
 }
 
@@ -473,7 +940,7 @@ impl Default for Tensor {
 
 #[derive(Debug, Clone)]
 pub struct DeviceTensor {
-    pub inner: Tensor,
+    inner: Tensor,
 }
 
 impl DeviceTensor {
@@ -515,6 +982,8 @@ pub enum SavedData {
     LayerNormNormed(Tensor),
     /// Cached normalized input for BatchNorm backward
     BatchNormNormed(Tensor),
+    /// Cached row-wise L2-normalized output ŷ = x/‖x‖ for L2Normalize backward
+    L2Normalized(Tensor),
     /// Cached flash attention online-softmax state: m (running max) and l (running sum)
     FlashAttentionState {
         m: Tensor,
@@ -525,6 +994,9 @@ pub enum SavedData {
         input: Tensor,
         weight: Tensor,
     },
+    /// Immutable circuit, observables, and tensor-to-symbol mapping used by the
+    /// dense quantum expectations node's exact adjoint backward.
+    QuantumExpectations(crate::quantum::QuantumLayer),
 }
 
 // ================================================================== //
@@ -534,6 +1006,11 @@ pub enum SavedData {
 #[derive(Debug, Clone, Copy)]
 pub enum Op {
     Input,
+    /// Batched exact dense expectations with one shared parameter row.
+    QuantumExpectations {
+        features: usize,
+        parameters: usize,
+    },
     Add(usize, usize),
     Sub(usize, usize),
     Mul(usize, usize),
@@ -543,6 +1020,20 @@ pub enum Op {
     MulBroadcast(usize, usize),
     DivBroadcast(usize, usize),
     MatMul(usize, usize),
+    /// `C = A · Bᵀ` (both operands row-major; B read transposed via strides, no
+    /// physical transpose). Used by attention's `Q·Kᵀ` scores.
+    MatMulBt(usize, usize),
+    /// Batched matmul over `batch` matrices stacked row-wise. `A` is
+    /// `(batch·m × k)`; if `transpose_b`, `B` is `(batch·n × k)` and each block
+    /// is `A[i]·B[i]ᵀ`, else `B` is `(batch·k × n)` and each block is `A[i]·B[i]`.
+    /// Output is `(batch·m × n)`. Batches run in parallel — this collapses
+    /// attention's `B·H` tiny per-head/batch GEMMs into `H` parallel calls.
+    BatchMatMul {
+        a: usize,
+        b: usize,
+        batch: usize,
+        transpose_b: bool,
+    },
     MatMulGpu(usize, usize),
     Scale {
         input: usize,
@@ -550,7 +1041,13 @@ pub enum Op {
     },
     Neg(usize),
     Exp(usize),
+    /// exp portable (forward sans libm ; backward depuis la sortie stockée).
+    ExpPortable(usize),
     Log(usize),
+    /// ln portable (forward sans libm ; backward = g ⊙ 1/x, division IEEE).
+    LnPortable(usize),
+    /// Matmul portable (GEMM f64 en ordre fixe ; backward via le même GEMM).
+    MatMulPortable(usize, usize),
     Sqrt(usize),
     Reciprocal(usize),
     Sin(usize),
@@ -583,6 +1080,11 @@ pub enum Op {
     Softmax {
         input: usize,
         axis: u8,
+    },
+    /// Softmax portable par ligne : forward via `portable_f32::softmax_f32`,
+    /// backward depuis la sortie stockée — nœud bit-exact inter-plates-formes.
+    SoftmaxPortable {
+        input: usize,
     },
     LogSoftmax {
         input: usize,
@@ -629,6 +1131,12 @@ pub enum Op {
         kernel: usize,
         stride: usize,
     },
+    /// ⚠️ Misnomer: the backward for this op normalizes **per row over columns**
+    /// (LayerNorm semantics), *not* across the batch dimension as true batch
+    /// normalization does. It is currently **unreachable** — no forward
+    /// constructs it (BatchNorm layers use explicit tape ops, see
+    /// `nn::batch_norm`). Kept for compatibility; treat its gradient as
+    /// per-sample (LayerNorm-like), not batch-statistic.
     BatchNorm {
         input_idx: usize,
         gamma_idx: usize,
@@ -651,6 +1159,9 @@ pub enum Op {
         gamma_idx: usize,
         beta_idx: usize,
         eps: f32,
+    },
+    L2Normalize {
+        input_idx: usize,
     },
     Conv2dForward {
         input: usize,
@@ -719,7 +1230,19 @@ pub struct Tape {
     pub(crate) grads: RefCell<Vec<Tensor>>,
     grad_enabled: RefCell<bool>,
     pub(crate) gpu_engine: RefCell<Option<Box<dyn GpuEngine>>>,
+    /// When set (and an engine is attached), every plain `matmul`/`try_matmul`
+    /// on this tape is recorded as a GPU node so its forward and backward GEMMs
+    /// run on the device — the whole-model opt-in used by `scirust-sciagent`'s
+    /// GPU path. Defaults off, so CPU-only tapes are byte-for-byte unchanged.
+    prefer_gpu_matmul: core::cell::Cell<bool>,
+    /// PRNG driving stochastic ops (e.g. [`Var::dropout`]). Seeded
+    /// deterministically at construction so a fresh tape replays the same
+    /// stream, yet advances across calls so successive dropout masks differ.
+    rng: RefCell<PcgEngine>,
 }
+
+/// Default seed for a fresh [`Tape`]'s stochastic-op PRNG.
+const DEFAULT_DROPOUT_SEED: u64 = 0x5EED_C0DE;
 
 impl Tape {
     pub fn new() -> Self {
@@ -729,7 +1252,22 @@ impl Tape {
             grads: RefCell::new(Vec::new()),
             grad_enabled: RefCell::new(true),
             gpu_engine: RefCell::new(None),
+            prefer_gpu_matmul: core::cell::Cell::new(false),
+            rng: RefCell::new(PcgEngine::new(DEFAULT_DROPOUT_SEED)),
         }
+    }
+
+    /// Reseed the PRNG that drives stochastic ops such as [`Var::dropout`].
+    /// Use this to make a training run reproducible: seeding then replaying the
+    /// same sequence of dropout calls yields the same masks.
+    pub fn set_seed(&self, seed: u64) {
+        *self.rng.borrow_mut() = PcgEngine::new(seed);
+    }
+
+    /// Draw the next `u32` from the tape's stochastic-op PRNG, advancing its
+    /// state so subsequent draws (and dropout calls) differ.
+    pub(crate) fn next_rand_u32(&self) -> u32 {
+        self.rng.borrow_mut().next_u32()
     }
 
     /// Attach a GPU engine for accelerated backward passes.
@@ -748,30 +1286,88 @@ impl Tape {
         *self.gpu_engine.borrow_mut() = None;
     }
 
+    /// Route every subsequent plain `matmul`/`try_matmul` on this tape through
+    /// the attached [`GpuEngine`] (forward *and* backward), exactly as if each
+    /// call site had used `matmul_gpu`. This is the whole-model GPU switch: flip
+    /// it on a tape that already has an engine and the model's projections,
+    /// attention scores and LM head all run their GEMMs on the device with no
+    /// per-call-site changes. Has no effect unless an engine is attached, and
+    /// defaults off so CPU-only tapes are byte-for-byte unchanged.
+    pub fn set_prefer_gpu_matmul(&self, prefer: bool) {
+        self.prefer_gpu_matmul.set(prefer);
+    }
+
+    /// Whether plain matmuls on this tape are currently routed to the GPU.
+    pub fn prefers_gpu_matmul(&self) -> bool {
+        self.prefer_gpu_matmul.get()
+    }
+
     /// `C = op(A)·op(B)` where `ta`/`tb` request a transpose of the
     /// corresponding operand. Routes through the attached [`GpuEngine`] when one
     /// is present (using its native transpose path), otherwise falls back to a
     /// CPU [`Tensor::matmul`] that is bit-identical to the explicit-transpose
     /// form. Used to plumb Conv2d's im2col GEMMs through the GPU.
     pub(crate) fn gemm_ab(&self, a: &Tensor, b: &Tensor, ta: bool, tb: bool) -> Tensor {
+        a.assert_valid("Tape::gemm_ab left operand");
+        b.assert_valid("Tape::gemm_ab right operand");
         if let Some(ref engine) = *self.gpu_engine.borrow() {
             let m = if ta { a.cols } else { a.rows };
             let k = if ta { a.rows } else { a.cols };
             let n = if tb { b.rows } else { b.cols };
-            let mut c = vec![0.0f32; m * n];
-            engine.gemm(1.0, &a.data, &b.data, 0.0, &mut c, m, k, n, ta, tb);
-            Tensor {
-                rows: m,
-                cols: n,
-                data: c,
-            }
+            let b_k = if tb { b.cols } else { b.rows };
+            assert_eq!(k, b_k, "Tape::gemm_ab: inner dimension mismatch");
+            let mut output = Tensor::zeros(m, n);
+            engine.gemm(
+                1.0,
+                &a.data,
+                &b.data,
+                0.0,
+                &mut output.data,
+                m,
+                k,
+                n,
+                ta,
+                tb,
+            );
+            output
         } else {
-            match (ta, tb) {
-                (false, false) => a.matmul(b),
-                (false, true) => a.matmul(&b.transpose()),
-                (true, false) => a.transpose().matmul(b),
-                (true, true) => a.transpose().matmul(&b.transpose()),
-            }
+            // Feed the (possibly transposed) operands to the parallel GEMM via
+            // strides — no physical transpose is materialized (the old path
+            // allocated a full transposed copy of each `t*` operand, including
+            // the large im2col column matrix in conv's backward). Reading an
+            // operand transposed vs. pre-transposing it yields the identical
+            // packed values, so the result is bit-identical.
+            let m = if ta { a.cols } else { a.rows };
+            let k = if ta { a.rows } else { a.cols };
+            let n = if tb { b.rows } else { b.cols };
+            let b_k = if tb { b.cols } else { b.rows };
+            assert_eq!(k, b_k, "Tape::gemm_ab: inner dimension mismatch");
+            let (rsa, csa) = if ta {
+                (1isize, a.cols as isize)
+            } else {
+                (a.cols as isize, 1isize)
+            };
+            let (rsb, csb) = if tb {
+                (1isize, b.cols as isize)
+            } else {
+                (b.cols as isize, 1isize)
+            };
+            let mut out = Tensor::zeros(m, n);
+            par_sgemm(
+                m,
+                k,
+                n,
+                1.0,
+                &a.data,
+                rsa,
+                csa,
+                &b.data,
+                rsb,
+                csb,
+                0.0,
+                &mut out.data,
+            );
+            out
         }
     }
 
@@ -799,12 +1395,17 @@ impl Tape {
     }
 
     pub fn input(&self, t: Tensor) -> Var<'_> {
-        let idx = self.push_with_saved(Op::Input, DeviceTensor::cpu(t.clone()), SavedData::None);
-        self.values.borrow_mut()[idx] = DeviceTensor::cpu(t);
+        t.assert_valid("Tape::input");
+        // `push_with_saved` already stores the value in `self.values`, so move
+        // `t` straight in. The old code cloned `t` into the push and then
+        // overwrote the stored clone with `t` — a full, wasted copy of every
+        // input (weights, activations) on every `input()` call.
+        let idx = self.push_with_saved(Op::Input, DeviceTensor::cpu(t), SavedData::None);
         Var { tape: self, idx }
     }
 
-    pub fn push_with_saved(&self, op: Op, value: DeviceTensor, saved: SavedData) -> usize {
+    pub(crate) fn push_with_saved(&self, op: Op, value: DeviceTensor, saved: SavedData) -> usize {
+        value.as_cpu().assert_valid("Tape::push_with_saved");
         let shape = value.shape();
         if !self.is_grad_enabled() {
             // Forward seul : on pousse un Input inerte (pas de graph)
@@ -831,8 +1432,14 @@ impl Tape {
         idx
     }
 
+    pub fn try_value(&self, idx: usize) -> crate::error::Result<Tensor> {
+        let values = self.values.borrow();
+        crate::error::check_index("Tape::try_value", idx, values.len())?;
+        Ok(values[idx].as_cpu().clone())
+    }
+
     pub fn value(&self, idx: usize) -> Tensor {
-        self.values.borrow()[idx].as_cpu().clone()
+        self.try_value(idx).expect("Tape::value")
     }
 
     pub fn shape(&self, idx: usize) -> (usize, usize) {
@@ -879,6 +1486,18 @@ impl Tape {
     }
 
     pub fn set_value(&self, idx: usize, value: Tensor) {
+        value.assert_valid("Tape::set_value");
+        let expected = self
+            .nodes
+            .borrow()
+            .get(idx)
+            .unwrap_or_else(|| panic!("Tape::set_value: index {idx} out of bounds"))
+            .shape;
+        assert_eq!(
+            value.shape(),
+            expected,
+            "Tape::set_value: replacement shape must match the graph node"
+        );
         self.values.borrow_mut()[idx] = DeviceTensor::cpu(value);
     }
 
@@ -889,24 +1508,93 @@ impl Tape {
         let n = nodes.len();
         assert!(idx < n, "backward: idx {} out of bounds ({} nodes)", idx, n);
 
-        // reset gradients
-        for i in 0..n {
-            let (r, c) = nodes[i].shape;
-            grads[i] = Tensor::zeros(r, c);
+        // Reset gradients in place. Each node's grad slot was allocated at its
+        // shape during the forward push (`push_with_saved`) and never resized,
+        // so we zero the existing buffers instead of reallocating `n` fresh
+        // `Tensor::zeros` on every backward call.
+        for g in grads.iter_mut() {
+            g.data.fill(0.0);
         }
 
-        // seed
-        let (r, c) = nodes[idx].shape;
-        grads[idx] = Tensor::from_vec(vec![1.0; r * c], r, c);
+        // seed (slot already sized to nodes[idx].shape)
+        grads[idx].data.fill(1.0);
 
         for i in (0..=idx).rev() {
-            let g = grads[i].clone();
-            if g.data.iter().all(|&x| x == 0.0) {
+            // Skip dead gradients — many nodes never receive one (off the
+            // backward path).
+            if grads[i].data.iter().all(|&x| x == 0.0) {
                 continue;
             }
+            // Move this node's gradient out instead of cloning it. No backward
+            // arm touches its own node's slot (operands are always earlier
+            // nodes, index < i), so `grads[i]` is untouched during the match; we
+            // put it back afterwards so `Tape::grad` still sees the accumulated
+            // value. The placeholder is an empty `Vec` — no allocation.
+            let g = std::mem::replace(&mut grads[i], Tensor::zeros(0, 0));
 
             match nodes[i].op {
                 Op::Input => {}
+                Op::QuantumExpectations {
+                    features,
+                    parameters,
+                } => {
+                    let layer = match &nodes[i].saved {
+                        SavedData::QuantumExpectations(layer) => layer,
+                        _ => panic!("QuantumExpectations node is missing its layer metadata"),
+                    };
+                    let feature_values = values[features].as_cpu();
+                    let parameter_values = values[parameters].as_cpu();
+                    let feature_count = layer.input_parameters().len();
+                    let observable_count = layer.observables().len();
+
+                    // Fixed accumulation order: sample, encoded parameters in
+                    // feature-column order, then shared parameters in column
+                    // order; each parameter's observable contributions are
+                    // accumulated in output-column order. Nothing is averaged.
+                    //
+                    // One exact adjoint Jacobian is constructed per sample for
+                    // all mapped parameters and all ordered observables.
+                    for sample in 0..feature_values.rows {
+                        let mut bindings = crate::quantum::ParameterValues::new();
+                        for (column, &id) in layer.input_parameters().iter().enumerate() {
+                            bindings
+                                .insert(id, feature_values.data[sample * feature_count + column])
+                                .expect("validated quantum feature became non-finite");
+                        }
+                        for (column, &id) in layer.trainable_parameters().iter().enumerate() {
+                            bindings
+                                .insert(id, parameter_values.data[column])
+                                .expect("validated quantum parameter became non-finite");
+                        }
+
+                        let jacobian = crate::quantum::adjoint_jacobian(
+                            layer.circuit(),
+                            &bindings,
+                            layer.observables(),
+                        )
+                        .expect("validated quantum layer failed during adjoint backward");
+
+                        for (column, &id) in layer.input_parameters().iter().enumerate() {
+                            let derivatives = jacobian
+                                .get(&id)
+                                .expect("adjoint Jacobian omitted a feature parameter");
+                            for (observable, &derivative) in derivatives.iter().enumerate() {
+                                grads[features].data[sample * feature_count + column] +=
+                                    g.data[sample * observable_count + observable] * derivative;
+                            }
+                        }
+
+                        for (column, &id) in layer.trainable_parameters().iter().enumerate() {
+                            let derivatives = jacobian
+                                .get(&id)
+                                .expect("adjoint Jacobian omitted a shared parameter");
+                            for (observable, &derivative) in derivatives.iter().enumerate() {
+                                grads[parameters].data[column] +=
+                                    g.data[sample * observable_count + observable] * derivative;
+                            }
+                        }
+                    }
+                }
                 Op::Add(a, b) => {
                     grads[a].add_assign(&g);
                     grads[b].add_assign(&g);
@@ -918,16 +1606,16 @@ impl Tape {
                 Op::Mul(a, b) => {
                     let av = &values[a].as_cpu();
                     let bv = &values[b].as_cpu();
-                    grads[a].add_assign(&g.hadamard(bv));
-                    grads[b].add_assign(&g.hadamard(av));
+                    grads[a].add_hadamard(&g, bv);
+                    grads[b].add_hadamard(&g, av);
                 }
                 Op::Div(a, b) => {
                     let av = &values[a].as_cpu();
                     let bv = &values[b].as_cpu();
                     let b_recip = bv.reciprocal();
                     let a_over_b2 = av.hadamard(&b_recip.hadamard(&b_recip));
-                    grads[a].add_assign(&g.hadamard(&b_recip));
-                    grads[b].sub_assign(&g.hadamard(&a_over_b2));
+                    grads[a].add_hadamard(&g, &b_recip);
+                    grads[b].sub_hadamard(&g, &a_over_b2);
                 }
                 Op::AddBroadcast(a, b) => {
                     let av = &values[a].as_cpu();
@@ -1064,48 +1752,189 @@ impl Tape {
                     let av = &values[a].as_cpu();
                     let bv = &values[b].as_cpu();
 
-                    // ga = g @ b.T
-                    // (M x N) @ (K x N).T -> (M x K)
+                    // ga = g @ b.T  :  (M×N) @ (K×N)ᵀ → (M×K), accumulated (β=1).
+                    // B is read transposed (rsb=1, csb=bv.cols); C=ga is row-major.
                     let ga = &mut grads[a];
-                    unsafe {
-                        sgemm(
-                            g.rows,
-                            g.cols,
-                            bv.rows,
-                            1.0,
-                            g.data.as_ptr(),
-                            g.cols as isize,
-                            1,
-                            bv.data.as_ptr(),
-                            1,
-                            bv.cols as isize,
-                            1.0,
-                            ga.data.as_mut_ptr(),
-                            ga.cols as isize,
-                            1,
-                        );
-                    }
+                    par_sgemm(
+                        g.rows,
+                        g.cols,
+                        bv.rows,
+                        1.0,
+                        &g.data,
+                        g.cols as isize,
+                        1,
+                        &bv.data,
+                        1,
+                        bv.cols as isize,
+                        1.0,
+                        &mut ga.data,
+                    );
 
-                    // gb = a.T @ g
-                    // (M x K).T @ (M x N) -> (K x N)
+                    // gb = a.T @ g  :  (M×K)ᵀ @ (M×N) → (K×N), accumulated (β=1).
+                    // A is read transposed (rsa=1, csa=av.cols); C=gb is row-major.
                     let gb = &mut grads[b];
-                    unsafe {
-                        sgemm(
-                            av.cols,
-                            av.rows,
-                            g.cols,
-                            1.0,
-                            av.data.as_ptr(),
-                            1,
-                            av.cols as isize,
-                            g.data.as_ptr(),
-                            g.cols as isize,
-                            1,
-                            1.0,
-                            gb.data.as_mut_ptr(),
-                            gb.cols as isize,
-                            1,
-                        );
+                    par_sgemm(
+                        av.cols,
+                        av.rows,
+                        g.cols,
+                        1.0,
+                        &av.data,
+                        1,
+                        av.cols as isize,
+                        &g.data,
+                        g.cols as isize,
+                        1,
+                        1.0,
+                        &mut gb.data,
+                    );
+                }
+                Op::MatMulBt(a, b) => {
+                    // C = A·Bᵀ, A=(m×k), B=(n×k), g=dC=(m×n).
+                    let av = &values[a].as_cpu();
+                    let bv = &values[b].as_cpu();
+
+                    // dA = g · B  :  (m×n)·(n×k) → (m×k), B row-major, accumulated.
+                    let ga = &mut grads[a];
+                    par_sgemm(
+                        g.rows,
+                        g.cols,
+                        bv.cols,
+                        1.0,
+                        &g.data,
+                        g.cols as isize,
+                        1,
+                        &bv.data,
+                        bv.cols as isize,
+                        1,
+                        1.0,
+                        &mut ga.data,
+                    );
+
+                    // dB = gᵀ · A  :  (n×m)·(m×k) → (n×k). g read transposed
+                    // (rsa=1, csa=g.cols); A row-major; accumulated.
+                    let gb = &mut grads[b];
+                    par_sgemm(
+                        g.cols,
+                        g.rows,
+                        av.cols,
+                        1.0,
+                        &g.data,
+                        1,
+                        g.cols as isize,
+                        &av.data,
+                        av.cols as isize,
+                        1,
+                        1.0,
+                        &mut gb.data,
+                    );
+                }
+                Op::BatchMatMul {
+                    a,
+                    b,
+                    batch,
+                    transpose_b,
+                } => {
+                    // Per-block dims: A[i]=(m×k), C[i]=g[i]=(m×n). dA and dB are
+                    // each a batched accumulating GEMM (`batched_gemm` picks
+                    // batch- vs row-parallelism by block size, β=1).
+                    let m = values[a].as_cpu().rows / batch;
+                    let k = values[a].as_cpu().cols;
+                    let n = g.cols;
+                    if transpose_b {
+                        // C[i] = A[i]·B[i]ᵀ, B[i]=(n×k).
+                        // dA[i] = g[i]·B[i]  : (m×n)·(n×k)→(m×k), B row-major.
+                        {
+                            let bv = values[b].as_cpu();
+                            let ga = &mut grads[a];
+                            batched_gemm(
+                                batch,
+                                m,
+                                n,
+                                k,
+                                1.0,
+                                &g.data,
+                                m * n,
+                                n as isize,
+                                1,
+                                &bv.data,
+                                n * k,
+                                k as isize,
+                                1,
+                                1.0,
+                                &mut ga.data,
+                            );
+                        }
+                        // dB[i] = g[i]ᵀ·A[i] : (n×m)·(m×k)→(n×k). g read
+                        // transposed (rs=1, cs=n); A row-major.
+                        {
+                            let av = values[a].as_cpu();
+                            let gb = &mut grads[b];
+                            batched_gemm(
+                                batch,
+                                n,
+                                m,
+                                k,
+                                1.0,
+                                &g.data,
+                                m * n,
+                                1,
+                                n as isize,
+                                &av.data,
+                                m * k,
+                                k as isize,
+                                1,
+                                1.0,
+                                &mut gb.data,
+                            );
+                        }
+                    } else {
+                        // C[i] = A[i]·B[i], B[i]=(k×n).
+                        // dA[i] = g[i]·B[i]ᵀ : (m×n)·(n×k)→(m×k). B read
+                        // transposed (rs=1, cs=n); g row-major.
+                        {
+                            let bv = values[b].as_cpu();
+                            let ga = &mut grads[a];
+                            batched_gemm(
+                                batch,
+                                m,
+                                n,
+                                k,
+                                1.0,
+                                &g.data,
+                                m * n,
+                                n as isize,
+                                1,
+                                &bv.data,
+                                k * n,
+                                1,
+                                n as isize,
+                                1.0,
+                                &mut ga.data,
+                            );
+                        }
+                        // dB[i] = A[i]ᵀ·g[i] : (k×m)·(m×n)→(k×n). A read
+                        // transposed (rs=1, cs=k); g row-major.
+                        {
+                            let av = values[a].as_cpu();
+                            let gb = &mut grads[b];
+                            batched_gemm(
+                                batch,
+                                k,
+                                m,
+                                n,
+                                1.0,
+                                &av.data,
+                                m * k,
+                                1,
+                                k as isize,
+                                &g.data,
+                                m * n,
+                                n as isize,
+                                1,
+                                1.0,
+                                &mut gb.data,
+                            );
+                        }
                     }
                 }
                 Op::MatMulGpu(a, b) => {
@@ -1194,7 +2023,7 @@ impl Tape {
                     }
                 }
                 Op::Scale { input, scalar } => {
-                    grads[input].add_assign(&g.scale(scalar));
+                    grads[input].add_scaled(&g, scalar);
                 }
                 Op::Neg(a) => {
                     grads[a].sub_assign(&g);
@@ -1202,69 +2031,95 @@ impl Tape {
                 Op::Exp(a) => {
                     // dL/dx = g * exp(x) = g * value(node_i)
                     let val = &values[i].as_cpu();
-                    grads[a].add_assign(&g.hadamard(val));
+                    grads[a].add_hadamard(&g, val);
+                }
+                Op::ExpPortable(a) => {
+                    // idem Exp : depuis la sortie stockée — aucun appel libm,
+                    // le nœud complet reste bit-exact inter-plates-formes.
+                    let val = &values[i].as_cpu();
+                    grads[a].add_hadamard(&g, val);
                 }
                 Op::Log(a) => {
                     let av = &values[a].as_cpu();
-                    grads[a].add_assign(&g.hadamard(&av.reciprocal()));
+                    grads[a].add_hadamard(&g, &av.reciprocal());
+                }
+                Op::LnPortable(a) => {
+                    // g ⊙ 1/x : division IEEE, sans libm.
+                    let av = &values[a].as_cpu();
+                    grads[a].add_hadamard(&g, &av.reciprocal());
+                }
+                Op::MatMulPortable(a, b) => {
+                    // dA = g · Bᵀ ; dB = Aᵀ · g — via le GEMM portable
+                    // (transposition = pur mouvement de données) : le
+                    // backward reste bit-exact inter-plates-formes.
+                    let av = values[a].as_cpu().clone();
+                    let bv = values[b].as_cpu().clone();
+                    grads[a] = grads[a].add(&g.matmul_portable(&bv.transpose()));
+                    grads[b] = grads[b].add(&av.transpose().matmul_portable(&g));
                 }
                 Op::Sqrt(a) => {
                     let av = &values[a].as_cpu();
                     let two_sqrt = av.sqrt().scale(2.0);
-                    grads[a] = grads[a].add(&g.hadamard(&two_sqrt.reciprocal()));
+                    grads[a].add_hadamard(&g, &two_sqrt.reciprocal());
                 }
                 Op::Reciprocal(a) => {
                     let av = &values[a].as_cpu();
-                    let mut denom = av.hadamard(av);
-                    for d in &mut denom.data {
-                        *d = 1.0 / (*d + 1e-10);
+                    // d/dx (1/x) = -1/x², computed exactly for x ≠ 0. Guard on
+                    // the denominator x² == 0 (return 0 there) to avoid ±inf and
+                    // 0·inf = NaN — this covers both x == 0 AND a tiny x whose
+                    // square underflows to 0 in f32 (e.g. x ≈ 1e-23). The
+                    // previous `-1/(x²+1e-10)` instead corrupted the gradient for
+                    // ALL |x| ≲ 1e-4 (≈50% error at x=1e-5) — the common-precision
+                    // range — while `Div` stayed exact.
+                    let mut minus_one_over_x2 = av.hadamard(av); // x²
+                    for d in minus_one_over_x2.data.iter_mut() {
+                        *d = if *d == 0.0 { 0.0 } else { -1.0 / *d };
                     }
-                    let minus_one_over_x2 = denom.scale(-1.0);
-                    grads[a] = grads[a].add(&g.hadamard(&minus_one_over_x2));
+                    grads[a].add_hadamard(&g, &minus_one_over_x2);
                 }
                 Op::Sin(a) => {
                     let av = values[a].as_cpu();
-                    grads[a] = grads[a].add(&g.hadamard(&av.cos()));
+                    grads[a].add_hadamard(&g, &av.cos());
                 }
                 Op::Cos(a) => {
                     let av = values[a].as_cpu();
-                    grads[a] = grads[a].sub(&g.hadamard(&av.sin()));
+                    grads[a].sub_hadamard(&g, &av.sin());
                 }
                 Op::Tan(a) => {
                     let av = values[a].as_cpu();
                     let cos_v = av.cos();
-                    grads[a] = grads[a].add(&g.hadamard(&cos_v.hadamard(&cos_v).reciprocal()));
+                    grads[a].add_hadamard(&g, &cos_v.hadamard(&cos_v).reciprocal());
                 }
                 Op::Sinh(a) => {
                     let av = values[a].as_cpu();
-                    grads[a] = grads[a].add(&g.hadamard(&av.cosh()));
+                    grads[a].add_hadamard(&g, &av.cosh());
                 }
                 Op::Cosh(a) => {
                     let av = values[a].as_cpu();
-                    grads[a] = grads[a].add(&g.hadamard(&av.sinh()));
+                    grads[a].add_hadamard(&g, &av.sinh());
                 }
                 Op::Log10(a) => {
                     let av = values[a].as_cpu();
                     let ln10 = std::f32::consts::LN_10;
-                    grads[a] = grads[a].add(&g.hadamard(&av.reciprocal().scale(1.0 / ln10)));
+                    grads[a].add_hadamard(&g, &av.reciprocal().scale(1.0 / ln10));
                 }
                 Op::Asin(a) => {
                     let av = values[a].as_cpu();
                     let ones = Tensor::from_vec(vec![1.0f32; av.data.len()], av.rows, av.cols);
                     let denom = ones.sub(&av.hadamard(av)).sqrt();
-                    grads[a] = grads[a].add(&g.hadamard(&denom.reciprocal()));
+                    grads[a].add_hadamard(&g, &denom.reciprocal());
                 }
                 Op::Acos(a) => {
                     let av = values[a].as_cpu();
                     let ones = Tensor::from_vec(vec![1.0f32; av.data.len()], av.rows, av.cols);
                     let denom = ones.sub(&av.hadamard(av)).sqrt();
-                    grads[a] = grads[a].sub(&g.hadamard(&denom.reciprocal()));
+                    grads[a].sub_hadamard(&g, &denom.reciprocal());
                 }
                 Op::Atan(a) => {
                     let av = values[a].as_cpu();
                     let ones = Tensor::from_vec(vec![1.0f32; av.data.len()], av.rows, av.cols);
                     let denom = ones.add(&av.hadamard(av));
-                    grads[a] = grads[a].add(&g.hadamard(&denom.reciprocal()));
+                    grads[a].add_hadamard(&g, &denom.reciprocal());
                 }
                 Op::Atan2(a, b) => {
                     let yv = values[a].as_cpu();
@@ -1277,13 +2132,13 @@ impl Tape {
                     }
                     let deriv_y = xv.hadamard(&denom_safe.reciprocal());
                     let deriv_x = yv.hadamard(&denom_safe.reciprocal()).neg();
-                    grads[a] = grads[a].add(&g.hadamard(&deriv_y));
-                    grads[b] = grads[b].add(&g.hadamard(&deriv_x));
+                    grads[a].add_hadamard(&g, &deriv_y);
+                    grads[b].add_hadamard(&g, &deriv_x);
                 }
                 Op::Pow { base, exp } => {
                     let av = &values[base].as_cpu();
                     let deriv = av.pow(exp - 1.0).scale(exp);
-                    grads[base] = grads[base].add(&g.hadamard(&deriv));
+                    grads[base].add_hadamard(&g, &deriv);
                 }
                 Op::ReLU(a) => {
                     let av = &values[a].as_cpu();
@@ -1339,21 +2194,39 @@ impl Tape {
                     let av = &values[a].as_cpu();
                     let max_v = av.max_axis(axis);
                     let mut mask = Tensor::zeros(av.rows, av.cols);
+                    // Split the incoming gradient EQUALLY among tied maxima
+                    // (weight 1/k for k ties) instead of giving the full gradient
+                    // to each — the latter over-counts by a factor of k and
+                    // inflates the gradient on plateaus.
                     if axis == 0 {
                         for c in 0..av.cols {
                             let m = max_v.data[c];
+                            let mut count = 0usize;
                             for r in 0..av.rows {
                                 if (av.data[r * av.cols + c] - m).abs() < 1e-6 {
-                                    mask.data[r * av.cols + c] = 1.0;
+                                    count += 1;
+                                }
+                            }
+                            let w = 1.0 / count as f32;
+                            for r in 0..av.rows {
+                                if (av.data[r * av.cols + c] - m).abs() < 1e-6 {
+                                    mask.data[r * av.cols + c] = w;
                                 }
                             }
                         }
                     } else {
                         for r in 0..av.rows {
                             let m = max_v.data[r];
+                            let mut count = 0usize;
                             for c in 0..av.cols {
                                 if (av.data[r * av.cols + c] - m).abs() < 1e-6 {
-                                    mask.data[r * av.cols + c] = 1.0;
+                                    count += 1;
+                                }
+                            }
+                            let w = 1.0 / count as f32;
+                            for c in 0..av.cols {
+                                if (av.data[r * av.cols + c] - m).abs() < 1e-6 {
+                                    mask.data[r * av.cols + c] = w;
                                 }
                             }
                         }
@@ -1379,12 +2252,26 @@ impl Tape {
                     grads[input] = grads[input].add(&g_sum);
                 }
                 Op::Softmax { input, axis } => {
-                    let av = &values[input].as_cpu();
-                    let sm = av.softmax(axis);
-                    let g_broadcast = g.broadcast_to(av.rows, av.cols);
-                    let gs = g_broadcast.hadamard(&sm);
+                    // Reuse the stored forward output softmax(input) = values[i]
+                    // instead of recomputing it — identical values, but no extra
+                    // exp pass and no softmax allocation per attention layer.
+                    let sm = values[i].as_cpu();
+                    let (rows, cols) = (sm.rows, sm.cols);
+                    let g_broadcast = g.broadcast_to(rows, cols);
+                    let gs = g_broadcast.hadamard(sm);
                     let sum_gs = gs.sum_axis(axis);
-                    let diff = gs.sub(&sm.hadamard(&sum_gs.broadcast_to(av.rows, av.cols)));
+                    let diff = gs.sub(&sm.hadamard(&sum_gs.broadcast_to(rows, cols)));
+                    grads[input].add_assign(&diff);
+                }
+                Op::SoftmaxPortable { input } => {
+                    // Même jacobien que Softmax (axe 1), mais depuis la
+                    // SORTIE STOCKÉE du nœud : aucun appel libm dans le
+                    // backward, qui reste donc bit-exact inter-plates-formes
+                    // comme le forward.
+                    let sm = values[i].as_cpu();
+                    let gs = g.hadamard(sm);
+                    let sum_gs = gs.sum_axis(1);
+                    let diff = gs.sub(&sm.hadamard(&sum_gs.broadcast_to(sm.rows, sm.cols)));
                     grads[input] = grads[input].add(&diff);
                 }
                 Op::LogSoftmax { input, axis } => {
@@ -1542,7 +2429,7 @@ impl Tape {
                             }
                         }
                     }
-                    grads[input_idx] = grads[input_idx].add(&g.hadamard(&mask));
+                    grads[input_idx].add_hadamard(&g, &mask);
                 }
                 Op::Dropout {
                     input_idx,
@@ -1623,133 +2510,170 @@ impl Tape {
                     gamma_idx,
                     beta_idx,
                 } => {
-                    // Analytic backward for BatchNorm (same as LayerNorm but per-channel):
-                    // y = gamma * (x - mu)/sigma + beta
-                    // dL/dx = (gamma / sigma) * (dL/dy - mean(dL/dy) - x_norm * mean(dL/dy * x_norm))
-                    //
-                    // Approximation: dL/dx = gamma * (dL/dy - mean(dL/dy)) / sigma
-                    // Full fix requires caching x_norm in SavedData::BatchNormNormed.
+                    // Exact analytic backward for the (per-row normalized) affine
+                    // y = gamma * x_norm + beta,  x_norm = (x - mu)/sigma:
+                    //   dL/dx   = (1/sigma)( a - mean(a) - x_norm*mean(a*x_norm) ), a = dL/dy * gamma
+                    //   dL/dgamma = sum_r (dL/dy * x_norm)
+                    //   dL/dbeta  = sum_r  dL/dy
+                    // NOTE: this Op has no in-crate forward constructor; the arm is
+                    // kept correct for any external caller building it directly.
                     let input = &values[input_idx].as_cpu();
                     let (rows, cols) = input.shape();
-                    let mut grad_x = Tensor::zeros(rows, cols);
                     let g_v = &values[gamma_idx].as_cpu();
+                    let n = cols as f32;
+
+                    let mut grad_x = Tensor::zeros(rows, cols);
+                    let mut xnorm = Tensor::zeros(rows, cols);
 
                     for r in 0..rows {
                         let mut mean = 0.0f32;
-                        let mut var = 0.0f32;
                         for c in 0..cols {
                             mean += input.data[r * cols + c];
                         }
-                        mean /= cols as f32;
+                        mean /= n;
+                        let mut var = 0.0f32;
                         for c in 0..cols {
                             let d = input.data[r * cols + c] - mean;
                             var += d * d;
                         }
-                        var = var / cols as f32 + 1e-5f32;
+                        var = var / n + 1e-5f32;
                         let sigma = var.sqrt();
 
-                        let mut g_mean = 0.0f32;
                         for c in 0..cols {
-                            g_mean += g.data[r * cols + c];
+                            xnorm.data[r * cols + c] = (input.data[r * cols + c] - mean) / sigma;
                         }
-                        g_mean /= cols as f32;
+
+                        // a = dL/dy * gamma, with gamma weighting inside the reductions.
+                        let mut a_mean = 0.0f32;
+                        let mut ax_mean = 0.0f32;
+                        for c in 0..cols {
+                            let a = g.data[r * cols + c] * g_v.data[c];
+                            a_mean += a;
+                            ax_mean += a * xnorm.data[r * cols + c];
+                        }
+                        a_mean /= n;
+                        ax_mean /= n;
 
                         for c in 0..cols {
+                            let a = g.data[r * cols + c] * g_v.data[c];
                             grad_x.data[r * cols + c] =
-                                g_v.data[c] * (g.data[r * cols + c] - g_mean) / sigma;
+                                (a - a_mean - xnorm.data[r * cols + c] * ax_mean) / sigma;
                         }
                     }
-                    grads[input_idx] = grads[input_idx].add(&grad_x);
-                    grads[gamma_idx] = grads[gamma_idx].add(&g.sum_axis(0));
+                    grads[input_idx].add_assign(&grad_x);
+                    grads[gamma_idx] = grads[gamma_idx].add(&g.hadamard(&xnorm).sum_axis(0));
                     grads[beta_idx] = grads[beta_idx].add(&g.sum_axis(0));
                 }
                 Op::LayerNorm {
                     input_idx,
                     gamma_idx,
                     beta_idx,
-                    eps: _eps,
+                    eps,
                 } => {
                     // Analytic backward for LayerNorm using cached normalized input:
                     // y = gamma * x_norm + beta,  where x_norm = (x - mu)/sigma
                     // dL/dbeta = sum(dL/dy, axis=0)
                     // dL/dgamma = sum(dL/dy * x_norm, axis=0)
                     // dL/dx = (gamma / sigma) * (dL/dy - mean(dL/dy, axis=1) - x_norm * mean(dL/dy * x_norm, axis=1))
-                    let x_norm = match &nodes[i].saved {
+                    // x_norm = (x - mu)/sigma. Prefer the value cached by the
+                    // forward pass; recompute it only if it is unavailable. It is
+                    // needed for BOTH the input gradient and the gamma gradient.
+                    let cached_norm = match &nodes[i].saved {
                         SavedData::LayerNormNormed(t) => Some(t),
                         _ => None,
                     };
                     let input = &values[input_idx].as_cpu();
                     let (rows, cols) = input.shape();
-                    let mut grad_x = Tensor::zeros(rows, cols);
                     let g_v = &values[gamma_idx].as_cpu();
                     let n = cols as f32;
 
-                    if let Some(norm) = x_norm {
-                        // Full analytic backward with cached x_norm
-                        for r in 0..rows {
-                            let mut g_mean = 0.0f32;
-                            let mut gxnorm_mean = 0.0f32;
-                            for c in 0..cols {
-                                g_mean += g.data[r * cols + c];
-                                gxnorm_mean += g.data[r * cols + c] * norm.data[r * cols + c];
-                            }
-                            g_mean /= n;
-                            gxnorm_mean /= n;
+                    let mut grad_x = Tensor::zeros(rows, cols);
+                    // Materialise x_norm per row so the gamma gradient can reuse it.
+                    let mut xnorm = Tensor::zeros(rows, cols);
 
-                            // Recompute sigma
-                            let mut mean = 0.0f32;
-                            let mut var = 0.0f32;
-                            for c in 0..cols {
-                                mean += input.data[r * cols + c];
-                            }
-                            mean /= n;
-                            for c in 0..cols {
-                                let d = input.data[r * cols + c] - mean;
-                                var += d * d;
-                            }
-                            var /= n;
-
-                            // Use safe epsilon for numerical stability
-                            let eps_val = if var < 1e-12 { 1e-6 } else { 0.0 };
-                            let sigma = (var + eps_val).sqrt();
-
-                            for c in 0..cols {
-                                grad_x.data[r * cols + c] = (g_v.data[c] / sigma)
-                                    * (g.data[r * cols + c]
-                                        - g_mean
-                                        - norm.data[r * cols + c] * gxnorm_mean);
-                            }
+                    for r in 0..rows {
+                        // Recompute sigma with the SAME (var + eps) convention as
+                        // the forward pass, so it matches the cached x_norm exactly.
+                        let mut mean = 0.0f32;
+                        for c in 0..cols {
+                            mean += input.data[r * cols + c];
                         }
-                    } else {
-                        // Fallback: approximate backward (no cached normed)
+                        mean /= n;
+                        let mut var = 0.0f32;
+                        for c in 0..cols {
+                            let d = input.data[r * cols + c] - mean;
+                            var += d * d;
+                        }
+                        var /= n;
+                        let sigma = (var + eps).sqrt();
+
+                        for c in 0..cols {
+                            xnorm.data[r * cols + c] = match cached_norm {
+                                Some(t) => t.data[r * cols + c],
+                                None => (input.data[r * cols + c] - mean) / sigma,
+                            };
+                        }
+
+                        // a = dL/dx_norm = g ⊙ gamma. The per-feature gamma must be
+                        // INSIDE the feature-axis reductions, not factored out — the
+                        // two are equal only when all gamma are equal.
+                        let mut a_mean = 0.0f32;
+                        let mut ax_mean = 0.0f32;
+                        for c in 0..cols {
+                            let a = g.data[r * cols + c] * g_v.data[c];
+                            a_mean += a;
+                            ax_mean += a * xnorm.data[r * cols + c];
+                        }
+                        a_mean /= n;
+                        ax_mean /= n;
+
+                        // dL/dx = (1/sigma)( a - mean(a) - x_norm * mean(a * x_norm) )
+                        for c in 0..cols {
+                            let a = g.data[r * cols + c] * g_v.data[c];
+                            grad_x.data[r * cols + c] =
+                                (a - a_mean - xnorm.data[r * cols + c] * ax_mean) / sigma;
+                        }
+                    }
+
+                    grads[input_idx].add_assign(&grad_x);
+                    // dL/dgamma = sum_r (g * x_norm), NOT sum_r g.
+                    grads[gamma_idx] = grads[gamma_idx].add(&g.hadamard(&xnorm).sum_axis(0));
+                    // dL/dbeta = sum_r g.
+                    grads[beta_idx] = grads[beta_idx].add(&g.sum_axis(0));
+                }
+                Op::L2Normalize { input_idx } => {
+                    // ŷ = x/‖x‖ per row. Jacobian (1/n)(I − ŷŷᵀ), so for upstream
+                    // grad g:  grad_x = (g − ŷ·(g·ŷ)) / n. The dot g·ŷ is summed
+                    // left-to-right (fixed order); n is recomputed from the input.
+                    let y_hat = match &nodes[i].saved {
+                        SavedData::L2Normalized(t) => Some(t),
+                        _ => None,
+                    };
+                    let input = &values[input_idx].as_cpu();
+                    let (rows, cols) = input.shape();
+                    let mut grad_x = Tensor::zeros(rows, cols);
+                    if let Some(yh) = y_hat {
                         for r in 0..rows {
-                            let mut mean = 0.0f32;
-                            let mut var = 0.0f32;
+                            let mut sumsq = 0.0f32;
                             for c in 0..cols {
-                                mean += input.data[r * cols + c];
+                                let x = input.data[r * cols + c];
+                                sumsq += x * x;
                             }
-                            mean /= n;
-                            for c in 0..cols {
-                                let d = input.data[r * cols + c] - mean;
-                                var += d * d;
-                            }
-                            var /= n;
-                            let eps_val = if var < 1e-12 { 1e-6 } else { 0.0 };
-                            let sigma = (var + eps_val).sqrt();
-                            let mut g_mean = 0.0f32;
-                            for c in 0..cols {
-                                g_mean += g.data[r * cols + c];
-                            }
-                            g_mean /= n;
-                            for c in 0..cols {
-                                grad_x.data[r * cols + c] =
-                                    g_v.data[c] * (g.data[r * cols + c] - g_mean) / sigma;
+                            let norm = sumsq.sqrt();
+                            if norm > 0.0 {
+                                let mut s = 0.0f32;
+                                for c in 0..cols {
+                                    s += g.data[r * cols + c] * yh.data[r * cols + c];
+                                }
+                                let inv = 1.0 / norm;
+                                for c in 0..cols {
+                                    grad_x.data[r * cols + c] =
+                                        (g.data[r * cols + c] - yh.data[r * cols + c] * s) * inv;
+                                }
                             }
                         }
                     }
-                    grads[input_idx] = grads[input_idx].add(&grad_x);
-                    grads[gamma_idx] = grads[gamma_idx].add(&g.sum_axis(0));
-                    grads[beta_idx] = grads[beta_idx].add(&g.sum_axis(0));
+                    grads[input_idx].add_assign(&grad_x);
                 }
                 Op::Conv2dForward {
                     input,
@@ -1764,7 +2688,6 @@ impl Tape {
                     stride,
                     pad,
                 } => {
-                    let input_t = values[input].as_cpu().clone();
                     let weight_t = values[weight].as_cpu().clone();
                     let h_out = (h + 2 * pad - kernel) / stride + 1;
                     let w_out = (w + 2 * pad - kernel) / stride + 1;
@@ -1793,24 +2716,39 @@ impl Tape {
                             }
                             db.data[oc] = acc;
                         }
-                        grads[b_idx] = grads[b_idx].add(&db);
+                        grads[b_idx].add_assign(&db);
                     }
 
-                    // col = im2col(input) : (in_c*k*k, N)
-                    let col = crate::nn::conv_utils::im2col_raw(
-                        &input_t, batch, in_c, h, w, kernel, stride, pad,
-                    );
+                    // col = im2col(input): reuse the buffer cached by the forward
+                    // pass; recompute only if it is somehow unavailable.
+                    let col_fallback;
+                    let col: &Tensor = match &nodes[i].saved {
+                        SavedData::Im2Col(c) => c,
+                        _ => {
+                            col_fallback = crate::nn::conv_utils::im2col_raw(
+                                values[input].as_cpu(),
+                                batch,
+                                in_c,
+                                h,
+                                w,
+                                kernel,
+                                stride,
+                                pad,
+                            );
+                            &col_fallback
+                        }
+                    };
 
                     // dW = dout @ col^T  (GPU engine if attached, else CPU)
-                    let dw = self.gemm_ab(&dout, &col, false, true);
-                    grads[weight] = grads[weight].add(&dw);
+                    let dw = self.gemm_ab(&dout, col, false, true);
+                    grads[weight].add_assign(&dw);
 
                     // dcol = W^T @ dout ; dx = col2im(dcol)
                     let dcol = self.gemm_ab(&weight_t, &dout, true, false);
                     let dx = crate::nn::conv_utils::col2im_raw(
                         &dcol, batch, in_c, h, w, kernel, stride, pad,
                     );
-                    grads[input] = grads[input].add(&dx);
+                    grads[input].add_assign(&dx);
                 }
                 Op::Conv2dTransposeForward {
                     input,
@@ -2021,78 +2959,28 @@ impl Tape {
 
                     let dims_2d: Vec<usize> = (0..dd).map(|i| in_dims[i] * out_dims[i]).collect();
 
+                    // General TT-contraction backward: reverse-mode through the
+                    // left-to-right matmul chain `reconstruct_tensor` performs.
+                    // Correct for any number of cores; `interleaved_tnd` is the
+                    // gradient on the contracted (interleaved) tensor.
+                    let cores_data: Vec<&[f32]> = (0..dd)
+                        .map(|k| values[core_indices[k]].as_cpu().data.as_slice())
+                        .collect();
+                    let d_cores = tt_contract_backward(
+                        &interleaved_tnd.data,
+                        &cores_data,
+                        &dims_2d,
+                        &ranks[..],
+                        dd,
+                    );
+
                     for k in 0..dd {
                         let core_idx = core_indices[k];
                         let r_k = ranks[k];
                         let n_k = in_dims[k] * out_dims[k];
                         let r_next = ranks[k + 1];
 
-                        let mut d_core_data = vec![0.0; r_k * n_k * r_next];
-
-                        match dd {
-                            2 => {
-                                if k == 0 {
-                                    // d_core_0 = d_interleaved @ core_1^T
-                                    // m=n_0, k=n_1, n=r_1
-                                    let core_1 = &values[core_indices[1]].as_cpu();
-                                    let m = dims_2d[0];
-                                    let kk = dims_2d[1];
-                                    let nn = r_next;
-                                    unsafe {
-                                        sgemm(
-                                            m,
-                                            kk,
-                                            nn,
-                                            1.0,
-                                            interleaved_tnd.data.as_ptr(),
-                                            dims_2d[1] as isize,
-                                            1,
-                                            core_1.data.as_ptr(),
-                                            1,
-                                            core_1.cols as isize,
-                                            0.0,
-                                            d_core_data.as_mut_ptr(),
-                                            nn as isize,
-                                            1,
-                                        );
-                                    }
-                                } else {
-                                    // d_core_1 = core_0^T @ d_interleaved
-                                    // m=r_1, k=n_0, n=n_1
-                                    let core_0 = &values[core_indices[0]].as_cpu();
-                                    let m = r_k;
-                                    let kk = dims_2d[0];
-                                    let nn = dims_2d[1];
-                                    unsafe {
-                                        sgemm(
-                                            m,
-                                            kk,
-                                            nn,
-                                            1.0,
-                                            core_0.data.as_ptr(),
-                                            1,
-                                            core_0.cols as isize,
-                                            interleaved_tnd.data.as_ptr(),
-                                            dims_2d[1] as isize,
-                                            1,
-                                            0.0,
-                                            d_core_data.as_mut_ptr(),
-                                            nn as isize,
-                                            1,
-                                        );
-                                    }
-                                }
-                            }
-                            _ => {
-                                // d>2: gradient set to zero (not yet implemented)
-                            }
-                        }
-
-                        let d_core_tensor = Tensor {
-                            rows: r_k * n_k,
-                            cols: r_next,
-                            data: d_core_data,
-                        };
+                        let d_core_tensor = Tensor::from_vec(d_cores[k].clone(), r_k * n_k, r_next);
                         grads[core_idx] = grads[core_idx].add(&d_core_tensor);
                     }
 
@@ -2103,11 +2991,7 @@ impl Tape {
                                 *val += g.data[i * g.cols + j];
                             }
                         }
-                        let db_tensor = Tensor {
-                            rows: 1,
-                            cols: g.cols,
-                            data: db,
-                        };
+                        let db_tensor = Tensor::from_vec(db, 1, g.cols);
                         grads[b_idx] = grads[b_idx].add(&db_tensor);
                     }
                 }
@@ -2115,7 +2999,7 @@ impl Tape {
                     q,
                     k,
                     v,
-                    mask: _mask,
+                    mask,
                     batch,
                     n_heads,
                     seq_len,
@@ -2123,209 +3007,107 @@ impl Tape {
                     scale,
                     block_size,
                 } => {
-                    // Restore saved m, l
-                    let (saved_m, saved_l) = match &nodes[i].saved {
-                        SavedData::FlashAttentionState { m, l } => (m, l),
-                        _ => panic!("FlashAttention backward: missing saved state"),
-                    };
-
+                    // Correct attention backward via a straightforward full
+                    // recomputation per query row (flash's memory win is in the
+                    // forward; the backward can afford the exact O(L^2) pass and
+                    // avoids the fragile tiled online-softmax reconstruction that
+                    // gave wrong gradients). Matches the forward's causal mask.
+                    let causal = mask.is_some();
+                    let _ = &nodes[i].saved; // saved m/l not needed for this path
                     let q_t = &values[q].as_cpu();
                     let k_t = &values[k].as_cpu();
                     let v_t = &values[v].as_cpu();
-                    let o_t = &values[i].as_cpu();
-                    let dv = o_t.cols;
+                    let dv = v_t.cols;
                     let total_heads = batch * n_heads;
-                    let s_len = seq_len;
+                    let l = seq_len; // self-attention: query length == key length
 
                     let mut dq = vec![0.0f32; q_t.data.len()];
                     let mut dk = vec![0.0f32; k_t.data.len()];
                     let mut dv_ = vec![0.0f32; v_t.data.len()];
 
                     for h in 0..total_heads {
-                        let q_base = h * seq_len * d_head;
-                        let k_base = h * s_len * d_head;
-                        let v_base = h * s_len * dv;
-                        let o_base = h * seq_len * dv;
-                        let m_base = h * seq_len;
+                        let q_base = h * l * d_head;
+                        let k_base = h * l * d_head;
+                        let v_base = h * l * dv;
+                        let o_base = h * l * dv; // `g` (upstream) has O's layout
 
-                        for qi in (0..seq_len).step_by(block_size) {
-                            let br = (seq_len - qi).min(block_size);
-
-                            // Replay the inner loop to recompute P_ij
-                            let mut m_i = vec![-f32::INFINITY; br];
-                            let mut l_i = vec![0.0f32; br];
-
-                            for kj in (0..s_len).step_by(block_size) {
-                                let bc = (s_len - kj).min(block_size);
-
-                                // S_ij = Q_i @ K_j^T
-                                let mut s_ij = vec![0.0f32; br * bc];
-                                for r in 0..br {
-                                    for c in 0..bc {
-                                        let mut sum = 0.0f32;
-                                        for d in 0..d_head {
-                                            sum += q_t.data[q_base + (qi + r) * d_head + d]
-                                                * k_t.data[k_base + (kj + c) * d_head + d];
-                                        }
-                                        s_ij[r * bc + c] = sum * scale;
-                                    }
+                        #[allow(clippy::needless_range_loop)]
+                        for qi in 0..l {
+                            // scores s[j] = scale * <Q_qi, K_j> with the causal mask.
+                            let mut s = vec![f32::NEG_INFINITY; l];
+                            let mut m = f32::NEG_INFINITY;
+                            for j in 0..l {
+                                if causal && j > qi {
+                                    continue;
                                 }
-
-                                // Recompute online softmax state
-                                let mut row_max = vec![-f32::INFINITY; br];
-                                for r in 0..br {
-                                    for c in 0..bc {
-                                        row_max[r] = row_max[r].max(s_ij[r * bc + c]);
-                                    }
+                                let mut dot = 0.0f32;
+                                for d in 0..d_head {
+                                    dot += q_t.data[q_base + qi * d_head + d]
+                                        * k_t.data[k_base + j * d_head + d];
                                 }
-
-                                let mut m_new = vec![-f32::INFINITY; br];
-                                for r in 0..br {
-                                    m_new[r] = m_i[r].max(row_max[r]);
-                                }
-
-                                let mut p_ij = vec![0.0f32; br * bc];
-                                let mut row_sum_p = vec![0.0f32; br];
-                                for r in 0..br {
-                                    for c in 0..bc {
-                                        p_ij[r * bc + c] = (s_ij[r * bc + c] - m_new[r]).exp();
-                                        row_sum_p[r] += p_ij[r * bc + c];
-                                    }
-                                }
-
-                                let mut rescale = vec![0.0f32; br];
-                                for r in 0..br {
-                                    rescale[r] = (m_i[r] - m_new[r]).exp();
-                                }
-
-                                // Rescale l_i
-                                for r in 0..br {
-                                    l_i[r] = rescale[r] * l_i[r] + row_sum_p[r];
-                                    m_i[..br].copy_from_slice(&m_new[..br]);
-                                    m_i[r] = m_new[r];
+                                s[j] = dot * scale;
+                                if s[j] > m {
+                                    m = s[j];
                                 }
                             }
 
-                            // Now compute gradients for this Q-block
-                            for kj in (0..s_len).step_by(block_size) {
-                                let bc = (s_len - kj).min(block_size);
-
-                                // Recompute S_ij
-                                let mut s_ij = vec![0.0f32; br * bc];
-                                for r in 0..br {
-                                    for c in 0..bc {
-                                        let mut sum = 0.0f32;
-                                        for d in 0..d_head {
-                                            sum += q_t.data[q_base + (qi + r) * d_head + d]
-                                                * k_t.data[k_base + (kj + c) * d_head + d];
-                                        }
-                                        s_ij[r * bc + c] = sum * scale;
-                                    }
+                            // softmax p[j].
+                            let mut p = vec![0.0f32; l];
+                            let mut denom = 0.0f32;
+                            for j in 0..l {
+                                if s[j].is_finite() {
+                                    let e = (s[j] - m).exp();
+                                    p[j] = e;
+                                    denom += e;
                                 }
+                            }
+                            let inv = if denom > 0.0 { 1.0 / denom } else { 0.0 };
+                            for pj in p.iter_mut() {
+                                *pj *= inv;
+                            }
 
-                                // Recompute row_max
-                                let mut row_max = vec![-f32::INFINITY; br];
-                                for r in 0..br {
-                                    for c in 0..bc {
-                                        row_max[r] = row_max[r].max(s_ij[r * bc + c]);
-                                    }
+                            // dP[j] = <dO_qi, V_j>, and dpp = sum_j p[j] dP[j].
+                            let mut dp = vec![0.0f32; l];
+                            let mut dpp = 0.0f32;
+                            for j in 0..l {
+                                if p[j] == 0.0 {
+                                    continue;
                                 }
-                                let mut m_new = vec![-f32::INFINITY; br];
-                                for r in 0..br {
-                                    m_new[r] = m_i[r].max(row_max[r]);
+                                let mut acc = 0.0f32;
+                                for d in 0..dv {
+                                    acc += g.data[o_base + qi * dv + d]
+                                        * v_t.data[v_base + j * dv + d];
                                 }
+                                dp[j] = acc;
+                                dpp += p[j] * acc;
+                            }
 
-                                // P_ij
-                                let mut p_ij_unscaled = vec![0.0f32; br * bc];
-                                for r in 0..br {
-                                    for c in 0..bc {
-                                        p_ij_unscaled[r * bc + c] =
-                                            (s_ij[r * bc + c] - m_new[r]).exp();
-                                    }
+                            // dV_j += p[j] * dO_qi.
+                            for j in 0..l {
+                                if p[j] == 0.0 {
+                                    continue;
                                 }
-
-                                // Final normalized P_ij
-                                let mut p_ij = vec![0.0f32; br * bc];
-                                for r in 0..br {
-                                    let row_idx = m_base + qi + r;
-                                    let m_final = saved_m.data[row_idx];
-                                    let l_final = saved_l.data[row_idx];
-
-                                    // P_ij_normalized = P_ij_unscaled * exp(m_new - m_final) / l_final
-                                    let factor = (m_new[r] - m_final).exp() / l_final;
-
-                                    for c in 0..bc {
-                                        p_ij[r * bc + c] = p_ij_unscaled[r * bc + c] * factor;
-                                    }
+                                for d in 0..dv {
+                                    dv_[v_base + j * dv + d] += p[j] * g.data[o_base + qi * dv + d];
                                 }
+                            }
 
-                                // dP = dO @ V_j^T: upstream gradient times V
-                                let mut dp = vec![0.0f32; br * bc];
-                                for r in 0..br {
-                                    for d in 0..dv {
-                                        let go = g.data[o_base + (qi + r) * dv + d];
-                                        if go == 0.0 {
-                                            continue;
-                                        }
-                                        for c in 0..bc {
-                                            dp[r * bc + c] +=
-                                                go * v_t.data[v_base + (kj + c) * dv + d];
-                                        }
-                                    }
+                            // ds[j] = p[j] (dP[j] - dpp) * scale; propagate to Q, K.
+                            for j in 0..l {
+                                if p[j] == 0.0 {
+                                    continue;
                                 }
-
-                                // Softmax gradient correction:
-                                // dL/dS = P .* (dP - sum_c(P .* dP))
-                                let mut ds = vec![0.0f32; br * bc];
-                                for r in 0..br {
-                                    let mut sum_p_dp = 0.0f32;
-                                    for c in 0..bc {
-                                        sum_p_dp += p_ij[r * bc + c] * dp[r * bc + c];
-                                    }
-                                    for c in 0..bc {
-                                        ds[r * bc + c] =
-                                            p_ij[r * bc + c] * (dp[r * bc + c] - sum_p_dp);
-                                    }
-                                }
-
-                                // dQ contribution
-                                for r in 0..br {
-                                    for d in 0..d_head {
-                                        let mut sum = 0.0f32;
-                                        for c in 0..bc {
-                                            sum += ds[r * bc + c]
-                                                * k_t.data[k_base + (kj + c) * d_head + d];
-                                        }
-                                        dq[q_base + (qi + r) * d_head + d] += sum * scale;
-                                    }
-                                }
-
-                                // dK contribution
-                                for c in 0..bc {
-                                    for d in 0..d_head {
-                                        let mut sum = 0.0f32;
-                                        for r in 0..br {
-                                            sum += ds[r * bc + c]
-                                                * q_t.data[q_base + (qi + r) * d_head + d];
-                                        }
-                                        dk[k_base + (kj + c) * d_head + d] += sum * scale;
-                                    }
-                                }
-
-                                // dV contribution
-                                for c in 0..bc {
-                                    for d in 0..dv {
-                                        let mut sum = 0.0f32;
-                                        for r in 0..br {
-                                            sum += p_ij[r * bc + c]
-                                                * g.data[o_base + (qi + r) * dv + d];
-                                        }
-                                        dv_[v_base + (kj + c) * dv + d] += sum;
-                                    }
+                                let ds = p[j] * (dp[j] - dpp) * scale;
+                                for d in 0..d_head {
+                                    dq[q_base + qi * d_head + d] +=
+                                        ds * k_t.data[k_base + j * d_head + d];
+                                    dk[k_base + j * d_head + d] +=
+                                        ds * q_t.data[q_base + qi * d_head + d];
                                 }
                             }
                         }
                     }
+                    let _ = block_size;
 
                     let dq_t = Tensor::from_vec(dq, q_t.rows, q_t.cols);
                     let dk_t = Tensor::from_vec(dk, k_t.rows, k_t.cols);
@@ -2336,6 +3118,9 @@ impl Tape {
                     grads[v] = grads[v].add(&dv_t);
                 }
             }
+            // Restore this node's gradient (moved out above) so it stays
+            // readable via `Tape::grad` after backward.
+            grads[i] = g;
         }
     }
 }
@@ -2352,13 +3137,28 @@ impl Default for Tape {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Var<'t> {
-    pub tape: &'t Tape,
-    pub idx: usize,
+    pub(crate) tape: &'t Tape,
+    pub(crate) idx: usize,
 }
 
 impl<'t> Var<'t> {
     pub fn new(tape: &'t Tape, idx: usize) -> Self {
+        assert!(
+            idx < tape.nodes.borrow().len(),
+            "Var::new: index {idx} out of bounds"
+        );
         Self { tape, idx }
+    }
+
+    #[inline]
+    fn ensure_same_tape(&self, other: &Var<'t>, op: &'static str) -> crate::error::Result<()> {
+        if std::ptr::eq(self.tape, other.tape) {
+            Ok(())
+        } else {
+            Err(crate::error::SciRustError::InvalidConfig(format!(
+                "{op}: variables belong to different autodiff tapes"
+            )))
+        }
     }
     #[inline]
     pub fn idx(&self) -> usize {
@@ -2383,10 +3183,15 @@ impl<'t> Var<'t> {
     }
 
     pub fn try_add(self, other: Var<'t>) -> crate::error::Result<Var<'t>> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let b = self.tape.values.borrow()[other.idx].as_cpu().clone();
-        crate::error::check_shape("add", a.shape(), b.shape())?;
-        let out = a.add(&b);
+        self.ensure_same_tape(&other, "add")?;
+        // Borrow the operands (no clone); drop the borrow before the mutable push.
+        let out = {
+            let values = self.tape.values.borrow();
+            let a = values[self.idx].as_cpu();
+            let b = values[other.idx].as_cpu();
+            crate::error::check_shape("add", a.shape(), b.shape())?;
+            a.add(b)
+        };
         let new_idx = self.tape.push_with_saved(
             Op::Add(self.idx, other.idx),
             DeviceTensor::cpu(out),
@@ -2403,12 +3208,31 @@ impl<'t> Var<'t> {
         self.try_add(other).unwrap()
     }
 
+    /// Fake-quantize with the signed int8 range `[-128, 127]` (symmetric,
+    /// `zero_point = 0` is the common case). For an asymmetric scheme use
+    /// [`Self::fake_quantize_ste_range`] with the correct `[qmin, qmax]` (e.g.
+    /// `[0, 255]` for uint8), otherwise the clamp bounds are wrong.
     pub fn fake_quantize_ste(self, scale: f32, zero_point: i32) -> Var<'t> {
+        self.fake_quantize_ste_range(scale, zero_point, -128, 127)
+    }
+
+    /// Fake-quantize (quantize→clamp→dequantize) with an explicit integer range
+    /// `[qmin, qmax]`, so both symmetric int8 (`[-128,127]`, `zp=0`) and
+    /// asymmetric uint8 (`[0,255]`, `zp≠0`) are expressible. Gradient is the
+    /// straight-through estimator.
+    pub fn fake_quantize_ste_range(
+        self,
+        scale: f32,
+        zero_point: i32,
+        qmin: i32,
+        qmax: i32,
+    ) -> Var<'t> {
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
+        let (lo, hi) = (qmin as f32, qmax as f32);
         let mut out_data = vec![0.0f32; a.data.len()];
         for (i, &x) in a.data.iter().enumerate() {
             let q = (x / scale).round() + zero_point as f32;
-            let q_clamped = q.clamp(-128.0, 127.0);
+            let q_clamped = q.clamp(lo, hi);
             out_data[i] = (q_clamped - zero_point as f32) * scale;
         }
         let out = Tensor::from_vec(out_data, a.rows, a.cols);
@@ -2429,19 +3253,7 @@ impl<'t> Var<'t> {
 
     #[allow(clippy::should_implement_trait)]
     pub fn sub(self, other: Var<'t>) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let b = self.tape.values.borrow()[other.idx].as_cpu().clone();
-        assert_eq!(a.shape(), b.shape(), "sub: shape mismatch");
-        let out = a.sub(&b);
-        let new_idx = self.tape.push_with_saved(
-            Op::Sub(self.idx, other.idx),
-            DeviceTensor::cpu(out),
-            SavedData::None,
-        );
-        Var {
-            tape: self.tape,
-            idx: new_idx,
-        }
+        self.try_sub(other).unwrap()
     }
 
     #[allow(clippy::should_implement_trait)]
@@ -2450,10 +3262,14 @@ impl<'t> Var<'t> {
     }
 
     pub fn try_sub(self, other: Var<'t>) -> crate::error::Result<Var<'t>> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let b = self.tape.values.borrow()[other.idx].as_cpu().clone();
-        crate::error::check_shape("sub", a.shape(), b.shape())?;
-        let out = a.sub(&b);
+        self.ensure_same_tape(&other, "sub")?;
+        let out = {
+            let values = self.tape.values.borrow();
+            let a = values[self.idx].as_cpu();
+            let b = values[other.idx].as_cpu();
+            crate::error::check_shape("sub", a.shape(), b.shape())?;
+            a.sub(b)
+        };
         let new_idx = self.tape.push_with_saved(
             Op::Sub(self.idx, other.idx),
             DeviceTensor::cpu(out),
@@ -2466,10 +3282,14 @@ impl<'t> Var<'t> {
     }
 
     pub fn try_div(self, other: Var<'t>) -> crate::error::Result<Var<'t>> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let b = self.tape.values.borrow()[other.idx].as_cpu().clone();
-        crate::error::check_shape("div", a.shape(), b.shape())?;
-        let out = a.div(&b);
+        self.ensure_same_tape(&other, "div")?;
+        let out = {
+            let values = self.tape.values.borrow();
+            let a = values[self.idx].as_cpu();
+            let b = values[other.idx].as_cpu();
+            crate::error::check_shape("div", a.shape(), b.shape())?;
+            a.div(b)
+        };
         let new_idx = self.tape.push_with_saved(
             Op::Div(self.idx, other.idx),
             DeviceTensor::cpu(out),
@@ -2482,10 +3302,22 @@ impl<'t> Var<'t> {
     }
 
     pub fn try_matmul(self, other: Var<'t>) -> crate::error::Result<Var<'t>> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let b = self.tape.values.borrow()[other.idx].as_cpu().clone();
-        crate::error::check_inner_dim("matmul", a.cols, b.rows)?;
-        let out = a.matmul(&b);
+        self.ensure_same_tape(&other, "matmul")?;
+        // Whole-model GPU switch: when the tape prefers GPU matmuls and an engine
+        // is attached, record this as a MatMulGpu node so forward and backward run
+        // on the device. Off by default, so the CPU path below is unchanged.
+        if self.tape.prefer_gpu_matmul.get() && self.tape.gpu_engine.borrow().is_some() {
+            return self.try_matmul_gpu(other);
+        }
+        // Compute while borrowing the operands (no clone); the borrow is dropped
+        // before `push_with_saved` takes a mutable borrow of `values`.
+        let out = {
+            let values = self.tape.values.borrow();
+            let a = values[self.idx].as_cpu();
+            let b = values[other.idx].as_cpu();
+            crate::error::check_inner_dim("matmul", a.cols, b.rows)?;
+            a.matmul(b)
+        };
         let new_idx = self.tape.push_with_saved(
             Op::MatMul(self.idx, other.idx),
             DeviceTensor::cpu(out),
@@ -2497,6 +3329,233 @@ impl<'t> Var<'t> {
         })
     }
 
+    /// Compatibility wrapper for a single-row, single-observable quantum node.
+    pub fn try_quantum_expectation(
+        self,
+        parameters: Var<'t>,
+        layer: &crate::quantum::QuantumLayer,
+    ) -> crate::quantum::QuantumResult<Var<'t>> {
+        if layer.observables().len() != 1 {
+            return Err(crate::quantum::QuantumError::InvalidObservableCount {
+                minimum: 1,
+                maximum: Some(1),
+                actual: layer.observables().len(),
+            });
+        }
+        let (actual_rows, actual_cols) = self.shape();
+        if actual_rows != 1 {
+            return Err(crate::quantum::QuantumError::InvalidTensorShape {
+                tensor: "classical_features",
+                expected_rows: Some(1),
+                expected_cols: Some(layer.input_parameters().len()),
+                actual_rows,
+                actual_cols,
+            });
+        }
+        self.try_quantum_expectations(parameters, layer)
+    }
+
+    /// Evaluates deterministic batched exact expectations and records one
+    /// exact dense-adjoint node for reverse-mode differentiation.
+    pub fn try_quantum_expectations(
+        self,
+        parameters: Var<'t>,
+        layer: &crate::quantum::QuantumLayer,
+    ) -> crate::quantum::QuantumResult<Var<'t>> {
+        self.ensure_same_tape(&parameters, "quantum expectations")
+            .map_err(|_| crate::quantum::QuantumError::MismatchedAutodiffTapes)?;
+
+        let output = {
+            let values = self.tape.values.borrow();
+            let features_value = values[self.idx].as_cpu();
+            let parameters_value = values[parameters.idx].as_cpu();
+            let batch = features_value.rows;
+            let feature_count = layer.input_parameters().len();
+            let parameter_count = layer.trainable_parameters().len();
+            let observable_count = layer.observables().len();
+
+            if observable_count == 0 {
+                return Err(crate::quantum::QuantumError::InvalidObservableCount {
+                    minimum: 1,
+                    maximum: None,
+                    actual: 0,
+                });
+            }
+            if batch == 0 {
+                return Err(crate::quantum::QuantumError::InvalidBatchSize {
+                    minimum: 1,
+                    actual: 0,
+                });
+            }
+            if features_value.cols != feature_count {
+                return Err(crate::quantum::QuantumError::InvalidTensorShape {
+                    tensor: "classical_features",
+                    expected_rows: None,
+                    expected_cols: Some(feature_count),
+                    actual_rows: features_value.rows,
+                    actual_cols: features_value.cols,
+                });
+            }
+            if parameters_value.rows != 1 || parameters_value.cols != parameter_count {
+                return Err(crate::quantum::QuantumError::InvalidTensorShape {
+                    tensor: "quantum_parameters",
+                    expected_rows: Some(1),
+                    expected_cols: Some(parameter_count),
+                    actual_rows: parameters_value.rows,
+                    actual_cols: parameters_value.cols,
+                });
+            }
+
+            let mut output_data = Vec::with_capacity(batch * observable_count);
+            for sample in 0..batch {
+                let mut bindings = crate::quantum::ParameterValues::new();
+                for (column, &id) in layer.input_parameters().iter().enumerate() {
+                    bindings.insert(id, features_value.data[sample * feature_count + column])?;
+                }
+                for (column, &id) in layer.trainable_parameters().iter().enumerate() {
+                    bindings.insert(id, parameters_value.data[column])?;
+                }
+                let state = layer.circuit().bind(&bindings)?.execute_dense()?;
+                for observable in layer.observables() {
+                    output_data.push(state.expectation(observable)?);
+                }
+            }
+            Tensor::from_vec(output_data, batch, observable_count)
+        };
+
+        let idx = self.tape.push_with_saved(
+            Op::QuantumExpectations {
+                features: self.idx,
+                parameters: parameters.idx,
+            },
+            DeviceTensor::cpu(output),
+            SavedData::QuantumExpectations(layer.clone()),
+        );
+        Ok(Var {
+            tape: self.tape,
+            idx,
+        })
+    }
+
+    /// `C = A · Bᵀ` where `self = A` (`m×k`) and `other = B` (`n×k`), giving
+    /// `C` (`m×n`). Reads `B` transposed via strides (no physical transpose is
+    /// materialized) and goes through the parallel GEMM. Semantically identical
+    /// to `self.try_matmul(other.transpose())` but avoids the transpose node and
+    /// its allocation — used by attention's `Q·Kᵀ`.
+    pub fn try_matmul_bt(self, other: Var<'t>) -> crate::error::Result<Var<'t>> {
+        self.ensure_same_tape(&other, "matmul_bt")?;
+        // A·Bᵀ via gemm_ab(ta=false, tb=true): B read transposed by stride. Read
+        // the operands by reference (no clone); `gemm_ab` only touches the GPU
+        // engine, not `values`, so holding the borrow is safe.
+        let out = {
+            let values = self.tape.values.borrow();
+            let a = values[self.idx].as_cpu();
+            let b = values[other.idx].as_cpu();
+            crate::error::check_inner_dim("matmul_bt", a.cols, b.cols)?;
+            self.tape.gemm_ab(a, b, false, true)
+        };
+        let new_idx = self.tape.push_with_saved(
+            Op::MatMulBt(self.idx, other.idx),
+            DeviceTensor::cpu(out),
+            SavedData::None,
+        );
+        Ok(Var {
+            tape: self.tape,
+            idx: new_idx,
+        })
+    }
+
+    pub fn matmul_bt(self, other: Var<'t>) -> Var<'t> {
+        self.try_matmul_bt(other).unwrap()
+    }
+
+    /// Batched matmul over `batch` blocks stacked row-wise. `self = A` is
+    /// `(batch·m × k)` (block `i` is rows `i·m..(i+1)·m`); `other = B` is
+    /// `(batch·n × k)` when `transpose_b` (block `i` computes `A[i]·B[i]ᵀ`,
+    /// giving `m×n`) or `(batch·k × n)` otherwise (block `i` computes
+    /// `A[i]·B[i]`). Output is the `batch` results stacked row-wise
+    /// (`batch·m × n`). The blocks are independent and run in parallel — this is
+    /// attention's `B·H` tiny per-head/batch GEMMs collapsed into a single node
+    /// instead of `B·H` sequential `matmul` calls.
+    pub fn try_bmm2d(
+        self,
+        other: Var<'t>,
+        batch: usize,
+        transpose_b: bool,
+    ) -> crate::error::Result<Var<'t>> {
+        self.ensure_same_tape(&other, "bmm2d")?;
+        // Read the operands by reference (no clone) and run the batched GEMM
+        // while the borrow is held; `batched_gemm` is a free function that never
+        // touches the tape. The borrow drops before the mutable push below.
+        let (out, m, n) = {
+            let values = self.tape.values.borrow();
+            let a = values[self.idx].as_cpu();
+            let b = values[other.idx].as_cpu();
+            if batch == 0 || !a.rows.is_multiple_of(batch) || !b.rows.is_multiple_of(batch) {
+                return Err(crate::error::SciRustError::ShapeMismatch {
+                    op: "bmm2d",
+                    expected: (batch, batch),
+                    got: (a.rows, b.rows),
+                });
+            }
+            let m = a.rows / batch;
+            let k = a.cols;
+            // Contracted dim is B's columns whether or not it is read transposed:
+            // transpose_b → each block is (m×k)·(k×n)ᵀ with B stored (n×k);
+            // otherwise B is (k×n) stacked as (batch·k × n).
+            let (n, b_inner) = if transpose_b {
+                (b.rows / batch, b.cols)
+            } else {
+                (b.cols, b.rows / batch)
+            };
+            crate::error::check_inner_dim("bmm2d", k, b_inner)?;
+            // B[i] is read transposed (rsb=1, csb=k) when it is stored `(n×k)`,
+            // else row-major `(k×n)` (rsb=n, csb=1). A[i] is always row-major.
+            let (b_bstride, rsb, csb) = if transpose_b {
+                (n * k, 1isize, k as isize)
+            } else {
+                (k * n, n as isize, 1isize)
+            };
+            let mut out = vec![0.0f32; batch * m * n];
+            batched_gemm(
+                batch,
+                m,
+                k,
+                n,
+                1.0,
+                &a.data,
+                m * k,
+                k as isize,
+                1,
+                &b.data,
+                b_bstride,
+                rsb,
+                csb,
+                0.0,
+                &mut out,
+            );
+            (out, m, n)
+        };
+        let new_idx = self.tape.push_with_saved(
+            Op::BatchMatMul {
+                a: self.idx,
+                b: other.idx,
+                batch,
+                transpose_b,
+            },
+            DeviceTensor::cpu(Tensor::from_vec(out, batch * m, n)),
+            SavedData::None,
+        );
+        Ok(Var {
+            tape: self.tape,
+            idx: new_idx,
+        })
+    }
+
+    pub fn bmm2d(self, other: Var<'t>, batch: usize, transpose_b: bool) -> Var<'t> {
+        self.try_bmm2d(other, batch, transpose_b).unwrap()
+    }
+
     /// MatMul GPU-acceléré.
     ///
     /// When a [`GpuEngine`] is attached to the tape, both this forward GEMM and
@@ -2504,6 +3563,7 @@ impl<'t> Var<'t> {
     /// falls back to the CPU path. GPU results are not bit-identical to the CPU
     /// path (different accumulation order) — see `docs/GPU.md`.
     pub fn try_matmul_gpu(self, other: Var<'t>) -> crate::error::Result<Var<'t>> {
+        self.ensure_same_tape(&other, "matmul_gpu")?;
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
         let b = self.tape.values.borrow()[other.idx].as_cpu().clone();
         crate::error::check_inner_dim("matmul_gpu", a.cols, b.rows)?;
@@ -2511,13 +3571,20 @@ impl<'t> Var<'t> {
             let engine = self.tape.gpu_engine.borrow();
             if let Some(ref engine) = *engine {
                 let (m, k, n) = (a.rows, a.cols, b.cols);
-                let mut c = vec![0.0f32; m * n];
-                engine.gemm(1.0, &a.data, &b.data, 0.0, &mut c, m, k, n, false, false);
-                Tensor {
-                    rows: m,
-                    cols: n,
-                    data: c,
-                }
+                let mut output = Tensor::zeros(m, n);
+                engine.gemm(
+                    1.0,
+                    &a.data,
+                    &b.data,
+                    0.0,
+                    &mut output.data,
+                    m,
+                    k,
+                    n,
+                    false,
+                    false,
+                );
+                output
             } else {
                 a.matmul(&b)
             }
@@ -2548,8 +3615,7 @@ impl<'t> Var<'t> {
 
     #[allow(clippy::should_implement_trait)]
     pub fn neg(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.neg();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().neg();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Neg(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2560,15 +3626,21 @@ impl<'t> Var<'t> {
     }
 
     pub fn relu(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let mut out = a.clone();
-        for x in &mut out.data {
-            *x = x.max(0.0);
-        }
-        let mut mask = Tensor::zeros(a.rows, a.cols);
-        for (m, val) in mask.data.iter_mut().zip(&a.data) {
-            *m = if *val > 0.0 { 1.0 } else { 0.0 };
-        }
+        // Build the output and mask from the borrowed input (no `a` clone; `out`
+        // is the one buffer we must own). Borrow drops before the mutable push.
+        let (out, mask) = {
+            let values = self.tape.values.borrow();
+            let a = values[self.idx].as_cpu();
+            let mut out = a.clone();
+            for x in &mut out.data {
+                *x = x.max(0.0);
+            }
+            let mut mask = Tensor::zeros(a.rows, a.cols);
+            for (m, val) in mask.data.iter_mut().zip(&a.data) {
+                *m = if *val > 0.0 { 1.0 } else { 0.0 };
+            }
+            (out, mask)
+        };
         let new_idx = self.tape.push_with_saved(
             Op::ReLU(self.idx),
             DeviceTensor::cpu(out),
@@ -2581,8 +3653,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn sigmoid(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.sigmoid();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().sigmoid();
         let new_idx = self.tape.push_with_saved(
             Op::Sigmoid(self.idx),
             DeviceTensor::cpu(out),
@@ -2595,8 +3666,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn tanh(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.tanh();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().tanh();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Tanh(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2607,8 +3677,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn sin(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.sin();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().sin();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Sin(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2619,8 +3688,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn cos(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.cos();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().cos();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Cos(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2631,8 +3699,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn tan(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.tan();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().tan();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Tan(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2643,8 +3710,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn sinh(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.sinh();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().sinh();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Sinh(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2655,8 +3721,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn cosh(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.cosh();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().cosh();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Cosh(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2667,8 +3732,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn log10(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.log10();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().log10();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Log10(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2679,8 +3743,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn asin(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.asin();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().asin();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Asin(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2691,8 +3754,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn acos(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.acos();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().acos();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Acos(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2703,8 +3765,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn atan(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.atan();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().atan();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Atan(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2715,6 +3776,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn atan2(self, x: Var<'t>) -> Var<'t> {
+        self.ensure_same_tape(&x, "atan2").unwrap();
         let y_val = self.tape.values.borrow()[self.idx].as_cpu().clone();
         let x_val = self.tape.values.borrow()[x.idx].as_cpu().clone();
         let out = y_val.atan2(&x_val);
@@ -2730,8 +3792,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn exp(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.exp();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().exp();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Exp(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2741,9 +3802,61 @@ impl<'t> Var<'t> {
         }
     }
 
-    pub fn log(self) -> Var<'t> {
+    /// exp **portable** (sans libm) : forward via
+    /// [`crate::portable_f32::exp_f32`], backward depuis la sortie stockée —
+    /// nœud bit-exact inter-plates-formes, contrairement à [`Var::exp`].
+    pub fn exp_portable(self) -> Var<'t> {
+        let out = self.tape.values.borrow()[self.idx].as_cpu().exp_portable();
+        let new_idx = self.tape.push_with_saved(
+            Op::ExpPortable(self.idx),
+            DeviceTensor::cpu(out),
+            SavedData::None,
+        );
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
+    }
+
+    /// ln **portable** (sans libm) : forward via
+    /// [`crate::portable_f32::ln_f32`], backward `g ⊙ 1/x` (division IEEE) —
+    /// nœud bit-exact inter-plates-formes, contrairement à [`Var::log`].
+    pub fn ln_portable(self) -> Var<'t> {
+        let out = self.tape.values.borrow()[self.idx].as_cpu().ln_portable();
+        let new_idx = self.tape.push_with_saved(
+            Op::LnPortable(self.idx),
+            DeviceTensor::cpu(out),
+            SavedData::None,
+        );
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
+    }
+
+    /// Matmul **portable** : forward ET backward via le GEMM portable
+    /// ([`crate::portable_f32::gemm_f32`], ordre fixe, sans noyau SIMD par
+    /// architecture) — nœud bit-exact inter-plates-formes, contrairement à
+    /// [`Var::matmul`]. Voie de référence, plus lente.
+    pub fn matmul_portable(self, other: Var<'t>) -> Var<'t> {
+        self.ensure_same_tape(&other, "matmul_portable").unwrap();
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.log();
+        let b = self.tape.values.borrow()[other.idx].as_cpu().clone();
+        crate::error::check_inner_dim("matmul_portable", a.cols, b.rows).unwrap();
+        let out = a.matmul_portable(&b);
+        let new_idx = self.tape.push_with_saved(
+            Op::MatMulPortable(self.idx, other.idx),
+            DeviceTensor::cpu(out),
+            SavedData::None,
+        );
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
+    }
+
+    pub fn log(self) -> Var<'t> {
+        let out = self.tape.values.borrow()[self.idx].as_cpu().log();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Log(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2754,8 +3867,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn sqrt(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.sqrt();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().sqrt();
         let new_idx =
             self.tape
                 .push_with_saved(Op::Sqrt(self.idx), DeviceTensor::cpu(out), SavedData::None);
@@ -2766,8 +3878,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn reciprocal(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.reciprocal();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().reciprocal();
         let new_idx = self.tape.push_with_saved(
             Op::Reciprocal(self.idx),
             DeviceTensor::cpu(out),
@@ -2927,6 +4038,27 @@ impl<'t> Var<'t> {
         self.try_softmax(axis).unwrap()
     }
 
+    /// Softmax **portable** par ligne (axe 1) : forward via
+    /// [`crate::portable_f32::softmax_f32`] (exp sans libm, somme indépendante
+    /// de l'ordre) et backward depuis la sortie stockée — le nœud complet
+    /// (forward ET gradient) est bit-exact inter-plates-formes, contrairement
+    /// à [`Var::softmax`] dont l'exp dépend de la libm. Pour l'axe 0,
+    /// transposer avant/après. Voie de référence, plus lente que `softmax`.
+    pub fn softmax_portable(self) -> Var<'t> {
+        let out = self.tape.values.borrow()[self.idx]
+            .as_cpu()
+            .softmax_portable();
+        let new_idx = self.tape.push_with_saved(
+            Op::SoftmaxPortable { input: self.idx },
+            DeviceTensor::cpu(out),
+            SavedData::None,
+        );
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
+    }
+
     pub fn try_log_softmax(self, axis: u8) -> crate::error::Result<Var<'t>> {
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
         if axis > 1 {
@@ -2934,8 +4066,7 @@ impl<'t> Var<'t> {
                 "log_softmax: axis {axis} out of range [0, 1]"
             )));
         }
-        let sm = a.softmax(axis);
-        let out = sm.log();
+        let out = a.log_softmax(axis);
         let new_idx = self.tape.push_with_saved(
             Op::LogSoftmax {
                 input: self.idx,
@@ -2954,8 +4085,7 @@ impl<'t> Var<'t> {
     }
 
     pub fn transpose(self) -> Var<'t> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let out = a.transpose();
+        let out = self.tape.values.borrow()[self.idx].as_cpu().transpose();
         let new_idx = self.tape.push_with_saved(
             Op::Transpose2d(self.idx),
             DeviceTensor::cpu(out),
@@ -2988,16 +4118,20 @@ impl<'t> Var<'t> {
     }
 
     pub fn try_add_broadcast(self, other: Var<'t>) -> crate::error::Result<Var<'t>> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let b = self.tape.values.borrow()[other.idx].as_cpu().clone();
-        if b.rows != 1 && b.cols != a.cols {
-            return Err(crate::error::SciRustError::ShapeMismatch {
-                op: "add_broadcast",
-                expected: (1, a.cols),
-                got: (b.rows, b.cols),
-            });
-        }
-        let out = a.add(&b.broadcast_to(a.rows, a.cols));
+        self.ensure_same_tape(&other, "add_broadcast")?;
+        let out = {
+            let values = self.tape.values.borrow();
+            let a = values[self.idx].as_cpu();
+            let b = values[other.idx].as_cpu();
+            if !((b.rows == a.rows || b.rows == 1) && (b.cols == a.cols || b.cols == 1)) {
+                return Err(crate::error::SciRustError::ShapeMismatch {
+                    op: "add_broadcast",
+                    expected: (a.rows, a.cols),
+                    got: (b.rows, b.cols),
+                });
+            }
+            a.zip_broadcasted(b, |x, y| x + y)
+        };
         let new_idx = self.tape.push_with_saved(
             Op::AddBroadcast(self.idx, other.idx),
             DeviceTensor::cpu(out),
@@ -3019,9 +4153,10 @@ impl<'t> Var<'t> {
     }
 
     pub fn sub_broadcast(self, other: Var<'t>) -> Var<'t> {
+        self.ensure_same_tape(&other, "sub_broadcast").unwrap();
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
         let b = self.tape.values.borrow()[other.idx].as_cpu().clone();
-        let out = a.sub(&b.broadcast_to(a.rows, a.cols));
+        let out = a.zip_broadcasted(&b, |x, y| x - y);
         let new_idx = self.tape.push_with_saved(
             Op::SubBroadcast(self.idx, other.idx),
             DeviceTensor::cpu(out),
@@ -3034,16 +4169,20 @@ impl<'t> Var<'t> {
     }
 
     pub fn try_mul_broadcast(self, other: Var<'t>) -> crate::error::Result<Var<'t>> {
-        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
-        let b = self.tape.values.borrow()[other.idx].as_cpu().clone();
-        if b.rows != 1 && b.cols != a.cols {
-            return Err(crate::error::SciRustError::ShapeMismatch {
-                op: "mul_broadcast",
-                expected: (1, a.cols),
-                got: (b.rows, b.cols),
-            });
-        }
-        let out = a.hadamard(&b.broadcast_to(a.rows, a.cols));
+        self.ensure_same_tape(&other, "mul_broadcast")?;
+        let out = {
+            let values = self.tape.values.borrow();
+            let a = values[self.idx].as_cpu();
+            let b = values[other.idx].as_cpu();
+            if !((b.rows == a.rows || b.rows == 1) && (b.cols == a.cols || b.cols == 1)) {
+                return Err(crate::error::SciRustError::ShapeMismatch {
+                    op: "mul_broadcast",
+                    expected: (a.rows, a.cols),
+                    got: (b.rows, b.cols),
+                });
+            }
+            a.zip_broadcasted(b, |x, y| x * y)
+        };
         let new_idx = self.tape.push_with_saved(
             Op::MulBroadcast(self.idx, other.idx),
             DeviceTensor::cpu(out),
@@ -3059,9 +4198,10 @@ impl<'t> Var<'t> {
     }
 
     pub fn div_broadcast(self, other: Var<'t>) -> Var<'t> {
+        self.ensure_same_tape(&other, "div_broadcast").unwrap();
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
         let b = self.tape.values.borrow()[other.idx].as_cpu().clone();
-        let out = a.div(&b.broadcast_to(a.rows, a.cols));
+        let out = a.zip_broadcasted(&b, |x, y| x / y);
         let new_idx = self.tape.push_with_saved(
             Op::DivBroadcast(self.idx, other.idx),
             DeviceTensor::cpu(out),
@@ -3200,6 +4340,12 @@ impl<'t> Var<'t> {
         out_dims: Vec<usize>,
         ranks: Vec<usize>,
     ) -> crate::error::Result<Var<'t>> {
+        for core in &cores {
+            self.ensure_same_tape(core, "tt_contract")?;
+        }
+        if let Some(bias) = &bias {
+            self.ensure_same_tape(bias, "tt_contract")?;
+        }
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
 
         let d = in_dims.len();
@@ -3248,36 +4394,16 @@ impl<'t> Var<'t> {
         let w_data = reconstruct_matrix(&tt, &in_dims, &out_dims);
         let in_features: usize = in_dims.iter().product();
         let out_features: usize = out_dims.iter().product();
-        let w_tensor = Tensor {
-            rows: in_features,
-            cols: out_features,
-            data: w_data,
-        };
+        let w_tensor = Tensor::from_vec(w_data, in_features, out_features);
 
-        let mut out_data = vec![0.0; a.rows * out_features];
-        unsafe {
-            sgemm(
-                a.rows,
-                a.cols,
-                out_features,
-                1.0,
-                a.data.as_ptr(),
-                a.cols as isize,
-                1,
-                w_tensor.data.as_ptr(),
-                w_tensor.cols as isize,
-                1,
-                0.0,
-                out_data.as_mut_ptr(),
-                out_features as isize,
-                1,
-            );
-        }
-        let mut out_tensor = Tensor {
-            rows: a.rows,
-            cols: out_features,
-            data: out_data,
-        };
+        // The sgemm below uses `a.cols` as the contraction dimension and reads
+        // the reconstructed weight (in_features × out_features) with row stride
+        // out_features. If `a.cols != in_features` it would read past
+        // `w_tensor.data` (OOB). Validate the inner dimension first, exactly as
+        // `try_matmul` does, so a shape mismatch is a clean `Err` instead of UB.
+        crate::error::check_inner_dim("tt_contract", a.cols, in_features)?;
+
+        let mut out_tensor = a.matmul(&w_tensor);
 
         let bias_idx = bias.as_ref().map(|b| b.idx);
         if let Some(ref b) = bias {
@@ -3352,6 +4478,14 @@ impl<'t> Var<'t> {
         }
     }
 
+    /// Dropout « brut » au niveau tape : applique **toujours** le masque
+    /// (aucune notion de mode train/eval). Un appel direct en inférence
+    /// dégrade silencieusement les prédictions — utiliser le module
+    /// [`crate::nn::Dropout`], qui respecte `set_training(false)`.
+    #[deprecated(
+        since = "0.1.0",
+        note = "applies dropout unconditionally (no train/eval mode); use nn::Dropout, which honors set_training"
+    )]
     pub fn dropout(self, p: f32) -> Var<'t> {
         if p == 0.0 {
             return self;
@@ -3359,7 +4493,10 @@ impl<'t> Var<'t> {
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
         let scale = 1.0 / (1.0 - p);
         let mut mask_data = vec![0.0f32; a.rows * a.cols];
-        let mut rng = PcgEngine::new(42);
+        // Draw a fresh seed from the tape's PRNG so successive dropout calls get
+        // distinct masks (stochastic), while a freshly-seeded tape stays
+        // reproducible. See `Tape::set_seed`.
+        let mut rng = PcgEngine::new(self.tape.next_rand_u32() as u64);
         for item in mask_data.iter_mut() {
             *item = if rng.float() < p { 0.0 } else { scale };
         }
@@ -3387,6 +4524,8 @@ impl<'t> Var<'t> {
         beta: Var<'t>,
         eps: f32,
     ) -> crate::error::Result<Var<'t>> {
+        self.ensure_same_tape(&gamma, "layer_norm")?;
+        self.ensure_same_tape(&beta, "layer_norm")?;
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
         let (rows, cols) = a.shape();
         let gv = self.tape.values.borrow()[gamma.idx].as_cpu().clone();
@@ -3445,7 +4584,68 @@ impl<'t> Var<'t> {
         self.try_layer_norm(gamma, beta, eps).unwrap()
     }
 
+    /// Row-wise L2 normalisation: each row `r` becomes `x[r] / ‖x[r]‖₂`. A zero
+    /// row maps to zero (never `NaN`). The sum of squares is accumulated
+    /// left-to-right in `f32`, so the result is bit-reproducible across machines.
+    /// The normalised output is cached for the backward pass.
+    pub fn l2_normalize(self) -> Var<'t> {
+        let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
+        let (rows, cols) = a.shape();
+        let mut out = Tensor::zeros(rows, cols);
+        for r in 0..rows {
+            let mut sumsq = 0.0f32;
+            for c in 0..cols {
+                let x = a.data[r * cols + c];
+                sumsq += x * x;
+            }
+            let norm = sumsq.sqrt();
+            if norm > 0.0 {
+                let inv = 1.0 / norm;
+                for c in 0..cols {
+                    out.data[r * cols + c] = a.data[r * cols + c] * inv;
+                }
+            }
+        }
+        let new_idx = self.tape.push_with_saved(
+            Op::L2Normalize {
+                input_idx: self.idx,
+            },
+            DeviceTensor::cpu(out.clone()),
+            SavedData::L2Normalized(out),
+        );
+        Var {
+            tape: self.tape,
+            idx: new_idx,
+        }
+    }
+
+    /// Row-wise cosine-similarity matrix `S = normalize(self) @ normalize(other)ᵀ`:
+    /// entry `(i, j)` is the cosine similarity between row `i` of `self` and row
+    /// `j` of `other`. Composed from [`Var::l2_normalize`] and `matmul`, so it is
+    /// fully differentiable with no new gradient rule. Errors if the row widths
+    /// (embedding dimensions) of `self` and `other` differ.
+    pub fn try_cosine_sim_matrix(self, other: Var<'t>) -> crate::error::Result<Var<'t>> {
+        self.ensure_same_tape(&other, "cosine_sim_matrix")?;
+        let qn = self.l2_normalize();
+        let pn = other.l2_normalize();
+        qn.try_matmul(pn.transpose_2d())
+    }
+
+    /// Row-wise cosine-similarity matrix (panics on dimension mismatch; see
+    /// [`Var::try_cosine_sim_matrix`]).
+    pub fn cosine_sim_matrix(self, other: Var<'t>) -> Var<'t> {
+        self.try_cosine_sim_matrix(other).unwrap()
+    }
+
     pub fn max_pool2d(self, c: usize, h: usize, w: usize, kernel: usize, stride: usize) -> Var<'t> {
+        // Guard the pooling geometry: stride == 0 divides by zero and kernel > h
+        // (or > w) underflows `usize` (→ huge out size → OOM/OOB). This method
+        // returns a Var (not a Result), so a clear panic is the best we can do.
+        assert!(stride > 0, "max_pool2d: stride must be > 0");
+        assert!(
+            kernel > 0 && kernel <= h && kernel <= w,
+            "max_pool2d: kernel {kernel} must be in 1..=min(h,w) for input {h}×{w}"
+        );
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
         let h_out = (h - kernel) / stride + 1;
         let w_out = (w - kernel) / stride + 1;
@@ -3503,6 +4703,10 @@ impl<'t> Var<'t> {
         stride: usize,
         pad: usize,
     ) -> crate::error::Result<Var<'t>> {
+        self.ensure_same_tape(&weight, "conv2d_forward")?;
+        if let Some(bias) = &bias {
+            self.ensure_same_tape(bias, "conv2d_forward")?;
+        }
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
         let wv = self.tape.values.borrow()[weight.idx].as_cpu().clone();
         let expected_input_cols = in_c * h * w;
@@ -3521,6 +4725,19 @@ impl<'t> Var<'t> {
                 expected: (expected_w_rows, expected_w_cols),
                 got: wv.shape(),
             });
+        }
+        // Guard the scalar geometry params: `stride == 0` divides by zero and
+        // `kernel > h + 2·pad` underflows `usize` (panics in debug, wraps to a
+        // huge size in release → downstream OOB/OOM). Reject on the Result path.
+        if stride == 0 {
+            return Err(crate::error::SciRustError::InvalidConfig(
+                "conv2d_forward: stride must be > 0".to_string(),
+            ));
+        }
+        if kernel == 0 || kernel > h + 2 * pad || kernel > w + 2 * pad {
+            return Err(crate::error::SciRustError::InvalidConfig(format!(
+                "conv2d_forward: kernel size {kernel} too large for input {h}×{w} with pad {pad}"
+            )));
         }
         let h_out = (h + 2 * pad - kernel) / stride + 1;
         let w_out = (w + 2 * pad - kernel) / stride + 1;
@@ -3552,6 +4769,8 @@ impl<'t> Var<'t> {
         }
 
         let b_idx = bias.map(|v| v.idx);
+        // Cache the im2col column matrix so the backward pass reuses it instead
+        // of rebuilding the identical (in_c·k·k × batch·h_out·w_out) buffer.
         let new_idx = self.tape.push_with_saved(
             Op::Conv2dForward {
                 input: self.idx,
@@ -3567,7 +4786,7 @@ impl<'t> Var<'t> {
                 pad,
             },
             DeviceTensor::cpu(out),
-            SavedData::None,
+            SavedData::Im2Col(col),
         );
         Ok(Var {
             tape: self.tape,
@@ -3607,6 +4826,10 @@ impl<'t> Var<'t> {
         pad: usize,
         output_padding: usize,
     ) -> crate::error::Result<Var<'t>> {
+        self.ensure_same_tape(&weight, "conv2d_transpose_forward")?;
+        if let Some(bias) = &bias {
+            self.ensure_same_tape(bias, "conv2d_transpose_forward")?;
+        }
         let a = self.tape.values.borrow()[self.idx].as_cpu().clone();
         let wv = self.tape.values.borrow()[weight.idx].as_cpu().clone();
         let expected_input_cols = in_c * h * w;
@@ -3626,8 +4849,24 @@ impl<'t> Var<'t> {
                 got: wv.shape(),
             });
         }
-        let h_out = (h - 1) * stride + kernel - 2 * pad + output_padding;
-        let w_out = (w - 1) * stride + kernel - 2 * pad + output_padding;
+        // Guard the transposed-conv geometry against usize underflow: h/w == 0
+        // underflows `h - 1`, and `2·pad` larger than `(h-1)·stride + kernel`
+        // underflows the subtraction (→ huge out size → OOM/OOB). Reject on the
+        // Result path (same contract as try_conv2d_forward).
+        if h == 0 || w == 0 {
+            return Err(crate::error::SciRustError::InvalidConfig(
+                "conv2d_transpose_forward: input h and w must be > 0".to_string(),
+            ));
+        }
+        let h_base = (h - 1) * stride + kernel;
+        let w_base = (w - 1) * stride + kernel;
+        if 2 * pad > h_base || 2 * pad > w_base {
+            return Err(crate::error::SciRustError::InvalidConfig(format!(
+                "conv2d_transpose_forward: pad {pad} too large for input {h}×{w}, kernel {kernel}, stride {stride}"
+            )));
+        }
+        let h_out = h_base - 2 * pad + output_padding;
+        let w_out = w_base - 2 * pad + output_padding;
         let out_rows = batch;
         let out_cols = out_c * h_out * w_out;
         let mut out = Tensor::zeros(out_rows, out_cols);
@@ -3745,6 +4984,18 @@ pub fn concat_rows<'t>(tape: &'t Tape, rows: &[Var<'t>]) -> Var<'t> {
     if rows.is_empty() {
         panic!("concat_rows: empty slice");
     }
+    for row in rows {
+        assert!(
+            std::ptr::eq(tape, row.tape),
+            "concat_rows: variables belong to different autodiff tapes"
+        );
+    }
+    let cols = rows[0].shape().1;
+    assert!(
+        rows.iter().all(|row| row.shape().1 == cols),
+        "concat_rows: all inputs must have the same column count"
+    );
+
     // Recursive concat for N > 3 by grouping in chunks of 3
     if rows.len() > 3 {
         let mut chunks: Vec<Var<'t>> = Vec::new();
@@ -3753,14 +5004,16 @@ pub fn concat_rows<'t>(tape: &'t Tape, rows: &[Var<'t>]) -> Var<'t> {
         }
         return concat_rows(tape, &chunks);
     }
-    let cols = rows[0].tape.values.borrow()[rows[0].idx].shape().1;
     let mut indices = [0usize; 3];
     let mut counts = [0usize; 3];
     for (i, r) in rows.iter().enumerate().take(3) {
         indices[i] = r.idx;
         counts[i] = r.tape.values.borrow()[r.idx].shape().0;
     }
-    let total_rows: usize = counts.iter().sum();
+    let total_rows = counts
+        .iter()
+        .try_fold(0usize, |total, count| total.checked_add(*count))
+        .expect("concat_rows: total row count overflows usize");
     let mut out = Tensor::zeros(total_rows, cols);
     let mut off = 0;
     for (_i, r) in rows.iter().enumerate().take(3) {
@@ -3792,6 +5045,145 @@ pub fn concat_rows<'t>(tape: &'t Tape, rows: &[Var<'t>]) -> Var<'t> {
 mod tests {
     use super::*;
 
+    /// `backward` moves each node's gradient out of its slot to avoid a clone,
+    /// then restores it. This pins that every node stays readable via
+    /// `Tape::grad` afterwards — including *intermediate* (non-leaf) nodes, not
+    /// just inputs — with the correct accumulated value.
+    #[test]
+    fn backward_preserves_intermediate_node_gradients() {
+        let tape = Tape::new();
+        let x = tape.input(Tensor::from_vec(vec![1.0, 2.0, 3.0], 1, 3));
+        let y = x.scale(2.0); // y = 2x        (intermediate)
+        let z = y.hadamard(y); // z = y²        (intermediate)
+        z.sum().backward();
+
+        // dL/dz = 1 ; dL/dy = 2y = 4x ; dL/dx = 2·dL/dy = 8x.
+        assert_eq!(tape.grad(z.idx()).data, vec![1.0, 1.0, 1.0]);
+        assert_eq!(tape.grad(y.idx()).data, vec![4.0, 8.0, 12.0]);
+        assert_eq!(tape.grad(x.idx()).data, vec![8.0, 16.0, 24.0]);
+    }
+
+    // ---------- Fused backward accumulators ---------- //
+
+    /// The fused in-place accumulators must be bit-identical to the
+    /// allocate-then-add two-step form they replace in the backward pass
+    /// (multiply then add/sub, no FMA), across sign/magnitude patterns.
+    #[test]
+    fn fused_accumulators_match_two_step_bit_for_bit() {
+        let mut rng = crate::nn::PcgEngine::new(0xC0FFEE);
+        let (r, c) = (5usize, 7usize);
+        let rand = |rng: &mut crate::nn::PcgEngine| -> Tensor {
+            Tensor::from_vec((0..r * c).map(|_| rng.float() * 8.0 - 4.0).collect(), r, c)
+        };
+        let acc = rand(&mut rng);
+        let a = rand(&mut rng);
+        let b = rand(&mut rng);
+        let s = 0.375f32;
+
+        // add_scaled == add_assign(&other.scale(s))
+        let mut fused = acc.clone();
+        fused.add_scaled(&a, s);
+        let mut two_step = acc.clone();
+        two_step.add_assign(&a.scale(s));
+        for (x, y) in fused.data.iter().zip(&two_step.data) {
+            assert_eq!(x.to_bits(), y.to_bits(), "add_scaled mismatch");
+        }
+
+        // add_hadamard == add_assign(&a.hadamard(&b))
+        let mut fused = acc.clone();
+        fused.add_hadamard(&a, &b);
+        let mut two_step = acc.clone();
+        two_step.add_assign(&a.hadamard(&b));
+        for (x, y) in fused.data.iter().zip(&two_step.data) {
+            assert_eq!(x.to_bits(), y.to_bits(), "add_hadamard mismatch");
+        }
+
+        // sub_hadamard == sub_assign(&a.hadamard(&b))
+        let mut fused = acc.clone();
+        fused.sub_hadamard(&a, &b);
+        let mut two_step = acc.clone();
+        two_step.sub_assign(&a.hadamard(&b));
+        for (x, y) in fused.data.iter().zip(&two_step.data) {
+            assert_eq!(x.to_bits(), y.to_bits(), "sub_hadamard mismatch");
+        }
+    }
+
+    // ---------- SoftmaxPortable ---------- //
+
+    /// Le forward du nœud portable est bit-identique à
+    /// `portable_f32::softmax_f32` ligne par ligne, et numériquement
+    /// équivalent (≤ 1e-6) au softmax libm existant.
+    #[test]
+    fn softmax_portable_forward_matches() {
+        let mut rng = crate::nn::PcgEngine::new(42);
+        let data: Vec<f32> = (0..3 * 7).map(|_| rng.float() * 12.0 - 6.0).collect();
+        let t = Tensor::from_vec(data.clone(), 3, 7);
+
+        let portable = t.softmax_portable();
+        for r in 0..3 {
+            let row_ref = crate::portable_f32::softmax_f32(&data[r * 7..(r + 1) * 7]);
+            for (c, expected) in row_ref.iter().enumerate() {
+                assert_eq!(portable.data[r * 7 + c].to_bits(), expected.to_bits());
+            }
+        }
+
+        let libm = t.softmax(1);
+        for j in 0..portable.data.len() {
+            assert!(
+                (portable.data[j] - libm.data[j]).abs() < 1e-6,
+                "écart au softmax libm en {j}"
+            );
+        }
+    }
+
+    /// Gradient du nœud portable ≈ gradient du nœud softmax existant
+    /// (les forwards ne diffèrent que d'ulps), et empreinte du gradient
+    /// figée — c'est le contrat cross-platform du BACKWARD.
+    #[test]
+    fn softmax_portable_gradient_matches_and_is_fingerprinted() {
+        let mut rng = crate::nn::PcgEngine::new(4242);
+        let data: Vec<f32> = (0..4 * 5).map(|_| rng.float() * 8.0 - 4.0).collect();
+        let w: Vec<f32> = (0..4 * 5).map(|_| rng.float()).collect();
+
+        // Perte scalaire : Σ w ⊙ softmax(x) — gradient non trivial.
+        let grad_portable = {
+            let tape = Tape::new();
+            let x = tape.input(Tensor::from_vec(data.clone(), 4, 5));
+            let wv = tape.input(Tensor::from_vec(w.clone(), 4, 5));
+            let loss = x.softmax_portable().hadamard(wv).sum();
+            tape.backward(loss.idx());
+            tape.grad(x.idx())
+        };
+        let grad_libm = {
+            let tape = Tape::new();
+            let x = tape.input(Tensor::from_vec(data.clone(), 4, 5));
+            let wv = tape.input(Tensor::from_vec(w.clone(), 4, 5));
+            let loss = x.softmax(1).hadamard(wv).sum();
+            tape.backward(loss.idx());
+            tape.grad(x.idx())
+        };
+        for j in 0..grad_portable.data.len() {
+            assert!(
+                (grad_portable.data[j] - grad_libm.data[j]).abs() < 1e-5,
+                "gradient portable ≠ gradient libm en {j}: {} vs {}",
+                grad_portable.data[j],
+                grad_libm.data[j]
+            );
+        }
+
+        // Contrat de portabilité du backward (forward + jacobien portables).
+        let fp = grad_portable
+            .data
+            .iter()
+            .fold(crate::portable_f32::fnv1a_init(), |fp, v| {
+                crate::portable_f32::fnv1a_fold_bits(fp, v.to_bits())
+            });
+        assert_eq!(
+            fp, 0x5ba0_9810_fa59_0787,
+            "empreinte gradient softmax portable : 0x{fp:016x}"
+        );
+    }
+
     #[test]
     fn test_tensor_in_place_ops() {
         let mut a = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], 2, 2);
@@ -3805,6 +5197,84 @@ mod tests {
 
         a.hadamard_assign(&b);
         assert_eq!(a.data, vec![0.5, 3.0, 7.5, 14.0]);
+    }
+
+    #[test]
+    fn tensor_constructors_reject_dimension_overflow() {
+        let result = std::panic::catch_unwind(|| Tensor::zeros(usize::MAX, 2));
+        assert!(result.is_err());
+        let result = std::panic::catch_unwind(|| Tensor::from_vec(Vec::new(), usize::MAX, 2));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn matmul_rejects_forged_invalid_tensor_before_sgemm() {
+        // Public fields are retained for source compatibility with the wider
+        // workspace. The unsafe kernel boundary therefore validates the dense
+        // representation defensively before passing any pointer to sgemm.
+        let invalid = Tensor {
+            rows: 1,
+            cols: 1,
+            data: Vec::new(),
+        };
+        let valid = Tensor::ones(1, 1);
+        let result = std::panic::catch_unwind(|| invalid.matmul(&valid));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn binary_ops_reject_variables_from_different_tapes() {
+        let left_tape = Tape::new();
+        let right_tape = Tape::new();
+        let left = left_tape.input(Tensor::from_vec(vec![2.0], 1, 1));
+        let right = right_tape.input(Tensor::from_vec(vec![3.0], 1, 1));
+        let error = left.try_add(right).unwrap_err();
+        assert!(matches!(
+            error,
+            crate::error::SciRustError::InvalidConfig(_)
+        ));
+        assert_eq!(left_tape.num_parameters(), 0);
+    }
+
+    #[test]
+    fn try_broadcast_ops_return_shape_errors_instead_of_panicking() {
+        let tape = Tape::new();
+        let target = tape.input(Tensor::zeros(2, 4));
+        let incompatible = tape.input(Tensor::ones(3, 4));
+
+        let add_error = target.try_add_broadcast(incompatible).unwrap_err();
+        assert!(matches!(
+            add_error,
+            crate::error::SciRustError::ShapeMismatch {
+                op: "add_broadcast",
+                expected: (2, 4),
+                got: (3, 4),
+            }
+        ));
+
+        let mul_error = target.try_mul_broadcast(incompatible).unwrap_err();
+        assert!(matches!(
+            mul_error,
+            crate::error::SciRustError::ShapeMismatch {
+                op: "mul_broadcast",
+                expected: (2, 4),
+                got: (3, 4),
+            }
+        ));
+
+        // Both non-trivial broadcast axes supported by Tensor::broadcast_to
+        // remain accepted by the fallible wrappers.
+        let row = tape.input(Tensor::ones(1, 4));
+        let column = tape.input(Tensor::ones(2, 1));
+        assert!(target.try_add_broadcast(row).is_ok());
+        assert!(target.try_mul_broadcast(column).is_ok());
+    }
+
+    #[test]
+    fn var_constructor_rejects_out_of_bounds_index() {
+        let tape = Tape::new();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Var::new(&tape, 0)));
+        assert!(result.is_err());
     }
 
     #[test]
@@ -4414,5 +5884,514 @@ mod tests {
         assert!((g.data[0] - 1.0).abs() < 1e-6);
         assert!((g.data[1] - 0.0).abs() < 1e-6);
         assert!((g.data[2] - 0.0).abs() < 1e-6);
+    }
+
+    // ---------- BatchMatMul (bmm2d) ---------- //
+
+    /// A batched matmul is exactly `batch` independent per-block GEMMs. This
+    /// pins both `bmm2d` forward and backward to the reference graph that runs
+    /// each block through the existing `matmul`/`matmul_bt` nodes and stacks the
+    /// results — the same result, one node instead of `batch`.
+    fn bmm2d_matches_reference(batch: usize, m: usize, k: usize, n: usize, transpose_b: bool) {
+        let mut rng = crate::nn::PcgEngine::new(20240501);
+        let a_rows = batch * m;
+        // B is (batch·n × k) when read transposed, else (batch·k × n).
+        let (b_rows, b_cols) = if transpose_b {
+            (batch * n, k)
+        } else {
+            (batch * k, n)
+        };
+        let a_data: Vec<f32> = (0..a_rows * k).map(|_| rng.float() * 2.0 - 1.0).collect();
+        let b_data: Vec<f32> = (0..b_rows * b_cols)
+            .map(|_| rng.float() * 2.0 - 1.0)
+            .collect();
+        // Non-uniform upstream weighting so the backward isn't degenerate.
+        let w_data: Vec<f32> = (0..batch * m * n)
+            .map(|i| ((i as f32) * 0.37).sin())
+            .collect();
+
+        // --- Batched node. ---
+        let tape = Tape::new();
+        let a = tape.input(Tensor::from_vec(a_data.clone(), a_rows, k));
+        let b = tape.input(Tensor::from_vec(b_data.clone(), b_rows, b_cols));
+        let w = tape.input(Tensor::from_vec(w_data.clone(), batch * m, n));
+        let c = a.bmm2d(b, batch, transpose_b);
+        let out = tape.value(c.idx());
+        let loss = c.hadamard(w).sum();
+        loss.backward();
+        let (ga, gb) = (tape.grad(a.idx()).data, tape.grad(b.idx()).data);
+
+        // --- Reference: per-block matmul, stacked row-wise. ---
+        let rtape = Tape::new();
+        let mut blocks: Vec<Var> = Vec::with_capacity(batch);
+        for i in 0..batch {
+            let a_i = Tensor::from_vec(a_data[i * m * k..(i + 1) * m * k].to_vec(), m, k);
+            let av = rtape.input(a_i);
+            let cv = if transpose_b {
+                let b_i = Tensor::from_vec(b_data[i * n * k..(i + 1) * n * k].to_vec(), n, k);
+                av.matmul_bt(rtape.input(b_i))
+            } else {
+                let b_i = Tensor::from_vec(b_data[i * k * n..(i + 1) * k * n].to_vec(), k, n);
+                av.matmul(rtape.input(b_i))
+            };
+            blocks.push(cv);
+        }
+        let ref_c = concat_rows(&rtape, &blocks);
+        let ref_out = rtape.value(ref_c.idx());
+
+        // Forward is bit-identical (same per-block sgemm, same k-order).
+        assert_eq!(out.rows, batch * m);
+        assert_eq!(out.cols, n);
+        for j in 0..out.data.len() {
+            assert_eq!(
+                out.data[j].to_bits(),
+                ref_out.data[j].to_bits(),
+                "forward mismatch at {j} (transpose_b={transpose_b})"
+            );
+        }
+
+        // Backward: dA/dB must equal the per-block backward, block by block. A
+        // fresh tape per block gives an independent reference (`w` slices the
+        // same upstream weighting the batched loss used).
+        let mut ref_ga = Vec::with_capacity(ga.len());
+        let mut ref_gb = Vec::with_capacity(gb.len());
+        for i in 0..batch {
+            let bt = Tape::new();
+            let a_i = bt.input(Tensor::from_vec(
+                a_data[i * m * k..(i + 1) * m * k].to_vec(),
+                m,
+                k,
+            ));
+            let (cv, b_i) = if transpose_b {
+                let b_i = bt.input(Tensor::from_vec(
+                    b_data[i * n * k..(i + 1) * n * k].to_vec(),
+                    n,
+                    k,
+                ));
+                (a_i.matmul_bt(b_i), b_i)
+            } else {
+                let b_i = bt.input(Tensor::from_vec(
+                    b_data[i * k * n..(i + 1) * k * n].to_vec(),
+                    k,
+                    n,
+                ));
+                (a_i.matmul(b_i), b_i)
+            };
+            let w_i = bt.input(Tensor::from_vec(
+                w_data[i * m * n..(i + 1) * m * n].to_vec(),
+                m,
+                n,
+            ));
+            cv.hadamard(w_i).sum().backward();
+            ref_ga.extend_from_slice(&bt.grad(a_i.idx()).data);
+            ref_gb.extend_from_slice(&bt.grad(b_i.idx()).data);
+        }
+        assert_eq!(ga.len(), ref_ga.len());
+        assert_eq!(gb.len(), ref_gb.len());
+        for j in 0..ga.len() {
+            assert!(
+                (ga[j] - ref_ga[j]).abs() < 1e-4,
+                "dA mismatch at {j}: {} vs {} (transpose_b={transpose_b})",
+                ga[j],
+                ref_ga[j]
+            );
+        }
+        for j in 0..gb.len() {
+            assert!(
+                (gb[j] - ref_gb[j]).abs() < 1e-4,
+                "dB mismatch at {j}: {} vs {} (transpose_b={transpose_b})",
+                gb[j],
+                ref_gb[j]
+            );
+        }
+    }
+
+    #[test]
+    fn bmm2d_forward_and_backward_match_per_block_reference() {
+        // transpose_b = true is attention's Q·Kᵀ shape; false is attn·V.
+        bmm2d_matches_reference(3, 4, 5, 6, true);
+        bmm2d_matches_reference(3, 4, 5, 6, false);
+        // Non-square, single-batch, and rectangular seq/head shapes.
+        bmm2d_matches_reference(1, 7, 3, 2, true);
+        bmm2d_matches_reference(5, 2, 8, 3, false);
+        bmm2d_matches_reference(4, 6, 6, 6, true);
+        // Shapes that cross `batched_gemm`'s gate into the batch-parallel branch
+        // (out_elems=256² ≤ 1<<18, per_gemm=256·64·256 ≥ 1<<22) so the parallel
+        // path's bit-identity to the per-block reference is covered directly.
+        bmm2d_matches_reference(2, 256, 64, 256, true);
+        bmm2d_matches_reference(2, 256, 64, 256, false);
+    }
+}
+
+#[cfg(test)]
+mod l2_normalize_tests {
+    use super::*;
+
+    #[test]
+    fn forward_normalizes_each_row_to_unit_norm() {
+        let tape = Tape::new();
+        let x = tape.input(Tensor::from_vec(vec![3.0, 4.0], 1, 2));
+        let y = x.l2_normalize();
+        let v = tape.value(y.idx());
+        // [3,4] / 5 = [0.6, 0.8]
+        assert!(
+            (v.data[0] - 0.6).abs() < 1e-6 && (v.data[1] - 0.8).abs() < 1e-6,
+            "{:?}",
+            v.data
+        );
+        let norm = (v.data[0] * v.data[0] + v.data[1] * v.data[1]).sqrt();
+        assert!((norm - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_zero_row_maps_to_zero_not_nan() {
+        let tape = Tape::new();
+        let x = tape.input(Tensor::from_vec(vec![0.0, 0.0, 0.0], 1, 3));
+        let y = x.l2_normalize();
+        assert_eq!(tape.value(y.idx()).data, vec![0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn backward_matches_hand_derived_jacobian_and_is_orthogonal_to_input() {
+        // x=[3,4]; loss = y[0] -> upstream g=[1,0]. n=5, ŷ=[0.6,0.8], s=g·ŷ=0.6.
+        // grad_x = (g − ŷ·s)/n = ([1,0] − 0.6·[0.6,0.8])/5 = [0.128, −0.096].
+        let tape = Tape::new();
+        let x = tape.input(Tensor::from_vec(vec![3.0, 4.0], 1, 2));
+        let y = x.l2_normalize();
+        let loss = y.try_slice_cols(0, 1).unwrap().sum();
+        tape.backward(loss.idx());
+        let g = tape.grad(x.idx());
+        assert!((g.data[0] - 0.128).abs() < 1e-5, "grad {:?}", g.data);
+        assert!((g.data[1] + 0.096).abs() < 1e-5, "grad {:?}", g.data);
+        // Invariant: the gradient of L2-normalize is orthogonal to the input.
+        let dot = g.data[0] * 3.0 + g.data[1] * 4.0;
+        assert!(
+            dot.abs() < 1e-5,
+            "grad must be orthogonal to input, got {dot}"
+        );
+    }
+
+    #[test]
+    fn backward_agrees_with_finite_differences() {
+        let x0 = [2.0f32, -1.0, 0.5, 3.0];
+        let analytic = {
+            let tape = Tape::new();
+            let x = tape.input(Tensor::from_vec(x0.to_vec(), 1, 4));
+            let loss = x.l2_normalize().sum();
+            tape.backward(loss.idx());
+            tape.grad(x.idx()).data
+        };
+        let loss_at = |xs: &[f32]| -> f32 {
+            let tape = Tape::new();
+            let x = tape.input(Tensor::from_vec(xs.to_vec(), 1, 4));
+            let y = x.l2_normalize();
+            tape.value(y.idx()).data.iter().sum()
+        };
+        let eps = 1e-3f32;
+        for i in 0..4 {
+            let mut xp = x0;
+            let mut xm = x0;
+            xp[i] += eps;
+            xm[i] -= eps;
+            let num = (loss_at(&xp) - loss_at(&xm)) / (2.0 * eps);
+            assert!(
+                (analytic[i] - num).abs() < 1e-2,
+                "grad[{i}] analytic {} vs finite-diff {}",
+                analytic[i],
+                num
+            );
+        }
+    }
+
+    #[test]
+    fn cosine_sim_matrix_diagonal_is_one_offdiagonal_is_cosine() {
+        // rows [1,0] and [0,2] -> normalized [1,0] and [0,1] -> Gram = identity.
+        let tape = Tape::new();
+        let q = tape.input(Tensor::from_vec(vec![1.0, 0.0, 0.0, 2.0], 2, 2));
+        let s = q.cosine_sim_matrix(q);
+        let v = tape.value(s.idx());
+        assert_eq!(v.shape(), (2, 2));
+        assert!((v.data[0] - 1.0).abs() < 1e-6, "S[0,0] {}", v.data[0]);
+        assert!((v.data[3] - 1.0).abs() < 1e-6, "S[1,1] {}", v.data[3]);
+        assert!(v.data[1].abs() < 1e-6, "S[0,1] {}", v.data[1]);
+    }
+
+    // Two dropout calls on the same tape must draw *different* masks. Before the
+    // fix the RNG was reseeded to a fixed value (42) each call, so every mask on
+    // every call was byte-identical — not stochastic.
+    #[test]
+    #[allow(deprecated)]
+    fn dropout_successive_calls_produce_different_masks() {
+        let tape = Tape::new();
+        tape.set_seed(1); // deterministic, but each call still advances the stream
+        let x = tape.input(Tensor::from_vec(vec![1.0f32; 4096], 64, 64));
+        let m1 = tape.value(x.dropout(0.5).idx());
+        let m2 = tape.value(x.dropout(0.5).idx());
+        assert_ne!(
+            m1.data, m2.data,
+            "successive dropout masks were identical — RNG not advancing"
+        );
+    }
+
+    // set_seed makes dropout reproducible: seeding two fresh tapes identically and
+    // replaying the same op sequence yields byte-identical masks.
+    #[test]
+    #[allow(deprecated)]
+    fn dropout_is_reproducible_after_set_seed() {
+        let make = || {
+            let tape = Tape::new();
+            tape.set_seed(12345);
+            let x = tape.input(Tensor::from_vec(vec![1.0f32; 1024], 32, 32));
+            let a = tape.value(x.dropout(0.3).idx()).data;
+            let b = tape.value(x.dropout(0.3).idx()).data;
+            (a, b)
+        };
+        let (a1, b1) = make();
+        let (a2, b2) = make();
+        assert_eq!(a1, a2, "first dropout not reproducible under set_seed");
+        assert_eq!(b1, b2, "second dropout not reproducible under set_seed");
+        // Sanity: the two calls within a run still differ (stochastic across calls).
+        assert_ne!(a1, b1, "the two calls should differ within a run");
+    }
+}
+
+#[cfg(test)]
+mod numerical_stability_tests {
+    use super::*;
+
+    #[test]
+    fn log_softmax_masked_entry_stays_finite() {
+        // A strongly-masked entry (-1e9, as used for causal masking) must not
+        // produce -inf in the forward. The old log(softmax(x)) underflowed the
+        // masked softmax to 0 and then log(0) = -inf.
+        let tape = Tape::new();
+        let x = tape.input(Tensor::from_vec(vec![1.0, 2.0, -1e9], 1, 3));
+        let y = x.log_softmax(1);
+        let v = tape.value(y.idx());
+        assert!(
+            v.data.iter().all(|z| z.is_finite()),
+            "log_softmax produced a non-finite value: {:?}",
+            v.data
+        );
+        // exp(log_softmax) sums to 1 over the axis.
+        let s: f32 = v.data.iter().map(|z| z.exp()).sum();
+        assert!((s - 1.0).abs() < 1e-4, "sum exp(log_softmax) = {s}");
+        // the masked entry is a large finite negative log-prob.
+        assert!(v.data[2] < -1e8, "masked log-prob = {}", v.data[2]);
+    }
+
+    #[test]
+    fn log_softmax_backward_matches_finite_differences() {
+        let x0 = [0.5f32, -1.0, 2.0, 0.3];
+        let analytic = {
+            let tape = Tape::new();
+            let x = tape.input(Tensor::from_vec(x0.to_vec(), 1, 4));
+            // weight the log-probs so the upstream gradient is non-uniform.
+            let w = tape.input(Tensor::from_vec(vec![0.7, -0.4, 1.2, 0.1], 1, 4));
+            let loss = x.log_softmax(1).hadamard(w).sum();
+            tape.backward(loss.idx());
+            tape.grad(x.idx()).data
+        };
+        let loss_at = |xs: &[f32]| -> f32 {
+            let tape = Tape::new();
+            let x = tape.input(Tensor::from_vec(xs.to_vec(), 1, 4));
+            let w = tape.input(Tensor::from_vec(vec![0.7, -0.4, 1.2, 0.1], 1, 4));
+            let y = x.log_softmax(1).hadamard(w).sum();
+            tape.value(y.idx()).data.iter().sum()
+        };
+        let h = 1e-3f32;
+        for (i, &a) in analytic.iter().enumerate() {
+            let mut xp = x0;
+            let mut xm = x0;
+            xp[i] += h;
+            xm[i] -= h;
+            let num = (loss_at(&xp) - loss_at(&xm)) / (2.0 * h);
+            assert!(
+                (a - num).abs() <= 1e-2,
+                "dlog_softmax/dx[{i}] analytic {a} vs finite-diff {num}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_axis_splits_gradient_equally_among_ties() {
+        // Column [5, 5, 3]: max = 5 with two ties. Each tied max must receive
+        // 1/2 of the upstream gradient, not the full gradient (which the old
+        // code gave to every tie, over-counting by k).
+        let tape = Tape::new();
+        let x = tape.input(Tensor::from_vec(vec![5.0, 5.0, 3.0], 3, 1));
+        let loss = x.max_axis(0).sum();
+        tape.backward(loss.idx());
+        let g = tape.grad(x.idx());
+        assert!((g.data[0] - 0.5).abs() < 1e-6, "g[0] = {}", g.data[0]);
+        assert!((g.data[1] - 0.5).abs() < 1e-6, "g[1] = {}", g.data[1]);
+        assert!(g.data[2].abs() < 1e-6, "g[2] = {}", g.data[2]);
+    }
+}
+
+#[cfg(test)]
+mod layer_norm_backward_tests {
+    use super::*;
+
+    // Fixed problem: 3 rows x 4 features, a deliberately NON-UNIFORM gamma and a
+    // non-uniform upstream weight `w`. Both are what the two historical bugs got
+    // wrong: (a) dL/dgamma used sum(g) instead of sum(g * x_norm); (b) dL/dx
+    // factored the per-feature gamma outside the feature-axis reductions, which is
+    // only correct when all gamma are equal. With uniform gamma neither bug shows,
+    // so the non-uniformity here is essential.
+    const ROWS: usize = 3;
+    const COLS: usize = 4;
+    const EPS: f32 = 1e-5;
+    const X0: [f32; 12] = [
+        2.0, -1.0, 0.5, 3.0, //
+        -2.5, 0.7, 1.3, -0.4, //
+        0.2, 2.1, -1.8, 0.9,
+    ];
+    const GAMMA0: [f32; 4] = [1.5, -0.5, 2.0, 0.7];
+    const BETA0: [f32; 4] = [0.1, -0.2, 0.3, 0.05];
+    // Non-uniform upstream so g is not all-ones (exercises every reduction term).
+    const W: [f32; 12] = [
+        0.9, 1.7, -0.3, 0.4, //
+        1.1, -0.6, 0.8, 2.0, //
+        -1.2, 0.5, 1.4, -0.7,
+    ];
+
+    fn loss_at(x: &[f32], gamma: &[f32], beta: &[f32]) -> f32 {
+        let tape = Tape::new();
+        let xv = tape.input(Tensor::from_vec(x.to_vec(), ROWS, COLS));
+        let gv = tape.input(Tensor::from_vec(gamma.to_vec(), 1, COLS));
+        let bv = tape.input(Tensor::from_vec(beta.to_vec(), 1, COLS));
+        let wv = tape.input(Tensor::from_vec(W.to_vec(), ROWS, COLS));
+        let y = xv.layer_norm(gv, bv, EPS).hadamard(wv).sum();
+        tape.value(y.idx()).data.iter().sum()
+    }
+
+    fn finite_diff(base: &[f32], which: usize, recompute: impl Fn(&[f32]) -> f32) -> f32 {
+        let h = 1e-3f32;
+        let mut xp = base.to_vec();
+        let mut xm = base.to_vec();
+        xp[which] += h;
+        xm[which] -= h;
+        (recompute(&xp) - recompute(&xm)) / (2.0 * h)
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() <= 1e-2 + 1e-2 * b.abs()
+    }
+
+    #[test]
+    fn input_gradient_matches_finite_differences() {
+        let tape = Tape::new();
+        let xv = tape.input(Tensor::from_vec(X0.to_vec(), ROWS, COLS));
+        let gv = tape.input(Tensor::from_vec(GAMMA0.to_vec(), 1, COLS));
+        let bv = tape.input(Tensor::from_vec(BETA0.to_vec(), 1, COLS));
+        let wv = tape.input(Tensor::from_vec(W.to_vec(), ROWS, COLS));
+        let loss = xv.layer_norm(gv, bv, EPS).hadamard(wv).sum();
+        tape.backward(loss.idx());
+        let analytic = tape.grad(xv.idx()).data;
+
+        for (i, &a) in analytic.iter().enumerate() {
+            let num = finite_diff(&X0, i, |x| loss_at(x, &GAMMA0, &BETA0));
+            assert!(
+                close(a, num),
+                "dL/dx[{i}] analytic {a} vs finite-diff {num}"
+            );
+        }
+    }
+
+    #[test]
+    fn gamma_gradient_matches_finite_differences() {
+        let tape = Tape::new();
+        let xv = tape.input(Tensor::from_vec(X0.to_vec(), ROWS, COLS));
+        let gv = tape.input(Tensor::from_vec(GAMMA0.to_vec(), 1, COLS));
+        let bv = tape.input(Tensor::from_vec(BETA0.to_vec(), 1, COLS));
+        let wv = tape.input(Tensor::from_vec(W.to_vec(), ROWS, COLS));
+        let loss = xv.layer_norm(gv, bv, EPS).hadamard(wv).sum();
+        tape.backward(loss.idx());
+        let analytic = tape.grad(gv.idx()).data;
+
+        for (c, &a) in analytic.iter().enumerate() {
+            let num = finite_diff(&GAMMA0, c, |gamma| loss_at(&X0, gamma, &BETA0));
+            assert!(
+                close(a, num),
+                "dL/dgamma[{c}] analytic {a} vs finite-diff {num}"
+            );
+        }
+    }
+
+    #[test]
+    fn beta_gradient_matches_finite_differences() {
+        let tape = Tape::new();
+        let xv = tape.input(Tensor::from_vec(X0.to_vec(), ROWS, COLS));
+        let gv = tape.input(Tensor::from_vec(GAMMA0.to_vec(), 1, COLS));
+        let bv = tape.input(Tensor::from_vec(BETA0.to_vec(), 1, COLS));
+        let wv = tape.input(Tensor::from_vec(W.to_vec(), ROWS, COLS));
+        let loss = xv.layer_norm(gv, bv, EPS).hadamard(wv).sum();
+        tape.backward(loss.idx());
+        let analytic = tape.grad(bv.idx()).data;
+
+        for (c, &a) in analytic.iter().enumerate() {
+            let num = finite_diff(&BETA0, c, |beta| loss_at(&X0, &GAMMA0, beta));
+            assert!(
+                close(a, num),
+                "dL/dbeta[{c}] analytic {a} vs finite-diff {num}"
+            );
+        }
+    }
+
+    #[test]
+    fn reciprocal_gradient_is_exact_near_zero() {
+        // Regression: backward of 1/x must be -1/x², not -1/(x²+1e-10), which is
+        // ~50% wrong at x = 1e-5 (the old code silently returned the latter).
+        let x0 = 1e-5f32;
+        let tape = Tape::new();
+        let xv = tape.input(Tensor::from_vec(vec![x0], 1, 1));
+        let loss = xv.reciprocal().sum();
+        tape.backward(loss.idx());
+        let analytic = tape.grad(xv.idx()).data[0];
+        let truth = -1.0 / (x0 * x0); // = -1e10
+        let rel = (analytic - truth).abs() / truth.abs();
+        assert!(
+            rel < 1e-3,
+            "d(1/x) at {x0}: analytic {analytic} vs truth {truth} (rel {rel})"
+        );
+        // And specifically NOT the old buggy value -1/(x²+1e-10) ≈ -5e9.
+        let buggy = -1.0 / (x0 * x0 + 1e-10);
+        assert!((analytic - buggy).abs() / buggy.abs() > 0.1);
+    }
+
+    #[test]
+    fn reciprocal_gradient_no_nan_when_x2_underflows() {
+        // A tiny x whose square underflows to 0 in f32 (x=1e-23 → x²=0), with a
+        // zero upstream gradient, must not yield 0·(-inf)=NaN. The x²==0 guard
+        // (not just x==0) covers this. loss = sum(reciprocal(x))·0.
+        let tape = Tape::new();
+        let x = tape.input(Tensor::from_vec(vec![1e-23f32, 2.0], 1, 2));
+        let x_idx = x.idx();
+        let loss = x.reciprocal().scale(0.0).sum();
+        tape.backward(loss.idx());
+        let g = tape.grad(x_idx);
+        assert!(!g.data[0].is_nan(), "grad[0] = {}", g.data[0]);
+        assert!(!g.data[1].is_nan(), "grad[1] = {}", g.data[1]);
+    }
+
+    // Direct guard for the specific gamma bug: with x_norm having per-row mean 0,
+    // sum_r(g * x_norm) differs from sum_r(g). The old code returned the latter.
+    #[test]
+    fn gamma_gradient_is_not_the_beta_gradient() {
+        let tape = Tape::new();
+        let xv = tape.input(Tensor::from_vec(X0.to_vec(), ROWS, COLS));
+        let gv = tape.input(Tensor::from_vec(GAMMA0.to_vec(), 1, COLS));
+        let bv = tape.input(Tensor::from_vec(BETA0.to_vec(), 1, COLS));
+        let wv = tape.input(Tensor::from_vec(W.to_vec(), ROWS, COLS));
+        let loss = xv.layer_norm(gv, bv, EPS).hadamard(wv).sum();
+        tape.backward(loss.idx());
+        let dgamma = tape.grad(gv.idx()).data;
+        let dbeta = tape.grad(bv.idx()).data;
+        let diff: f32 = dgamma.iter().zip(&dbeta).map(|(a, b)| (a - b).abs()).sum();
+        assert!(
+            diff > 1e-3,
+            "dL/dgamma collapsed onto dL/dbeta (the historical bug): {dgamma:?} vs {dbeta:?}"
+        );
     }
 }

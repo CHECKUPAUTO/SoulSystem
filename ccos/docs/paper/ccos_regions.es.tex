@@ -60,7 +60,11 @@ recuperación. Es la infraestructura que a una pila de recuperación le falta
 estructuralmente: una memoria de agente \emph{determinista, reproducible, auditable}
 en la que se puede rebobinar el estado exacto del contexto en cualquier paso y
 reproducirlo bajo parámetros distintos (\emph{depuración por viaje en el tiempo}).
-Publicamos el motor, el arnés de validación honesto y este artículo, etiquetando en
+Hasta donde sabemos, CCOS es el \emph{primer} sistema que trata la \emph{propia
+memoria de trabajo} de un agente como un subsistema transaccional --- determinista,
+encadenado por hash, reproducible bit a bit y \emph{depurable a posteriori}: una
+caja negra de la atención, con un punto de interrupción en el paso exacto en que la
+información correcta fue desalojada de la ventana. Publicamos el motor, el arnés de validación honesto y este artículo, etiquetando en
 todo momento lo que está \emph{probado} (estructura formal, determinismo,
 reproducción), \emph{medido} (cobertura de recuperación --- donde CCOS \emph{no}
 supera al RAG léxico en errores reales), y el único eje en el que CCOS \emph{sí}
@@ -115,7 +119,11 @@ Nuestras contribuciones son:
   recuerdo) queda registrada; el estado exacto del contexto en cualquier paso es
   reconstruible; y un recuerdo puede \emph{reproducirse bajo parámetros distintos}
   para preguntar si el agente habría decidido mejor --- la capacidad que a una pila de
-  recuperación probabilística le falta estructuralmente.
+  recuperación probabilística le falta estructuralmente. Hasta donde sabemos, es el
+  primer tratamiento del \emph{ensamblaje del contexto en sí} como un subsistema
+  reproducible y depurable a posteriori --- una \emph{caja negra de la atención de un
+  agente} --- con un \emph{punto de interrupción de desalojo} que nombra el paso y la
+  operación exactos en que la causa verdadera fue expulsada de la ventana acotada.
   \item Un \textbf{arnés de validación honesto y un resultado negativo}
   (\S\ref{sec:protocol}): sobre $70$ commits reales de corrección, la selección causal
   \emph{no} supera a un recuperador léxico TF-IDF al colocar los archivos de una
@@ -298,6 +306,27 @@ encadenado por hash y es a prueba de manipulación, de modo que el historial de
 regiones es auditable, y una prueba de 10\,000 ciclos no exhibe deriva alguna en el
 número de regiones ni en las temperaturas.
 
+\paragraph{Una frontera de entrada auditable.} El mismo sustrato determinista y
+reproducible endurece el texto que un agente ingiere. Los vectores de inyección
+por caracteres ocultos --- anulaciones bidireccionales (el ataque \emph{Trojan
+Source}, CVE-2021-42574), formato de ancho cero y el bloque Unicode \emph{Tags}
+usado para el contrabando de ASCII invisible --- se des-ofuscan en la ingesta a
+literales explícitos y visibles (\code{[U+202E RLO]}) en lugar de eliminarse en
+silencio, y los hallazgos se registran en el mismo registro encadenado por hash,
+de modo que una reproducción reconstruye el estado limpio. Un clasificador lineal
+en espacio logarítmico posterior --- la forma cerrada del Naïve Bayes multinomial,
+$\mathrm{logit}=b+W\!\cdot\!X$ sobre un vector de características por \emph{hashing
+trick}, con sus pesos fijados en un blob verificado por suma de comprobación ---
+añade una señal de inyección \emph{determinista y descomponible forensemente} (un
+red-team sobre datos reservados mide $F_1=0{,}90$; precisión $0{,}87$,
+exhaustividad $0{,}93$). Lo afirmamos de forma deliberada: es una \emph{señal, no
+una solución} --- un modelo de bolsa de características se evade con paráfrasis, y
+ninguna pasada a nivel de carácter aborda la inyección semántica; la mitigación
+real es la separación de privilegios en el host. La contribución no es un detector
+novedoso, sino que la des-ofuscación y la puntuación heredan la propiedad
+distintiva de CCOS: toda decisión de seguridad es reproducible y auditable hasta
+la característica exacta que la inclinó.
+
 \section{Sesiones event-sourced y depuración por viaje en el tiempo}\label{sec:timetravel}
 
 El determinismo no es solo una propiedad de corrección; es la base de la capacidad
@@ -315,8 +344,21 @@ a ejecutar un recuerdo con una consulta $q$ o un presupuesto de tokens $b$ disti
 devolviendo la ventana que el agente \emph{habría} visto. Cuando un agente emite un
 mal parche en el paso 15, un operador puede reproducir su contexto exacto en el paso
 14, ampliar el presupuesto o cambiar el ancla, y observar si la decisión mejora --- un
-depurador de bucle cerrado y reproducible para la memoria de trabajo de un agente. Una
-pila RAG o de marco muta su almacén de forma probabilística a lo largo de una sesión y
+depurador de bucle cerrado y reproducible para la memoria de trabajo de un agente.
+
+\paragraph{Un punto de interrupción sobre la atención.} La reproducción también
+localiza la \emph{deriva}. El punto de observación \code{missing} recorre la línea de
+tiempo en busca del paso exacto en que un nodo dado --- típicamente la causa
+verdadera de un fallo --- fue expulsado de la ventana acotada por la presión
+competidora, nombrando la operación desencadenante y la diferencia de tokens; una
+vista \code{energy} complementaria revela la migración de calor causal por el grafo
+que un diff a nivel de archivo pasa por alto. Es, en efecto, un \emph{punto de
+interrupción sobre la atención de un agente}: el instante preciso en que la
+información correcta abandonó la ventana. Una pila de recuperación opaca solo puede
+mostrar el contexto final, corrupto; CCOS puede señalar el paso --- y la operación ---
+en que se torció.
+
+Una pila RAG o de marco muta su almacén de forma probabilística a lo largo de una sesión y
 no conserva ningún registro de transiciones canónico y reproducible, así que la misma
 pregunta (\emph{¿por qué, y cuándo, se corrompió la representación?}) no tiene
 respuesta allí. No afirmamos que esto mejore el éxito en las tareas; afirmamos que es
@@ -334,7 +376,7 @@ núcleo event-sourcing. La superficie pública es: \code{ContextRegionEngine}
 variantes de evento (\code{RegionCreated}, \code{RegionActivated}, \code{RegionMerged},
 \code{RegionEvicted}, \code{ContextWindowGenerated}). Una CLI \code{ccos regions}
 expone el agrupamiento, la activación y el informe de localidad. Toda la crate compila
-sin advertencias bajo \code{clippy -D warnings} y pasa 202 pruebas.
+sin advertencias bajo \code{clippy -D warnings} y pasa 364 pruebas.
 
 \section{Evaluación: lo que podemos medir hoy}\label{sec:eval}
 
@@ -668,6 +710,15 @@ ajustado; en commits de corrección reales los archivos que una corrección toca
 parecen léxicamente, así que la premisa de la simulación de una causa léxicamente
 distinta no se sostiene. Los fuertes números absolutos son una condición
 \emph{necesaria} que una referencia también satisface, no una victoria de CCOS.
+(Una medición complementaria sobre la propia fuente del motor aísla una relación
+distinta, definida estructuralmente: un recuperador léxico TF-IDF recupera solo el
+$49\%$ (exhaustividad@10) de las dependencias de importación resueltas por AST ---
+pares que rutinariamente no comparten vocabulario, coseno de dependencia $0{,}53$
+frente a $0{,}43$ aleatorio --- así que el punto ciego del RAG es real, pero queda
+fuera del eje de cohesión de la corrección que mide la métrica principal, donde los
+archivos de una corrección sí comparten vocabulario. La capa estructural recupera
+esas aristas por construcción; el AST, ahora por defecto, es lo que hace completa esa
+recuperación.)
 \textbf{(2) Necesario $\neq$ suficiente.} Nunca medimos si una región \emph{ayuda a un
 agente a corregir} un error (Fase 4: un parche que pasa las pruebas ocultas) --- solo si
 los archivos relevantes son recuperables.
@@ -678,13 +729,19 @@ a la selección causal.
 \textbf{(4) Escala y estadística.} Tres repositorios de una sola crate,
 $n\!\approx\!20$ cada uno; las diferencias se reportan con su desviación estándar pero no
 se validan de forma cruzada.
-\textbf{(5) Motor.} El analizador es una heurística de línea/AST (vecindarios poco
-profundos); las regiones son de granularidad de archivo y solo se fusionan en aristas
-entre archivos explícitas; los pesos de temperatura/política y de puntuación están
-ajustados a mano, no aprendidos. Nada de esto afecta a las propiedades \emph{probadas}
-(partición, determinismo, reproducción) ni a la localidad medida --- pero el caso
-empírico de un beneficio para el agente aguas abajo está, en este punto, \emph{sin
-probar}.
+\textbf{(5) Motor.} El analizador ahora usa por defecto un AST \code{syn} real ---
+medido un $36{,}5\%$ más preciso que la antigua heurística de línea sobre la propia
+fuente del motor (dos tercios frente a exhaustividad de importación completa), con la
+heurística conservada solo como reserva para entradas que no son Rust --- y la
+ingesta se endureció para reconstruir de forma bit-idéntica entre procesos
+(resolución de importaciones ordenada; centralidad invariante al orden). Las regiones
+siguen siendo de granularidad de archivo y solo se fusionan en aristas entre archivos
+explícitas; los pesos de puntuación están ajustados a mano, aunque ya están
+disponibles refinamientos, desactivados por defecto, de centralidad de autovalor y de
+ciclo de vida de nodo (Stable/Working/Orphan). Nada de esto afecta a las propiedades
+\emph{probadas} (partición, determinismo, reproducción) ni a la localidad medida ---
+pero el caso empírico de un beneficio para el agente aguas abajo está, en este punto,
+\emph{sin probar}.
 
 \section{Conclusión}
 

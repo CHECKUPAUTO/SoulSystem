@@ -3,20 +3,44 @@ name = "scirust-gpu"
 version = "0.1.0"
 edition = "2021"
 publish = false
-workspace = "../workspaces/gpu"
 
 [features]
 default = ["std"]
 std = []
-cuda = []
+cuda = ["std", "dep:scirust-cuda", "scirust-cuda/cuda"]
+# Optional product-licensing gate for the GPU module (Module::Gpu). Off by
+# default so unlicensed/dev builds behave exactly as today; when enabled a
+# deployment calls `license::activate` before arming GPU dispatch. Compiles and
+# tests without the heavy `wgpu` backend.
+license-gate = ["std", "dep:scirust-license"]
 # Portable GPU compute via wgpu (Vulkan/Metal/DX12/GL). Testable in CI with a
 # software Vulkan adapter (Mesa lavapipe). See docs/GPU.md (P2.2).
 # Pulls in scirust-core to implement its autograd-tape `GpuEngine` hook.
 wgpu = ["std", "dep:wgpu", "dep:pollster", "dep:bytemuck", "dep:scirust-core"]
 
 [dependencies]
-scirust-gpu-macros = { path = "../scirust-gpu-macros" }
 scirust-core = { path = "../scirust-core", optional = true }
+scirust-cuda = { path = "../scirust-cuda", optional = true }
+scirust-license = { path = "../scirust-license", optional = true }
 wgpu = { version = "0.20", optional = true }
 pollster = { version = "0.3", optional = true }
 bytemuck = { version = "1", optional = true }
+
+# The device-parity probe uses the wgpu-gated `ops` / `GpuChain` / `WgpuContext`
+# API, so it can only build with the `wgpu` feature. Declaring required-features
+# makes `cargo build --all-targets` (without wgpu) skip it instead of failing to
+# compile the gated imports.
+[[example]]
+name = "gpu_attention_probe"
+required-features = ["wgpu"]
+
+# The GPU-vs-CPU bench uses the same wgpu-gated `ops` / `GpuChain` API, so it
+# likewise only builds with the `wgpu` feature.
+[[example]]
+name = "gpu_bench"
+required-features = ["wgpu"]
+
+# The full-model resident fwd+bwd bench (vs the C1 tape path) — same gating.
+[[example]]
+name = "gpu_model_bench"
+required-features = ["wgpu"]

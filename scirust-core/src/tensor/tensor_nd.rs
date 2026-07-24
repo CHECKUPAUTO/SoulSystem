@@ -9,10 +9,12 @@
 // (pattern im2col déjà validé dans nn/.legacy/).
 
 use crate::autodiff::reverse::Tensor;
+use crate::error::{Result, SciRustError, check_axis, check_rank};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TensorND {
-    pub data: Vec<f32>,
+    pub data: Arc<[f32]>,
     pub shape: Vec<usize>,
     pub strides: Vec<usize>,
 }
@@ -32,7 +34,7 @@ impl TensorND {
         );
         let strides = compute_strides(&shape);
         Self {
-            data,
+            data: Arc::from(data),
             shape,
             strides,
         }
@@ -41,7 +43,7 @@ impl TensorND {
     pub fn zeros(shape: &[usize]) -> Self {
         let numel: usize = shape.iter().product();
         Self {
-            data: vec![0.0; numel],
+            data: Arc::from(vec![0.0; numel]),
             shape: shape.to_vec(),
             strides: compute_strides(shape),
         }
@@ -50,7 +52,7 @@ impl TensorND {
     pub fn ones(shape: &[usize]) -> Self {
         let numel: usize = shape.iter().product();
         Self {
-            data: vec![1.0; numel],
+            data: Arc::from(vec![1.0; numel]),
             shape: shape.to_vec(),
             strides: compute_strides(shape),
         }
@@ -110,25 +112,27 @@ impl TensorND {
 
     pub fn set(&mut self, indices: &[usize], value: f32) {
         let off = self.offset(indices);
-        self.data[off] = value;
+        self.data_mut()[off] = value;
+    }
+
+    pub fn data_mut(&mut self) -> &mut [f32] {
+        Arc::make_mut(&mut self.data)
     }
 
     // ------------------------------------------------------------------
     //  Reshape
     // ------------------------------------------------------------------
-    pub fn reshape(&self, new_shape: &[usize]) -> Result<Self, String> {
+    pub fn reshape(&self, new_shape: &[usize]) -> Result<Self> {
         let new_numel: usize = new_shape.iter().product();
         if new_numel != self.numel() {
-            return Err(format!(
-                "reshape: cannot reshape {:?} (numel={}) into {:?} (numel={})",
-                self.shape,
-                self.numel(),
-                new_shape,
-                new_numel
-            ));
+            return Err(SciRustError::NumelMismatch {
+                op: "reshape",
+                from_shape: self.shape.clone(),
+                to_shape: new_shape.to_vec(),
+            });
         }
         Ok(Self {
-            data: self.data.clone(),
+            data: Arc::clone(&self.data),
             shape: new_shape.to_vec(),
             strides: compute_strides(new_shape),
         })
@@ -138,13 +142,14 @@ impl TensorND {
         self.reshape(&[self.numel()]).unwrap()
     }
 
-    pub fn flatten_from(&self, start_axis: usize) -> Result<Self, String> {
+    pub fn flatten_from(&self, start_axis: usize) -> Result<Self> {
+        // `start_axis == ndim` est légal (préfixe = tout, suffixe = 1).
         if start_axis > self.ndim() {
-            return Err(format!(
-                "flatten_from: start_axis {} > ndim {}",
-                start_axis,
-                self.ndim()
-            ));
+            return Err(SciRustError::AxisOutOfBounds {
+                op: "flatten_from",
+                axis: start_axis,
+                rank: self.ndim(),
+            });
         }
         let prefix: usize = self.shape[..start_axis].iter().product();
         let suffix: usize = self.shape[start_axis..].iter().product();
@@ -152,60 +157,53 @@ impl TensorND {
     }
 
     // ------------------------------------------------------------------
-    //  Transpose (permutation d'axes)
+    //  Transpose (permutation d'axes) — materialised contiguous copy
     // ------------------------------------------------------------------
-    pub fn transpose(&self, axes: &[usize]) -> Result<Self, String> {
-        if axes.len() != self.ndim() {
-            return Err(format!(
-                "transpose: axes len {} != ndim {}",
-                axes.len(),
-                self.ndim()
-            ));
-        }
+    // The N-D autodiff engine (`transpose_last2`, `batched_matmul`,
+    // `softmax_lastaxis`, `reshape`, …) uniformly assumes **contiguous
+    // row-major** storage — it reads `data[i*k + p]`-style. A zero-copy
+    // stride-only transpose would hand those ops a strided view they cannot
+    // read correctly (e.g. an attention `permute([1,0,2]).reshape(..)` would
+    // scramble the head/position axes, breaking causality). We therefore
+    // materialise a fresh contiguous tensor, honouring any strided *input* via
+    // `self.offset`. The cost is one copy per transpose — negligible next to
+    // the matmuls that surround it.
+    pub fn transpose(&self, axes: &[usize]) -> Result<Self> {
+        check_rank("transpose", self.ndim(), axes.len())?;
         let mut seen = vec![false; self.ndim()];
         for &a in axes {
-            if a >= self.ndim() {
-                return Err(format!(
-                    "transpose: axis {} out of bounds (ndim {})",
-                    a,
-                    self.ndim()
-                ));
-            }
+            check_axis("transpose", a, self.ndim())?;
             if seen[a] {
-                return Err(format!("transpose: axis {} appears twice", a));
+                return Err(SciRustError::InvalidConfig(format!(
+                    "transpose: axis {a} appears twice"
+                )));
             }
             seen[a] = true;
         }
 
         let new_shape: Vec<usize> = axes.iter().map(|&a| self.shape[a]).collect();
-        let new_numel = self.numel();
-        let mut new_data = vec![0.0f32; new_numel];
         let new_strides = compute_strides(&new_shape);
-
-        // Parcours tous les éléments et les place à leur nouvelle position
         let ndim = self.ndim();
+        let new_numel: usize = new_shape.iter().product();
+        let mut new_data = vec![0.0f32; new_numel];
         let mut new_indices = vec![0usize; ndim];
         let mut old_indices = vec![0usize; ndim];
         #[allow(clippy::needless_range_loop)]
         for flat_idx in 0..new_numel {
-            // Convertir flat_idx en indices dans le nouveau tenseur
+            // Decompose the output flat index into per-axis indices.
             let mut rem = flat_idx;
             for i in 0..ndim {
                 new_indices[i] = rem / new_strides[i];
                 rem %= new_strides[i];
             }
-
-            // Trouver l'indice original
+            // Map back to the source (pre-permutation) multi-index.
             for i in 0..ndim {
                 old_indices[axes[i]] = new_indices[i];
             }
-
-            let old_flat = self.offset(&old_indices);
-            new_data[flat_idx] = self.data[old_flat];
+            new_data[flat_idx] = self.data[self.offset(&old_indices)];
         }
-
         Ok(Self {
-            data: new_data,
+            data: Arc::from(new_data),
             shape: new_shape,
             strides: new_strides,
         })
@@ -214,20 +212,13 @@ impl TensorND {
     // ------------------------------------------------------------------
     //  Slice sur un axe
     // ------------------------------------------------------------------
-    pub fn slice_axis(&self, axis: usize, start: usize, end: usize) -> Result<Self, String> {
-        if axis >= self.ndim() {
-            return Err(format!(
-                "slice_axis: axis {} out of bounds (ndim {})",
-                axis,
-                self.ndim()
-            ));
-        }
+    pub fn slice_axis(&self, axis: usize, start: usize, end: usize) -> Result<Self> {
+        check_axis("slice_axis", axis, self.ndim())?;
         let dim = self.shape[axis];
         if start > end || end > dim {
-            return Err(format!(
-                "slice_axis: invalid range [{}, {}) for axis {} (dim {})",
-                start, end, axis, dim
-            ));
+            return Err(SciRustError::InvalidConfig(format!(
+                "slice_axis: invalid range [{start}, {end}) for axis {axis} (dim {dim})"
+            )));
         }
         let slice_len = end - start;
 
@@ -256,7 +247,7 @@ impl TensorND {
         }
 
         Ok(Self {
-            data: new_data,
+            data: Arc::from(new_data),
             shape: new_shape,
             strides: new_strides,
         })
@@ -331,12 +322,13 @@ impl TensorND {
     /// Materialise a broadcast of `self` to `target_shape` (numpy semantics):
     /// size-1 axes and missing leading axes are replicated. Errors if `self`
     /// cannot broadcast to the target (see [`Self::can_broadcast_to`]).
-    pub fn broadcast_to(&self, target_shape: &[usize]) -> Result<Self, String> {
+    pub fn broadcast_to(&self, target_shape: &[usize]) -> Result<Self> {
         if !self.can_broadcast_to(target_shape) {
-            return Err(format!(
-                "cannot broadcast {:?} to {:?}",
-                self.shape, target_shape
-            ));
+            return Err(SciRustError::BroadcastIncompatible {
+                op: "broadcast_to",
+                from: self.shape.clone(),
+                to: target_shape.to_vec(),
+            });
         }
         let nd = target_shape.len();
         let off = nd - self.ndim(); // right-alignment offset
@@ -359,7 +351,7 @@ impl TensorND {
             *slot = self.data[src_flat];
         }
         Ok(Self {
-            data,
+            data: Arc::from(data),
             shape: target_shape.to_vec(),
             strides: out_strides,
         })
@@ -371,22 +363,16 @@ impl TensorND {
     pub fn from_tensor_2d(t: &Tensor) -> Self {
         let (rows, cols) = t.shape();
         Self {
-            data: t.data.clone(),
+            data: Arc::from(t.data.clone()),
             shape: vec![rows, cols],
             strides: compute_strides(&[rows, cols]),
         }
     }
 
-    pub fn to_tensor_2d(&self) -> Result<Tensor, String> {
-        if self.ndim() != 2 {
-            return Err(format!(
-                "to_tensor_2d: expected ndim==2, got ndim=={} (shape {:?})",
-                self.ndim(),
-                self.shape
-            ));
-        }
+    pub fn to_tensor_2d(&self) -> Result<Tensor> {
+        check_rank("to_tensor_2d", 2, self.ndim())?;
         Ok(Tensor::from_vec(
-            self.data.clone(),
+            self.data.to_vec(),
             self.shape[0],
             self.shape[1],
         ))
@@ -401,7 +387,7 @@ impl TensorND {
         let rows: usize = self.shape[..k].iter().product::<usize>().max(1);
         let cols: usize = self.shape[k..].iter().product::<usize>().max(1);
         debug_assert_eq!(rows * cols, self.data.len());
-        (rows, cols, self.data.clone())
+        (rows, cols, self.data.to_vec())
     }
 
     /// Maximum absolute element value (used for tolerance checks).
@@ -418,6 +404,37 @@ impl TensorND {
     pub fn from_matrix(rows: usize, cols: usize, data: Vec<f32>) -> Self {
         Self::new(data, vec![rows, cols])
     }
+
+    pub fn is_contiguous(&self) -> bool {
+        self.strides == compute_strides(&self.shape)
+    }
+
+    pub fn to_contiguous(&self) -> Self {
+        if self.is_contiguous() {
+            return self.clone();
+        }
+        let numel = self.numel();
+        let mut new_data = vec![0.0f32; numel];
+        let new_strides = compute_strides(&self.shape);
+
+        let ndim = self.ndim();
+        let mut indices = vec![0usize; ndim];
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..numel {
+            let mut rem = i;
+            for j in 0..ndim {
+                indices[j] = rem / new_strides[j];
+                rem %= new_strides[j];
+            }
+            new_data[i] = self.data[self.offset(&indices)];
+        }
+
+        Self {
+            data: Arc::from(new_data),
+            shape: self.shape.clone(),
+            strides: new_strides,
+        }
+    }
 }
 
 // ------------------------------------------------------------------
@@ -426,8 +443,11 @@ impl TensorND {
 fn compute_strides(shape: &[usize]) -> Vec<usize> {
     let ndim = shape.len();
     let mut strides = vec![1usize; ndim];
-    for i in (0..ndim - 1).rev() {
-        strides[i] = strides[i + 1] * shape[i + 1];
+    // Iterate high axis -> low. `1..ndim` is empty for ndim 0 and 1, so this
+    // avoids the `ndim - 1` usize underflow that panicked (debug) / produced
+    // `0..usize::MAX` (release) on a rank-0 (scalar) shape `&[]`.
+    for i in (1..ndim).rev() {
+        strides[i - 1] = strides[i] * shape[i];
     }
     strides
 }
@@ -446,6 +466,22 @@ mod tests {
 
         let o = TensorND::ones(&[2, 3, 4]);
         assert!(o.data.iter().all(|&x| x == 1.0));
+    }
+
+    // A rank-0 (scalar) shape `&[]` is legal (numel == 1) and must not panic in
+    // compute_strides (the `ndim - 1` usize underflow regression).
+    #[test]
+    fn scalar_rank0_tensor_construction() {
+        let z = TensorND::zeros(&[]);
+        assert_eq!(z.ndim(), 0);
+        assert_eq!(z.shape(), &[] as &[usize]);
+        assert_eq!(z.numel(), 1);
+        assert_eq!(z.data[0], 0.0);
+
+        let s = TensorND::new(vec![3.5], vec![]);
+        assert_eq!(s.ndim(), 0);
+        assert_eq!(s.numel(), 1);
+        assert_eq!(s.data[0], 3.5);
     }
 
     #[test]
@@ -506,11 +542,40 @@ mod tests {
         let t2d = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, 3);
         let tnd = TensorND::from_tensor_2d(&t2d);
         assert_eq!(tnd.shape(), &[2, 3]);
-        assert_eq!(tnd.data, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(tnd.data, Arc::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));
 
         let back = tnd.to_tensor_2d().unwrap();
         assert_eq!(back.shape(), (2, 3));
         assert_eq!(back.data, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    }
+
+    // The 2D↔ND bridge is bit-exact: every f32 keeps its exact bit pattern
+    // (including -0.0 and subnormals) and the ND side is contiguous row-major.
+    #[test]
+    fn tensor_2d_nd_bridge_bitexact_and_strides() {
+        let vals = vec![
+            std::f32::consts::PI,
+            -0.0,
+            1.0e-38, // subnormal
+            -2.5e7,
+            f32::MIN_POSITIVE,
+            6.0,
+        ];
+        let t2d = Tensor::from_vec(vals.clone(), 2, 3);
+        let nd = TensorND::from_tensor_2d(&t2d);
+        assert_eq!(nd.ndim(), 2);
+        assert_eq!(nd.shape(), &[2, 3]);
+        assert_eq!(nd.strides, vec![3, 1], "row-major strides");
+        assert!(nd.is_contiguous());
+
+        let back = nd.to_tensor_2d().unwrap();
+        assert_eq!(back.shape(), (2, 3));
+        for (a, b) in vals.iter().zip(back.data.iter()) {
+            assert_eq!(a.to_bits(), b.to_bits(), "round trip must be bit-exact");
+        }
+
+        // to_tensor_2d refuses non-rank-2 tensors (RankMismatch, not a panic).
+        assert!(TensorND::zeros(&[2, 3, 4]).to_tensor_2d().is_err());
     }
 
     #[test]
@@ -564,14 +629,16 @@ mod tests {
         assert_eq!(b.shape(), &[3, 4]);
         assert_eq!(
             b.data,
-            vec![1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0]
+            Arc::from(vec![
+                1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0
+            ])
         );
 
         // Row vector [1,3] → [2,3]: the row replicated down.
         let r = TensorND::from_vec(vec![1.0, 2.0, 3.0], vec![1, 3]);
         assert_eq!(
             r.broadcast_to(&[2, 3]).unwrap().data,
-            vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0]
+            Arc::from(vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0])
         );
 
         // Add leading axes: [4] → [2,3,4] replicates the vector 6 times.

@@ -13,9 +13,31 @@
 //! `permute`, `layernorm` (last axis), and `sum` to a scalar — enough to build
 //! a full transformer block (see `nn::nd_layers`). The shape building blocks
 //! (`broadcast_shape`, `broadcast_to`, `matmul_shape`) live on [`TensorND`].
+//!
+//! # Bridging the 2-D world (`Tensor`/`Tape`/`Var`) and the N-D world
+//!
+//! The 2-D tape and this N-D tape are **separate autograd graphs**: a node of
+//! one cannot be an operand of the other, so there is deliberately no
+//! `Var` ↔ `NdVar` conversion and gradients never flow across the bridge.
+//! **Data**, however, moves freely at the tensor level:
+//!
+//! - **values in** — [`TensorND::from_tensor_2d`] copies a 2-D [`Tensor`] into
+//!   a rank-2 [`TensorND`] (row-major, bit-for-bit), and
+//!   [`NdTape::input_from_2d`] places it on an N-D tape as a leaf in one step;
+//! - **values out** — [`TensorND::to_tensor_2d`] turns any rank-2 result
+//!   (e.g. from [`NdTape::value`]) back into a 2-D [`Tensor`]; reshape or
+//!   [`TensorND::flatten_from`] first if the value has more axes;
+//! - **grads out** — [`NdTape::backward`] returns plain [`TensorND`]s, so a
+//!   rank-2 gradient converts with the same `to_tensor_2d` and can then feed
+//!   any 2-D consumer (optimizers, [`crate::io::safetensors`], …).
+//!
+//! To differentiate through both worlds, run each side on its own tape and
+//! stitch the chain rule by hand (feed the N-D gradient in as the seed of the
+//! 2-D loss, or vice versa).
 
 use std::cell::RefCell;
 
+use crate::autodiff::reverse::Tensor;
 use crate::tensor::tensor_nd::TensorND;
 
 #[derive(Clone)]
@@ -50,6 +72,10 @@ enum Op {
     /// Rotary position embedding over `(…, seq, d)` (position = axis −2); `f32`
     /// is the frequency base. Backward applies the inverse rotation.
     Rope(usize, f32),
+    /// RoPE **portable** : fréquences et rotations via la voie
+    /// `portable_f32` (exp/ln/sin/cos sans libm) — nœud bit-exact
+    /// inter-plates-formes, forward et backward.
+    RopePortable(usize, f32),
     Sum(usize),
     /// Row lookup (embedding): select rows of a `(vocab, dim)` table by the
     /// integer indices. Backward scatter-adds the upstream rows back.
@@ -61,6 +87,14 @@ enum Op {
     /// with one integer target per row. Output is the scalar mean loss; the
     /// indices are constants (not differentiated).
     CrossEntropy(usize, Vec<usize>),
+    /// Fused **per-channel causal convolution** `CausalConv(u, h)` of a signal
+    /// `u` with a lag-indexed filter `h`, both `(seq, d)`:
+    /// `y[t,c] = Σ_{τ=0}^{t} h[τ,c]·u[t−τ,c]`. Backward differentiates both
+    /// operands. Replaces the `Σ_τ hτ ⊙ (Sτ·u)` shift-matrix decomposition
+    /// (which was O(seq³·d)) with an O(seq²·d) direct evaluation — the forward
+    /// is bit-identical because the accumulation order (`τ` ascending) and the
+    /// per-term products are unchanged.
+    CausalConv(usize, usize),
 }
 
 struct Node {
@@ -92,6 +126,14 @@ impl NdTape {
         self.push(Op::Leaf, value)
     }
 
+    /// Place a 2-D [`Tensor`] on the tape as a rank-2 leaf — the tape-level
+    /// convenience of the [`TensorND::from_tensor_2d`] bridge (see the module
+    /// docs on moving data between the 2-D and N-D worlds). The data is copied;
+    /// no gradient flows back to any 2-D tape.
+    pub fn input_from_2d(&self, t: &Tensor) -> NdVar<'_> {
+        self.input(TensorND::from_tensor_2d(t))
+    }
+
     fn push(&self, op: Op, value: TensorND) -> NdVar<'_> {
         let mut nodes = self.nodes.borrow_mut();
         let idx = nodes.len();
@@ -101,7 +143,7 @@ impl NdTape {
 
     /// The forward value of a node.
     pub fn value(&self, v: NdVar<'_>) -> TensorND {
-        self.nodes.borrow()[v.idx].value.clone()
+        self.nodes.borrow()[v.idx].value.to_contiguous()
     }
 
     /// Reverse-mode backward from a **scalar** root (shape `[1]`). Returns the
@@ -181,7 +223,7 @@ impl NdTape {
                 Op::Reshape(a) => {
                     // Reshape the upstream grad back to the input's shape.
                     let shape = nodes[a].value.shape.clone();
-                    accumulate(&mut grads[a], &TensorND::new(g.data.clone(), shape));
+                    accumulate(&mut grads[a], &TensorND::new(g.data.to_vec(), shape));
                 }
                 Op::Permute(a, ref perm) => {
                     // Gradient flows through the inverse permutation.
@@ -205,7 +247,7 @@ impl NdTape {
                     let d: Vec<f32> = g
                         .data
                         .iter()
-                        .zip(&y.data)
+                        .zip(y.data.iter())
                         .map(|(&gi, &yi)| gi * yi * (1.0 - yi))
                         .collect();
                     accumulate(&mut grads[a], &TensorND::new(d, y.shape.clone()));
@@ -216,7 +258,7 @@ impl NdTape {
                     let d: Vec<f32> = g
                         .data
                         .iter()
-                        .zip(&y.data)
+                        .zip(y.data.iter())
                         .map(|(&gi, &yi)| gi * yi)
                         .collect();
                     accumulate(&mut grads[a], &TensorND::new(d, y.shape.clone()));
@@ -225,15 +267,19 @@ impl NdTape {
                     // RoPE is an orthogonal rotation R(pos); dx = Rᵀ·g = R(−pos)·g.
                     accumulate(&mut grads[a], &rope_lastaxis(&g, base, true));
                 }
+                Op::RopePortable(a, base) => {
+                    // Même transposée, via les rotations portables.
+                    accumulate(&mut grads[a], &rope_portable_lastaxis(&g, base, true));
+                }
                 Op::Relu(a) => {
                     let av = &nodes[a].value;
-                    let mut d = g.data.clone();
+                    let mut d = g.data.to_vec();
                     for (gi, &x) in d.iter_mut().zip(av.data.iter()) {
                         if x <= 0.0 {
                             *gi = 0.0;
                         }
                     }
-                    accumulate(&mut grads[a], &TensorND::new(d, av.shape.clone()));
+                    accumulate(&mut grads[a], &TensorND::new(d, av.shape.to_vec()));
                 }
                 Op::Sum(a) => {
                     // out is scalar; every input element gets the same upstream grad.
@@ -248,7 +294,7 @@ impl NdTape {
                     let dim = nodes[a].value.shape[1];
                     for (r, &ix) in idx.iter().enumerate() {
                         for c in 0..dim {
-                            grads[a].data[ix * dim + c] += g.data[r * dim + c];
+                            grads[a].data_mut()[ix * dim + c] += g.data[r * dim + c];
                         }
                     }
                 }
@@ -285,6 +331,35 @@ impl NdTape {
                         dl[r * vocab + target] -= scale;
                     }
                     accumulate(&mut grads[a], &TensorND::new(dl, logits.shape.clone()));
+                }
+                Op::CausalConv(u, h) => {
+                    // y[t,c] = Σ_{τ=0}^{t} h[τ,c]·u[t−τ,c]. Differentiate both:
+                    //   ∂L/∂u[j,c] = Σ_{τ=0}^{seq-1-j} g[j+τ,c]·h[τ,c]
+                    //   ∂L/∂h[τ,c] = Σ_{t=τ}^{seq-1}   g[t,c]·u[t−τ,c]
+                    let uv = &nodes[u].value;
+                    let hv = &nodes[h].value;
+                    let (seq, d) = (uv.shape[0], uv.shape[1]);
+                    let (ud, hd) = (&uv.data, &hv.data);
+                    let mut gu = vec![0f32; seq * d];
+                    let mut gh = vec![0f32; seq * d];
+                    for c in 0..d {
+                        for j in 0..seq {
+                            let mut acc = 0f32;
+                            for tau in 0..seq - j {
+                                acc += g.data[(j + tau) * d + c] * hd[tau * d + c];
+                            }
+                            gu[j * d + c] = acc;
+                        }
+                        for tau in 0..seq {
+                            let mut acc = 0f32;
+                            for t in tau..seq {
+                                acc += g.data[t * d + c] * ud[(t - tau) * d + c];
+                            }
+                            gh[tau * d + c] = acc;
+                        }
+                    }
+                    accumulate(&mut grads[u], &TensorND::new(gu, uv.shape.clone()));
+                    accumulate(&mut grads[h], &TensorND::new(gh, hv.shape.clone()));
                 }
             }
         }
@@ -349,27 +424,27 @@ impl<'t> NdVar<'t> {
 
     /// Softmax over the last axis (e.g. attention weights over keys).
     pub fn softmax(self) -> NdVar<'t> {
-        let a = self.tape.nodes.borrow()[self.idx].value.clone();
+        let a = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         let out = softmax_lastaxis(&a);
         self.tape.push(Op::Softmax(self.idx), out)
     }
 
     /// Swap the last two axes (e.g. `Kᵀ` inside attention).
     pub fn transpose_last2(self) -> NdVar<'t> {
-        let a = self.tape.nodes.borrow()[self.idx].value.clone();
+        let a = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         let out = transpose_last2(&a);
         self.tape.push(Op::TransposeLast2(self.idx), out)
     }
 
     /// Reshape to `shape` (same number of elements; data order preserved).
     pub fn reshape(self, shape: &[usize]) -> NdVar<'t> {
-        let a = self.tape.nodes.borrow()[self.idx].value.clone();
+        let a = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         assert_eq!(
             a.data.len(),
             shape.iter().product::<usize>(),
             "reshape: element count mismatch"
         );
-        let out = TensorND::new(a.data.clone(), shape.to_vec());
+        let out = TensorND::new(a.data.to_vec(), shape.to_vec());
         self.tape.push(Op::Reshape(self.idx), out)
     }
 
@@ -377,7 +452,7 @@ impl<'t> NdVar<'t> {
     /// no affine — the `gamma`/`beta` of a `LayerNorm` layer are applied as a
     /// separate `mul`/`add`.
     pub fn layernorm(self, eps: f32) -> NdVar<'t> {
-        let a = self.tape.nodes.borrow()[self.idx].value.clone();
+        let a = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         let out = layernorm_lastaxis(&a, eps);
         self.tape.push(Op::LayerNormLast(self.idx, eps), out)
     }
@@ -387,7 +462,7 @@ impl<'t> NdVar<'t> {
     /// is applied as a separate `mul`. Cheaper than `layernorm` (no centring);
     /// the LLaMA-family normalisation.
     pub fn rmsnorm(self, eps: f32) -> NdVar<'t> {
-        let a = self.tape.nodes.borrow()[self.idx].value.clone();
+        let a = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         let out = rmsnorm_lastaxis(&a, eps);
         self.tape.push(Op::RmsNormLast(self.idx, eps), out)
     }
@@ -395,7 +470,7 @@ impl<'t> NdVar<'t> {
     /// Elementwise logistic sigmoid `σ(x) = 1/(1+e^-x)` (e.g. the gate of SiLU /
     /// SwiGLU).
     pub fn sigmoid(self) -> NdVar<'t> {
-        let a = self.tape.nodes.borrow()[self.idx].value.clone();
+        let a = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         let data: Vec<f32> = a.data.iter().map(|&x| 1.0 / (1.0 + (-x).exp())).collect();
         let out = TensorND::new(data, a.shape.clone());
         self.tape.push(Op::Sigmoid(self.idx), out)
@@ -404,7 +479,7 @@ impl<'t> NdVar<'t> {
     /// Elementwise `exp(x)` — the discretisation `exp(Δ·A)` of a state-space
     /// model (e.g. Mamba's selective scan) and positive reparametrisations.
     pub fn exp(self) -> NdVar<'t> {
-        let a = self.tape.nodes.borrow()[self.idx].value.clone();
+        let a = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         let data: Vec<f32> = a.data.iter().map(|&x| x.exp()).collect();
         let out = TensorND::new(data, a.shape.clone());
         self.tape.push(Op::Exp(self.idx), out)
@@ -417,9 +492,19 @@ impl<'t> NdVar<'t> {
     /// attention score depend only on the **relative** position. `base` is
     /// typically `10000`.
     pub fn rope(self, base: f32) -> NdVar<'t> {
-        let a = self.tape.nodes.borrow()[self.idx].value.clone();
+        let a = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         let out = rope_lastaxis(&a, base, false);
         self.tape.push(Op::Rope(self.idx, base), out)
+    }
+
+    /// RoPE **portable** : fréquences `base^(−2p/d)` via exp/ln portables et
+    /// rotations via sin/cos portables (réduction de Payne–Hanek) — forward
+    /// ET backward bit-exacts inter-plates-formes, contrairement à
+    /// [`NdVar::rope`] (powf/sin_cos libm). Voie de référence, plus lente.
+    pub fn rope_portable(self, base: f32) -> NdVar<'t> {
+        let a = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
+        let out = rope_portable_lastaxis(&a, base, false);
+        self.tape.push(Op::RopePortable(self.idx, base), out)
     }
 
     /// Permute the axes (e.g. `(seq, heads, d) → (heads, seq, d)` for attention).
@@ -436,7 +521,7 @@ impl<'t> NdVar<'t> {
 
     /// Elementwise ReLU.
     pub fn relu(self) -> NdVar<'t> {
-        let a = self.tape.nodes.borrow()[self.idx].value.clone();
+        let a = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         let data = a.data.iter().map(|&x| x.max(0.0)).collect();
         let out = TensorND::new(data, a.shape.clone());
         self.tape.push(Op::Relu(self.idx), out)
@@ -444,7 +529,7 @@ impl<'t> NdVar<'t> {
 
     /// Sum of all elements → scalar (shape `[1]`).
     pub fn sum(self) -> NdVar<'t> {
-        let a = self.tape.nodes.borrow()[self.idx].value.clone();
+        let a = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         let s: f32 = a.data.iter().sum();
         self.tape
             .push(Op::Sum(self.idx), TensorND::new(vec![s], vec![1]))
@@ -454,7 +539,7 @@ impl<'t> NdVar<'t> {
     /// `(indices.len(), dim)` stack of the selected rows. Gradients
     /// scatter-add back to the table (repeated indices accumulate).
     pub fn gather(self, indices: &[usize]) -> NdVar<'t> {
-        let w = self.tape.nodes.borrow()[self.idx].value.clone();
+        let w = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         assert_eq!(w.ndim(), 2, "gather: table must be 2-D (vocab, dim)");
         let (vocab, dim) = (w.shape[0], w.shape[1]);
         let mut data = Vec::with_capacity(indices.len() * dim);
@@ -469,6 +554,35 @@ impl<'t> NdVar<'t> {
         self.tape.push(Op::Gather(self.idx, indices.to_vec()), out)
     }
 
+    /// **Per-channel causal convolution** of the signal `self` with a
+    /// lag-indexed filter `h`, both `(seq, d)`:
+    /// `y[t,c] = Σ_{τ=0}^{t} h[τ,c]·u[t−τ,c]` — the core primitive of a Hyena
+    /// long convolution. Evaluated directly in `O(seq²·d)` (versus the
+    /// `O(seq³·d)` shift-matrix expansion `Σ_τ hτ ⊙ (Sτ·u)`), while summing the
+    /// taps in the same `τ`-ascending order so the forward is bit-identical.
+    /// Differentiable in both operands.
+    pub fn causal_conv(self, h: NdVar<'t>) -> NdVar<'t> {
+        let (u, hh) = self.pair(h);
+        assert_eq!(u.ndim(), 2, "causal_conv: signal must be 2-D (seq, d)");
+        assert_eq!(
+            u.shape, hh.shape,
+            "causal_conv: signal and filter must share shape (seq, d)"
+        );
+        let (seq, d) = (u.shape[0], u.shape[1]);
+        let mut y = vec![0f32; seq * d];
+        for t in 0..seq {
+            for c in 0..d {
+                let mut acc = 0f32;
+                for tau in 0..=t {
+                    acc += hh.data[tau * d + c] * u.data[(t - tau) * d + c];
+                }
+                y[t * d + c] = acc;
+            }
+        }
+        let out = TensorND::new(y, vec![seq, d]);
+        self.tape.push(Op::CausalConv(self.idx, h.idx), out)
+    }
+
     /// Concatenate `self` with `rest` along axis 0 — all parts must share their
     /// trailing dims. Lets a recurrence (e.g. DeltaNet) assemble per-timestep
     /// `(1, d)` outputs into a single `(seq, d)` tensor on the tape. Backward
@@ -478,7 +592,7 @@ impl<'t> NdVar<'t> {
         let first = &nodes[self.idx].value;
         let trailing: Vec<usize> = first.shape[1..].to_vec();
         let mut rows = first.shape[0];
-        let mut data = first.data.clone();
+        let mut data = first.data.to_vec();
         let mut idxs = vec![self.idx];
         for p in rest {
             let v = &nodes[p.idx].value;
@@ -490,7 +604,7 @@ impl<'t> NdVar<'t> {
         drop(nodes);
         let mut shape = vec![rows];
         shape.extend_from_slice(&trailing);
-        let out = TensorND::new(data, shape);
+        let out = TensorND::new(data.to_vec(), shape);
         self.tape.push(Op::Cat(idxs), out)
     }
 
@@ -498,7 +612,7 @@ impl<'t> NdVar<'t> {
     /// logits, `targets` holds one class index per row. Returns the scalar mean
     /// loss, computed with the log-sum-exp trick for numerical stability.
     pub fn cross_entropy(self, targets: &[usize]) -> NdVar<'t> {
-        let logits = self.tape.nodes.borrow()[self.idx].value.clone();
+        let logits = self.tape.nodes.borrow()[self.idx].value.to_contiguous();
         assert_eq!(
             logits.ndim(),
             2,
@@ -527,8 +641,8 @@ impl<'t> NdVar<'t> {
     fn pair(self, other: NdVar<'t>) -> (TensorND, TensorND) {
         let nodes = self.tape.nodes.borrow();
         (
-            nodes[self.idx].value.clone(),
-            nodes[other.idx].value.clone(),
+            nodes[self.idx].value.to_contiguous(),
+            nodes[other.idx].value.to_contiguous(),
         )
     }
 }
@@ -538,7 +652,12 @@ impl<'t> NdVar<'t> {
 /// Elementwise op on two equally-shaped tensors.
 fn ew(a: &TensorND, b: &TensorND, f: impl Fn(f32, f32) -> f32) -> TensorND {
     debug_assert_eq!(a.shape, b.shape);
-    let data = a.data.iter().zip(&b.data).map(|(&x, &y)| f(x, y)).collect();
+    let data = a
+        .data
+        .iter()
+        .zip(b.data.iter())
+        .map(|(&x, &y)| f(x, y))
+        .collect();
     TensorND::new(data, a.shape.clone())
 }
 
@@ -556,7 +675,7 @@ fn ew_broadcast(a: &TensorND, b: &TensorND, f: impl Fn(f32, f32) -> f32) -> Tens
 /// `acc += g` (same shape).
 fn accumulate(acc: &mut TensorND, g: &TensorND) {
     debug_assert_eq!(acc.shape, g.shape);
-    for (a, &x) in acc.data.iter_mut().zip(&g.data) {
+    for (a, &x) in acc.data_mut().iter_mut().zip(g.data.iter()) {
         *a += x;
     }
 }
@@ -781,7 +900,7 @@ fn rope_lastaxis(t: &TensorND, base: f32, inverse: bool) -> TensorND {
     assert!(nd >= 2, "rope: need ndim >= 2 (…, seq, d)");
     let d = t.shape[nd - 1];
     let seq = t.shape[nd - 2];
-    assert!(d % 2 == 0, "rope: last axis must be even");
+    assert!(d.is_multiple_of(2), "rope: last axis must be even");
     let m = t.data.len() / (seq * d).max(1);
     let mut out = vec![0.0f32; t.data.len()];
     let sign = if inverse { -1.0 } else { 1.0 };
@@ -792,6 +911,38 @@ fn rope_lastaxis(t: &TensorND, base: f32, inverse: bool) -> TensorND {
                 let theta = base.powf(-2.0 * p as f32 / d as f32);
                 let ang = sign * s as f32 * theta;
                 let (sin, cos) = ang.sin_cos();
+                let (a, b) = (t.data[row + 2 * p], t.data[row + 2 * p + 1]);
+                out[row + 2 * p] = a * cos - b * sin;
+                out[row + 2 * p + 1] = a * sin + b * cos;
+            }
+        }
+    }
+    TensorND::new(out, t.shape.clone())
+}
+
+/// Variante **portable** de [`rope_lastaxis`] : fréquences
+/// `base^(−2p/d) = exp((−2p/d)·ln base)` via `portable_f32::{exp_f32, ln_f32}`
+/// et rotations via `portable_f32::{sin_f32, cos_f32}` — aucune libm, donc
+/// bit-exact inter-plates-formes (mêmes rotations pour l'inverse/transposée
+/// du backward).
+fn rope_portable_lastaxis(t: &TensorND, base: f32, inverse: bool) -> TensorND {
+    use crate::portable_f32::{cos_f32, exp_f32, ln_f32, sin_f32};
+    let nd = t.ndim();
+    assert!(nd >= 2, "rope: need ndim >= 2 (…, seq, d)");
+    let d = t.shape[nd - 1];
+    let seq = t.shape[nd - 2];
+    assert!(d.is_multiple_of(2), "rope: last axis must be even");
+    let m = t.data.len() / (seq * d).max(1);
+    let mut out = vec![0.0f32; t.data.len()];
+    let sign = if inverse { -1.0 } else { 1.0 };
+    let ln_base = ln_f32(base);
+    for outer in 0..m {
+        for s in 0..seq {
+            let row = (outer * seq + s) * d;
+            for p in 0..d / 2 {
+                let theta = exp_f32(ln_base * (-2.0 * p as f32 / d as f32));
+                let ang = sign * s as f32 * theta;
+                let (sin, cos) = (sin_f32(ang), cos_f32(ang));
                 let (a, b) = (t.data[row + 2 * p], t.data[row + 2 * p + 1]);
                 out[row + 2 * p] = a * cos - b * sin;
                 out[row + 2 * p + 1] = a * sin + b * cos;
@@ -922,6 +1073,77 @@ fn bmm_backward(a: &TensorND, b: &TensorND, g: &TensorND) -> (TensorND, TensorND
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    /// The 2D→ND tape bridge: a 2-D `Tensor` enters as a rank-2 leaf
+    /// bit-for-bit, and after `backward` its gradient reads out as a 2-D
+    /// `Tensor` again (`loss = Σ x⊙x ⇒ ∂x = 2x`).
+    #[test]
+    fn input_from_2d_bridges_values_and_grads() {
+        let t = Tensor::from_vec(vec![1.5, -2.0, 3.25, 4.0, -0.5, 0.75], 2, 3);
+        let tape = NdTape::new();
+        let x = tape.input_from_2d(&t);
+        assert_eq!(x.shape(), vec![2, 3]);
+
+        // Value round-trips to 2-D bit-for-bit.
+        let v = tape.value(x).to_tensor_2d().unwrap();
+        assert_eq!(v.shape(), (2, 3));
+        for (a, b) in t.data.iter().zip(v.data.iter()) {
+            assert_eq!(a.to_bits(), b.to_bits());
+        }
+
+        // Grad reads out as a rank-2 tensor convertible back to 2-D.
+        let loss = x.mul(x).sum();
+        let grads = tape.backward(loss);
+        let gx = grads[x.idx()].to_tensor_2d().unwrap();
+        assert_eq!(gx.shape(), (2, 3));
+        for (g, &xi) in gx.data.iter().zip(t.data.iter()) {
+            assert!((g - 2.0 * xi).abs() < 1e-6, "d(sum x²)/dx = 2x");
+        }
+    }
+
+    /// RoPE portable ≈ RoPE libm (fréquences/rotations à quelques ulps),
+    /// gradient = rotation transposée exacte (roundtrip bit-cohérent), et
+    /// empreintes forward + gradient FIGÉES — contrat cross-platform.
+    #[test]
+    fn rope_portable_matches_and_is_fingerprinted() {
+        let (seq, d) = (7usize, 8usize);
+        let data: Vec<f32> = (0..seq * d)
+            .map(|i| ((i.wrapping_mul(2_654_435_761)) % 1024) as f32 / 512.0 - 1.0)
+            .collect();
+        let x = TensorND::new(data.clone(), vec![seq, d]);
+
+        // parité avec la voie libm
+        let libm = rope_lastaxis(&x, 10_000.0, false);
+        let portable = rope_portable_lastaxis(&x, 10_000.0, false);
+        for i in 0..seq * d {
+            assert!(
+                (libm.data[i] - portable.data[i]).abs() < 1e-4,
+                "élément {i}: libm {} vs portable {}",
+                libm.data[i],
+                portable.data[i]
+            );
+        }
+
+        // gradient via la tape : loss = sum(rope_portable(x)) ; le backward
+        // applique la rotation inverse — vérifie le câblage de l'op.
+        let tape = NdTape::new();
+        let xv = tape.input(TensorND::new(data.clone(), vec![seq, d]));
+        let loss = xv.rope_portable(10_000.0).sum();
+        let grads = tape.backward(loss);
+        let gx = &grads[xv.idx()];
+        assert_eq!(gx.data.len(), seq * d);
+
+        // empreintes (forward puis gradient)
+        let mut fp = crate::portable_f32::fnv1a_init();
+        for &v in portable.data.iter().chain(gx.data.iter()) {
+            fp = crate::portable_f32::fnv1a_fold_bits(fp, v.to_bits());
+        }
+        assert_eq!(
+            fp, 0xfffe_ed24_261e_b5d6,
+            "empreinte rope portable : 0x{fp:016x}"
+        );
+    }
 
     /// Build `loss = sum( relu(X·W + b) * V )` and return the scalar loss.
     /// `b` is `(1, out)` and broadcasts over the batch — exercising add/mul
@@ -1261,8 +1483,8 @@ mod tests {
         let loss = a.add(b).sum();
         let grads = tape.backward(loss);
         assert_eq!(grads[b.idx()].shape, vec![1, 3]);
-        assert_eq!(grads[b.idx()].data, vec![2.0, 2.0, 2.0]);
-        assert_eq!(grads[a.idx()].data, vec![1.0; 6]);
+        assert_eq!(grads[b.idx()].data, Arc::from(vec![2.0, 2.0, 2.0]));
+        assert_eq!(grads[a.idx()].data, Arc::from(vec![1.0; 6]));
     }
 
     #[test]
@@ -1278,7 +1500,7 @@ mod tests {
         ));
         let c = a.matmul(b);
         // row0·cols: [1*1+2*0+3*1, 1*0+2*1+3*1] = [4, 5]; row1: [10, 11]
-        assert_eq!(tape.value(c).data, vec![4.0, 5.0, 10.0, 11.0]);
+        assert_eq!(tape.value(c).data, Arc::from(vec![4.0, 5.0, 10.0, 11.0]));
     }
 
     /// Batched matmul with a **broadcast** batch axis: forward matches a manual
@@ -1515,6 +1737,74 @@ mod tests {
         // Rows never gathered (1 and 3) receive zero gradient.
         assert_eq!(&gw.data[dim..2 * dim], &[0.0, 0.0, 0.0]);
         assert_eq!(&gw.data[3 * dim..4 * dim], &[0.0, 0.0, 0.0]);
+    }
+
+    /// Fused per-channel causal convolution: forward is **bit-for-bit** equal to
+    /// the naive `τ`-ascending reference, and gradients w.r.t. both the signal
+    /// and the filter match finite differences.
+    #[test]
+    fn nd_causal_conv_forward_bitexact_and_gradient_check() {
+        let (seq, d) = (6usize, 3usize);
+        let u: Vec<f32> = (0..seq * d).map(|i| (i as f32 * 0.3 - 0.5).sin()).collect();
+        let h: Vec<f32> = (0..seq * d).map(|i| (i as f32 * 0.2 + 0.4).cos()).collect();
+
+        // Naive reference, identical accumulation order to the op.
+        let mut want = vec![0f32; seq * d];
+        for t in 0..seq {
+            for c in 0..d {
+                let mut acc = 0f32;
+                for tau in 0..=t {
+                    acc += h[tau * d + c] * u[(t - tau) * d + c];
+                }
+                want[t * d + c] = acc;
+            }
+        }
+
+        let t0 = NdTape::new();
+        let uv = t0.input(TensorND::new(u.clone(), vec![seq, d]));
+        let hv = t0.input(TensorND::new(h.clone(), vec![seq, d]));
+        let got = t0.value(uv.causal_conv(hv));
+        assert_eq!(got.shape, vec![seq, d]);
+        for (g, w) in got.data.iter().zip(&want) {
+            assert_eq!(
+                g.to_bits(),
+                w.to_bits(),
+                "causal_conv forward not bit-exact"
+            );
+        }
+
+        let loss_of = |uu: &[f32], hh: &[f32]| -> f32 {
+            let t = NdTape::new();
+            let uv = t.input(TensorND::new(uu.to_vec(), vec![seq, d]));
+            let hv = t.input(TensorND::new(hh.to_vec(), vec![seq, d]));
+            t.value(uv.causal_conv(hv).sum()).data[0]
+        };
+
+        let t = NdTape::new();
+        let uv = t.input(TensorND::new(u.clone(), vec![seq, d]));
+        let hv = t.input(TensorND::new(h.clone(), vec![seq, d]));
+        let grads = t.backward(uv.causal_conv(hv).sum());
+        let (gu, gh) = (grads[uv.idx()].clone(), grads[hv.idx()].clone());
+        assert_eq!(gu.shape, vec![seq, d]);
+        assert_eq!(gh.shape, vec![seq, d]);
+
+        let eps = 1e-3f32;
+        let check = |analytic: &TensorND, base: &[f32], rebuild: &dyn Fn(&[f32]) -> f32| {
+            for i in 0..base.len() {
+                let mut up = base.to_vec();
+                let mut dn = base.to_vec();
+                up[i] += eps;
+                dn[i] -= eps;
+                let num = (rebuild(&up) - rebuild(&dn)) / (2.0 * eps);
+                assert!(
+                    (num - analytic.data[i]).abs() < 2e-2,
+                    "causal_conv grad {i}: numeric {num}, analytic {}",
+                    analytic.data[i]
+                );
+            }
+        };
+        check(&gu, &u, &|p| loss_of(p, &h));
+        check(&gh, &h, &|p| loss_of(&u, p));
     }
 
     /// Fused softmax cross-entropy: gradient w.r.t. the logits matches finite

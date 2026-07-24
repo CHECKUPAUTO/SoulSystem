@@ -2,19 +2,17 @@
 //!
 //! This crate provides:
 //!
-//! * The **`#[simd]`** proc-macro attribute (re-exported from `scirust-simd-macros`)
-//!   that automatically generates architecture-specific variants of a free function
-//!   with runtime dispatch (AVX2 / SSE2 / NEON / SVE / scalar).
-//!
 //! * A generic **`simd_map`** and **`simd_zip_with`** implemented on top of
 //!   `std::simd` (nightly `portable_simd` feature).
 //!
 //! * **Stable manual SIMD kernels** for `f32`/`f64` using `core::arch` with
 //!   runtime feature detection and scalar fallback.
 //!
-//! * **ARM64 NEON intrinsics** (Pilier 4) — 4x f32 lanes on all ARM64.
+//! * **ARM64 NEON kernels** (Pilier 4) — 4x f32 lanes on all ARM64, implemented
+//!   in the `dispatch` and `gemm` modules with runtime feature detection.
 //!
-//! * **ARM SVE intrinsics** (Pilier 4) — scalable vector length on Ampere/Graviton.
+//! * **ARM SVE intrinsics** (Pilier 4) — scalable vector length on Ampere/Graviton,
+//!   available with the nightly-only `nightly-simd` feature.
 //!
 //! ## Runtime dispatch
 //!
@@ -30,8 +28,30 @@
 //! ```
 
 #![cfg_attr(feature = "portable-simd", feature(portable_simd))]
+// Ces extensions d'architecture ne sont pas toutes disponibles dans
+// `core::arch` au MSRV. Elles sont donc isolées derrière `nightly-simd`; les
+// chemins stables conservent AVX-512/AVX2/SSE2, NEON et le repli scalaire.
+#![cfg_attr(
+    all(feature = "nightly-simd", target_arch = "aarch64"),
+    feature(
+        stdarch_neon_i8mm,
+        stdarch_aarch64_sve,
+        stdarch_aarch64_feature_detection
+    )
+)]
+#![cfg_attr(
+    all(feature = "nightly-simd", target_arch = "x86_64"),
+    feature(x86_amx_intrinsics)
+)]
 #![allow(unused_crate_dependencies)]
 #![allow(unused_features)]
+// `clippy::chunks_exact_to_as_chunks` est un lint nightly récent (default-warn)
+// qui vise le motif `chunks_exact(N)` + remainder utilisé dans les kernels SIMD
+// pré-existants (portable.rs, complex.rs). La conversion vers `as_chunks` y est
+// délicate (gestion explicite du reste, lisibilité du pairing) et sans rapport
+// avec les algèbres hypercomplexes ; on neutralise le lint au niveau crate pour
+// que `clippy --features portable-simd -- -D warnings` reste vert.
+#![allow(clippy::chunks_exact_to_as_chunks)]
 
 // Guard de compatibilité multi-architecture injecté pour ARM64 / Jetson Pipeline
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
@@ -44,8 +64,6 @@ macro_rules! is_x86_feature_detected {
 
 pub mod portable;
 pub use portable::simd_ops;
-
-pub use scirust_simd_macros::simd;
 
 // =============================================================================
 // Nightly portable_simd generic API
@@ -135,6 +153,15 @@ pub mod ops {
         let n = a.len();
         let mut i = 0;
 
+        // SAFETY: `_mm256_loadu_ps`/`_mm_loadu_ps` and their `storeu` counterparts
+        // require only that the target CPU support AVX2/SSE2 (checked by
+        // `is_x86_feature_detected!` immediately above — an unconditional
+        // requirement of these intrinsics, not a per-call one) and that `K`
+        // contiguous `f32`s be readable/writable starting at the given pointer;
+        // `i + K <= n == a.len() == b.len() == out.len()` (asserted above) keeps
+        // every `a.as_ptr().add(i)` / `b.as_ptr().add(i)` / `out.as_mut_ptr().add(i)`
+        // in bounds. `out: &mut [f32]` is an exclusive borrow, so it cannot alias
+        // `a`/`b` — the compiler enforced that at the call site.
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         unsafe {
             if std::arch::is_x86_feature_detected!("avx2") {
@@ -169,6 +196,10 @@ pub mod ops {
         let n = a.len();
         let mut i = 0;
 
+        // SAFETY: same argument as the AVX2/SSE2 block in `add_f32` above — feature
+        // support is checked immediately below, `i + K <= n == a.len() == b.len()
+        // == out.len()` keeps every load/store in bounds, and `out: &mut [f32]`
+        // cannot alias `a`/`b`.
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         unsafe {
             if std::arch::is_x86_feature_detected!("avx2") {
@@ -219,6 +250,10 @@ pub mod ops {
         let n = a.len();
         let mut i = 0;
 
+        // SAFETY: same argument as `add_f32` above (f64 lanes: AVX2 handles 4 at a
+        // time, SSE2 handles 2). Feature support is checked immediately below,
+        // `i + K <= n == a.len() == b.len() == out.len()` keeps every load/store
+        // in bounds, and `out: &mut [f64]` cannot alias `a`/`b`.
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         unsafe {
             if std::arch::is_x86_feature_detected!("avx2") {
@@ -253,6 +288,9 @@ pub mod ops {
         let n = a.len();
         let mut i = 0;
 
+        // SAFETY: same argument as `add_f64` above — feature support is checked
+        // immediately below, `i + K <= n == a.len() == b.len() == out.len()` keeps
+        // every load/store in bounds, and `out: &mut [f64]` cannot alias `a`/`b`.
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         unsafe {
             if std::arch::is_x86_feature_detected!("avx2") {
@@ -303,56 +341,13 @@ pub fn scalar_zip<T: Copy>(a: &[T], b: &[T], output: &mut [T], f: impl Fn(T, T) 
 }
 
 // =============================================================================
-// ARM64 NEON kernels (Pilier 4)
-// =============================================================================
-
-#[cfg(target_arch = "aarch64")]
-mod neon_impl {
-    #[allow(unused_imports)]
-    pub use super::neon_fns::*;
-}
-
-#[cfg(target_arch = "aarch64")]
-#[allow(unused_imports)]
-pub mod neon {
-    #[allow(unused_imports)]
-    pub use super::neon_fns::*;
-}
-
-#[cfg(target_arch = "aarch64")]
-mod neon_fns {
-    #[allow(unused_imports)]
-    pub use crate::neon::*;
-}
-
-// =============================================================================
 // ARM SVE kernels (Pilier 4)
 // =============================================================================
 
-#[cfg(target_arch = "aarch64")]
-pub mod sve {
-    /// SVE vector length in elements of `T`, or 0 when SVE is unavailable.
-    ///
-    /// Reads the architectural vector length with `rdvl` (stable inline
-    /// asm). The instruction is only executed after runtime detection, so
-    /// this is safe to call on any aarch64 core.
-    pub fn sve_vector_length_elements<T>() -> usize {
-        if !std::arch::is_aarch64_feature_detected!("sve") {
-            return 0;
-        }
-        let vl_bytes: u64;
-        // SAFETY: rdvl is only reached when the CPU reports SVE support.
-        unsafe {
-            core::arch::asm!(
-                ".arch_extension sve",
-                "rdvl {0}, #1",
-                out(reg) vl_bytes,
-                options(nomem, nostack, preserves_flags)
-            );
-        }
-        vl_bytes as usize / core::mem::size_of::<T>()
-    }
-}
+#[cfg(all(feature = "nightly-simd", target_arch = "aarch64"))]
+pub mod sme;
+#[cfg(all(feature = "nightly-simd", target_arch = "aarch64"))]
+pub mod sve;
 
 // =============================================================================
 // Runtime dispatch (auto-select best SIMD backend)
@@ -375,6 +370,7 @@ pub fn detect_simd_backend() -> SimdBackend {
 
     #[cfg(target_arch = "aarch64")]
     {
+        #[cfg(feature = "nightly-simd")]
         if has_sve() {
             return SimdBackend::Sve;
         }
@@ -401,7 +397,8 @@ impl SimdBackend {
     pub fn lane_width(&self) -> usize {
         match self {
             SimdBackend::Avx512 => 16,
-            SimdBackend::Avx2 | SimdBackend::Sse2 => 4,
+            SimdBackend::Avx2 => 8, // 256-bit registers hold 8 f32 lanes
+            SimdBackend::Sse2 => 4,
             SimdBackend::Neon => 4,
             SimdBackend::Sve => 8, // typical for 256-bit SVE
             SimdBackend::Scalar => 1,
@@ -417,9 +414,9 @@ impl SimdBackend {
             SimdBackend::Avx2 => cfg!(target_arch = "x86_64") && is_x86_feature_detected!("avx2"),
             SimdBackend::Sse2 => cfg!(target_arch = "x86_64") && is_x86_feature_detected!("sse2"),
             SimdBackend::Neon => cfg!(target_arch = "aarch64"),
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(all(feature = "nightly-simd", target_arch = "aarch64"))]
             SimdBackend::Sve => has_sve(),
-            #[cfg(not(target_arch = "aarch64"))]
+            #[cfg(not(all(feature = "nightly-simd", target_arch = "aarch64")))]
             SimdBackend::Sve => false,
             SimdBackend::Scalar => true,
         }
@@ -429,16 +426,32 @@ impl SimdBackend {
 #[cfg(target_arch = "x86_64")]
 use std::arch::is_x86_feature_detected;
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(
+    feature = "nightly-simd",
+    target_arch = "aarch64",
+    any(target_os = "linux", target_os = "android")
+))]
 #[allow(dead_code)]
 fn has_sve() -> bool {
-    unsafe {
-        let hwcap = libc::getauxval(33); // AT_HWCAP
-        (hwcap & (1 << 31)) != 0
-    }
+    // AT_HWCAP is auxv key 16 (key 33 is AT_SYSINFO_EHDR — a pointer, whose high
+    // bits are effectively random, which is why the old `getauxval(33) & (1<<31)`
+    // both read the wrong entry and tested the wrong bit). On aarch64 Linux SVE
+    // is advertised by HWCAP_SVE = bit 22 of AT_HWCAP.
+    const AT_HWCAP: libc::c_ulong = 16;
+    const HWCAP_SVE: libc::c_ulong = 1 << 22;
+    // SAFETY: `getauxval` is a pure read of the kernel-provided auxiliary
+    // vector — it takes a plain integer key (no pointers/buffers to validate)
+    // and returns 0 for an unrecognized key rather than faulting, so it is
+    // safe to call with any `c_ulong` argument.
+    let hwcap = unsafe { libc::getauxval(AT_HWCAP) };
+    (hwcap & HWCAP_SVE) != 0
 }
 
-#[cfg(not(target_arch = "aarch64"))]
+#[cfg(not(all(
+    feature = "nightly-simd",
+    target_arch = "aarch64",
+    any(target_os = "linux", target_os = "android")
+)))]
 #[allow(dead_code)]
 fn has_sve() -> bool {
     false
@@ -451,6 +464,13 @@ pub fn simd_add_one(data: &mut [f64]) {
     let n = data.len();
     let mut i = 0;
 
+    // SAFETY: same load/store bounds argument as `add_f32` above, but in place
+    // on a single buffer: feature support is checked immediately below, and
+    // `i + K <= n == data.len()` keeps every `data.as_ptr().add(i)` /
+    // `data.as_mut_ptr().add(i)` in bounds. The read (`loadu`) and write
+    // (`storeu`) at each step target the exact same `K` elements — no other
+    // reference to `data` exists inside this block (it's the sole `&mut`
+    // parameter), so there's no overlap with a distinct live borrow.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     unsafe {
         if std::arch::is_x86_feature_detected!("avx2") {
@@ -546,6 +566,18 @@ mod tests {
     }
 
     #[test]
+    fn test_lane_width_matches_register_size() {
+        // lane_width is documented as the vector width in f32 elements, i.e.
+        // register-bit-width / 32. AVX2 uses 256-bit registers, so it must
+        // report 8 lanes (not 4, which is the SSE2/NEON 128-bit width).
+        assert_eq!(SimdBackend::Avx512.lane_width(), 16);
+        assert_eq!(SimdBackend::Avx2.lane_width(), 8);
+        assert_eq!(SimdBackend::Sse2.lane_width(), 4);
+        assert_eq!(SimdBackend::Neon.lane_width(), 4);
+        assert_eq!(SimdBackend::Scalar.lane_width(), 1);
+    }
+
+    #[test]
     #[cfg(feature = "portable-simd")]
     fn test_simd_map_add_one() {
         let input = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
@@ -565,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(feature = "nightly-simd", target_arch = "aarch64"))]
     fn test_sve_vector_length_elements_returns_valid_width() {
         // On aarch64, sve_vector_length_elements returns a multiple of 4 (f32 lanes).
         // On aarch64 without SVE support, returns 0.
@@ -574,6 +606,86 @@ mod tests {
     }
 }
 
+pub mod activations;
 pub mod complex;
 pub mod dispatch;
+pub mod eigen;
+pub mod gemm;
+pub mod grad;
 pub mod matrix;
+
+// Transformer-inference stack — attention, KV cache, norm, quantization, and
+// the block/model assembly built on top of them. Zero consumers anywhere in
+// the workspace (verified 2026-07); gated behind an opt-in feature rather
+// than kept unconditional or deleted, since it's real, tested, documented
+// infrastructure (~4k LoC, 41 tests) that just hasn't been wired to a
+// consumer yet — see the `transformer-inference` feature doc in Cargo.toml.
+#[cfg(feature = "transformer-inference")]
+pub mod attention;
+#[cfg(feature = "transformer-inference")]
+pub mod kv_cache;
+#[cfg(feature = "transformer-inference")]
+pub mod model;
+#[cfg(feature = "transformer-inference")]
+pub mod norm;
+#[cfg(feature = "transformer-inference")]
+pub mod qkv_cache;
+#[cfg(feature = "transformer-inference")]
+pub mod quant;
+#[cfg(feature = "transformer-inference")]
+pub mod transformer;
+
+// Algèbres hypercomplexes register-résidentes (octonions f32x8,
+// sédénions f32x16) — construites sur std::simd, donc uniquement
+// disponibles avec la feature nightly `portable-simd`.
+#[cfg(feature = "portable-simd")]
+pub mod hypercomplex;
+
+// Socle de réductions SIMD (SimdScalar, sommes fast/déterministe/Kahan,
+// dot, normes, extrema, moments statistiques mean/variance/écart-type) —
+// construit sur std::simd (feature `portable-simd`).
+#[cfg(feature = "portable-simd")]
+pub mod reductions;
+
+// Sous-système virgule fixe SIMD (FixedI32<F>/FixedI64<F>, FixedI32x8, …) —
+// calcul déterministe reproductible bit-à-bit ; construit sur std::simd.
+#[cfg(feature = "portable-simd")]
+pub mod fixed;
+
+// Géométrie générique (Quaternion<T>) au-dessus des traits NumericScalar/
+// RealScalar : rotations 3D identiques en flottant et en virgule fixe.
+#[cfg(feature = "portable-simd")]
+pub mod geometry;
+
+// Transformed-Scalar Hypercomplex Algebra (TSHA) — cadre de recherche : algèbres
+// hypercomplexes sur représentations scalaires transformées (φ = Identity /
+// 1/Γ(x+1) / lnΓ(x+1)), au-dessus du trait NumericScalar.
+#[cfg(feature = "portable-simd")]
+pub mod transformed;
+
+// Traitement du signal générique (Biquad IIR, FIR) au-dessus des traits
+// NumericScalar/RealScalar : filtrage identique et déterministe en flottant et
+// en virgule fixe.
+#[cfg(feature = "portable-simd")]
+pub mod dsp;
+
+// Both depend on the transformer-inference stack above (attention/norm/
+// transformer for qtransformer; quant for amx's bf16 conversions).
+#[cfg(all(
+    feature = "nightly-simd",
+    feature = "transformer-inference",
+    target_arch = "x86_64"
+))]
+pub mod amx;
+#[cfg(all(
+    feature = "nightly-simd",
+    feature = "transformer-inference",
+    target_arch = "x86_64"
+))]
+pub mod qtransformer;
+// General-purpose x86 extensions (masked axpy, prefetch/non-temporal
+// streaming) — unrelated to transformer-inference despite a doc-comment
+// mention that quantization code used to live here before moving to `quant`;
+// stays unconditional (modulo the platform gate) like `dispatch`/`gemm`.
+#[cfg(target_arch = "x86_64")]
+pub mod x86_ext;

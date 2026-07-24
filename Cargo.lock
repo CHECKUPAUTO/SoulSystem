@@ -1546,6 +1546,7 @@ dependencies = [
  "tower 0.5.3",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -1585,6 +1586,7 @@ dependencies = [
  "sync_wrapper 1.0.2",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -2117,9 +2119,14 @@ dependencies = [
 name = "ccos"
 version = "0.3.0"
 dependencies = [
+ "ccos-memory-runtime",
  "chrono",
  "criterion 0.5.1",
+ "ed25519-dalek",
+ "getrandom 0.2.17",
+ "lattice-slh-dsa",
  "mimalloc",
+ "octasoma",
  "proc-macro2",
  "proptest",
  "rand 0.8.6",
@@ -2129,6 +2136,44 @@ dependencies = [
  "sha2",
  "syn 2.0.118",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "ccos-memory-runtime"
+version = "0.1.0"
+
+[[package]]
+name = "cervo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dashmap 5.5.3",
+ "parking_lot 0.12.5",
+ "proptest",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "cervo-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cervo",
+ "serde",
+ "serde_json",
+ "soul-bridge",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -3174,6 +3219,19 @@ dependencies = [
  "darling_core 0.23.0",
  "quote",
  "syn 2.0.118",
+]
+
+[[package]]
+name = "dashmap"
+version = "5.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "978747c1d849a7d2ee5e8adc0159961c48fb7e5db2f06af6723b80123bb53856"
+dependencies = [
+ "cfg-if",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core 0.9.12",
 ]
 
 [[package]]
@@ -5435,6 +5493,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "keccak"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
+dependencies = [
+ "cpufeatures 0.2.17",
+]
+
+[[package]]
 name = "kube"
 version = "0.98.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5571,6 +5638,18 @@ name = "language-tags"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4345964bb142484797b161f473a503a434de77149dd8c7427788c6e13379388"
+
+[[package]]
+name = "lattice-slh-dsa"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4f99d3ef9863a4445c1b77825e4534cf3c36e9ee707eff6ffc1f1e772add166"
+dependencies = [
+ "sha2",
+ "sha3",
+ "subtle",
+ "zeroize",
+]
 
 [[package]]
 name = "lazy_static"
@@ -8820,6 +8899,17 @@ dependencies = [
 [[package]]
 name = "scirust-autodiff"
 version = "0.1.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
+name = "scirust-bench-schema"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "scirust-core"
@@ -8830,31 +8920,25 @@ dependencies = [
  "blas-src",
  "half",
  "libc",
+ "libm",
  "matrixmultiply",
  "nalgebra",
- "ndarray 0.16.1",
  "num-bigint",
+ "num-rational",
  "num-traits",
  "rand 0.8.6",
  "rand_distr",
  "rayon",
  "scirust-autodiff",
- "scirust-gpu-macros",
+ "scirust-bench-schema",
  "scirust-macros",
  "scirust-simd",
+ "scirust-special",
+ "scirust-stats",
  "scirust-symbolic",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "scirust-gpu-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.118",
 ]
 
 [[package]]
@@ -8864,6 +8948,10 @@ dependencies = [
  "fastrand",
  "rand 0.8.6",
  "scirust-core",
+ "scirust-multivariate",
+ "scirust-simd",
+ "scirust-solvers",
+ "scirust-stats",
  "serde",
  "serde_json",
 ]
@@ -8878,6 +8966,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "scirust-multivariate"
+version = "0.1.0"
+dependencies = [
+ "rand 0.8.6",
+ "scirust-core",
+ "scirust-stats",
+ "scirust-units",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "scirust-reasoning"
 version = "0.1.0"
 dependencies = [
@@ -8888,8 +8988,8 @@ dependencies = [
 name = "scirust-simd"
 version = "0.1.0"
 dependencies = [
+ "criterion 0.5.1",
  "libc",
- "scirust-simd-macros",
 ]
 
 [[package]]
@@ -8899,6 +8999,33 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.118",
+]
+
+[[package]]
+name = "scirust-solvers"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "proptest",
+ "scirust-autodiff",
+ "scirust-symbolic",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "scirust-special"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
+name = "scirust-stats"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "scirust-special",
 ]
 
 [[package]]
@@ -8920,6 +9047,10 @@ dependencies = [
  "tokio",
  "uuid",
 ]
+
+[[package]]
+name = "scirust-units"
+version = "0.1.0"
 
 [[package]]
 name = "scirust_affective_core"
@@ -9264,6 +9395,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha3"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
+dependencies = [
+ "digest 0.10.7",
+ "keccak",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9471,12 +9612,15 @@ name = "soul-bridge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cervo",
  "chrono",
+ "rand 0.8.6",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -9556,7 +9700,7 @@ version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",
- "dashmap",
+ "dashmap 6.2.1",
  "rusqlite",
  "serde",
  "serde_json",
@@ -9959,7 +10103,7 @@ name = "soul_graph_memory"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "dashmap",
+ "dashmap 6.2.1",
  "serde",
  "serde_json",
  "sled",
@@ -10004,7 +10148,7 @@ version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
- "dashmap",
+ "dashmap 6.2.1",
  "futures",
  "parking_lot 0.12.5",
  "reqwest 0.12.28",
@@ -10375,7 +10519,7 @@ dependencies = [
 name = "soullink-circuit"
 version = "13.5.0"
 dependencies = [
- "dashmap",
+ "dashmap 6.2.1",
  "serde",
  "serde_json",
  "tokio",
@@ -10485,7 +10629,7 @@ dependencies = [
  "axum 0.8.9",
  "clap",
  "colored 2.2.0",
- "dashmap",
+ "dashmap 6.2.1",
  "ed25519-dalek",
  "futures",
  "hmac",
@@ -10577,7 +10721,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "chrono",
- "dashmap",
+ "dashmap 6.2.1",
  "num_cpus",
  "parking_lot 0.12.5",
  "petgraph 0.7.1",
@@ -10603,7 +10747,7 @@ version = "13.5.0"
 dependencies = [
  "anyhow",
  "chrono",
- "dashmap",
+ "dashmap 6.2.1",
  "serde",
  "serde_json",
  "tempfile",
@@ -10617,7 +10761,7 @@ version = "0.1.0"
 dependencies = [
  "axum 0.8.9",
  "chrono",
- "dashmap",
+ "dashmap 6.2.1",
  "serde",
  "serde_json",
  "sysinfo",
@@ -10631,7 +10775,7 @@ name = "soullink-moe"
 version = "13.5.0"
 dependencies = [
  "anyhow",
- "dashmap",
+ "dashmap 6.2.1",
  "serde",
  "serde_json",
  "tracing",
@@ -10663,7 +10807,7 @@ dependencies = [
  "arc-swap",
  "axum 0.8.9",
  "chrono",
- "dashmap",
+ "dashmap 6.2.1",
  "futures",
  "reqwest 0.12.28",
  "serde",
@@ -10691,7 +10835,7 @@ dependencies = [
  "anyhow",
  "axum 0.8.9",
  "chrono",
- "dashmap",
+ "dashmap 6.2.1",
  "futures",
  "minreq",
  "reqwest 0.12.28",
@@ -10711,7 +10855,7 @@ version = "13.5.0"
 dependencies = [
  "axum 0.8.9",
  "chrono",
- "dashmap",
+ "dashmap 6.2.1",
  "minreq",
  "serde",
  "serde_json",
@@ -10804,7 +10948,7 @@ version = "13.5.0"
 dependencies = [
  "anyhow",
  "chrono",
- "dashmap",
+ "dashmap 6.2.1",
  "serde",
  "serde_json",
  "tokio",
@@ -10927,7 +11071,7 @@ dependencies = [
  "arc-swap",
  "async-channel 2.5.0",
  "bytes",
- "dashmap",
+ "dashmap 6.2.1",
  "futures",
  "half",
  "hnsw_rs",
@@ -10965,7 +11109,7 @@ name = "soullink-vram"
 version = "13.5.0"
 dependencies = [
  "anyhow",
- "dashmap",
+ "dashmap 6.2.1",
  "serde",
  "serde_json",
  "tempfile",
@@ -11181,6 +11325,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "soulsystem-lite"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.8.9",
+ "cervo",
+ "chrono",
+ "futures-util",
+ "hyper 1.10.1",
+ "serde",
+ "serde_json",
+ "soul-bridge",
+ "tokio",
+ "tokio-tungstenite 0.29.0",
+ "tower 0.5.3",
+ "tower-http 0.6.11",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "soulsystem-mesh"
 version = "1.0.0"
 dependencies = [
@@ -11196,7 +11362,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "confy",
- "dashmap",
+ "dashmap 6.2.1",
  "moka",
  "reqwest 0.12.28",
  "serde",
@@ -11586,7 +11752,7 @@ dependencies = [
  "blake3",
  "chrono",
  "clap",
- "dashmap",
+ "dashmap 6.2.1",
  "futures-util",
  "git2",
  "hex",

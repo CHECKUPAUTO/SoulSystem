@@ -3,7 +3,7 @@ name = "scirust-core"
 version = "0.1.0"
 edition = "2024"
 publish = false
-rust-version = "1.85"
+rust-version = "1.89"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -13,16 +13,15 @@ thiserror = "2"
 scirust-autodiff = { path = "../scirust-autodiff" }
 scirust-macros = { path = "../scirust-macros" }
 scirust-simd = { path = "../scirust-simd" }
-scirust-gpu-macros = { path = "../scirust-gpu-macros" }
-
+scirust-special = { path = "../scirust-special" }
 rand = "0.8"
 rand_distr = "0.4"
-ndarray = "0.16"
 blas = { version = "0.22", optional = true }
 blas-src = { version = "0.10", optional = true }
 rayon = { version = "1.8", optional = true }
 matrixmultiply = "0.3.10"
 num-bigint = "0.4"
+num-rational = "0.4"
 num-traits = "0.2"
 half = "2.4"
 nalgebra = "0.33"
@@ -30,11 +29,27 @@ libc = "0.2"
 
 [dev-dependencies]
 approx = "0.5"
+libm = "0.2"
+# Statistics for the A/B benchmark harness (Welch t-test, robust quantiles).
+# Leaf crate — does not depend on scirust-core, so no dependency cycle.
+scirust-stats = { path = "../scirust-stats" }
+# CANR §9 benchmark-record schema (leaf crate, no cycle): the ANEE Phase C
+# examples emit their measurements as shared BenchRecords (JSONL) in addition
+# to their human-readable tables.
+scirust-bench-schema = { path = "../scirust-bench-schema" }
 
 [features]
 default = ["rayon"]
-gpu = []
 portable-simd = ["scirust-simd/portable-simd"]
+transformer-inference = ["scirust-simd/transformer-inference"]
 blas = ["dep:blas", "dep:blas-src"]
 blas-openblas = ["blas", "blas-src/openblas"]
 blas-mkl = ["blas", "blas-src/intel-mkl"]
+
+# Depends on representation_graph_quaternion, itself gated behind
+# portable-simd (scirust_simd::geometry::quaternion) -- without this,
+# `cargo build/clippy --examples` on default features tries to build every
+# auto-discovered example and fails on this one.
+[[example]]
+name = "anee_phase_c_kernel2_quaternion"
+required-features = ["portable-simd"]

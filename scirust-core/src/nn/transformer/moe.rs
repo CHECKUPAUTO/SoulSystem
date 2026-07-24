@@ -1,4 +1,5 @@
-use crate::autodiff::reverse::{Tape, Tensor, Var};
+use crate::autodiff::reverse::{Tape, Tensor, Var, concat_rows};
+use crate::error::Result;
 use crate::nn::init::Initializer;
 use crate::nn::linear::Linear;
 use crate::nn::module::Module;
@@ -39,42 +40,65 @@ impl<E: Module> MoELayer<E> {
 
 impl<E: Module> Module for MoELayer<E> {
     fn forward<'t>(&mut self, tape: &'t Tape, input: Var<'t>) -> Var<'t> {
+        self.try_forward(tape, input).unwrap()
+    }
+
+    fn try_forward<'t>(&mut self, tape: &'t Tape, input: Var<'t>) -> Result<Var<'t>> {
         let gate_logits = self.gate.forward(tape, input);
-        let gate_probs = gate_logits.try_softmax(1).unwrap();
+        let gate_probs = gate_logits.try_softmax(1)?;
 
         let probs = tape.value(gate_probs.idx());
         let (rows, cols) = gate_probs.shape();
 
-        let mut output = tape.input(Tensor::zeros(rows, input.shape().1));
+        let out_cols = input.shape().1;
+        let mut row_outputs: Vec<Var<'t>> = Vec::with_capacity(rows);
 
         for i in 0..rows {
             let row_probs = &probs.data[i * cols..(i + 1) * cols];
             let mut indexed_probs: Vec<(usize, f32)> =
                 row_probs.iter().cloned().enumerate().collect();
-            indexed_probs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+            // total_cmp is a total order over f32, so a NaN gate probability
+            // (e.g. from a NaN activation upstream) sorts deterministically
+            // instead of panicking the way partial_cmp().unwrap() did.
+            indexed_probs.sort_by(|a, b| b.1.total_cmp(&a.1));
 
-            let top_k = &indexed_probs[0..self.k];
+            let top_k = &indexed_probs[0..self.k.min(indexed_probs.len())];
+            // Renormalize the kept experts' gate weights so they sum to 1
+            // (GShard/Mixtral convention). Without this the output is
+            // systematically down-scaled by the softmax mass of the *dropped*
+            // experts whenever k >= 2.
+            let top_sum: f32 = top_k.iter().map(|&(_, p)| p).sum();
+            let inv_sum = if top_sum > 0.0 { 1.0 / top_sum } else { 0.0 };
             let mut row_output: Option<Var> = None;
 
             for &(expert_idx, prob) in top_k {
-                let input_row = input.try_slice_rows(i, 1).unwrap();
+                let input_row = input.try_slice_rows(i, 1)?;
                 let expert_out = self.experts[expert_idx].forward(tape, input_row);
-                let weighted = expert_out.scale(prob);
+                let weighted = expert_out.scale(prob * inv_sum);
 
                 row_output = Some(match row_output {
                     None => weighted,
-                    Some(acc) => acc.try_add(weighted).unwrap(),
+                    Some(acc) => acc.try_add(weighted)?,
                 });
             }
 
-            if let Some(ro) = row_output {
-                if i == 0 {
-                    output = ro;
-                }
-            }
+            // Every row contributes its own mixed-expert output. (Previously only
+            // row 0 was kept, silently dropping all other batch rows and returning
+            // a (1, out) tensor instead of (rows, out).)
+            row_outputs.push(row_output.unwrap_or_else(|| tape.input(Tensor::zeros(1, out_cols))));
         }
 
-        output
+        if row_outputs.is_empty() {
+            return Ok(tape.input(Tensor::zeros(rows, out_cols)));
+        }
+        Ok(concat_rows(tape, &row_outputs))
+    }
+
+    fn train(&mut self, on: bool) {
+        self.gate.train(on);
+        for expert in &mut self.experts {
+            expert.train(on);
+        }
     }
 
     fn parameter_indices(&self) -> Vec<usize> {
@@ -104,5 +128,63 @@ impl<E: Module> Module for MoELayer<E> {
             }
         }
         map
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nn::init::{KaimingNormal, Zeros};
+
+    #[test]
+    fn moe_forward_processes_every_row() {
+        let mut rng = PcgEngine::new(7);
+        let mut moe = MoELayer::new(
+            4,
+            2,
+            1,
+            || Linear::new(4, 4, &KaimingNormal, &Zeros, &mut PcgEngine::new(99)),
+            &KaimingNormal,
+            &Zeros,
+            &mut rng,
+        );
+        let tape = Tape::new();
+        let x = tape.input(Tensor::from_vec(
+            vec![
+                1.0, 0.0, 0.0, 0.0, //
+                0.0, 1.0, 0.0, 0.0, //
+                0.0, 0.0, 1.0, 0.0,
+            ],
+            3,
+            4,
+        ));
+        let out = moe.forward(&tape, x);
+        // Regression: the full (rows, out) tensor — pre-fix this collapsed to (1, 4).
+        assert_eq!(tape.value(out.idx()).shape(), (3, 4));
+        // Gradients must flow through every row without panicking.
+        let loss = out.sum();
+        tape.backward(loss.idx());
+        assert!(tape.value(out.idx()).data.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn moe_forward_does_not_panic_on_nan_gate() {
+        // A NaN activation propagates to the gate probabilities. The top-k sort
+        // must not panic — total_cmp handles NaN, whereas the old
+        // partial_cmp().unwrap() panicked on it.
+        let mut rng = PcgEngine::new(7);
+        let mut moe = MoELayer::new(
+            4,
+            2,
+            1,
+            || Linear::new(4, 4, &KaimingNormal, &Zeros, &mut PcgEngine::new(99)),
+            &KaimingNormal,
+            &Zeros,
+            &mut rng,
+        );
+        let tape = Tape::new();
+        let x = tape.input(Tensor::from_vec(vec![f32::NAN; 8], 2, 4));
+        let out = moe.forward(&tape, x);
+        assert_eq!(tape.value(out.idx()).shape(), (2, 4));
     }
 }

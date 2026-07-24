@@ -1,0 +1,405 @@
+//! Décomposition LU avec pivot partiel.
+//!
+//! `lu_decompose(A)` factorise A en P·A = L·U où L est triangulaire inf
+//! avec 1 sur la diagonale, U est triangulaire sup, et P permutation.
+//! Renvoie une structure `Lu` qui combine L et U dans une seule matrice
+//! (parties triangulaires) plus le vecteur de permutation et le compteur
+//! de swaps (pour le calcul du déterminant).
+
+use super::Matrix;
+use crate::{SolverError, SolverResult};
+use tracing::warn;
+
+/// Given the largest-magnitude entry of the matrix and its size, returns the
+/// pivot-rejection threshold `n · eps · max|a_ij|` (Golub & Van Loan, *Matrix
+/// Computations*, §3.4.6) — relative to the matrix's own scale rather than a
+/// fixed absolute constant, so a regular matrix at a small physical scale
+/// isn't declared singular.
+fn pivot_tol(n: usize, max_abs: f64) -> f64 {
+    (n as f64) * f64::EPSILON * max_abs.max(1e-300)
+}
+
+fn check_finite(value: f64) -> Result<(), SolverError> {
+    if !value.is_finite() {
+        return Err(SolverError::NanDetected { iter: 0, value });
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub struct Lu {
+    /// Matrice combinée : partie strictement inf = L (sans la diag = 1),
+    /// partie sup + diag = U.
+    pub lu: Matrix,
+    /// Permutation : ligne i de A originale → ligne `piv[i]` après pivot.
+    pub piv: Vec<usize>,
+    /// Nombre de swaps effectués (pour le signe du déterminant).
+    pub swap_count: usize,
+    /// Seuil de pivot (relatif à l'échelle de la matrice d'origine), reporté
+    /// depuis `lu_decompose` pour que `solve_lu` applique le même critère.
+    piv_tol: f64,
+}
+
+/// Factorisation LU avec pivot partiel par ligne (Doolittle).
+/// Mute `a` (copie locale) ; renvoie l'objet `Lu`.
+pub fn lu_decompose(mut a: Matrix) -> SolverResult<Lu> {
+    let n = a.ensure_square()?;
+    let max_abs = (0..n)
+        .flat_map(|i| (0..n).map(move |j| (i, j)))
+        .fold(0.0f64, |acc, (i, j)| acc.max(a[(i, j)].abs()));
+    let piv_tol = pivot_tol(n, max_abs);
+    let mut piv = (0..n).collect::<Vec<_>>();
+    let mut swap_count = 0;
+
+    for k in 0..n {
+        // Pivot partiel
+        let mut max_idx = k;
+        let mut max_val = a[(k, k)].abs();
+        for i in (k + 1)..n {
+            let v = a[(i, k)].abs();
+            check_finite(v)?;
+            if v > max_val {
+                max_val = v;
+                max_idx = i;
+            }
+        }
+        if max_val < piv_tol {
+            warn!(
+                target: "solver",
+                "LU: singular matrix at column {k}, max pivot candidate = {max_val:.3e}",
+            );
+            return Err(SolverError::Singular {
+                row: k,
+                pivot: a[(k, k)],
+            });
+        }
+        if max_idx != k {
+            a.swap_rows(k, max_idx);
+            piv.swap(k, max_idx);
+            swap_count += 1;
+        }
+
+        // Élimination
+        let pivot = a[(k, k)];
+        for i in (k + 1)..n {
+            let factor = a[(i, k)] / pivot;
+            check_finite(factor)?;
+            a[(i, k)] = factor;
+            for j in (k + 1)..n {
+                let aij = a[(i, j)] - factor * a[(k, j)];
+                check_finite(aij)?;
+                a[(i, j)] = aij;
+            }
+        }
+    }
+
+    Ok(Lu {
+        lu: a,
+        piv,
+        swap_count,
+        piv_tol,
+    })
+}
+
+/// Résout L·U·x = P·b avec une factorisation déjà calculée.
+pub fn solve_lu(lu: &Lu, b: &[f64]) -> SolverResult<Vec<f64>> {
+    let n = lu.lu.rows();
+    if b.len() != n {
+        return Err(SolverError::DimensionMismatch {
+            expected: n,
+            got: b.len(),
+        });
+    }
+
+    for &bi in b {
+        check_finite(bi)?;
+    }
+
+    // Applique la permutation : b' = P·b
+    let mut x = vec![0.0; n];
+    for i in 0..n {
+        x[i] = b[lu.piv[i]];
+    }
+
+    // Substitution avant : L·y = b'
+    for i in 0..n {
+        let mut s = x[i];
+        for j in 0..i {
+            s -= lu.lu[(i, j)] * x[j];
+        }
+        x[i] = s;
+    }
+
+    // Substitution arrière : U·x = y
+    for i in (0..n).rev() {
+        let mut s = x[i];
+        for j in (i + 1)..n {
+            s -= lu.lu[(i, j)] * x[j];
+        }
+        let pivot = lu.lu[(i, i)];
+        if pivot.abs() < lu.piv_tol {
+            warn!(
+                target: "solver",
+                "LU back-substitution: near-singular pivot {pivot:.3e} at row {i}",
+            );
+            return Err(SolverError::Singular { row: i, pivot });
+        }
+        x[i] = s / pivot;
+        check_finite(x[i])?;
+    }
+
+    Ok(x)
+}
+
+/// Helper : résout A·x = b en une seule étape (factorise + résout).
+pub fn solve(a: Matrix, b: &[f64]) -> SolverResult<Vec<f64>> {
+    let lu = lu_decompose(a)?;
+    solve_lu(&lu, b)
+}
+
+/// Max absolute row sum — the induced ∞-norm of a matrix.
+fn row_inf_norm(m: &Matrix) -> f64 {
+    (0..m.rows())
+        .map(|i| (0..m.cols()).map(|j| m[(i, j)].abs()).sum::<f64>())
+        .fold(0.0, f64::max)
+}
+
+impl Lu {
+    /// Condition number `cond_∞(A) = ‖A‖_∞ · ‖A⁻¹‖_∞`, computed by explicitly
+    /// forming `A⁻¹` via `n` triangular solves (one per column of the
+    /// identity) — `O(n³)`, the same order as the LU factorization itself.
+    /// `a` must be the original (undecomposed) matrix this `Lu` came from —
+    /// `lu_decompose` consumes its input, so the caller keeps its own
+    /// reference/clone if `cond`/`rcond` will be needed.
+    ///
+    /// # Errors
+    /// [`SolverError::DimensionMismatch`] if `a`'s shape doesn't match this
+    /// factorization; anything [`solve_lu`] can return (a pivot going
+    /// singular partway through forming `A⁻¹` means `A` itself is singular).
+    pub fn cond(&self, a: &Matrix) -> SolverResult<f64> {
+        let n = self.lu.rows();
+        if a.rows() != n || a.cols() != n {
+            return Err(SolverError::DimensionMismatch {
+                expected: n,
+                got: a.rows(),
+            });
+        }
+        let a_norm = row_inf_norm(a);
+        if a_norm == 0.0 {
+            // Zero matrix: as singular as it gets.
+            return Ok(f64::INFINITY);
+        }
+        let mut inv = Matrix::zeros(n, n);
+        let mut e = vec![0.0; n];
+        for j in 0..n {
+            e.iter_mut().for_each(|x| *x = 0.0);
+            e[j] = 1.0;
+            let col = solve_lu(self, &e)?;
+            for i in 0..n {
+                inv[(i, j)] = col[i];
+            }
+        }
+        Ok(a_norm * row_inf_norm(&inv))
+    }
+
+    /// Reciprocal condition number `1/cond()`, LAPACK-style: near `1.0` is
+    /// well-conditioned, near/at `0.0` is singular / numerically unreliable
+    /// to invert. See [`Lu::cond`] for the `a` parameter and error contract.
+    pub fn rcond(&self, a: &Matrix) -> SolverResult<f64> {
+        let c = self.cond(a)?;
+        Ok(if c.is_infinite() { 0.0 } else { 1.0 / c })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn solve_2x2() -> SolverResult<()> {
+        let a = Matrix::from_row_major(2, 2, vec![2.0, 1.0, 1.0, 3.0]);
+        let b = vec![4.0, 5.0];
+        let x = solve(a, &b)?;
+        assert_relative_eq!(x[0], 1.4, epsilon = 1e-12);
+        assert_relative_eq!(x[1], 1.2, epsilon = 1e-12);
+        Ok(())
+    }
+
+    #[test]
+    fn solve_2x2_at_a_tiny_physical_scale() -> SolverResult<()> {
+        // Regression test for a P1 audit finding: PIVOT_EPS was a fixed
+        // absolute 1e-14 compared directly against the pivot magnitude — the
+        // same regular 2x2 system as `solve_2x2` above, scaled down to a tiny
+        // physical magnitude, was declared singular even though it is
+        // perfectly well-conditioned (scaling doesn't change the condition
+        // number).
+        let scale = 1e-16;
+        let a = Matrix::from_row_major(
+            2,
+            2,
+            vec![2.0 * scale, 1.0 * scale, 1.0 * scale, 3.0 * scale],
+        );
+        let b = vec![4.0 * scale, 5.0 * scale];
+        let x = solve(a, &b)?;
+        assert_relative_eq!(x[0], 1.4, epsilon = 1e-9);
+        assert_relative_eq!(x[1], 1.2, epsilon = 1e-9);
+        Ok(())
+    }
+
+    #[test]
+    fn solve_4x4_with_pivot() -> SolverResult<()> {
+        let a = Matrix::from_row_major(
+            4,
+            4,
+            vec![
+                0.0, 2.0, 0.0, 1.0, 2.0, 2.0, 3.0, 2.0, 4.0, -3.0, 0.0, 1.0, 6.0, 1.0, -6.0, -5.0,
+            ],
+        );
+        let b = vec![0.0, -2.0, -7.0, 6.0];
+        let x = solve(a.clone(), &b)?;
+        let ax = a.matvec(&x)?;
+        for (axi, bi) in ax.iter().zip(&b) {
+            assert_relative_eq!(*axi, *bi, epsilon = 1e-10);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn determinant_3x3() -> SolverResult<()> {
+        let a = Matrix::from_row_major(3, 3, vec![1.0, 2.0, 3.0, 0.0, 4.0, 5.0, 1.0, 0.0, 6.0]);
+        assert_relative_eq!(a.determinant()?, 22.0, epsilon = 1e-12);
+        Ok(())
+    }
+
+    #[test]
+    fn inverse_3x3() -> SolverResult<()> {
+        let a = Matrix::from_row_major(3, 3, vec![1.0, 2.0, 3.0, 0.0, 4.0, 5.0, 1.0, 0.0, 6.0]);
+        let inv = a.inverse()?;
+        let prod = a.matmul(&inv)?;
+        let id = Matrix::identity(3);
+        for i in 0..3 {
+            for j in 0..3 {
+                assert_relative_eq!(prod[(i, j)], id[(i, j)], epsilon = 1e-10);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn cond_of_identity_is_one() -> SolverResult<()> {
+        let a = Matrix::identity(4);
+        let lu = lu_decompose(a.clone())?;
+        assert_relative_eq!(lu.cond(&a)?, 1.0, epsilon = 1e-10);
+        assert_relative_eq!(lu.rcond(&a)?, 1.0, epsilon = 1e-10);
+        Ok(())
+    }
+
+    #[test]
+    fn cond_of_diagonal_matrix_matches_ratio_of_extremes() -> SolverResult<()> {
+        // diag(100, 10, 1): ||A||_inf = 100, ||A^-1||_inf = 1 (row 1/1=1) ->
+        // cond_inf = 100 * 1 = 100. (For a diagonal matrix cond_inf equals
+        // the ratio of extreme |entries|, same as cond_2 here.)
+        let a = Matrix::from_row_major(3, 3, vec![100.0, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 1.0]);
+        let lu = lu_decompose(a.clone())?;
+        assert_relative_eq!(lu.cond(&a)?, 100.0, epsilon = 1e-8);
+        assert_relative_eq!(lu.rcond(&a)?, 0.01, epsilon = 1e-8);
+        Ok(())
+    }
+
+    #[test]
+    fn cond_rejects_shape_mismatch() -> SolverResult<()> {
+        let a = Matrix::identity(3);
+        let lu = lu_decompose(a)?;
+        let wrong_shape = Matrix::identity(2);
+        assert!(matches!(
+            lu.cond(&wrong_shape),
+            Err(SolverError::DimensionMismatch { .. })
+        ));
+        Ok(())
+    }
+}
+
+/// LAPACK-style property tests: instead of point values, check the residual
+/// and structural invariants that must hold for *any* well-conditioned
+/// input, across many randomly generated matrices.
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use crate::linalg::{norm2, Matrix};
+    use proptest::prelude::*;
+
+    /// Force strict row diagonal dominance (Gershgorin ⇒ nonsingular) so
+    /// every sampled matrix is guaranteed well-conditioned — otherwise a
+    /// generic random 4×4 matrix is singular or near-singular often enough
+    /// that a residual property would be flaky rather than informative.
+    fn diagonally_dominant(n: usize, raw: &[f64]) -> Matrix {
+        let mut m = Matrix::from_row_major(n, n, raw.to_vec());
+        for i in 0..n {
+            let off_sum: f64 = (0..n).filter(|&j| j != i).map(|j| m[(i, j)].abs()).sum();
+            let sign = if m[(i, i)] < 0.0 { -1.0 } else { 1.0 };
+            m[(i, i)] = sign * (m[(i, i)].abs() + off_sum) + sign;
+        }
+        m
+    }
+
+    proptest! {
+        /// Residual check: for any diagonally dominant A and any b, the
+        /// computed x must satisfy ‖A·x − b‖ ≈ 0 relative to ‖b‖ — across
+        /// magnitudes spanning micro- to mega-scale, exercising the
+        /// relative (not absolute) pivot threshold fixed in an earlier
+        /// audit chantier.
+        #[test]
+        fn solve_residual_is_small_on_diagonally_dominant_systems(
+            raw in prop::collection::vec(-10.0f64..10.0, 16),
+            b in prop::collection::vec(-10.0f64..10.0, 4),
+            scale in prop::sample::select(vec![1e-6, 1.0, 1e6]),
+        ) {
+            let n = 4;
+            let a = diagonally_dominant(n, &raw);
+            let a_scaled = Matrix::from_fn(n, n, |i, j| a[(i, j)] * scale);
+            let b_scaled: Vec<f64> = b.iter().map(|v| v * scale).collect();
+            let lu = lu_decompose(a_scaled.clone())
+                .expect("a diagonally dominant matrix must not be reported singular");
+            let x = solve_lu(&lu, &b_scaled).expect("solve must succeed on a well-conditioned system");
+            let ax = a_scaled.matvec(&x).unwrap();
+            let b_norm = norm2(&b_scaled).max(1e-300);
+            let res = ax.iter().zip(&b_scaled).map(|(axi, bi)| (axi - bi).powi(2)).sum::<f64>().sqrt();
+            prop_assert!(res / b_norm < 1e-8, "relative residual {} too large (b_norm={b_norm})", res / b_norm);
+        }
+
+        /// Structural check: the factorization itself satisfies P·A = L·U —
+        /// independent of any solve, so it catches an indexing/permutation
+        /// bug even in a case where a solve's residual would happen to look
+        /// fine for one particular b.
+        #[test]
+        fn factorization_satisfies_p_a_equals_l_u(raw in prop::collection::vec(-10.0f64..10.0, 16)) {
+            let n = 4;
+            let a = diagonally_dominant(n, &raw);
+            let lu = lu_decompose(a.clone())
+                .expect("a diagonally dominant matrix must not be reported singular");
+            let mut l = Matrix::identity(n);
+            let mut u = Matrix::zeros(n, n);
+            for i in 0..n
+            {
+                for j in 0..n
+                {
+                    if j < i { l[(i, j)] = lu.lu[(i, j)]; } else { u[(i, j)] = lu.lu[(i, j)]; }
+                }
+            }
+            let l_u = l.matmul(&u).unwrap();
+            let pa = Matrix::from_fn(n, n, |i, j| a[(lu.piv[i], j)]);
+            for i in 0..n
+            {
+                for j in 0..n
+                {
+                    let tol = 1e-9 * (1.0 + pa[(i, j)].abs());
+                    prop_assert!(
+                        (l_u[(i, j)] - pa[(i, j)]).abs() < tol,
+                        "P·A != L·U at ({i},{j}): {} vs {}", l_u[(i, j)], pa[(i, j)]
+                    );
+                }
+            }
+        }
+    }
+}

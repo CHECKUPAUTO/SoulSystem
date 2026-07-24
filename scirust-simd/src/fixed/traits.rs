@@ -1,0 +1,365 @@
+// scirust-simd/src/fixed/traits.rs
+//
+// # `NumericScalar` — abstraction de scalaire algébrique
+//
+// Trait fournissant le minimum arithmétique (anneau commutatif + `abs` +
+// ordre) permettant d'écrire des algorithmes génériques une seule fois et de
+// les instancier indifféremment sur `f32`, `f64` **ou** sur les types virgule
+// fixe. C'est la brique prévue pour que de futures structures écrivent
+// naturellement :
+//
+// ```ignore
+// struct Quaternion<T: NumericScalar> { w: T, x: T, y: T, z: T }
+// // fonctionne pour Quaternion<f32> ET Quaternion<FixedI32<16>>
+// ```
+//
+// Le trait ne présuppose **aucune** propriété que la virgule fixe ne possède
+// pas (pas d'infini, pas de NaN) : il reste dans l'anneau ordonné.
+
+use core::ops::{Add, Mul, Neg, Sub};
+
+use super::repr::FixedStorage;
+use super::types::Fixed;
+
+/// Scalaire algébrique ordonné : `+ − ×`, négation, `zero`/`one`, `abs`.
+///
+/// Implémenté pour `f32`, `f64` et tout [`Fixed<I, FRAC>`]. Les opérateurs
+/// utilisent la politique par défaut du type (enveloppe pour la virgule fixe).
+pub trait NumericScalar:
+    Copy
+    + PartialEq
+    + PartialOrd
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<Output = Self>
+    + Neg<Output = Self>
+{
+    /// Élément neutre additif.
+    fn zero() -> Self;
+    /// Élément neutre multiplicatif.
+    fn one() -> Self;
+    /// Valeur absolue.
+    fn abs(self) -> Self;
+    /// Petit entier littéral → scalaire (pour les coefficients de formules).
+    fn from_i32(value: i32) -> Self;
+}
+
+impl<I: FixedStorage, const FRAC: u32> NumericScalar for Fixed<I, FRAC> {
+    #[inline(always)]
+    fn zero() -> Self {
+        Fixed::zero()
+    }
+    #[inline(always)]
+    fn one() -> Self {
+        Fixed::one()
+    }
+    #[inline(always)]
+    fn abs(self) -> Self {
+        Fixed::abs(self)
+    }
+    #[inline(always)]
+    fn from_i32(value: i32) -> Self {
+        // Passe par f64 puis saturation : couvre i32 et i64 sans surcharge
+        // spécifique au stockage, et reste exact pour les petits entiers.
+        Self::from_int_saturating(I::from_f64_saturating(value as f64))
+    }
+}
+
+macro_rules! impl_numeric_scalar_float {
+    ($ty:ty) => {
+        impl NumericScalar for $ty {
+            #[inline(always)]
+            fn zero() -> Self {
+                0.0
+            }
+            #[inline(always)]
+            fn one() -> Self {
+                1.0
+            }
+            #[inline(always)]
+            fn abs(self) -> Self {
+                <$ty>::abs(self)
+            }
+            #[inline(always)]
+            fn from_i32(value: i32) -> Self {
+                value as $ty
+            }
+        }
+    };
+}
+
+impl_numeric_scalar_float!(f32);
+impl_numeric_scalar_float!(f64);
+
+// ------------------------------------------------------------------ //
+//  RealScalar — extension « corps réel » (racine + transcendantes)    //
+// ------------------------------------------------------------------ //
+
+/// Scalaire réel : [`NumericScalar`] + racine, inverse et transcendantes.
+///
+/// Séparé de [`NumericScalar`] parce que ces opérations ne sont **pas exactes**
+/// (arrondi borné) — un algorithme purement algébrique (produit hypercomplexe,
+/// GEMM entier) reste sur `NumericScalar` ; seuls ceux qui ont besoin de
+/// `sin`/`sqrt`/… (slerp, normalisation, activations) demandent `RealScalar`.
+///
+/// Implémenté pour `f32`, `f64` (délégation à `std`) et `FixedI32<FRAC>`
+/// (virgule fixe déterministe, cf. [`super::transcendental`] et [`super::math`]).
+/// Les versions virgule fixe ont des bornes d'erreur ULP prouvées par test
+/// exhaustif.
+pub trait RealScalar: NumericScalar {
+    /// Racine carrée (`≤ 0` ↦ `0` en virgule fixe).
+    fn sqrt(self) -> Self;
+    /// Inverse `1/x` (`x = 0` ↦ saturation en virgule fixe).
+    fn recip(self) -> Self;
+    /// Exponentielle `eˣ`.
+    fn exp(self) -> Self;
+    /// `2ˣ`.
+    fn exp2(self) -> Self;
+    /// Logarithme naturel (`≤ 0` ↦ `min` en virgule fixe).
+    fn ln(self) -> Self;
+    /// Logarithme base 2.
+    fn log2(self) -> Self;
+    /// Sinus.
+    fn sin(self) -> Self;
+    /// Cosinus.
+    fn cos(self) -> Self;
+    /// Tangente hyperbolique.
+    fn tanh(self) -> Self;
+    /// Sigmoïde logistique `1/(1+e^{-x})`.
+    fn sigmoid(self) -> Self;
+    /// Arctangente `atan(x)` ∈ `(-π/2, π/2)`.
+    fn atan(self) -> Self;
+    /// `atan2(self, x)` : angle de `(x, self)` ∈ `(-π, π]`.
+    fn atan2(self, x: Self) -> Self;
+    /// Arcsinus `asin(x)` (hors `[-1, 1]` : saturé à `±π/2` en virgule fixe).
+    fn asin(self) -> Self;
+    /// Arccosinus `acos(x)` (hors `[-1, 1]` : saturé à `0`/`π` en virgule fixe).
+    fn acos(self) -> Self;
+    /// Fonction de Bessel modifiée de première espèce, ordre 0 (`I₀`), paire,
+    /// `I₀(0) = 1`, croissance ≈ `e^{|x|}/√(2π|x|)`. Cœur de la fenêtre de
+    /// Kaiser ([`crate::dsp::window::kaiser`]). En virgule fixe, domaine
+    /// garanti `[0, 12]` (au-delà : saturation, `I₀` croît trop vite pour
+    /// rester représentable).
+    fn bessel_i0(self) -> Self;
+    /// Fonction d'erreur `erf(x) = (2/√π)·∫₀ˣ e^{-t²} dt`. Impaire, `erf(0) =
+    /// 0`, `erf(x) → ±1` pour `x → ±∞` (saturé au-delà de `|x| ≈ 4` en
+    /// virgule fixe). Cœur de [`crate::fixed::activation::gelu`].
+    fn erf(self) -> Self;
+    /// Fonction d'erreur complémentaire `erfc(x) = 1 − erf(x)`.
+    fn erfc(self) -> Self;
+    /// Constante `π` (saturée en virgule fixe si `FRAC` la rend inreprésentable).
+    fn pi() -> Self;
+}
+
+macro_rules! impl_real_scalar_float {
+    ($ty:ty, $pi:expr) => {
+        impl RealScalar for $ty {
+            #[inline(always)]
+            fn pi() -> Self {
+                $pi
+            }
+            #[inline(always)]
+            fn sqrt(self) -> Self {
+                <$ty>::sqrt(self)
+            }
+            #[inline(always)]
+            fn recip(self) -> Self {
+                <$ty>::recip(self)
+            }
+            #[inline(always)]
+            fn exp(self) -> Self {
+                <$ty>::exp(self)
+            }
+            #[inline(always)]
+            fn exp2(self) -> Self {
+                <$ty>::exp2(self)
+            }
+            #[inline(always)]
+            fn ln(self) -> Self {
+                <$ty>::ln(self)
+            }
+            #[inline(always)]
+            fn log2(self) -> Self {
+                <$ty>::log2(self)
+            }
+            #[inline(always)]
+            fn sin(self) -> Self {
+                <$ty>::sin(self)
+            }
+            #[inline(always)]
+            fn cos(self) -> Self {
+                <$ty>::cos(self)
+            }
+            #[inline(always)]
+            fn tanh(self) -> Self {
+                <$ty>::tanh(self)
+            }
+            #[inline(always)]
+            fn sigmoid(self) -> Self {
+                1.0 / (1.0 + (-self).exp())
+            }
+            #[inline(always)]
+            fn atan(self) -> Self {
+                <$ty>::atan(self)
+            }
+            #[inline(always)]
+            fn atan2(self, x: Self) -> Self {
+                <$ty>::atan2(self, x)
+            }
+            #[inline(always)]
+            fn asin(self) -> Self {
+                <$ty>::asin(self)
+            }
+            #[inline(always)]
+            fn acos(self) -> Self {
+                <$ty>::acos(self)
+            }
+            #[inline]
+            #[allow(clippy::excessive_precision)] // constantes f64 partagées avec l'instanciation f32
+            fn bessel_i0(self) -> Self {
+                // Abramowitz & Stegun 9.8.1/9.8.2 (erreur relative ≤ ~1.6e-7),
+                // valable sur tout le domaine (pas de restriction `[0, 12]` :
+                // f32/f64 ont largement la plage dynamique pour `eˣ`).
+                let ax = <$ty>::abs(self);
+                if ax < 3.75 {
+                    let t = (ax / 3.75) * (ax / 3.75);
+                    1.0 + t
+                        * (3.5156229
+                            + t * (3.0899424
+                                + t * (1.2067492
+                                    + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))))
+                } else {
+                    let t = 3.75 / ax;
+                    (<$ty>::exp(ax) / <$ty>::sqrt(ax))
+                        * (0.39894228
+                            + t * (0.01328592
+                                + t * (0.00225319
+                                    + t * (-0.00157565
+                                        + t * (0.00916281
+                                            + t * (-0.02057706
+                                                + t * (0.02635537
+                                                    + t * (-0.01647633 + t * 0.00392377))))))))
+                }
+            }
+            #[inline]
+            #[allow(clippy::excessive_precision)] // constantes f64 partagées avec l'instanciation f32
+            fn erf(self) -> Self {
+                // Abramowitz & Stegun 7.1.26 (erreur ≤ ~1.5e-7), forme directe
+                // (pas `1 - erfc`) : bien conditionnée, aucune annulation.
+                let sign = if self < 0.0 { -1.0 } else { 1.0 };
+                let ax = <$ty>::abs(self);
+                let t = 1.0 / (1.0 + 0.3275911 * ax);
+                let poly = t
+                    * (0.254829592
+                        + t * (-0.284496736
+                            + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+                sign * (1.0 - poly * <$ty>::exp(-ax * ax))
+            }
+            #[inline]
+            #[allow(clippy::excessive_precision)]
+            fn erfc(self) -> Self {
+                // `erfc(|x|) = poly·e^{-x²}` directement (même conditionnement
+                // que `erf`, pas de soustraction) ; `erfc(-x) = 2 − erfc(x)`.
+                let ax = <$ty>::abs(self);
+                let t = 1.0 / (1.0 + 0.3275911 * ax);
+                let poly = t
+                    * (0.254829592
+                        + t * (-0.284496736
+                            + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+                let erfc_ax = poly * <$ty>::exp(-ax * ax);
+                if self >= 0.0 {
+                    erfc_ax
+                } else {
+                    2.0 - erfc_ax
+                }
+            }
+        }
+    };
+}
+
+impl_real_scalar_float!(f32, core::f32::consts::PI);
+impl_real_scalar_float!(f64, core::f64::consts::PI);
+
+impl<const FRAC: u32> RealScalar for Fixed<i32, FRAC> {
+    #[inline(always)]
+    fn sqrt(self) -> Self {
+        super::math::sqrt(self)
+    }
+    #[inline(always)]
+    fn recip(self) -> Self {
+        // Saturation sur x=0 / débordement (pas d'infini en virgule fixe).
+        super::math::reciprocal(self).unwrap_or_else(|| {
+            if self.is_negative() {
+                Fixed::min_value()
+            } else {
+                Fixed::max_value()
+            }
+        })
+    }
+    #[inline(always)]
+    fn exp(self) -> Self {
+        super::transcendental::exp(self)
+    }
+    #[inline(always)]
+    fn exp2(self) -> Self {
+        super::transcendental::exp2(self)
+    }
+    #[inline(always)]
+    fn ln(self) -> Self {
+        super::transcendental::ln(self)
+    }
+    #[inline(always)]
+    fn log2(self) -> Self {
+        super::transcendental::log2(self)
+    }
+    #[inline(always)]
+    fn sin(self) -> Self {
+        super::transcendental::sin(self)
+    }
+    #[inline(always)]
+    fn cos(self) -> Self {
+        super::transcendental::cos(self)
+    }
+    #[inline(always)]
+    fn tanh(self) -> Self {
+        super::transcendental::tanh(self)
+    }
+    #[inline(always)]
+    fn sigmoid(self) -> Self {
+        super::transcendental::sigmoid(self)
+    }
+    #[inline(always)]
+    fn atan(self) -> Self {
+        super::transcendental::atan(self)
+    }
+    #[inline(always)]
+    fn atan2(self, x: Self) -> Self {
+        super::transcendental::atan2(self, x)
+    }
+    #[inline(always)]
+    fn asin(self) -> Self {
+        super::transcendental::asin(self)
+    }
+    #[inline(always)]
+    fn acos(self) -> Self {
+        super::transcendental::acos(self)
+    }
+    #[inline(always)]
+    fn bessel_i0(self) -> Self {
+        super::transcendental::bessel_i0(self)
+    }
+    #[inline(always)]
+    fn erf(self) -> Self {
+        super::transcendental::erf(self)
+    }
+    #[inline(always)]
+    fn erfc(self) -> Self {
+        super::transcendental::erfc(self)
+    }
+    #[inline(always)]
+    fn pi() -> Self {
+        // π ≈ 3.14159 : représentable pour FRAC ≤ 29 ; sinon saturé.
+        Self::from_f64(core::f64::consts::PI, super::RoundingMode::NearestEven)
+            .unwrap_or_else(Self::max_value)
+    }
+}

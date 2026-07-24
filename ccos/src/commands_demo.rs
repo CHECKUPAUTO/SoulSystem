@@ -28,9 +28,9 @@ pub(crate) async fn run_demo() {
     println!("[INIT] Session ID: {}", session_id);
 
     let mut event_log = EventLog::new(session_id.clone());
-    let mut memory_graph = MemoryGraph::new(0.2, 80);
+    let mut memory_graph = MemoryGraph::new(MemoryGraph::paging_threshold_from_env(0.2), 80);
     let mut incremental_engine = IncrementalGraphEngine::new();
-    let _guard = GuardLayer::new(GuardConfig::default());
+    let _guard = GuardLayer::new(GuardConfig::from_env());
 
     let llm_config = LlmConfig {
         endpoint: std::env::var("OLLAMA_ENDPOINT")
@@ -392,7 +392,7 @@ pub async fn handle_request(state: &AppState, path: &str, body: &str) -> Result<
     );
 
     let affected: Vec<String> = memory_graph
-        .edges
+        .edges()
         .iter()
         .filter(|e| e.source == failure_node)
         .map(|e| e.target.to_string())
@@ -418,7 +418,7 @@ pub async fn handle_request(state: &AppState, path: &str, body: &str) -> Result<
     let scores = memory_graph.get_node_scores();
     println!("\n  Memory Graph Scores (top 8):");
     for (id, score) in scores.iter().take(8) {
-        let node = memory_graph.nodes.get(id);
+        let node = memory_graph.node(id);
         let fr = node.map(|n| n.failure_relevance).unwrap_or(0.0);
         let rec = node.map(|n| n.recency).unwrap_or(0.0);
         println!(

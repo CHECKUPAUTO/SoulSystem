@@ -1,4 +1,4 @@
-//! Unified compute-backend abstraction targeted by the `#[gpu]` macro.
+//! Unified compute-backend abstraction for explicit CPU/GPU dispatch.
 //!
 //! ## Honesty policy (repo-wide)
 //! Code under `*/src/` is wired and tested and never claims a capability it
@@ -9,7 +9,9 @@
 //!   validated against.
 //! - **Portable GPU** ([`WgpuBackend`]) — real WGSL compute path behind the
 //!   `wgpu` feature (Vulkan/Metal/DX12/GL).
-//! - **CUDA** ([`CudaBackend`]) — placeholder until a GPU CI runner exists.
+//! - **CUDA** ([`CudaBackend`]) — real bf16 Tensor-core path behind the
+//!   `cuda` feature; it reports [`BackendError::Unavailable`] when CUDA support
+//!   is disabled or no CUDA device can be opened.
 //! - **Deterministic compute** — Kahan summation, INT8 quantized GEMM (bit-exact
 //!   via integer arithmetic), and fixed-order accumulation.
 //! - **Kernel library** — tiled 16×16 SGEMM, fused GEMM+bias+activation,
@@ -36,6 +38,10 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec, vec::Vec};
 
+/// Optional product-licensing gate for the GPU module (feature `license-gate`).
+#[cfg(feature = "license-gate")]
+pub mod license;
+
 #[cfg(feature = "wgpu")]
 mod chain;
 #[cfg(feature = "wgpu")]
@@ -58,37 +64,49 @@ mod tensor;
 mod wgpu_backend;
 
 #[cfg(feature = "wgpu")]
-pub use chain::GpuChain;
+pub use chain::{
+    BlockCache, BlockGrads, BlockWeights, DoraGrads, GpuChain, GqaBlockGrads, GqaBlockWeights,
+    GqaModelGrads, GqaModelWeights, LoraGrads, ModelWeights,
+};
 #[cfg(feature = "wgpu")]
-pub use conv_gpu::{cpu_col2im, cpu_im2col, COL2IM_WGSL, IM2COL_WGSL};
+pub use conv_gpu::{COL2IM_WGSL, IM2COL_WGSL, cpu_col2im, cpu_im2col};
 #[cfg(feature = "wgpu")]
 pub use deterministic_gpu::{DeterministicGpu, DeterministicValidator};
 #[cfg(feature = "wgpu")]
 pub use engine::WgpuEngine;
 #[cfg(feature = "wgpu")]
-pub use fusion::{plan_fusion, FusedLayer, FusionNode};
+pub use fusion::{FusedLayer, FusionNode, plan_fusion};
 #[cfg(feature = "wgpu")]
 pub use tensor::GpuTensor;
 #[cfg(feature = "wgpu")]
-pub use wgpu_backend::{GpuMatrix, WgpuContext};
+pub use wgpu_backend::{GpuMatrix, WgpuContext, wgpu_scale_causal_mask, wgpu_softmax};
 
 /// Error returned when a compute backend cannot service a request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackendError {
-    /// The requested hardware backend is not wired in this build (see P2.2).
+    /// The requested hardware backend is disabled or unavailable at runtime.
     Unavailable(&'static str),
     /// Operand dimensions are inconsistent for the requested operation.
     ShapeMismatch(String),
+    /// The selected backend failed while allocating, transferring, or running.
+    Execution(String),
+    /// The GPU module is licensed (feature `license-gate`) and no valid
+    /// entitlement was presented. A graceful refusal — the dispatch is simply
+    /// never armed; no computation runs and nothing is corrupted.
+    Unlicensed(String),
 }
 
 impl core::fmt::Display for BackendError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            BackendError::Unavailable(name) => write!(
-                f,
-                "compute backend `{name}` is not wired in this build (roadmap P2.2)"
-            ),
+        match self
+        {
+            BackendError::Unavailable(name) =>
+            {
+                write!(f, "compute backend `{name}` is disabled or unavailable")
+            },
             BackendError::ShapeMismatch(msg) => write!(f, "shape mismatch: {msg}"),
+            BackendError::Execution(msg) => write!(f, "backend execution failed: {msg}"),
+            BackendError::Unlicensed(msg) => write!(f, "GPU module not licensed: {msg}"),
         }
     }
 }
@@ -99,7 +117,7 @@ impl std::error::Error for BackendError {}
 /// Result specialised for backend operations.
 pub type BackendResult<T> = Result<T, BackendError>;
 
-/// Hardware abstraction targeted by the `#[gpu]` macro.
+/// Hardware abstraction shared by the explicit compute backends.
 ///
 /// `gemm_f32` computes the row-major product `C(m×n) = A(m×k) · B(k×n)`.
 /// Implementations must return an honest [`BackendError`] rather than
@@ -119,26 +137,39 @@ pub trait RawComputeBackend {
 }
 
 /// Validate that `a` and `b` hold exactly the elements an `m×k · k×n` GEMM needs.
-fn check_gemm_dims(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> BackendResult<()> {
-    if a.len() != m * k {
+fn checked_matrix_len(rows: usize, cols: usize, name: &str) -> BackendResult<usize> {
+    rows.checked_mul(cols).ok_or_else(|| {
+        BackendError::ShapeMismatch(format!(
+            "{name} shape {rows}x{cols} overflows the address space"
+        ))
+    })
+}
+
+fn check_gemm_dims(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> BackendResult<usize> {
+    let a_expected = checked_matrix_len(m, k, "A")?;
+    let b_expected = checked_matrix_len(k, n, "B")?;
+    let output_len = checked_matrix_len(m, n, "C")?;
+    if a.len() != a_expected
+    {
         return Err(BackendError::ShapeMismatch(format!(
             "A has {} elements, expected m*k = {}*{} = {}",
             a.len(),
             m,
             k,
-            m * k
+            a_expected
         )));
     }
-    if b.len() != k * n {
+    if b.len() != b_expected
+    {
         return Err(BackendError::ShapeMismatch(format!(
             "B has {} elements, expected k*n = {}*{} = {}",
             b.len(),
             k,
             n,
-            k * n
+            b_expected
         )));
     }
-    Ok(())
+    Ok(output_len)
 }
 
 /// CPU reference backend — always available, deterministic, oracle-grade.
@@ -157,12 +188,15 @@ impl RawComputeBackend for CpuBackend {
         k: usize,
         n: usize,
     ) -> BackendResult<Vec<f32>> {
-        check_gemm_dims(a, b, m, k, n)?;
-        let mut out = vec![0.0f32; m * n];
-        for i in 0..m {
-            for j in 0..n {
+        let output_len = check_gemm_dims(a, b, m, k, n)?;
+        let mut out = vec![0.0f32; output_len];
+        for i in 0..m
+        {
+            for j in 0..n
+            {
                 let mut acc = 0.0f32;
-                for p in 0..k {
+                for p in 0..k
+                {
                     acc += a[i * k + p] * b[p * n + j];
                 }
                 out[i * n + j] = acc;
@@ -190,7 +224,7 @@ impl RawComputeBackend for WgpuBackend {
     ) -> BackendResult<Vec<f32>> {
         #[cfg(feature = "wgpu")]
         {
-            check_gemm_dims(a, b, m, k, n)?;
+            let _ = check_gemm_dims(a, b, m, k, n)?;
             wgpu_backend::wgpu_gemm(a, b, m, k, n)
         }
         #[cfg(not(feature = "wgpu"))]
@@ -201,7 +235,11 @@ impl RawComputeBackend for WgpuBackend {
     }
 }
 
-/// CUDA/cuBLAS backend placeholder.
+/// CUDA Tensor-core backend.
+///
+/// Inputs are accepted as fp32, rounded to bf16 on upload, multiplied with
+/// fp32 accumulation by `scirust-cuda`, and downloaded as fp32. Results are
+/// therefore numerically close to, but not bit-identical with, [`CpuBackend`].
 pub struct CudaBackend;
 
 impl RawComputeBackend for CudaBackend {
@@ -211,14 +249,86 @@ impl RawComputeBackend for CudaBackend {
 
     fn gemm_f32(
         &self,
-        _a: &[f32],
-        _b: &[f32],
-        _m: usize,
-        _k: usize,
-        _n: usize,
+        a: &[f32],
+        b: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
     ) -> BackendResult<Vec<f32>> {
-        Err(BackendError::Unavailable("cuda"))
+        #[cfg(feature = "cuda")]
+        {
+            let output_len = check_gemm_dims(a, b, m, k, n)?;
+            if output_len == 0
+            {
+                return Ok(Vec::new());
+            }
+            let chain = scirust_cuda::CudaChain::new().ok_or(BackendError::Unavailable("cuda"))?;
+            let a = chain.try_upload(a, m, k).map_err(BackendError::Execution)?;
+            let b = chain.try_upload(b, k, n).map_err(BackendError::Execution)?;
+            let output = chain.try_matmul(&a, &b).map_err(BackendError::Execution)?;
+            chain.try_download(&output).map_err(BackendError::Execution)
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            let _ = (a, b, m, k, n);
+            Err(BackendError::Unavailable("cuda"))
+        }
     }
+}
+
+/// Announce this crate's compute paths to `scirust-core`'s unified
+/// capability registry (`scirust_core::compute_capability`) — the read-side
+/// view unifying the workspace's three dispatch abstractions (CPU SIMD /
+/// portable GPU / CUDA; see that module's docs for the map).
+///
+/// Only available under the `wgpu` feature, because that is the feature under
+/// which this crate depends on `scirust-core` at all (the dependency
+/// direction is `scirust-gpu → scirust-core`, never the reverse). What it
+/// registers, honestly:
+///
+/// * `gpu-portable/wgpu` — compiled in; `available` stays unprobed (`None`)
+///   unless something already probed it (an earlier [`WgpuEngine::new`] call
+///   records its real adapter outcome, and this function never overwrites a
+///   probe with an unprobed announcement);
+/// * `cuda/cuda-bf16` — with the `cuda` feature, **probed here** by
+///   attempting `scirust_cuda::CudaChain::new()` (a dynamic-load + device
+///   open attempt — the honest test); without the feature, registered as not
+///   compiled in.
+#[cfg(feature = "wgpu")]
+pub fn register_compute_capabilities() {
+    use scirust_core::compute_capability::{Capability, ComputeDomain, register_capability};
+
+    let already_probed = scirust_core::compute_capability::compute_capabilities()
+        .iter()
+        .any(|c| c.domain == ComputeDomain::GpuPortable && c.label == "wgpu");
+    if !already_probed
+    {
+        register_capability(Capability {
+            domain: ComputeDomain::GpuPortable,
+            label: "wgpu".to_string(),
+            compiled: true,
+            available: None,
+            detail: "compiled in; not yet probed (WgpuEngine::new records the real outcome)"
+                .to_string(),
+        });
+    }
+
+    #[cfg(feature = "cuda")]
+    register_capability(Capability {
+        domain: ComputeDomain::Cuda,
+        label: "cuda-bf16".to_string(),
+        compiled: true,
+        available: Some(scirust_cuda::CudaChain::new().is_some()),
+        detail: "probe = CudaChain::new() (dynamic CUDA load + device open)".to_string(),
+    });
+    #[cfg(not(feature = "cuda"))]
+    register_capability(Capability {
+        domain: ComputeDomain::Cuda,
+        label: "cuda-bf16".to_string(),
+        compiled: false,
+        available: Some(false),
+        detail: "feature `cuda` not enabled in this build".to_string(),
+    });
 }
 
 /// Transparent hardware dispatcher.
@@ -234,7 +344,8 @@ impl GpuAccelerator {
     }
 
     pub fn device_name(&self) -> &'static str {
-        match self {
+        match self
+        {
             GpuAccelerator::Cpu(b) => b.device_name(),
             GpuAccelerator::Wgpu(b) => b.device_name(),
             GpuAccelerator::Cuda(b) => b.device_name(),
@@ -249,7 +360,8 @@ impl GpuAccelerator {
         k: usize,
         n: usize,
     ) -> BackendResult<Vec<f32>> {
-        match self {
+        match self
+        {
             GpuAccelerator::Cpu(backend) => backend.gemm_f32(a, b, m, k, n),
             GpuAccelerator::Wgpu(backend) => backend.gemm_f32(a, b, m, k, n),
             GpuAccelerator::Cuda(backend) => backend.gemm_f32(a, b, m, k, n),
@@ -291,12 +403,16 @@ mod tests {
             .gemm_f32(&[1.0, 2.0], &[1.0], 2, 2, 1)
             .unwrap_err();
         assert!(matches!(err, BackendError::ShapeMismatch(_)));
+
+        let err = CpuBackend.gemm_f32(&[], &[], usize::MAX, 2, 0).unwrap_err();
+        assert!(matches!(err, BackendError::ShapeMismatch(_)));
     }
 
     #[test]
     fn device_backends_are_honest_not_fake() {
         let a = [1.0, 2.0, 3.0, 4.0];
         let b = [1.0, 0.0, 0.0, 1.0];
+        #[cfg(not(feature = "cuda"))]
         assert_eq!(
             CudaBackend.gemm_f32(&a, &b, 2, 2, 2),
             Err(BackendError::Unavailable("cuda"))
@@ -308,6 +424,26 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn cuda_backend_returns_result_or_unavailable_without_panicking() {
+        let a = [1.0, 2.0, 3.0, 4.0];
+        let identity = [1.0, 0.0, 0.0, 1.0];
+        match CudaBackend.gemm_f32(&a, &identity, 2, 2, 2)
+        {
+            Ok(output) =>
+            {
+                for (actual, expected) in output.iter().zip(a)
+                {
+                    assert!((actual - expected).abs() < 5e-2);
+                }
+            },
+            Err(BackendError::Unavailable("cuda")) =>
+            {},
+            Err(error) => panic!("unexpected CUDA backend error: {error:?}"),
+        }
+    }
+
     #[test]
     fn accelerator_dispatches_and_reports_device() {
         let cpu = GpuAccelerator::cpu();
@@ -315,5 +451,33 @@ mod tests {
         let a = [1.0, 2.0, 3.0, 4.0];
         let id = [1.0, 0.0, 0.0, 1.0];
         assert_eq!(cpu.matmul(&a, &id, 2, 2, 2).unwrap(), a.to_vec());
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    fn register_compute_capabilities_announces_into_the_unified_registry() {
+        use scirust_core::compute_capability::{ComputeDomain, compute_capabilities};
+        register_compute_capabilities();
+        let caps = compute_capabilities();
+        // The CPU tier is auto-seeded by scirust-core; this crate's announce
+        // adds a gpu-portable/wgpu entry and a cuda verdict (compiled-out or
+        // probed, depending on features). Idempotent by upsert.
+        assert!(
+            caps.iter()
+                .any(|c| c.domain == ComputeDomain::GpuPortable && c.label == "wgpu"),
+            "wgpu path must be announced: {caps:?}"
+        );
+        assert!(
+            caps.iter()
+                .any(|c| c.domain == ComputeDomain::Cuda && c.label == "cuda-bf16"),
+            "cuda verdict must be announced: {caps:?}"
+        );
+        assert!(
+            caps.iter()
+                .any(|c| c.domain == ComputeDomain::CpuSimd && c.available == Some(true)),
+            "CPU tier must be present from core's seeding: {caps:?}"
+        );
+        register_compute_capabilities(); // second call must not duplicate
+        assert_eq!(compute_capabilities().len(), caps.len());
     }
 }

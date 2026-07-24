@@ -13,6 +13,9 @@ tracing = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
 chrono = { workspace = true }
+cervo = { path = "../cervo" }
+uuid = { workspace = true }
+rand = { workspace = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(soul_neural)'] }

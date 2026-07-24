@@ -30,24 +30,63 @@ use ccos::util::sha256_hex;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+/// A CLI failure: an exit `code`, plus an optional stderr `message`. `message: None` is a non-zero
+/// *status* whose report the handler already printed (not an error to announce again).
+struct CliError {
+    code: i32,
+    message: Option<String>,
+}
+impl CliError {
+    fn usage(m: impl Into<String>) -> Self {
+        Self {
+            code: 2,
+            message: Some(m.into()),
+        }
+    }
+    fn fail(m: impl Into<String>) -> Self {
+        Self {
+            code: 1,
+            message: Some(m.into()),
+        }
+    }
+    fn status(code: i32) -> Self {
+        Self {
+            code,
+            message: None,
+        }
+    }
+}
+type CliResult = Result<(), CliError>;
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let command = args.get(1).map(String::as_str).unwrap_or("demo");
     let rest = &args[args.len().min(2)..];
 
-    let code = match command {
+    // Map an `i32` exit code from a handler that has already printed its own
+    // report (the v0.3 runtime handlers in `commands_runtime`) into a CliResult,
+    // preserving the exact code without re-announcing any message.
+    let from_code = |code: i32| -> CliResult {
+        if code == 0 {
+            Ok(())
+        } else {
+            Err(CliError::status(code))
+        }
+    };
+
+    let result: CliResult = match command {
         "-h" | "--help" | "help" => {
             print_help();
-            0
+            Ok(())
         }
         "-V" | "--version" | "version" => {
             println!("ccos {}", env!("CARGO_PKG_VERSION"));
-            0
+            Ok(())
         }
         "demo" => {
             commands_demo::run_demo().await;
-            0
+            Ok(())
         }
         "analyze" => run_analyze(&AnalyzeOpts::parse(rest)),
         "verify" => run_verify(rest.first().map(String::as_str)),
@@ -66,6 +105,11 @@ async fn main() {
         "experiment" => run_experiment_cmd(rest),
         "eval" => run_eval_cmd(rest).await,
         "memory" => run_memory_cmd(rest),
+        "stdin" => run_stdin_cmd(rest),
+        "doctor" => run_doctor(&DoctorOpts::parse(rest)),
+        "license" => run_license(rest),
+        "tensions" => run_tensions(&TensionsOpts::parse(rest)),
+        "audit" => run_audit(&AuditOpts::parse(rest)),
         "trace" => run_trace_cmd(),
         "mcp" => {
             // Optional positional workspace path (else $CCOS_MCP_WORKSPACE, else
@@ -76,27 +120,496 @@ async fn main() {
                 .map(PathBuf::from)
                 .or_else(|| std::env::var("CCOS_MCP_WORKSPACE").ok().map(PathBuf::from));
             match ccos::mcp::serve_workspace(workspace) {
-                Ok(()) => 0,
-                Err(e) => {
-                    eprintln!("ccos mcp: {e}");
-                    1
-                }
+                Ok(()) => Ok(()),
+                Err(e) => Err(CliError::fail(format!("ccos mcp: {e}"))),
             }
         }
         "postmortem" => run_postmortem(rest),
-        "shield" => run_shield(rest),
-        "page-fault" => run_page_fault(rest),
-        "scan" => commands_runtime::run_scan(rest).await,
-        "agents" => commands_runtime::run_agents(rest).await,
-        "benchmark" => commands_runtime::run_benchmark(rest),
-        "runtime" => commands_runtime::run_runtime(rest).await,
+        "sanitize" => run_sanitize(rest),
+        "sync" => run_sync(rest),
+        // ── CCOS v0.3 — Autonomous Context Runtime ──────────────────
+        "scan" => from_code(commands_runtime::run_scan(rest).await),
+        "agents" => from_code(commands_runtime::run_agents(rest).await),
+        "benchmark" => from_code(commands_runtime::run_benchmark(rest)),
+        "runtime" => from_code(commands_runtime::run_runtime(rest).await),
         other => {
             eprintln!("ccos: unknown command '{other}'\n");
             print_help();
-            2
+            Err(CliError::status(2))
+        }
+    };
+    let code = match result {
+        Ok(()) => 0,
+        Err(e) => {
+            if let Some(m) = e.message {
+                eprintln!("{m}");
+            }
+            e.code
         }
     };
     std::process::exit(code);
+}
+
+/// Options for `ccos doctor`.
+struct DoctorOpts {
+    json: bool,
+}
+
+impl DoctorOpts {
+    fn parse(args: &[String]) -> Self {
+        Self {
+            json: args.iter().any(|a| a == "--json"),
+        }
+    }
+}
+
+/// `ccos doctor [--json]` — a **deployment self-check**: version, build profile, target, compiled
+/// features, active parser, license tier / vendor-key status, MCP readiness, and actionable warnings
+/// (debug build, missing feature, placeholder key, unverified token). Pure and read-only — the first
+/// thing to run after installing on a server. See `docs/DEPLOYMENT.md`.
+fn run_doctor(opts: &DoctorOpts) -> CliResult {
+    let now = ccos::license::now_unix();
+    let licensing = ccos::license::Licensing::detect(now);
+    let pro = matches!(licensing.tier(now), ccos::license::Tier::Pro);
+    let key_set = ccos::license::embedded_key_is_set();
+    let token_present = ccos::license::load_license_blob().is_some();
+
+    let release = !cfg!(debug_assertions);
+    let f_llm = cfg!(feature = "llm");
+    let f_license = cfg!(feature = "license");
+    let f_license_pq = cfg!(feature = "license-pq");
+    let f_syn = cfg!(feature = "syn-parser");
+    let f_learned = cfg!(feature = "learned-embed");
+    let f_mimalloc = cfg!(feature = "mimalloc");
+    let pq_key_set = ccos::license::embedded_slh_dsa_key_is_set();
+    let any_verifier = f_license || f_license_pq;
+    let any_key_set = key_set || pq_key_set;
+
+    // Actionable deployment warnings.
+    let mut warnings: Vec<String> = Vec::new();
+    if !release {
+        warnings.push(
+            "debug build — rebuild with --release for production (faster; debug asserts off)"
+                .into(),
+        );
+    }
+    if !f_syn {
+        warnings.push(
+            "syn AST parser not compiled — using the line heuristic (~36% less accurate); rebuild \
+             with default features"
+                .into(),
+        );
+    }
+    if !any_verifier {
+        warnings.push(
+            "no license verifier compiled — Pro features unavailable; rebuild with \
+             --features license (ed25519) and/or --features license-pq (post-quantum SLH-DSA)"
+                .into(),
+        );
+    } else if !any_key_set {
+        warnings.push(
+            "no vendor public key is set (both embedded keys are the all-zero placeholder) — Pro is \
+             fail-closed until a vendor key is set (see docs/DEPLOYMENT.md)"
+                .into(),
+        );
+    } else if f_license_pq && !pq_key_set {
+        warnings.push(
+            "the post-quantum (SLH-DSA) public key is the all-zero placeholder — slhdsa. tokens \
+             cannot unlock Pro until a vendor key is set (see docs/DEPLOYMENT.md §4b)"
+                .into(),
+        );
+    }
+    if any_verifier && any_key_set && !pro && token_present {
+        warnings.push("a license token was found but did not verify or is expired".into());
+    }
+
+    if opts.json {
+        let report = serde_json::json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "build": if release { "release" } else { "debug" },
+            "target": { "arch": std::env::consts::ARCH, "os": std::env::consts::OS },
+            "features": {
+                "llm": f_llm, "license": f_license, "license-pq": f_license_pq,
+                "syn-parser": f_syn, "learned-embed": f_learned, "mimalloc": f_mimalloc,
+            },
+            "parser": if f_syn { "syn-ast" } else { "line-heuristic" },
+            "license": {
+                "verifier": ccos::license::compiled_verifier_scheme(),
+                "ed25519_key_set": key_set,
+                "slh_dsa_key_set": pq_key_set,
+                "tier": if pro { "pro" } else { "community" },
+                "licensee": licensing.licensee(),
+                "token_present": token_present,
+            },
+            "mcp_ready": f_llm,
+            "warnings": warnings,
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        return Ok(());
+    }
+
+    let yn = |b: bool| if b { "yes" } else { "no" };
+    println!("ccos doctor — deployment self-check\n");
+    println!("  version      {}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "  build        {}",
+        if release { "release" } else { "debug  ⚠" }
+    );
+    println!(
+        "  target       {}-{}",
+        std::env::consts::ARCH,
+        std::env::consts::OS
+    );
+    println!(
+        "  parser       {}",
+        if f_syn {
+            "syn AST (accurate)"
+        } else {
+            "line heuristic"
+        }
+    );
+    println!(
+        "  features     llm={} license={} license-pq={} syn-parser={} learned-embed={} mimalloc={}",
+        yn(f_llm),
+        yn(f_license),
+        yn(f_license_pq),
+        yn(f_syn),
+        yn(f_learned),
+        yn(f_mimalloc)
+    );
+    println!(
+        "  mcp          {}",
+        if f_llm {
+            "ready  (ccos mcp <workspace>)"
+        } else {
+            "unavailable (needs --features llm)"
+        }
+    );
+    println!("\n  license");
+    let verifier_label = match ccos::license::compiled_verifier_scheme() {
+        "slh-dsa+ed25519" => "slh-dsa (SLH-DSA-128s) + ed25519 (both compiled in)",
+        "slh-dsa" => "slh-dsa (SLH-DSA-128s, post-quantum, compiled in)",
+        "ed25519" => "ed25519 (compiled in)",
+        _ => "none (community only)",
+    };
+    println!("    verifier   {verifier_label}");
+    // Show each compiled-in verifier's vendor-key status on its own line.
+    if f_license {
+        println!(
+            "    ed25519 key {}",
+            if key_set {
+                "set"
+            } else {
+                "placeholder (fail-closed)"
+            }
+        );
+    }
+    if f_license_pq {
+        println!(
+            "    slh-dsa key {}",
+            if pq_key_set {
+                "set"
+            } else {
+                "placeholder (fail-closed)"
+            }
+        );
+    }
+    println!("    tier       {}", if pro { "PRO" } else { "community" });
+    if let Some(who) = licensing.licensee() {
+        println!("    licensee   {who}");
+    }
+    println!(
+        "    token      {}",
+        if token_present { "present" } else { "none" }
+    );
+
+    if warnings.is_empty() {
+        println!("\n  ✓ no warnings — looks deployment-ready");
+    } else {
+        println!("\n  ⚠ {} warning(s):", warnings.len());
+        for w in &warnings {
+            println!("    - {w}");
+        }
+        println!(
+            "\n  see docs/DEPLOYMENT.md for the recommended build \
+             (`--release --features llm,license,license-pq`)."
+        );
+    }
+    Ok(())
+}
+
+/// `ccos license` — report the active licensing tier (community / Pro), the licensee and expiry, and
+/// the Pro feature set. Read-only and **offline**: it loads any local token (`$CCOS_LICENSE` or the
+/// license file) and verifies it against the baked-in public key. Without the `license` feature there
+/// is no embedded verifier, so it always reports community — the core is never gated or degraded.
+fn run_license(_args: &[String]) -> CliResult {
+    use ccos::license::{Feature, Tier};
+    let now = ccos::license::now_unix();
+    let blob = ccos::license::load_license_blob();
+    let licensing = ccos::license::Licensing::detect(now);
+
+    match licensing.tier(now) {
+        Tier::Pro => {
+            println!("ccos license: PRO");
+            if let Some(who) = licensing.licensee() {
+                println!("  licensee: {who}");
+            }
+            println!("  unlocked Pro features:");
+            for f in Feature::ALL {
+                println!("    - {f}");
+            }
+        }
+        Tier::Community => {
+            println!("ccos license: COMMUNITY (full core, no Pro features)");
+            if blob.is_some() {
+                println!("  note: a license token was found but is invalid or expired.");
+            }
+            println!(
+                "  the core (ingestion, causal graph, Q-Page belief/decay/propagation) is fully \
+                 functional."
+            );
+            println!("  Pro features (locally-verified annual license, nothing leaves your host):");
+            for f in Feature::ALL {
+                println!("    - {f}");
+            }
+            #[cfg(not(any(feature = "license", feature = "license-pq")))]
+            println!(
+                "  (this build has no license verifier compiled in — rebuild with \
+                 `--features license` (ed25519) and/or `--features license-pq` \
+                 (post-quantum SLH-DSA) to enable Pro)"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Load the host licensing and gate `feature`. Returns the licensing when **unlocked**; on the
+/// community tier `Licensing::require` has already logged the announced refusal, and this returns
+/// `None` — the caller prints a one-line note and exits 0 (announced, never an error, never a degraded
+/// core). The shared front door for the Pro CLI commands.
+fn gate_pro(feature: ccos::license::Feature) -> Option<ccos::license::Licensing> {
+    let now = ccos::license::now_unix();
+    let licensing = ccos::license::Licensing::detect(now);
+    licensing.require(feature, now).is_ok().then_some(licensing)
+}
+
+/// Options for `ccos tensions`.
+struct TensionsOpts {
+    snapshot: Option<String>,
+    min: f64,
+    limit: usize,
+}
+
+impl TensionsOpts {
+    fn parse(args: &[String]) -> Self {
+        let mut o = Self {
+            snapshot: None,
+            min: 0.15,
+            limit: 20,
+        };
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--min" => {
+                    i += 1;
+                    if let Some(v) = args.get(i).and_then(|v| v.parse().ok()) {
+                        o.min = v;
+                    }
+                }
+                "--limit" => {
+                    i += 1;
+                    if let Some(v) = args.get(i).and_then(|v| v.parse().ok()) {
+                        o.limit = v;
+                    }
+                }
+                s if !s.starts_with("--") => o.snapshot = Some(s.to_string()),
+                other => eprintln!("ccos: ignoring unknown flag '{other}'"),
+            }
+            i += 1;
+        }
+        o
+    }
+}
+
+/// `ccos tensions <snapshot.json> [--min N] [--limit N]` — **Pro**: render the contested Q-Page
+/// claims (those whose `conflict ≥ --min`) ranked by tension, as a compact bar. Locked in the
+/// community tier (the announced refusal is logged; the core is untouched).
+fn run_tensions(opts: &TensionsOpts) -> CliResult {
+    let Some(file) = opts.snapshot.as_deref() else {
+        return Err(CliError::usage(
+            "usage: ccos tensions <snapshot.json> [--min N] [--limit N]",
+        ));
+    };
+    if gate_pro(ccos::license::Feature::TensionVisualization).is_none() {
+        println!(
+            "ccos tensions: locked — run `ccos license` to see how to unlock (core unaffected)."
+        );
+        return Ok(());
+    }
+    let snapshot = match KernelSnapshot::load(file) {
+        Ok(s) => s,
+        Err(e) => return Err(CliError::fail(format!("ccos: cannot load '{file}': {e}"))),
+    };
+    let claims: Vec<_> = snapshot
+        .graph
+        .claim_beliefs()
+        .into_iter()
+        .filter(|(_, q)| q.conflict >= opts.min)
+        .collect();
+
+    println!(
+        "─── Cognitive tensions — contested claims (conflict ≥ {:.2}) ───\n",
+        opts.min
+    );
+    if claims.is_empty() {
+        println!("  none (no contested Q-Page claims in this snapshot)");
+        return Ok(());
+    }
+    for (id, q) in claims.iter().take(opts.limit) {
+        println!(
+            "  {}  {}",
+            ccos::memory::render_tension_bar(q),
+            truncate(&id.0, 48)
+        );
+    }
+    if claims.len() > opts.limit {
+        println!("  … (+{} more)", claims.len() - opts.limit);
+    }
+    Ok(())
+}
+
+/// Options for `ccos audit`.
+struct AuditOpts {
+    snapshot: Option<String>,
+    json: bool,
+    min: f64,
+}
+
+impl AuditOpts {
+    fn parse(args: &[String]) -> Self {
+        let mut o = Self {
+            snapshot: None,
+            json: false,
+            min: 0.0,
+        };
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--json" => o.json = true,
+                "--min" => {
+                    i += 1;
+                    if let Some(v) = args.get(i).and_then(|v| v.parse().ok()) {
+                        o.min = v;
+                    }
+                }
+                s if !s.starts_with("--") => o.snapshot = Some(s.to_string()),
+                other => eprintln!("ccos: ignoring unknown flag '{other}'"),
+            }
+            i += 1;
+        }
+        o
+    }
+}
+
+/// `ccos audit <snapshot.json> [--json] [--min N]` — **Pro**: a belief / conflict / provenance report
+/// over every asserted Q-Page claim (belief, conflict, supporting & contradicting evidence) plus the
+/// hash-chain integrity. Locked in the community tier (announced refusal; core untouched).
+fn run_audit(opts: &AuditOpts) -> CliResult {
+    use ccos::memory::EdgeType;
+    let Some(file) = opts.snapshot.as_deref() else {
+        return Err(CliError::usage(
+            "usage: ccos audit <snapshot.json> [--json] [--min N]",
+        ));
+    };
+    let Some(licensing) = gate_pro(ccos::license::Feature::AuditReports) else {
+        println!("ccos audit: locked — run `ccos license` to see how to unlock (core unaffected).");
+        return Ok(());
+    };
+    let snapshot = match KernelSnapshot::load(file) {
+        Ok(s) => s,
+        Err(e) => return Err(CliError::fail(format!("ccos: cannot load '{file}': {e}"))),
+    };
+    let graph = &snapshot.graph;
+    let claims: Vec<_> = graph
+        .claim_beliefs()
+        .into_iter()
+        .filter(|(_, q)| q.conflict >= opts.min)
+        .collect();
+    let el = snapshot.event_log.verify_integrity();
+    let dl = snapshot.dist_log.verify_integrity();
+
+    if opts.json {
+        let rows: Vec<_> = claims
+            .iter()
+            .map(|(id, q)| {
+                let supports: Vec<String> = graph
+                    .evidence_of(id, EdgeType::Supports)
+                    .iter()
+                    .map(|n| n.0.clone())
+                    .collect();
+                let contradicts: Vec<String> = graph
+                    .evidence_of(id, EdgeType::Contradicts)
+                    .iter()
+                    .map(|n| n.0.clone())
+                    .collect();
+                serde_json::json!({
+                    "claim": id.0,
+                    "belief": q.belief,
+                    "conflict": q.conflict,
+                    "support_sum": q.support,
+                    "contradiction_sum": q.contradiction,
+                    "supports": supports,
+                    "contradicts": contradicts,
+                })
+            })
+            .collect();
+        let report = serde_json::json!({
+            "licensee": licensing.licensee(),
+            "claims": rows,
+            "integrity": { "event_log_valid": el.valid, "dist_log_valid": dl.valid },
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        return Ok(());
+    }
+
+    println!("╔══════════════════════════════════════════════╗");
+    println!("║  CCOS audit — belief / conflict / provenance ║");
+    println!("╚══════════════════════════════════════════════╝\n");
+    if let Some(who) = licensing.licensee() {
+        println!("  licensee: {who}");
+    }
+    println!("  claims with assertions: {}\n", claims.len());
+    for (id, q) in &claims {
+        let marker = if q.belief > 0.5 {
+            '✓'
+        } else if q.belief < -0.5 {
+            '✗'
+        } else {
+            '?'
+        };
+        println!("  {marker} {}", truncate(&id.0, 50));
+        println!(
+            "      belief {:+.3}   conflict {:.3}   (support {:.2} / contra {:.2})",
+            q.belief, q.conflict, q.support, q.contradiction
+        );
+        for ev in graph.evidence_of(id, EdgeType::Supports) {
+            println!("      + {}", truncate(&ev.0, 46));
+        }
+        for ev in graph.evidence_of(id, EdgeType::Contradicts) {
+            println!("      - {}", truncate(&ev.0, 46));
+        }
+    }
+    println!("\n  ── provenance / integrity ──");
+    println!(
+        "  event-log chain: {} events, valid: {}",
+        snapshot.event_log.event_count(),
+        el.valid
+    );
+    println!(
+        "  dist-log chain:  {} links, valid: {}",
+        dl.verified_events, dl.valid
+    );
+    Ok(())
 }
 
 /// Options for `ccos analyze`.
@@ -158,11 +671,13 @@ impl AnalyzeOpts {
 /// `ccos analyze <path> [--json] [--cycles] [--out FILE]` — ingest every `.rs`
 /// file under `path` into the causal memory graph and print (or export) a
 /// structural report. Returns a process exit code (0 on success).
-fn run_analyze(opts: &AnalyzeOpts) -> i32 {
+fn run_analyze(opts: &AnalyzeOpts) -> CliResult {
     let root = Path::new(&opts.path);
     if !root.exists() {
-        eprintln!("ccos: path '{}' does not exist", opts.path);
-        return 1;
+        return Err(CliError::fail(format!(
+            "ccos: path '{}' does not exist",
+            opts.path
+        )));
     }
 
     let human = !opts.json;
@@ -181,13 +696,15 @@ fn run_analyze(opts: &AnalyzeOpts) -> i32 {
     files.sort();
 
     if files.is_empty() {
-        eprintln!("ccos: no .rs files found under '{}'", opts.path);
-        return 1;
+        return Err(CliError::fail(format!(
+            "ccos: no .rs files found under '{}'",
+            opts.path
+        )));
     }
 
-    let mut graph = MemoryGraph::new(0.2, opts.max_nodes);
-    // Honour scoring-weight overrides (CCOS_W_*) so the validation harness can
-    // re-score the ingest under a trial's hyperparameters without recompiling.
+    let mut graph = MemoryGraph::new(MemoryGraph::paging_threshold_from_env(0.2), opts.max_nodes);
+    // Honour scoring-weight (CCOS_W_*) and paging (CCOS_PAGING_THRESHOLD) overrides so the
+    // validation harness can re-score the ingest under a trial's hyperparameters without recompiling.
     graph.set_scoring_weights(ScoringWeights::from_env());
     let mut engine = IncrementalGraphEngine::new();
     let mut event_log = EventLog::new(Uuid::new_v4().to_string());
@@ -243,6 +760,9 @@ fn run_analyze(opts: &AnalyzeOpts) -> i32 {
         Vec::new()
     };
     let orphans = graph.orphan_nodes().len();
+    // Dead-symbol *candidates*: symbols nothing references (heuristic — pub API, `main`, and
+    // trait-impl methods reached from outside the analyzed set are false positives).
+    let dead = graph.dead_symbols();
 
     if let Some(dot_path) = &opts.dot {
         match std::fs::write(dot_path, graph.to_dot()) {
@@ -271,6 +791,7 @@ fn run_analyze(opts: &AnalyzeOpts) -> i32 {
             "cross_file_edges": cross_edges,
             "dangling_edges": dangling,
             "orphan_nodes": orphans,
+            "dead_symbol_candidates": dead.iter().map(|id| &id.0).collect::<Vec<_>>(),
             "dependency_cycles": cycles.len(),
             "node_types": types,
             "top_nodes": top,
@@ -286,6 +807,23 @@ fn run_analyze(opts: &AnalyzeOpts) -> i32 {
         println!("  Events logged:   {}", event_log.event_count());
         println!("  Dangling edges:  {dangling} (must be 0)");
         println!("  Orphan nodes:    {orphans}");
+        println!(
+            "  Dead symbols:    {} (unreferenced; heuristic)",
+            dead.len()
+        );
+
+        if !dead.is_empty() {
+            println!(
+                "\n─── Potentially unreferenced symbols ({}) ───",
+                dead.len()
+            );
+            for id in dead.iter().take(10) {
+                println!("    {}", truncate(&id.0, 46));
+            }
+            if dead.len() > 10 {
+                println!("    … (+{} more)", dead.len() - 10);
+            }
+        }
 
         println!("\n─── Node types ───");
         for (ty, count) in graph.node_type_counts() {
@@ -328,30 +866,220 @@ fn run_analyze(opts: &AnalyzeOpts) -> i32 {
         match snapshot.save(out) {
             Ok(()) => eprintln!("\n[SAVE] snapshot written to {out}"),
             Err(e) => {
-                eprintln!("ccos: failed to save snapshot to {out}: {e}");
-                return 1;
+                return Err(CliError::fail(format!(
+                    "ccos: failed to save snapshot to {out}: {e}"
+                )));
             }
         }
     }
 
     if dangling != 0 {
-        return 1;
+        return Err(CliError::status(1));
     }
-    0
+    Ok(())
 }
 
-/// `ccos verify <snapshot.json>` — re-check a saved snapshot's integrity: the
-/// hash chain must validate and the graph must hold no dangling edges.
-fn run_verify(file: Option<&str>) -> i32 {
-    let Some(file) = file else {
-        eprintln!("usage: ccos verify <snapshot.json>");
-        return 2;
+/// `ccos sync <export|import|status|materialize>` — the file-based multi-agent
+/// store: exchange chain-verified timeline bundles between agent workspaces and
+/// materialize the convergent merged view. No network, no new dependency — a
+/// bundle is a plain JSON file, so any transport (including sneakernet) works
+/// and the air-gappable posture survives federation.
+fn run_sync(rest: &[String]) -> CliResult {
+    let usage = "usage: ccos sync export <workspace> --agent <id> --out <bundle.json> [--since N]\n       ccos sync import <workspace> <bundle.json>\n       ccos sync status <workspace>\n       ccos sync materialize <workspace> --out <merged.ccos>\n       ccos sync keygen <workspace>   (signed-sync builds: create the signing identity)";
+    let sub = rest.first().map(String::as_str);
+    let arg = |flag: &str| -> Option<String> {
+        rest.iter()
+            .position(|a| a == flag)
+            .and_then(|i| rest.get(i + 1))
+            .cloned()
     };
+    let open = |ws: &str| {
+        AgentSession::open(ws)
+            .map_err(|e| CliError::fail(format!("ccos sync: cannot open workspace '{ws}': {e}")))
+    };
+    match sub {
+        Some("export") => {
+            let Some(ws) = rest.get(1).filter(|a| !a.starts_with("--")) else {
+                return Err(CliError::usage(usage));
+            };
+            let Some(out) = arg("--out") else {
+                return Err(CliError::usage(usage));
+            };
+            let since = arg("--since")
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(0);
+            let mut s = open(ws)?;
+            if let Some(id) = arg("--agent") {
+                s.set_agent(id);
+                s.checkpoint()
+                    .map_err(|e| CliError::fail(format!("ccos sync: {e}")))?;
+            }
+            let bundle = s
+                .export_bundle(since)
+                .map_err(|e| CliError::fail(format!("ccos sync export: {e}")))?;
+            let json = bundle
+                .to_json()
+                .map_err(|e| CliError::fail(format!("ccos sync export: {e}")))?;
+            std::fs::write(&out, &json)
+                .map_err(|e| CliError::fail(format!("ccos sync export: write '{out}': {e}")))?;
+            println!(
+                "✓ exported {} op(s) of agent '{}' (from step {}, {}) → {}",
+                bundle.len(),
+                bundle.agent,
+                bundle.first_seq,
+                if bundle.sig.is_some() {
+                    "signed"
+                } else {
+                    "unsigned — run `ccos sync keygen` on a signed-sync build to sign"
+                },
+                out
+            );
+            Ok(())
+        }
+        Some("import") => {
+            let (Some(ws), Some(file)) = (rest.get(1), rest.get(2)) else {
+                return Err(CliError::usage(usage));
+            };
+            let raw = std::fs::read_to_string(file)
+                .map_err(|e| CliError::fail(format!("ccos sync import: read '{file}': {e}")))?;
+            let bundle = ccos::agent_session::SyncBundle::from_json(&raw)
+                .map_err(|e| CliError::fail(format!("ccos sync import: parse '{file}': {e}")))?;
+            let mut s = open(ws)?;
+            let added = s
+                .import_bundle(&bundle)
+                .map_err(|e| CliError::fail(format!("ccos sync import: {e}")))?;
+            s.checkpoint()
+                .map_err(|e| CliError::fail(format!("ccos sync import: {e}")))?;
+            println!(
+                "✓ imported {added} new op(s) from agent '{}' (verified chain)",
+                bundle.agent
+            );
+            Ok(())
+        }
+        Some("status") => {
+            let Some(ws) = rest.get(1) else {
+                return Err(CliError::usage(usage));
+            };
+            let s = open(ws)?;
+            let own = if s.agent().is_empty() {
+                "(unset — pass --agent on export)".to_string()
+            } else {
+                s.agent().to_string()
+            };
+            println!("agent:   {own}");
+            println!(
+                "own ops: {} (chain head {})",
+                s.len(),
+                truncate(&s.timeline_head(), 16)
+            );
+            if let Some(pk) = s.signing_pubkey() {
+                println!("signing: enabled (pubkey {})", truncate(&pk, 16));
+            }
+            for (id, ops, head) in s.foreign_agents() {
+                let pinned = match s.pinned_keys().get(&id) {
+                    Some(k) => format!(", key pinned {}", truncate(k, 12)),
+                    None => String::new(),
+                };
+                println!(
+                    "foreign: {id} — {ops} op(s), head {}{pinned}",
+                    truncate(&head, 16)
+                );
+            }
+            let v = s.merged_view();
+            let st = v.stats();
+            println!(
+                "merged view: {} nodes / {} edges / {} files",
+                st.nodes, st.edges, st.files
+            );
+            Ok(())
+        }
+        Some("keygen") => {
+            let Some(ws) = rest.get(1) else {
+                return Err(CliError::usage(usage));
+            };
+            #[cfg(feature = "signed-sync")]
+            {
+                let pk = ccos::agent_session::generate_workspace_key(ws)
+                    .map_err(|e| CliError::fail(format!("ccos sync keygen: {e}")))?;
+                println!("✓ signing identity created for {ws}");
+                println!("  public key: {pk}");
+                println!("  (the seed lives in <workspace>.ccos.key — back it up, never share it)");
+                Ok(())
+            }
+            #[cfg(not(feature = "signed-sync"))]
+            {
+                let _ = ws;
+                Err(CliError::fail(
+                    "ccos sync keygen: this build has no signature support — rebuild with --features signed-sync",
+                ))
+            }
+        }
+        Some("materialize") => {
+            let Some(ws) = rest.get(1).filter(|a| !a.starts_with("--")) else {
+                return Err(CliError::usage(usage));
+            };
+            let Some(out) = arg("--out") else {
+                return Err(CliError::usage(usage));
+            };
+            let s = open(ws)?;
+            let mut v = s.merged_view();
+            v.checkpoint_to(&out)
+                .map_err(|e| CliError::fail(format!("ccos sync materialize: {e}")))?;
+            let st = v.stats();
+            println!(
+                "✓ merged view materialized → {out} ({} nodes / {} edges / {} files)",
+                st.nodes, st.edges, st.files
+            );
+            Ok(())
+        }
+        _ => Err(CliError::usage(usage)),
+    }
+}
+
+/// `ccos verify <snapshot.json | workspace>` — re-check a saved snapshot's
+/// integrity (both hash chains must validate, no dangling edges), or — when the
+/// argument is an agent workspace with a `.oplog` sidecar — audit the timeline's
+/// tamper-evident chain without opening (or healing) the session.
+fn run_verify(file: Option<&str>) -> CliResult {
+    let Some(file) = file else {
+        return Err(CliError::usage(
+            "usage: ccos verify <snapshot.json | workspace>",
+        ));
+    };
+    // Workspace mode: the argument (a `workspace.ccos` file or its directory)
+    // has a timeline sidecar next to it.
+    if let Some(audit) = ccos::agent_session::audit_workspace(Path::new(file)) {
+        println!("╔══════════════════════════════════════════════╗");
+        println!("║  CCOS verify — {:<30}║", truncate(file, 30));
+        println!("╚══════════════════════════════════════════════╝\n");
+        println!(
+            "  Timeline ops:      {} live tail + {} compacted",
+            audit.ops, audit.folded
+        );
+        if audit.legacy {
+            println!("  Timeline chain:    pre-chain sidecar (established on next checkpoint)");
+        } else {
+            println!(
+                "  Timeline chain:    {} link(s) verified | valid: {}",
+                audit.integrity.verified_events, audit.integrity.valid
+            );
+            println!("  Chain head:        {}", truncate(&audit.head, 24));
+        }
+        for err in audit.integrity.errors.iter().take(10) {
+            println!("    ! {err}");
+        }
+        return if audit.integrity.valid {
+            println!("\n  ✓ timeline verified");
+            Ok(())
+        } else {
+            println!("\n  ✗ verification FAILED (sidecar left untouched for forensics)");
+            Err(CliError::status(1))
+        };
+    }
     let snapshot = match KernelSnapshot::load(file) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("ccos: cannot load '{file}': {e}");
-            return 1;
+            return Err(CliError::fail(format!("ccos: cannot load '{file}': {e}")));
         }
     };
 
@@ -388,25 +1116,23 @@ fn run_verify(file: Option<&str>) -> i32 {
 
     if integrity.valid && log_integrity.valid && dangling == 0 {
         println!("\n  ✓ snapshot verified");
-        0
+        Ok(())
     } else {
         println!("\n  ✗ verification FAILED");
-        1
+        Err(CliError::status(1))
     }
 }
 
 /// `ccos replay <snapshot.json>` — deterministically replay a saved event log
 /// and print the reconstructed statistics, then re-verify the hash chain.
-fn run_replay(file: Option<&str>) -> i32 {
+fn run_replay(file: Option<&str>) -> CliResult {
     let Some(file) = file else {
-        eprintln!("usage: ccos replay <snapshot.json>");
-        return 2;
+        return Err(CliError::usage("usage: ccos replay <snapshot.json>"));
     };
     let snapshot = match KernelSnapshot::load(file) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("ccos: cannot load '{file}': {e}");
-            return 1;
+            return Err(CliError::fail(format!("ccos: cannot load '{file}': {e}")));
         }
     };
 
@@ -430,8 +1156,7 @@ fn run_replay(file: Option<&str>) -> i32 {
             );
         }
         Err(e) => {
-            eprintln!("ccos: replay error: {e}");
-            return 1;
+            return Err(CliError::fail(format!("ccos: replay error: {e}")));
         }
     }
 
@@ -456,25 +1181,25 @@ fn run_replay(file: Option<&str>) -> i32 {
         integrity.valid, log_integrity.valid, log_integrity.verified_events
     );
     if integrity.valid && log_integrity.valid {
-        0
+        Ok(())
     } else {
-        1
+        Err(CliError::status(1))
     }
 }
 
 /// `ccos diff <a.json> <b.json>` — structural difference between two saved
 /// snapshots: nodes/edges added & removed, plus the biggest causal-score movers.
-fn run_diff(a: Option<&str>, b: Option<&str>) -> i32 {
+fn run_diff(a: Option<&str>, b: Option<&str>) -> CliResult {
     let (Some(a_path), Some(b_path)) = (a, b) else {
-        eprintln!("usage: ccos diff <old-snapshot.json> <new-snapshot.json>");
-        return 2;
+        return Err(CliError::usage(
+            "usage: ccos diff <old-snapshot.json> <new-snapshot.json>",
+        ));
     };
     let load = |p: &str| KernelSnapshot::load(p).map_err(|e| format!("cannot load '{p}': {e}"));
     let (snap_a, snap_b) = match (load(a_path), load(b_path)) {
         (Ok(a), Ok(b)) => (a, b),
         (Err(e), _) | (_, Err(e)) => {
-            eprintln!("ccos: {e}");
-            return 1;
+            return Err(CliError::fail(format!("ccos: {e}")));
         }
     };
 
@@ -507,8 +1232,8 @@ fn run_diff(a: Option<&str>, b: Option<&str>) -> i32 {
 
     // Causal-score drift among nodes present in both snapshots.
     let mut movers: Vec<(String, f64)> = Vec::new();
-    for (id, node_b) in &snap_b.graph.nodes {
-        if let Some(node_a) = snap_a.graph.nodes.get(id) {
+    for (id, node_b) in snap_b.graph.node_entries() {
+        if let Some(node_a) = snap_a.graph.node(id) {
             let drift =
                 snap_b.graph.compute_node_score(node_b) - snap_a.graph.compute_node_score(node_a);
             if drift.abs() > 1e-9 {
@@ -528,7 +1253,7 @@ fn run_diff(a: Option<&str>, b: Option<&str>) -> i32 {
             println!("    {:+.4}  {}", drift, truncate(id, 44));
         }
     }
-    0
+    Ok(())
 }
 
 /// Options for `ccos failure`.
@@ -602,30 +1327,27 @@ impl FailureOpts {
 /// hook the causal-validation harness drives: inject a mined fault, then measure
 /// `R_cov = |F_target ∩ WorkingSet_K| / |F_target|`. Honours `CCOS_W_*` /
 /// `CCOS_FAILURE_DECAY` so a hyperparameter trial re-scores without recompiling.
-fn run_failure(opts: &FailureOpts) -> i32 {
+fn run_failure(opts: &FailureOpts) -> CliResult {
     let (Some(file), Some(node_id)) = (opts.snapshot.as_deref(), opts.node.as_deref()) else {
-        eprintln!(
-            "usage: ccos failure <snapshot.json> <node-id> [--depth N] [--max-nodes K] [--bidirectional] [--json]"
-        );
-        return 2;
+        return Err(CliError::usage(
+            "usage: ccos failure <snapshot.json> <node-id> [--depth N] [--max-nodes K] [--bidirectional] [--json]",
+        ));
     };
     let snapshot = match KernelSnapshot::load(file) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("ccos: cannot load '{file}': {e}");
-            return 1;
+            return Err(CliError::fail(format!("ccos: cannot load '{file}': {e}")));
         }
     };
     let mut graph = snapshot.graph;
     // Re-score under any trial weights before injection/eviction.
     graph.set_scoring_weights(ScoringWeights::from_env());
     let origin = NodeId(node_id.to_string());
-    if !graph.nodes.contains_key(&origin) {
-        eprintln!(
+    if !graph.contains_node(&origin) {
+        return Err(CliError::fail(format!(
             "ccos: node '{node_id}' not found ({} nodes). List ids with `ccos analyze <path> --json`.",
             graph.node_count()
-        );
-        return 1;
+        )));
     }
 
     let nodes_before = graph.node_count();
@@ -645,8 +1367,7 @@ fn run_failure(opts: &FailureOpts) -> i32 {
     }
 
     let mut affected: Vec<(String, f64)> = graph
-        .nodes
-        .iter()
+        .node_entries()
         .filter(|(id, n)| **id != origin && n.failure_relevance > 0.0)
         .map(|(id, n)| (id.0.clone(), n.failure_relevance))
         .collect();
@@ -657,7 +1378,7 @@ fn run_failure(opts: &FailureOpts) -> i32 {
     });
 
     if opts.json {
-        let mut working_set: Vec<&NodeId> = graph.nodes.keys().collect();
+        let mut working_set: Vec<&NodeId> = graph.node_ids().collect();
         working_set.sort();
         let w = graph.scoring_weights;
         let report = serde_json::json!({
@@ -681,7 +1402,7 @@ fn run_failure(opts: &FailureOpts) -> i32 {
             },
         });
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
-        return 0;
+        return Ok(());
     }
 
     println!("╔══════════════════════════════════════════════╗");
@@ -702,7 +1423,7 @@ fn run_failure(opts: &FailureOpts) -> i32 {
             println!("    {:.3}  {}", fr, truncate(id, 46));
         }
     }
-    0
+    Ok(())
 }
 
 /// Options for `ccos chaos`.
@@ -730,7 +1451,7 @@ impl ChaosOpts {
 /// `ccos chaos [--iters N]` — drive adversarial payloads (JSON corruption,
 /// hallucination, prompt injection, timeouts) through the guard and assert its
 /// core invariant: the guard must *never* emit non-JSON output.
-fn run_chaos(opts: &ChaosOpts) -> i32 {
+fn run_chaos(opts: &ChaosOpts) -> CliResult {
     println!("╔══════════════════════════════════════════════╗");
     println!(
         "║  CCOS chaos — {:>5} iterations                ║",
@@ -769,10 +1490,10 @@ fn run_chaos(opts: &ChaosOpts) -> i32 {
 
     if invalid_outputs == 0 {
         println!("\n  ✓ guard never emitted invalid JSON under chaos");
-        0
+        Ok(())
     } else {
         println!("\n  ✗ guard emitted invalid JSON — safety invariant violated");
-        1
+        Err(CliError::status(1))
     }
 }
 
@@ -794,7 +1515,7 @@ fn build_graph_from_path(path: &str, max_nodes: usize) -> Result<MemoryGraph, St
         return Err(format!("no .rs files found under '{path}'"));
     }
 
-    let mut graph = MemoryGraph::new(0.2, max_nodes);
+    let mut graph = MemoryGraph::new(MemoryGraph::paging_threshold_from_env(0.2), max_nodes);
     let mut engine = IncrementalGraphEngine::new();
     for file in &files {
         if let Ok(source) = std::fs::read_to_string(file) {
@@ -849,12 +1570,11 @@ impl TopOpts {
 
 /// `ccos top <path> [--limit N] [--json]` — ingest `path` and print the hottest
 /// nodes by causal score: the working set the kernel would page in first.
-fn run_top(opts: &TopOpts) -> i32 {
+fn run_top(opts: &TopOpts) -> CliResult {
     let graph = match build_graph_from_path(&opts.path, opts.max_nodes) {
         Ok(g) => g,
         Err(e) => {
-            eprintln!("ccos: {e}");
-            return 1;
+            return Err(CliError::fail(format!("ccos: {e}")));
         }
     };
     let hot = query::hot_set(&graph, opts.limit);
@@ -871,7 +1591,7 @@ fn run_top(opts: &TopOpts) -> i32 {
             "top": rows,
         });
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
-        return 0;
+        return Ok(());
     }
 
     println!("╔══════════════════════════════════════════════╗");
@@ -886,8 +1606,7 @@ fn run_top(opts: &TopOpts) -> i32 {
     println!("    {:>7}  {:<8}  NODE", "SCORE", "TYPE");
     for (id, score) in &hot {
         let ty = graph
-            .nodes
-            .get(id)
+            .node(id)
             .map(|n| format!("{:?}", n.node_type))
             .unwrap_or_else(|| "?".into());
         println!(
@@ -897,7 +1616,7 @@ fn run_top(opts: &TopOpts) -> i32 {
             truncate(&id.0, 44)
         );
     }
-    0
+    Ok(())
 }
 
 /// Options for `ccos blame`.
@@ -945,26 +1664,25 @@ impl BlameOpts {
 
 /// `ccos blame <snapshot.json> <node-id> [--depth N]` — show a node's upstream
 /// causes (what it rests on) and downstream blast radius (what breaks with it).
-fn run_blame(opts: &BlameOpts) -> i32 {
+fn run_blame(opts: &BlameOpts) -> CliResult {
     let (Some(file), Some(node_id)) = (opts.snapshot.as_deref(), opts.node.as_deref()) else {
-        eprintln!("usage: ccos blame <snapshot.json> <node-id> [--depth N]");
-        return 2;
+        return Err(CliError::usage(
+            "usage: ccos blame <snapshot.json> <node-id> [--depth N]",
+        ));
     };
     let snapshot = match KernelSnapshot::load(file) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("ccos: cannot load '{file}': {e}");
-            return 1;
+            return Err(CliError::fail(format!("ccos: cannot load '{file}': {e}")));
         }
     };
     let graph = snapshot.graph;
     let origin = NodeId(node_id.to_string());
-    if !graph.nodes.contains_key(&origin) {
-        eprintln!(
+    if !graph.contains_node(&origin) {
+        return Err(CliError::fail(format!(
             "ccos: node '{node_id}' not found ({} nodes). List ids with `ccos analyze <path> --json`.",
             graph.node_count()
-        );
-        return 1;
+        )));
     }
 
     let causes = query::source_set(&graph, &origin, opts.depth);
@@ -985,7 +1703,7 @@ fn run_blame(opts: &BlameOpts) -> i32 {
             "impact": to_rows(&impact),
         });
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
-        return 0;
+        return Ok(());
     }
 
     println!("╔══════════════════════════════════════════════╗");
@@ -1018,7 +1736,7 @@ fn run_blame(opts: &BlameOpts) -> i32 {
             truncate(&r.id.0, 42)
         );
     }
-    0
+    Ok(())
 }
 
 /// Options for `ccos export`.
@@ -1060,16 +1778,16 @@ impl ExportOpts {
 
 /// `ccos export <snapshot.json> [--out FILE]` — export the snapshot's causal
 /// graph as GraphML for Gephi / yEd / Cytoscape / networkx.
-fn run_export(opts: &ExportOpts) -> i32 {
+fn run_export(opts: &ExportOpts) -> CliResult {
     let Some(file) = opts.snapshot.as_deref() else {
-        eprintln!("usage: ccos export <snapshot.json> [--out FILE]");
-        return 2;
+        return Err(CliError::usage(
+            "usage: ccos export <snapshot.json> [--out FILE]",
+        ));
     };
     let snapshot = match KernelSnapshot::load(file) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("ccos: cannot load '{file}': {e}");
-            return 1;
+            return Err(CliError::fail(format!("ccos: cannot load '{file}': {e}")));
         }
     };
     let graphml = query::to_graphml(&snapshot.graph);
@@ -1081,12 +1799,12 @@ fn run_export(opts: &ExportOpts) -> i32 {
                 snapshot.graph.edge_count(),
                 opts.out
             );
-            0
+            Ok(())
         }
-        Err(e) => {
-            eprintln!("ccos: failed to write '{}': {e}", opts.out);
-            1
-        }
+        Err(e) => Err(CliError::fail(format!(
+            "ccos: failed to write '{}': {e}",
+            opts.out
+        ))),
     }
 }
 
@@ -1146,12 +1864,11 @@ impl RegionsOpts {
 /// `ccos regions <path> [--activate ID] [--metrics ID] [--radius N] [--json]` —
 /// cluster the causal graph into spatial regions; optionally activate one
 /// (hydrate a context window) or print the flat-vs-region locality comparison.
-fn run_regions(opts: &RegionsOpts) -> i32 {
+fn run_regions(opts: &RegionsOpts) -> CliResult {
     let graph = match build_graph_from_path(&opts.path, opts.max_nodes) {
         Ok(g) => g,
         Err(e) => {
-            eprintln!("ccos: {e}");
-            return 1;
+            return Err(CliError::fail(format!("ccos: {e}")));
         }
     };
     let mut engine = ContextRegionEngine::new();
@@ -1161,12 +1878,13 @@ fn run_regions(opts: &RegionsOpts) -> i32 {
     // ── metrics mode: flat vs region locality for a target node ──
     if let Some(target) = &opts.metrics {
         let Some(report) = region_metrics::locality_report(&graph, target, opts.radius) else {
-            eprintln!("ccos: node '{target}' not found in graph");
-            return 1;
+            return Err(CliError::fail(format!(
+                "ccos: node '{target}' not found in graph"
+            )));
         };
         if opts.json {
             println!("{}", serde_json::to_string_pretty(&report).unwrap());
-            return 0;
+            return Ok(());
         }
         println!("╔══════════════════════════════════════════════╗");
         println!("║  CCOS regions — locality metrics             ║");
@@ -1193,7 +1911,7 @@ fn run_regions(opts: &RegionsOpts) -> i32 {
             report.region_tokens_to_cover,
             report.token_saving_ratio * 100.0
         );
-        return 0;
+        return Ok(());
     }
 
     // ── activate mode: hydrate a context window from a region ──
@@ -1205,8 +1923,9 @@ fn run_regions(opts: &RegionsOpts) -> i32 {
             &policy,
             &mut log,
         ) else {
-            eprintln!("ccos: node '{target}' not found in any region");
-            return 1;
+            return Err(CliError::fail(format!(
+                "ccos: node '{target}' not found in any region"
+            )));
         };
         if opts.json {
             let report = serde_json::json!({
@@ -1217,7 +1936,7 @@ fn run_regions(opts: &RegionsOpts) -> i32 {
                 "reason": win.reason,
             });
             println!("{}", serde_json::to_string_pretty(&report).unwrap());
-            return 0;
+            return Ok(());
         }
         println!("╔══════════════════════════════════════════════╗");
         println!("║  CCOS regions — context window               ║");
@@ -1230,7 +1949,7 @@ fn run_regions(opts: &RegionsOpts) -> i32 {
         for f in win.files.iter().take(20) {
             println!("    • {}", truncate(f, 44));
         }
-        return 0;
+        return Ok(());
     }
 
     // ── default: region map summary ──
@@ -1263,7 +1982,7 @@ fn run_regions(opts: &RegionsOpts) -> i32 {
             "map": rows,
         });
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
-        return 0;
+        return Ok(());
     }
 
     println!("╔══════════════════════════════════════════════╗");
@@ -1285,13 +2004,13 @@ fn run_regions(opts: &RegionsOpts) -> i32 {
             truncate(&r.id, 40)
         );
     }
-    0
+    Ok(())
 }
 
 /// `ccos experiment [--tasks N] [--seed S] [--budget B] [--json]` — run the
 /// LLM-free hypothesis simulation: regional causal memory vs. RAG / GraphRAG
 /// baselines on synthetic multi-file causal tasks of growing diameter.
-fn run_experiment_cmd(args: &[String]) -> i32 {
+fn run_experiment_cmd(args: &[String]) -> CliResult {
     let mut cfg = ExperimentConfig::default();
     let mut json = false;
     let mut i = 0;
@@ -1335,7 +2054,7 @@ fn run_experiment_cmd(args: &[String]) -> i32 {
     if json {
         let out = serde_json::json!({ "clean": clean, "noisy": noisy });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
-        return 0;
+        return Ok(());
     }
 
     let strategies = [
@@ -1392,18 +2111,17 @@ fn run_experiment_cmd(args: &[String]) -> i32 {
          only `ccos-region`, which anchors on the workspace signal (not the query),\n  \
          survives. The differentiator is the anchor, not the region machinery."
     );
-    0
+    Ok(())
 }
 
 /// `ccos trace` — read `cargo test` / panic / backtrace text on **stdin** and
 /// emit the project source locations the crash touched as JSON (`message`,
 /// `files`, `hits`). The seed set for a trace-driven context page fault.
-fn run_trace_cmd() -> i32 {
+fn run_trace_cmd() -> CliResult {
     use std::io::Read;
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
-        eprintln!("ccos: failed to read stdin");
-        return 1;
+        return Err(CliError::fail("ccos: failed to read stdin"));
     }
     let trace = parse_cargo_test_output(&input);
     let hits: Vec<_> = trace
@@ -1419,7 +2137,7 @@ fn run_trace_cmd() -> i32 {
         "hits": hits,
     });
     println!("{}", serde_json::to_string_pretty(&report).unwrap());
-    0
+    Ok(())
 }
 
 /// Options for `ccos focus` — the human "attentional shield".
@@ -1550,11 +2268,13 @@ fn crate_relative(p: &Path) -> String {
 /// trace, and shows the **causal region** (the likely root cause + its direct
 /// dependencies), hiding the backtrace noise and the unrelated files. The host can
 /// be a human (terminal) or an editor (`--json`).
-fn run_focus(opts: &FocusOpts) -> i32 {
+fn run_focus(opts: &FocusOpts) -> CliResult {
     let root = Path::new(&opts.path);
     if !root.exists() {
-        eprintln!("ccos: path '{}' does not exist", opts.path);
-        return 1;
+        return Err(CliError::fail(format!(
+            "ccos: path '{}' does not exist",
+            opts.path
+        )));
     }
     let mut files: Vec<PathBuf> = Vec::new();
     if root.is_dir() {
@@ -1564,8 +2284,10 @@ fn run_focus(opts: &FocusOpts) -> i32 {
     }
     files.sort();
     if files.is_empty() {
-        eprintln!("ccos: no .rs files under '{}'", opts.path);
-        return 1;
+        return Err(CliError::fail(format!(
+            "ccos: no .rs files under '{}'",
+            opts.path
+        )));
     }
 
     // Ingest under crate-relative URIs (`src/…`), matching how `cargo` reports paths
@@ -1577,8 +2299,9 @@ fn run_focus(opts: &FocusOpts) -> i32 {
         Some(ws) => match AgentSession::open(ws) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("ccos: cannot open workspace '{ws}': {e}");
-                return 1;
+                return Err(CliError::fail(format!(
+                    "ccos: cannot open workspace '{ws}': {e}"
+                )));
             }
         },
         None => AgentSession::new(),
@@ -1639,7 +2362,7 @@ fn run_focus(opts: &FocusOpts) -> i32 {
             "entries": entries,
         });
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
-        return 0;
+        return Ok(());
     }
 
     render_focus_human(
@@ -1650,7 +2373,7 @@ fn run_focus(opts: &FocusOpts) -> i32 {
         opts.workspace.as_deref(),
         reparsed,
     );
-    0
+    Ok(())
 }
 
 /// Render the focused view for a human terminal — the cause first, noise hidden.
@@ -1713,8 +2436,7 @@ fn render_focus_human(
 /// `{"op":"recall","strategy":"around|task|working_set",..,"budget":N}`,
 /// `{"op":"impact|causes","node":..,"depth":N}`, `{"op":"verify"}`,
 /// `{"op":"stats"}`.
-fn run_memory_cmd(args: &[String]) -> i32 {
-    use std::io::BufRead;
+fn run_memory_cmd(args: &[String]) -> CliResult {
     let mut path = "workspace.ccos".to_string();
     let mut i = 0;
     while i < args.len() {
@@ -1733,11 +2455,45 @@ fn run_memory_cmd(args: &[String]) -> i32 {
     let mut mem = match CcosMemory::open(&path) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("ccos: cannot open memory '{path}': {e}");
-            return 1;
+            return Err(CliError::fail(format!(
+                "ccos: cannot open memory '{path}': {e}"
+            )));
         }
     };
 
+    // Process the op-stream against the persisted workspace, then checkpoint if it mutated.
+    let (dirty, had_error) = run_op_stream(&mut mem);
+    if dirty {
+        if let Err(e) = mem.checkpoint() {
+            return Err(CliError::fail(format!("ccos: checkpoint failed: {e}")));
+        }
+    }
+    if had_error {
+        Err(CliError::status(1))
+    } else {
+        Ok(())
+    }
+}
+
+/// `ccos stdin` — read the same newline-delimited JSON op-stream as `ccos memory`, but process it in an
+/// **ephemeral in-memory graph** (no workspace file, no checkpoint): the pipe-friendly, persistence-free
+/// sibling. Prints one JSON response per op and exits non-zero if any op errored.
+fn run_stdin_cmd(_args: &[String]) -> CliResult {
+    let mut mem = CcosMemory::new();
+    let (_dirty, had_error) = run_op_stream(&mut mem);
+    if had_error {
+        Err(CliError::status(1))
+    } else {
+        Ok(())
+    }
+}
+
+/// Read a newline-delimited JSON op-stream from stdin and apply it to `mem`, printing one JSON response
+/// per op (`ingest` / `failure` / `recall` / `impact` / `causes` / `verify` / `stats`). Returns
+/// `(dirty, had_error)` — whether any op mutated the memory, and whether any op failed. Shared by
+/// [`run_memory_cmd`] (persistent workspace) and [`run_stdin_cmd`] (in-memory).
+fn run_op_stream(mem: &mut CcosMemory) -> (bool, bool) {
+    use std::io::BufRead;
     let err = |msg: String| serde_json::json!({ "error": msg });
     let mut dirty = false;
     let mut had_error = false;
@@ -1790,6 +2546,8 @@ fn run_memory_cmd(args: &[String]) -> i32 {
                 let recall = match req["strategy"].as_str().unwrap_or("working_set") {
                     "around" => Recall::around(s("anchor")),
                     "task" => Recall::task(s("text")),
+                    "semantic" => Recall::semantic(s("text")),
+                    "hybrid" => Recall::hybrid(s("text")),
                     _ => Recall::working_set(),
                 };
                 serde_json::to_value(mem.recall(&recall, budget)).unwrap()
@@ -1822,14 +2580,7 @@ fn run_memory_cmd(args: &[String]) -> i32 {
         };
         println!("{}", serde_json::to_string(&resp).unwrap());
     }
-
-    if dirty {
-        if let Err(e) = mem.checkpoint() {
-            eprintln!("ccos: checkpoint failed: {e}");
-            return 1;
-        }
-    }
-    i32::from(had_error)
+    (dirty, had_error)
 }
 
 /// `ccos postmortem [workspace.ccos] [--json]` — open the interactive **time-travel
@@ -1839,15 +2590,16 @@ fn run_memory_cmd(args: &[String]) -> i32 {
 /// stdin (`timeline`, `goto N`, `recall`, `diff A B`, `help`, `quit`). With
 /// `--json` it dumps the field record (stats / integrity / timeline / working set)
 /// as JSON and exits — for archiving / fleet collection (see `scripts/fleet_collect.sh`).
-fn run_postmortem(args: &[String]) -> i32 {
+fn run_postmortem(args: &[String]) -> CliResult {
     let as_json = args.iter().any(|a| a == "--json");
     let path = args.iter().find(|a| !a.starts_with("--"));
     let session = match path {
         Some(p) => match ccos::agent_session::AgentSession::open(p) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("ccos: cannot open session '{p}': {e}");
-                return 1;
+                return Err(CliError::fail(format!(
+                    "ccos: cannot open session '{p}': {e}"
+                )));
             }
         },
         None => ccos::postmortem::demo_session(),
@@ -1856,10 +2608,10 @@ fn run_postmortem(args: &[String]) -> i32 {
         let ws = path.map(String::as_str).unwrap_or("(built-in demo)");
         let record = ccos::postmortem::export(&session, ws, 4096);
         println!("{}", serde_json::to_string_pretty(&record).unwrap());
-        return 0;
+        return Ok(());
     }
     ccos::postmortem::serve(session);
-    0
+    Ok(())
 }
 
 /// `ccos eval [--tasks N] [--seed S] [--budget T] [--model M] [--json]` — the
@@ -1869,7 +2621,7 @@ fn run_postmortem(args: &[String]) -> i32 {
 /// runs an offline stub (every answer wrong) to exercise the pipeline. `--model`
 /// overrides the active provider's model (defaulting to a local Ollama server if
 /// no provider env is set).
-async fn run_eval_cmd(args: &[String]) -> i32 {
+async fn run_eval_cmd(args: &[String]) -> CliResult {
     let mut cfg = EvalConfig::default();
     let mut json = false;
     let mut model: Option<String> = None;
@@ -1933,7 +2685,7 @@ async fn run_eval_cmd(args: &[String]) -> i32 {
     if json {
         let out = serde_json::json!({ "clean": clean, "noisy": noisy });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
-        return 0;
+        return Ok(());
     }
 
     let strategies = [
@@ -1999,7 +2751,7 @@ async fn run_eval_cmd(args: &[String]) -> i32 {
         &noisy,
         "NOISY query (a decoy out-matches the target lexically)",
     );
-    0
+    Ok(())
 }
 
 /// Recursively collect `.rs` files, skipping `target/`, VCS and hidden dirs.
@@ -2024,10 +2776,136 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
+    let n = s.chars().count();
+    if n <= max {
+        return s.to_string();
+    }
+    // Keep the last `max-1` *characters* (room for the leading ellipsis) and cut
+    // on a char boundary — a byte slice would panic on multi-byte UTF-8 (e.g. a
+    // non-ASCII identifier `fn café()` or an accented panic message).
+    let keep = max.saturating_sub(1);
+    let start = s
+        .char_indices()
+        .nth(n - keep)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len());
+    format!("…{}", &s[start..])
+}
+
+/// `ccos sanitize [path] [--json] [--strict]` — de-obfuscate hidden Unicode in a
+/// file (or stdin), surfacing Trojan-Source bidi overrides, zero-width formatting
+/// and Unicode-Tags ASCII smuggling as explicit literals, and score the cleaned
+/// residue for injection with a per-feature forensic decomposition. `--strict`
+/// exits non-zero when a high-severity anomaly or a flagged injection is found
+/// (handy as a pre-commit / CI gate).
+fn run_sanitize(args: &[String]) -> CliResult {
+    use ccos::injection_classifier::InjectionDetector;
+    use ccos::sanitizer::{self, Severity};
+
+    let mut path: Option<String> = None;
+    let mut as_json = false;
+    let mut strict = false;
+    for a in args {
+        match a.as_str() {
+            "--json" => as_json = true,
+            "--strict" => strict = true,
+            s if !s.starts_with("--") => path = Some(s.to_string()),
+            other => {
+                return Err(CliError::usage(format!(
+                    "ccos sanitize: unknown flag '{other}'"
+                )));
+            }
+        }
+    }
+
+    let input = match path.as_deref() {
+        None | Some("-") => {
+            use std::io::Read;
+            let mut s = String::new();
+            if std::io::stdin().read_to_string(&mut s).is_err() {
+                return Err(CliError::fail("ccos sanitize: failed to read stdin"));
+            }
+            s
+        }
+        Some(p) => match std::fs::read_to_string(p) {
+            Ok(s) => s,
+            Err(e) => {
+                return Err(CliError::fail(format!("ccos sanitize: {p}: {e}")));
+            }
+        },
+    };
+
+    let (clean, report) = sanitizer::defang(&input);
+    let det = InjectionDetector::default();
+    let p_inj = det.injection_probability(&clean);
+    let ex = det.explain(&clean);
+    let flagged = p_inj >= 0.5;
+    let dangerous = report.highest_severity() == Some(Severity::High) || flagged;
+
+    if as_json {
+        let findings: Vec<serde_json::Value> = report
+            .findings
+            .iter()
+            .map(|f| {
+                serde_json::json!({
+                    "byte_offset": f.byte_offset,
+                    "char_index": f.char_index,
+                    "codepoint": format!("U+{:04X}", f.codepoint),
+                    "kind": f.kind.as_str(),
+                    "label": f.label,
+                    "literal": f.literal(),
+                })
+            })
+            .collect();
+        let top: Vec<serde_json::Value> = ex
+            .top_terms
+            .iter()
+            .take(6)
+            .map(|t| serde_json::json!({"feature": t.feature, "contribution": t.contribution}))
+            .collect();
+        let out = serde_json::json!({
+            "anomalies": findings,
+            "anomaly_summary": report.summary(),
+            "injection_probability": p_inj,
+            "injection_flagged": flagged,
+            "injection_margin": ex.margin,
+            "top_terms": top,
+            "dangerous": dangerous,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
     } else {
-        format!("…{}", &s[s.len().saturating_sub(max - 1)..])
+        println!("hidden characters : {}", report.summary());
+        for f in &report.findings {
+            println!(
+                "  @byte {:>5} char {:>4}  {:<13} {}",
+                f.byte_offset,
+                f.char_index,
+                f.kind.as_str(),
+                f.literal()
+            );
+        }
+        println!(
+            "injection signal  : p={p_inj:.3}{}",
+            if flagged { "  [FLAGGED]" } else { "" }
+        );
+        if p_inj >= 0.2 && !ex.top_terms.is_empty() {
+            print!("  top terms       :");
+            for t in ex.top_terms.iter().take(5) {
+                print!(" {}({:+.2})", t.feature, t.contribution);
+            }
+            println!();
+        }
+        if report.is_clean() && !flagged {
+            println!("verdict           : clean");
+        } else if dangerous {
+            println!("verdict           : DANGEROUS");
+        }
+    }
+
+    if strict && dangerous {
+        Err(CliError::status(1))
+    } else {
+        Ok(())
     }
 }
 
@@ -2045,8 +2923,11 @@ COMMANDS:\n\
         --out <file>           Save a full kernel snapshot (graph + logs) to <file>\n\
         --max-nodes <N>        Paging cap (default 5000)\n\
         --budget <N>           Context-window token budget (default 2048)\n\
-    verify <snapshot.json>     Re-check a saved snapshot's hash chain & integrity\n\
+    verify <snap | workspace>  Re-check a snapshot's hash chains & integrity, or\n\
+    \x20                          audit a workspace op-log's tamper-evident chain\n\
     replay <snapshot.json>     Deterministically replay a saved event log\n\
+    sync <sub> <workspace>     Multi-agent store: export/import chain-verified\n\
+    \x20                          timeline bundles, status, materialize merged view\n\
     diff <a.json> <b.json>     Structural diff between two snapshots (+ score drift)\n\
     failure <snap> <node-id>   Inject a fault at a node and propagate it (--depth N,\n\
     \x20                          --max-nodes K, --bidirectional, --json)\n\
@@ -2073,12 +2954,12 @@ COMMANDS:\n\
     postmortem [workspace] [--json]  Time-travel debugger over a session timeline; --json\n\
     \x20                          dumps the field record (stats/timeline/integrity) and exits\n\
 \n\
-  Context Shield (virtual file system for LLMs):
-    shield <path>              Parse a file into a structural skeleton (no function bodies)
-                               --json  Output as JSON
-    page-fault <path> <anchor>  Page-fault: load the full body of a specific anchor
-                               --json  Output as JSON
-
+  Input hardening (de-obfuscation + injection signal):\n\
+    sanitize [path] [--json]   De-obfuscate hidden Unicode (Trojan-Source bidi,\n\
+    \x20                          zero-width, Tags ASCII-smuggling) into visible\n\
+    \x20                          literals + a forensic injection score; reads\n\
+    \x20                          stdin when no path. --strict exits non-zero on danger\n\
+\n\
   CCOS v0.3 — Autonomous Context Runtime:\n\
     scan <path>                Scan a real workspace and ingest the delta\n\
     agents <path>              Run Coder/Reviewer/Security agents over a workspace\n\
@@ -2103,65 +2984,110 @@ EXAMPLES:\n\
     );
 }
 
-fn run_shield(args: &[String]) -> i32 {
-    if args.is_empty() {
-        eprintln!("Usage: ccos shield <path> [--json]");
-        return 1;
-    }
-    let path = args[0].as_str();
-    let as_json = args.iter().any(|a| a == "--json");
-    match ccos::shield::Shield::parse(path) {
-        Ok(skeleton) => {
-            if as_json {
-                println!("{}", serde_json::to_string_pretty(&skeleton).unwrap());
-            } else {
-                println!("{}", skeleton.text);
-                eprintln!(
-                    "// estimated tokens: {} (raw file: ~{}k)",
-                    skeleton.estimated_tokens,
-                    skeleton.total_lines * 35 / 1000
-                );
-                eprintln!("// use 'ccos page-fault <path> <anchor-name>' to load full body");
-            }
-            0
-        }
-        Err(e) => {
-            eprintln!("ccos shield: {e}");
-            1
-        }
-    }
-}
-
-fn run_page_fault(args: &[String]) -> i32 {
-    if args.len() < 2 {
-        eprintln!("Usage: ccos page-fault <path> <anchor-name> [--json]");
-        return 1;
-    }
-    let path = &args[0];
-    let anchor = &args[1];
-    let as_json = args.iter().any(|a| a == "--json");
-    match ccos::shield::Shield::page_fault(path, anchor) {
-        Ok(body) => {
-            if as_json {
-                let j = serde_json::json!({"path": path, "anchor": anchor, "body": body});
-                println!("{}", serde_json::to_string_pretty(&j).unwrap());
-            } else {
-                println!("{}", body);
-            }
-            0
-        }
-        Err(e) => {
-            eprintln!("ccos page-fault: {e}");
-            1
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ccos::external_memory::RecallItem;
     use ccos::trace::TraceHit;
+
+    /// Build an owned `Vec<String>` arg list from string literals.
+    fn argv(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn analyze_opts_parse_defaults_flags_and_positional() {
+        let d = AnalyzeOpts::parse(&[]);
+        assert_eq!(d.path, ".");
+        assert!(!d.json && !d.cycles);
+        assert_eq!(d.max_nodes, 5000);
+        assert_eq!(d.budget, 2048);
+        assert!(d.out.is_none() && d.dot.is_none());
+
+        let o = AnalyzeOpts::parse(&argv(&[
+            "src",
+            "--json",
+            "--cycles",
+            "--out",
+            "r.json",
+            "--max-nodes",
+            "10",
+            "--budget",
+            "512",
+        ]));
+        assert_eq!(o.path, "src");
+        assert!(o.json && o.cycles);
+        assert_eq!(o.out.as_deref(), Some("r.json"));
+        assert_eq!(o.max_nodes, 10);
+        assert_eq!(o.budget, 512);
+        // A non-numeric value leaves the default rather than panicking.
+        assert_eq!(AnalyzeOpts::parse(&argv(&["--budget", "abc"])).budget, 2048);
+    }
+
+    #[test]
+    fn top_opts_parse() {
+        let o = TopOpts::parse(&argv(&["src", "--limit", "7", "--json"]));
+        assert_eq!(o.path, "src");
+        assert_eq!(o.limit, 7);
+        assert!(o.json);
+        assert_eq!(TopOpts::parse(&[]).limit, 20);
+    }
+
+    #[test]
+    fn chaos_opts_parse() {
+        assert_eq!(ChaosOpts::parse(&[]).iters, 1000);
+        assert_eq!(ChaosOpts::parse(&argv(&["--iters", "42"])).iters, 42);
+    }
+
+    #[test]
+    fn blame_opts_two_positionals_then_flag() {
+        let o = BlameOpts::parse(&argv(&["snap.json", "file:src/a.rs", "--depth", "5"]));
+        assert_eq!(o.snapshot.as_deref(), Some("snap.json"));
+        assert_eq!(o.node.as_deref(), Some("file:src/a.rs"));
+        assert_eq!(o.depth, 5);
+        // Missing positionals → None (run_blame then prints usage and exits 2).
+        let d = BlameOpts::parse(&[]);
+        assert!(d.snapshot.is_none() && d.node.is_none());
+        assert_eq!(d.depth, 3);
+    }
+
+    #[test]
+    fn focus_opts_workspace_optional_arg() {
+        // --workspace with an explicit path.
+        let a = FocusOpts::parse(&argv(&["src", "--workspace", "ws.ccos", "--budget", "999"]));
+        assert_eq!(a.path, "src");
+        assert_eq!(a.workspace.as_deref(), Some("ws.ccos"));
+        assert_eq!(a.budget, 999);
+        // --workspace with the next token a flag → defaults to workspace.ccos.
+        let b = FocusOpts::parse(&argv(&["--workspace", "--json"]));
+        assert_eq!(b.workspace.as_deref(), Some("workspace.ccos"));
+        assert!(b.json);
+        // --workspace as the final token → default.
+        assert_eq!(
+            FocusOpts::parse(&argv(&["--workspace"]))
+                .workspace
+                .as_deref(),
+            Some("workspace.ccos")
+        );
+        // Default path is `src` when no positional is given.
+        assert_eq!(FocusOpts::parse(&[]).path, "src");
+    }
+
+    #[test]
+    fn truncate_cuts_on_char_boundaries_without_panicking() {
+        assert_eq!(truncate("hello", 10), "hello"); // under the cap: unchanged
+                                                    // Multi-byte input longer than the cap must not panic (the old byte-slice
+                                                    // bug panicked inside a multi-byte char).
+        let many = "é".repeat(20);
+        let out = truncate(&many, 10);
+        assert!(out.starts_with('…'));
+        assert!(out.chars().count() <= 10);
+        // max == 0 must not underflow `max - 1`.
+        assert_eq!(truncate("anything", 0), "…");
+        // A realistic non-ASCII node id past the cap.
+        let id = "file:src/café_handler_extra_long_name.rs";
+        assert!(truncate(id, 12).chars().count() <= 12);
+    }
 
     #[test]
     fn focus_view_tags_symptom_and_likely_cause() {
@@ -2181,6 +3107,7 @@ mod tests {
             score,
             kind: "Module".to_string(),
             content: content.to_string(),
+            ccr_ref: None,
         };
         let window = RecallWindow {
             strategy: "region".to_string(),

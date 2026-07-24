@@ -9,7 +9,7 @@ This repository is a unified Rust workspace that merges the original SoulSystem 
 **One-liner (recommended):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CHECKUPAUTO/SoulSystem/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Memorithm/SoulSystem/main/install.sh | sh
 ```
 
 This downloads a prebuilt `soulsystem` binary for your platform (Linux/macOS,
@@ -26,7 +26,7 @@ npm install -g soulsystem
 **Cargo (from source):**
 
 ```bash
-cargo install --git https://github.com/CHECKUPAUTO/SoulSystem soulsystem
+cargo install --git https://github.com/Memorithm/SoulSystem soulsystem
 # or, in a clone:
 cargo build --release --bin soulsystem
 ```
@@ -52,6 +52,12 @@ cargo build --release
 # Main binary
 cargo run --bin soulsystem -- --help
 
+# First-time configuration
+soulsystem --setup
+
+# Installation and environment diagnostics
+soulsystem --doctor
+
 # Autonomous REPL
 cargo run -p soul_repl --release
 
@@ -71,6 +77,9 @@ sudo cp target/release/souls /usr/local/bin/
 | **Persistence** | `soul_journal`, `soul_persistence` | WAL mmap, KV store Sled |
 | **Telemetry** | `soul_telemetry` | Métriques Prometheus, profiling thermique |
 | **CCOS** | `ccos` | Causal Context Operating System — merged workspace member |
+
+See [Getting started](docs/GETTING_STARTED.md) for the shortest installation
+path, provider setup, security defaults, and troubleshooting.
 
 ## Providers LLM
 

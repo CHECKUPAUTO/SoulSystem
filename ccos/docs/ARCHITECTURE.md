@@ -7,7 +7,7 @@ A practical map of the codebase for contributors. For the conceptual write-up se
 
 | Module                      | Responsibility | Key types |
 | --------------------------- | -------------- | --------- |
-| `parser`                    | Modules / `use` / symbols from Rust source — line-based heuristic, or a real `syn` AST behind the `syn-parser` feature | `ASTParser`, `ParseResult`, `Symbol`, `SymbolKind` |
+| `parser`                    | Modules / `use` / symbols from Rust source — real `syn` AST by default (line-heuristic fallback via `--no-default-features`) | `ASTParser`, `ParseResult`, `Symbol`, `SymbolKind` |
 | `memory`                    | The causal graph: scoring, paging, failure propagation, analytics | `MemoryGraph`, `GraphNode`, `GraphEdge`, `NodeId`, `NodeType`, `EdgeType` |
 | `incremental`               | `O(Δ)` graph maintenance on file edits | `IncrementalGraphEngine`, `DeltaMutation`, `MutationOp`, `FileState` |
 | `event_log`                 | Append-only event log with a canonical tamper-evident hash chain, deterministic replay & graph reconstruction | `EventLog`, `TraceEvent`, `EventType`, `EventPayload`, `LogIntegrity`, `EventReplayer`, `GraphReconstructor` |
@@ -19,7 +19,7 @@ A practical map of the codebase for contributors. For the conceptual write-up se
 | `persist`                   | Save/load a kernel snapshot (one file) | `KernelSnapshot` |
 | `query`                     | Read-only causal queries: impact/cause walks, hot set, GraphML export | `Reached`, `Direction`, `impact_set`, `source_set`, `hot_set`, `to_graphml` |
 | **`external_memory`**       | Documented façade: agent-facing external working memory (ingest / recall / signal-failure / checkpoint) over the kernel. See [`MEMORY_INTERFACE.md`](MEMORY_INTERFACE.md) | `ExternalMemory`, `CcosMemory`, `Recall`, `RecallWindow`, `MemoryError` |
-| **`agent_session`**         | Event-sourced cognitive timeline: record ops, `replay_to(step)` (deterministic), `recall_what_if(…)` (time-travel debugging) | `AgentSession` |
+| **`agent_session`**         | Event-sourced cognitive timeline: record ops, `replay_to(step)` (deterministic), `recall_what_if(…)` (time-travel debugging), tamper-evident op chain (`verify_timeline`, `timeline_head`, `audit_workspace`), multi-agent store (`export_bundle`/`import_bundle`/`merged_view` — chain-verified, convergent; see `docs/SYNC.md`) | `AgentSession`, `TimelineAudit`, `SyncBundle`, `SyncError` |
 | **`trace`**                 | Parse `cargo test`/panic/backtrace into the crash's source locations (dynamic layer) | `parse_cargo_test_output`, `ExecutionTrace`, `TraceHit` |
 | **`region_engine`** (v0.3)  | Clusters the graph into spatial regions; activation → context window; deterministic replay | `ContextRegionEngine`, `ContextWindow`, `RegionQuery` |
 | **`context_region`** (v0.3) | Spatial-memory data model (3-D embedding, temperature, density) | `ContextRegion`, `ContextPoint` |
@@ -62,7 +62,7 @@ relies on these prefixes to evict exactly one file's subgraph.
 | Node count ≤ `max_in_memory_nodes` | `enforce_paging` (called from `upsert_node`) |
 | Deterministic eviction/ordering | total order *(score, NodeId)* in `enforce_paging`, `get_node_scores`, `select_context_window` |
 | Guard output is always valid JSON | `GuardLayer::validate_and_sanitize` → `fallback_response` |
-| Hash chain is tamper-evident | `EventLog::verify_integrity` (primary log, canonical chain) + `DistributedEventLog::compute_link_hash` / `verify_integrity` |
+| Hash chain is tamper-evident | `EventLog::verify_integrity` (primary log, canonical chain) + `DistributedEventLog::compute_link_hash` / `verify_integrity` + `AgentSession::verify_timeline` (op-log chain; `open` refuses a tampered sidecar) |
 
 Regression coverage: `tests/graph_invariants.rs` (dangling-free, bounded,
 deterministic), `tests/long_term_stability.rs` (10k cycles),
@@ -115,7 +115,7 @@ or loaded from a snapshot (`blame`, `export`):
 
 ```bash
 cargo build --all-targets
-cargo test                    # 212 tests (218 with --features syn-parser)
+cargo test                    # full suite — default build = real `syn` AST; add --no-default-features (heuristic) / --features llm (async)
 cargo clippy --all-targets    # warning-clean (CI denies warnings)
 cargo doc --open              # rendered module docs
 ```

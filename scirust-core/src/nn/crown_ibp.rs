@@ -1,6 +1,15 @@
-//! **CROWN-IBP — certified (verified) training** (Zhang et al., *Towards Stable and
-//! Efficient Training of Verifiably Robust Neural Networks*, ICLR 2020,
-//! arXiv:1906.06316).
+//! **IBP certified (verified) training** — the interval-bound-propagation end of
+//! CROWN-IBP (Zhang et al., *Towards Stable and Efficient Training of Verifiably
+//! Robust Neural Networks*, ICLR 2020, arXiv:1906.06316).
+//!
+//! ⚠️ **Scope / honest labeling.** This implements pure **IBP** (differentiable
+//! interval-bound propagation), which is the `β = 0` / IBP end of the CROWN-IBP
+//! schedule. The bound it produces is **sound** (a valid over-approximation of
+//! the worst-case logits, so certificates it issues are never false), but it is
+//! *looser* than the full method: the **CROWN** component — per-neuron linear
+//! lower/upper relaxations with backward substitution — is **not** implemented
+//! here. Expect looser certified radii than a true CROWN-IBP; the linear
+//! relaxation is future work. (Type names are kept for API stability.)
 //!
 //! Ordinary training minimises the loss at the *concrete* inputs; a network can fit
 //! them perfectly yet flip its prediction under a tiny perturbation. CROWN-IBP
@@ -147,8 +156,18 @@ impl CrownIbpMlp {
         let xv = tape.input(TensorND::new(x.to_vec(), vec![1, x.len()]));
         let (c, r) = self.ibp_propagate(&tape, xv, eps);
         let (cv, rv) = (tape.value(c), tape.value(r));
-        let lo = cv.data.iter().zip(&rv.data).map(|(&c, &r)| c - r).collect();
-        let hi = cv.data.iter().zip(&rv.data).map(|(&c, &r)| c + r).collect();
+        let lo = cv
+            .data
+            .iter()
+            .zip(rv.data.iter())
+            .map(|(&c, &r)| c - r)
+            .collect();
+        let hi = cv
+            .data
+            .iter()
+            .zip(rv.data.iter())
+            .map(|(&c, &r)| c + r)
+            .collect();
         (lo, hi)
     }
 
@@ -187,7 +206,7 @@ impl CrownIbpMlp {
             .zip(&self.biases)
             .map(|(w, b)| {
                 let (din, dout) = (w.shape[0], w.shape[1]);
-                IbpLinear::new(w.data.clone(), b.data.clone(), din, dout)
+                IbpLinear::new(w.data.to_vec(), b.data.to_vec(), din, dout)
             })
             .collect();
         IbpMlp::new(layers)
@@ -304,7 +323,7 @@ mod tests {
             let mut opt = NdAdam::with_lr(0.05);
             for _ in 0..200 {
                 let tape = NdTape::new();
-                let xv = tape.input(TensorND::new(flat.clone(), vec![batch, 2]));
+                let xv = tape.input(TensorND::new(flat.to_vec(), vec![batch, 2]));
                 let loss = net.robust_loss(&tape, xv, eps, &labels);
                 let grads = tape.backward(loss);
                 opt.step(&mut net.parameters(), &grads);

@@ -72,7 +72,14 @@ impl<'a, T> MatrixView<'a, T> {
     /// Précondition : data.len() >= rows * cols
     #[inline]
     pub fn from_slice(data: &'a [T], rows: usize, cols: usize) -> Self {
-        assert!(data.len() >= rows * cols, "slice trop petit pour la vue");
+        // `rows * cols` doit être vérifié : en release le produit wrappe, donc
+        // des dimensions pathologiques pourraient wrapper vers un petit produit,
+        // passer l'assert sur un slice trop court, puis produire une vue dont les
+        // accès lisent hors bornes.
+        let need = rows
+            .checked_mul(cols)
+            .expect("MatrixView::from_slice: rows * cols overflows usize");
+        assert!(data.len() >= need, "slice trop petit pour la vue");
         Self {
             ptr: data.as_ptr(),
             rows,
@@ -118,18 +125,34 @@ impl<'a, T> MatrixView<'a, T> {
         col_start: usize,
         ncols: usize,
     ) -> MatrixView<'a, T> {
-        assert!(
-            row_start + nrows <= self.rows,
-            "sous-vue hors bornes (lignes)"
-        );
-        assert!(
-            col_start + ncols <= self.cols,
-            "sous-vue hors bornes (colonnes)"
-        );
+        let row_end = row_start
+            .checked_add(nrows)
+            .expect("sous-vue hors bornes (débordement lignes)");
+        let col_end = col_start
+            .checked_add(ncols)
+            .expect("sous-vue hors bornes (débordement colonnes)");
+        assert!(row_end <= self.rows, "sous-vue hors bornes (lignes)");
+        assert!(col_end <= self.cols, "sous-vue hors bornes (colonnes)");
+
+        // An empty view contains no element, so it does not need to be offset
+        // to its logical origin. Keeping the original pointer is important for
+        // shapes such as 0×N backed by an empty slice: `ptr.add(col_start)`
+        // would otherwise leave the (empty) allocation and itself be UB.
+        let offset = if nrows == 0 || ncols == 0 {
+            0
+        } else {
+            row_start
+                .checked_mul(self.row_stride)
+                .and_then(|row| {
+                    col_start
+                        .checked_mul(self.col_stride)
+                        .and_then(|col| row.checked_add(col))
+                })
+                .expect("sous-vue hors bornes (débordement offset)")
+        };
         unsafe {
             MatrixView::from_raw_parts(
-                self.ptr
-                    .add(row_start * self.row_stride + col_start * self.col_stride),
+                self.ptr.add(offset),
                 nrows,
                 ncols,
                 self.row_stride,
@@ -150,10 +173,28 @@ impl<'a, T> MatrixView<'a, T> {
         self.subview(0, self.rows, c, 1)
     }
 
-    /// Accès brut en lecture — inline critique pour les boucles internes
+    /// Accès en lecture avec vérification de bornes (API sûre : panique en
+    /// release comme en debug si l'index est hors bornes, au lieu de produire un
+    /// accès mémoire hors limites — UB — via le pointeur brut).
     #[inline(always)]
     pub fn get(&self, r: usize, c: usize) -> &T {
-        debug_assert!(r < self.rows && c < self.cols, "index hors bornes");
+        assert!(
+            r < self.rows && c < self.cols,
+            "index ({r}, {c}) hors bornes pour une vue {}x{}",
+            self.rows,
+            self.cols
+        );
+        // SAFETY: bornes vérifiées juste au-dessus.
+        unsafe { self.get_unchecked(r, c) }
+    }
+
+    /// Accès brut en lecture, sans vérification de bornes — pour les boucles
+    /// internes déjà prouvées dans les limites (GEMM/GEMV).
+    ///
+    /// # Safety
+    /// L'appelant garantit `r < rows` et `c < cols`.
+    #[inline(always)]
+    pub unsafe fn get_unchecked(&self, r: usize, c: usize) -> &T {
         unsafe { &*self.ptr.add(r * self.row_stride + c * self.col_stride) }
     }
 
@@ -164,10 +205,14 @@ impl<'a, T> MatrixView<'a, T> {
 
     /// Slice contiguë sur une ligne (uniquement si col_stride == 1)
     pub fn row_slice(&self, r: usize) -> Option<&'a [T]> {
+        if r >= self.rows {
+            return None;
+        }
         if self.col_stride == 1 {
-            Some(unsafe {
-                std::slice::from_raw_parts(self.ptr.add(r * self.row_stride), self.cols)
-            })
+            let offset = r
+                .checked_mul(self.row_stride)
+                .expect("MatrixView::row_slice: row offset overflows usize");
+            Some(unsafe { std::slice::from_raw_parts(self.ptr.add(offset), self.cols) })
         } else {
             None
         }
@@ -249,7 +294,10 @@ impl<'a, T> MatrixViewMut<'a, T> {
 
     #[inline]
     pub fn from_slice(data: &'a mut [T], rows: usize, cols: usize) -> Self {
-        assert!(data.len() >= rows * cols);
+        let need = rows
+            .checked_mul(cols)
+            .expect("MatrixViewMut::from_slice: rows * cols overflows usize");
+        assert!(data.len() >= need, "slice trop petit pour la vue");
         Self {
             ptr: data.as_mut_ptr(),
             rows,
@@ -283,13 +331,35 @@ impl<'a, T> MatrixViewMut<'a, T> {
         col_start: usize,
         ncols: usize,
     ) -> MatrixViewMut<'_, T> {
-        assert!(row_start + nrows <= self.rows);
-        assert!(col_start + ncols <= self.cols);
+        let row_end = row_start
+            .checked_add(nrows)
+            .expect("sous-vue mutable hors bornes (débordement lignes)");
+        let col_end = col_start
+            .checked_add(ncols)
+            .expect("sous-vue mutable hors bornes (débordement colonnes)");
+        assert!(
+            row_end <= self.rows,
+            "sous-vue mutable hors bornes (lignes)"
+        );
+        assert!(
+            col_end <= self.cols,
+            "sous-vue mutable hors bornes (colonnes)"
+        );
+        let offset = if nrows == 0 || ncols == 0 {
+            0
+        } else {
+            row_start
+                .checked_mul(self.row_stride)
+                .and_then(|row| {
+                    col_start
+                        .checked_mul(self.col_stride)
+                        .and_then(|col| row.checked_add(col))
+                })
+                .expect("sous-vue mutable hors bornes (débordement offset)")
+        };
         unsafe {
             MatrixViewMut {
-                ptr: self
-                    .ptr
-                    .add(row_start * self.row_stride + col_start * self.col_stride),
+                ptr: self.ptr.add(offset),
                 rows: nrows,
                 cols: ncols,
                 row_stride: self.row_stride,
@@ -299,18 +369,60 @@ impl<'a, T> MatrixViewMut<'a, T> {
         }
     }
 
+    /// Accès en lecture (immuable) avec vérification de bornes.
+    #[inline(always)]
+    pub fn get(&self, r: usize, c: usize) -> &T {
+        assert!(
+            r < self.rows && c < self.cols,
+            "index ({r}, {c}) hors bornes pour une vue {}x{}",
+            self.rows,
+            self.cols
+        );
+        // SAFETY: bornes vérifiées juste au-dessus.
+        unsafe { &*self.ptr.add(r * self.row_stride + c * self.col_stride) }
+    }
+
+    /// Accès brut en lecture sans vérification de bornes.
+    ///
+    /// # Safety
+    /// L'appelant garantit `r < rows` et `c < cols`.
+    #[inline(always)]
+    pub unsafe fn get_unchecked(&self, r: usize, c: usize) -> &T {
+        unsafe { &*self.ptr.add(r * self.row_stride + c * self.col_stride) }
+    }
+
+    /// Accès mutable avec vérification de bornes (panique en release aussi).
     #[inline(always)]
     pub fn get_mut(&mut self, r: usize, c: usize) -> &mut T {
-        debug_assert!(r < self.rows && c < self.cols);
+        assert!(
+            r < self.rows && c < self.cols,
+            "index ({r}, {c}) hors bornes pour une vue {}x{}",
+            self.rows,
+            self.cols
+        );
+        // SAFETY: bornes vérifiées juste au-dessus.
+        unsafe { self.get_unchecked_mut(r, c) }
+    }
+
+    /// Accès mutable sans vérification de bornes — boucles internes prouvées.
+    ///
+    /// # Safety
+    /// L'appelant garantit `r < rows` et `c < cols`.
+    #[inline(always)]
+    pub unsafe fn get_unchecked_mut(&mut self, r: usize, c: usize) -> &mut T {
         unsafe { &mut *self.ptr.add(r * self.row_stride + c * self.col_stride) }
     }
 
     /// Slice contiguë mutable sur une ligne (uniquement si col_stride == 1)
     pub fn row_slice_mut(&mut self, r: usize) -> Option<&mut [T]> {
+        if r >= self.rows {
+            return None;
+        }
         if self.col_stride == 1 {
-            Some(unsafe {
-                std::slice::from_raw_parts_mut(self.ptr.add(r * self.row_stride), self.cols)
-            })
+            let offset = r
+                .checked_mul(self.row_stride)
+                .expect("MatrixViewMut::row_slice_mut: row offset overflows usize");
+            Some(unsafe { std::slice::from_raw_parts_mut(self.ptr.add(offset), self.cols) })
         } else {
             None
         }
@@ -330,8 +442,7 @@ impl<'a, T> Index<(usize, usize)> for MatrixViewMut<'a, T> {
     type Output = T;
     #[inline(always)]
     fn index(&self, (r, c): (usize, usize)) -> &T {
-        debug_assert!(r < self.rows && c < self.cols);
-        unsafe { &*self.ptr.add(r * self.row_stride + c * self.col_stride) }
+        self.get(r, c)
     }
 }
 
@@ -362,6 +473,36 @@ mod tests {
         assert_eq!(view[(3, 3)], 15.0);
     }
 
+    // Regression: a SAFE constructor + SAFE index must never read out of bounds
+    // in release. Previously `get`/`Index` only `debug_assert!`ed, so this read
+    // was UB in a release build. It must now panic (bounds-checked) in every
+    // profile.
+    #[test]
+    #[should_panic(expected = "hors bornes")]
+    fn get_out_of_range_panics_not_ub() {
+        let data = vec![1.0f64, 2.0, 3.0, 4.0];
+        let view = MatrixView::from_slice(&data, 2, 2);
+        let _ = view[(9, 9)]; // 9 >= rows/cols -> must panic, not OOB-read
+    }
+
+    #[test]
+    #[should_panic(expected = "hors bornes")]
+    fn get_mut_out_of_range_panics_not_ub() {
+        let mut data = vec![1.0f64, 2.0, 3.0, 4.0];
+        let mut view = MatrixViewMut::from_slice(&mut data, 2, 2);
+        *view.get_mut(5, 0) = 0.0; // must panic, not OOB-write
+    }
+
+    // Regression: `rows * cols` must be checked so a wrapping product cannot pass
+    // the slice-length assert and yield a view over a too-short slice.
+    #[test]
+    #[should_panic(expected = "overflows usize")]
+    fn from_slice_rejects_dimension_overflow() {
+        let data = vec![0.0f64; 4];
+        // rows * cols wraps to a small value in release without the checked_mul.
+        let _ = MatrixView::from_slice(&data, usize::MAX, 2);
+    }
+
     #[test]
     fn test_subview_no_alloc() {
         let data = make_4x4();
@@ -379,6 +520,31 @@ mod tests {
         let view = MatrixView::from_slice(&data, 4, 4);
         let row2 = view.row_slice(2).unwrap();
         assert_eq!(row2, &[8.0, 9.0, 10.0, 11.0]);
+    }
+
+    #[test]
+    fn row_slice_rejects_out_of_bounds_row() {
+        let data = make_4x4();
+        let view = MatrixView::from_slice(&data, 4, 4);
+        assert!(view.row_slice(4).is_none());
+        assert!(view.row_slice(usize::MAX).is_none());
+    }
+
+    #[test]
+    fn row_slice_mut_rejects_out_of_bounds_row() {
+        let mut data = make_4x4();
+        let mut view = MatrixViewMut::from_slice(&mut data, 4, 4);
+        assert!(view.row_slice_mut(4).is_none());
+        assert!(view.row_slice_mut(usize::MAX).is_none());
+    }
+
+    #[test]
+    fn empty_subview_does_not_offset_empty_backing() {
+        let data: [u8; 0] = [];
+        let view = MatrixView::from_slice(&data, 0, usize::MAX);
+        let empty_col = view.subview(0, 0, usize::MAX - 1, 1);
+        assert_eq!(empty_col.shape(), (0, 1));
+        assert_eq!(empty_col.as_ptr(), view.as_ptr());
     }
 
     #[test]

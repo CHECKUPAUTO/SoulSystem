@@ -3,11 +3,16 @@ resolver = "2"
 members = [
     # ── CCOS (Causal Context Operating System) ─────────────────────────
     "ccos",
+    "ccos/crates/ccos-memory-runtime",
     "octasoma",
     "slha-kernel",
 
     # ── SciRust core (local, replaces /root/scirust subtree) ─────────────
     "scirust-core",
+
+    # ── CERVO — Swarm d'unités auto-évolutives (cerveau autonome) ───────
+    "cervo",
+
     # scirust-gpu moved to ./workspaces/gpu (CI memory constraint — 7GB runner)
     "scirust-simd",
     "scirust-autodiff",
@@ -159,6 +164,10 @@ members = [
     "terminal-stream",
     "pty-terminal",
     "spinner",
+
+    # ── MCP servers ─────────────────────────────────────────────────────
+    "cervo-mcp",
+    "soulsystem-lite",
 
     # ── Standalone agents / forges ──────────────────────────────────────
     "synergie",

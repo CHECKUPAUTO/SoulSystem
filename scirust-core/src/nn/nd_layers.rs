@@ -8,9 +8,11 @@
 //! preserving determinism.
 
 use crate::autodiff::nd::{NdTape, NdVar};
+use crate::error::{Result, SciRustError};
 use crate::nn::nd_optim::NdParam;
 use crate::nn::rng::PcgEngine;
 use crate::tensor::tensor_nd::TensorND;
+use std::collections::HashMap;
 
 /// A dense layer `y = x · W + b` acting on the **last axis** of an N-D input:
 /// `(…, in) → (…, out)`. The leading axes (batch, heads, sequence, …) are
@@ -64,12 +66,12 @@ impl NdLinear {
     /// returned by [`NdTape::backward`] (must follow a `forward` on that tape).
     pub fn sgd_step(&mut self, grads: &[TensorND], lr: f32) {
         if let Some(i) = self.w_idx {
-            for (p, &g) in self.weight.data.iter_mut().zip(&grads[i].data) {
+            for (p, &g) in self.weight.data_mut().iter_mut().zip(grads[i].data.iter()) {
                 *p -= lr * g;
             }
         }
         if let Some(i) = self.b_idx {
-            for (p, &g) in self.bias.data.iter_mut().zip(&grads[i].data) {
+            for (p, &g) in self.bias.data_mut().iter_mut().zip(grads[i].data.iter()) {
                 *p -= lr * g;
             }
         }
@@ -138,7 +140,7 @@ impl NdEmbedding {
     /// SGD-update the table from a `backward` result.
     pub fn sgd_step(&mut self, grads: &[TensorND], lr: f32) {
         if let Some(i) = self.idx {
-            for (p, &g) in self.table.data.iter_mut().zip(&grads[i].data) {
+            for (p, &g) in self.table.data_mut().iter_mut().zip(grads[i].data.iter()) {
                 *p -= lr * g;
             }
         }
@@ -249,9 +251,12 @@ impl NdMultiHeadAttention {
         causal: bool,
         rng: &mut PcgEngine,
     ) -> Self {
-        assert!(d_model % n_heads == 0, "d_model must divide n_heads");
         assert!(
-            num_kv_heads >= 1 && n_heads % num_kv_heads == 0,
+            d_model.is_multiple_of(n_heads),
+            "d_model must be a multiple of n_heads"
+        );
+        assert!(
+            num_kv_heads >= 1 && n_heads.is_multiple_of(num_kv_heads),
             "n_heads must be a multiple of num_kv_heads"
         );
         let d_head = d_model / n_heads;
@@ -291,7 +296,7 @@ impl NdMultiHeadAttention {
     /// call sites are unaffected.
     pub fn with_rope(mut self, enabled: bool) -> Self {
         assert!(
-            !enabled || self.d_head % 2 == 0,
+            !enabled || self.d_head.is_multiple_of(2),
             "RoPE needs an even d_head (got {})",
             self.d_head
         );
@@ -417,12 +422,12 @@ impl NdLayerNorm {
     /// SGD-update `γ` and `β`.
     pub fn sgd_step(&mut self, grads: &[TensorND], lr: f32) {
         if let Some(i) = self.g_idx {
-            for (p, &gv) in self.gamma.data.iter_mut().zip(&grads[i].data) {
+            for (p, &gv) in self.gamma.data_mut().iter_mut().zip(grads[i].data.iter()) {
                 *p -= lr * gv;
             }
         }
         if let Some(i) = self.b_idx {
-            for (p, &gv) in self.beta.data.iter_mut().zip(&grads[i].data) {
+            for (p, &gv) in self.beta.data_mut().iter_mut().zip(grads[i].data.iter()) {
                 *p -= lr * gv;
             }
         }
@@ -476,7 +481,7 @@ impl NdRmsNorm {
     /// SGD-update `γ`.
     pub fn sgd_step(&mut self, grads: &[TensorND], lr: f32) {
         if let Some(i) = self.g_idx {
-            for (p, &gv) in self.gamma.data.iter_mut().zip(&grads[i].data) {
+            for (p, &gv) in self.gamma.data_mut().iter_mut().zip(grads[i].data.iter()) {
                 *p -= lr * gv;
             }
         }
@@ -596,6 +601,182 @@ impl NdTransformerBlock {
         params.extend(self.ffn1.parameters());
         params.extend(self.ffn2.parameters());
         params
+    }
+}
+
+// ---------------------------------------------------------------------------
+//  Named state dicts for the N-D layers (serialization support)
+// ---------------------------------------------------------------------------
+//
+// The optimizer path exposes parameters positionally (`parameters()` →
+// `Vec<NdParam>`), which is useless for saving/loading a model. These methods
+// give every parameter a stable hierarchical name following the 2-D
+// "prefix.key" convention (`nn::module`): a parent passes `"{prefix}.{child}"`
+// down, leaves append their parameter name ("weight", "bias", "table",
+// "gamma", "beta"). The model topology is deterministic, so the names are too.
+
+/// Fetch `key` from a state dict and validate its shape against `expected`.
+/// Errors on a missing key ([`SciRustError::InvalidConfig`]), a rank mismatch
+/// ([`SciRustError::RankMismatch`]), or — for matching ranks — a dimension
+/// mismatch ([`SciRustError::ShapeMismatch`] for rank 2, the typed 2-D variant;
+/// [`SciRustError::InvalidConfig`] with both full shapes otherwise). Returns a
+/// contiguous copy ready to store.
+pub(crate) fn take_state_dict_param(
+    sd: &HashMap<String, TensorND>,
+    key: &str,
+    expected: &[usize],
+) -> Result<TensorND> {
+    let t = sd.get(key).ok_or_else(|| {
+        SciRustError::InvalidConfig(format!("load_state_dict: missing key: {key}"))
+    })?;
+    if t.shape.len() != expected.len() {
+        return Err(SciRustError::RankMismatch {
+            op: "load_state_dict",
+            expected: expected.len(),
+            got: t.shape.len(),
+        });
+    }
+    if t.shape != expected {
+        if expected.len() == 2 {
+            return Err(SciRustError::ShapeMismatch {
+                op: "load_state_dict",
+                expected: (expected[0], expected[1]),
+                got: (t.shape[0], t.shape[1]),
+            });
+        }
+        return Err(SciRustError::InvalidConfig(format!(
+            "load_state_dict: shape mismatch for '{key}': expected {:?}, got {:?}",
+            expected, t.shape
+        )));
+    }
+    Ok(t.to_contiguous())
+}
+
+impl NdLinear {
+    /// Insert this layer's parameters into `out`: `"{prefix}.weight"`
+    /// (`(in, out)`) and `"{prefix}.bias"` (`(1, out)`).
+    pub fn state_dict_into(&self, prefix: &str, out: &mut HashMap<String, TensorND>) {
+        out.insert(format!("{prefix}.weight"), self.weight.clone());
+        out.insert(format!("{prefix}.bias"), self.bias.clone());
+    }
+
+    /// Load the parameters stored under `prefix`. Errors on a missing key or a
+    /// rank/shape mismatch (see [`take_state_dict_param`]).
+    pub fn load_state_dict_from(
+        &mut self,
+        prefix: &str,
+        sd: &HashMap<String, TensorND>,
+    ) -> Result<()> {
+        self.weight = take_state_dict_param(
+            sd,
+            &format!("{prefix}.weight"),
+            &[self.in_features, self.out_features],
+        )?;
+        self.bias = take_state_dict_param(sd, &format!("{prefix}.bias"), &[1, self.out_features])?;
+        Ok(())
+    }
+}
+
+impl NdEmbedding {
+    /// Insert the table into `out` as `"{prefix}.table"` (`(vocab, dim)`).
+    pub fn state_dict_into(&self, prefix: &str, out: &mut HashMap<String, TensorND>) {
+        out.insert(format!("{prefix}.table"), self.table.clone());
+    }
+
+    /// Load the table stored under `prefix`. Errors on a missing key or a
+    /// rank/shape mismatch.
+    pub fn load_state_dict_from(
+        &mut self,
+        prefix: &str,
+        sd: &HashMap<String, TensorND>,
+    ) -> Result<()> {
+        let expected = self.table.shape.clone();
+        self.table = take_state_dict_param(sd, &format!("{prefix}.table"), &expected)?;
+        Ok(())
+    }
+}
+
+impl NdLayerNorm {
+    /// Insert the affine into `out`: `"{prefix}.gamma"` and `"{prefix}.beta"`
+    /// (both `(d,)`).
+    pub fn state_dict_into(&self, prefix: &str, out: &mut HashMap<String, TensorND>) {
+        out.insert(format!("{prefix}.gamma"), self.gamma.clone());
+        out.insert(format!("{prefix}.beta"), self.beta.clone());
+    }
+
+    /// Load the affine stored under `prefix`. Errors on a missing key or a
+    /// rank/shape mismatch.
+    pub fn load_state_dict_from(
+        &mut self,
+        prefix: &str,
+        sd: &HashMap<String, TensorND>,
+    ) -> Result<()> {
+        let expected = self.gamma.shape.clone();
+        self.gamma = take_state_dict_param(sd, &format!("{prefix}.gamma"), &expected)?;
+        self.beta = take_state_dict_param(sd, &format!("{prefix}.beta"), &expected)?;
+        Ok(())
+    }
+}
+
+impl NdMultiHeadAttention {
+    /// Insert the four projections into `out` under `"{prefix}.w_q"`,
+    /// `"{prefix}.w_k"`, `"{prefix}.w_v"`, `"{prefix}.w_o"` (each a
+    /// [`NdLinear`] with `.weight` / `.bias`).
+    pub fn state_dict_into(&self, prefix: &str, out: &mut HashMap<String, TensorND>) {
+        self.w_q.state_dict_into(&format!("{prefix}.w_q"), out);
+        self.w_k.state_dict_into(&format!("{prefix}.w_k"), out);
+        self.w_v.state_dict_into(&format!("{prefix}.w_v"), out);
+        self.w_o.state_dict_into(&format!("{prefix}.w_o"), out);
+    }
+
+    /// Load the four projections stored under `prefix`. Errors on a missing
+    /// key or a rank/shape mismatch.
+    pub fn load_state_dict_from(
+        &mut self,
+        prefix: &str,
+        sd: &HashMap<String, TensorND>,
+    ) -> Result<()> {
+        self.w_q
+            .load_state_dict_from(&format!("{prefix}.w_q"), sd)?;
+        self.w_k
+            .load_state_dict_from(&format!("{prefix}.w_k"), sd)?;
+        self.w_v
+            .load_state_dict_from(&format!("{prefix}.w_v"), sd)?;
+        self.w_o
+            .load_state_dict_from(&format!("{prefix}.w_o"), sd)?;
+        Ok(())
+    }
+}
+
+impl NdTransformerBlock {
+    /// Insert every parameter of the block into `out` under `"{prefix}.ln1"`,
+    /// `"{prefix}.attn"`, `"{prefix}.ln2"`, `"{prefix}.ffn1"`, `"{prefix}.ffn2"`.
+    pub fn state_dict_into(&self, prefix: &str, out: &mut HashMap<String, TensorND>) {
+        self.ln1.state_dict_into(&format!("{prefix}.ln1"), out);
+        self.attn.state_dict_into(&format!("{prefix}.attn"), out);
+        self.ln2.state_dict_into(&format!("{prefix}.ln2"), out);
+        self.ffn1.state_dict_into(&format!("{prefix}.ffn1"), out);
+        self.ffn2.state_dict_into(&format!("{prefix}.ffn2"), out);
+    }
+
+    /// Load every parameter of the block stored under `prefix`. Errors on a
+    /// missing key or a rank/shape mismatch.
+    pub fn load_state_dict_from(
+        &mut self,
+        prefix: &str,
+        sd: &HashMap<String, TensorND>,
+    ) -> Result<()> {
+        self.ln1
+            .load_state_dict_from(&format!("{prefix}.ln1"), sd)?;
+        self.attn
+            .load_state_dict_from(&format!("{prefix}.attn"), sd)?;
+        self.ln2
+            .load_state_dict_from(&format!("{prefix}.ln2"), sd)?;
+        self.ffn1
+            .load_state_dict_from(&format!("{prefix}.ffn1"), sd)?;
+        self.ffn2
+            .load_state_dict_from(&format!("{prefix}.ffn2"), sd)?;
+        Ok(())
     }
 }
 
@@ -1411,6 +1592,22 @@ impl NdRwkv {
     }
 }
 
+/// Clamps `x` to `x <= bound` via the exact identity `min(x, bound) =
+/// x - relu(x - bound)`. Used to bound an exponential-input-gate pre-activation
+/// so `exp()` cannot overflow to `+inf` (which then poisons the `c/n` ratio with
+/// `inf/inf = NaN`). For any realistic gate activation (`|x| << bound`) this is a
+/// no-op with gradient 1, so it does not perturb normal training or the
+/// gradient checks; it only caps pathological/unbounded projections.
+fn clamp_gate_arg<'t>(tape: &'t NdTape, x: NdVar<'t>, bound: f32) -> NdVar<'t> {
+    let b = tape.input(TensorND::new(vec![bound], vec![1, 1]));
+    x.sub(x.sub(b).relu())
+}
+
+/// Safe upper bound for an `exp()` argument in f32: `exp(40) ≈ 2.4e17`, far below
+/// `f32::MAX ≈ 3.4e38`, leaving headroom for accumulation across a scan while
+/// sitting far above any realistic gate pre-activation.
+const GATE_EXP_CLAMP: f32 = 40.0;
+
 /// **sLSTM cell** — the scalar-memory xLSTM recurrence (Beck et al., *xLSTM:
 /// Extended Long Short-Term Memory*, NeurIPS 2024, arXiv:2405.04517). It extends
 /// the LSTM with an **exponential input gate** and a **normaliser state**:
@@ -1426,9 +1623,11 @@ impl NdRwkv {
 /// ```
 ///
 /// `tanh` is built from the available `sigmoid` op via the exact identity
-/// `tanh(x) = 2σ(2x) − 1`. The log-space stabiliser state `mₜ` is **omitted**: it
-/// cancels exactly in the ratio `cₜ/nₜ` (a pure numerical device) and the bounded
-/// inputs used here keep `exp` finite; the normaliser `nₜ ≥ iₜ = exp(ĩₜ) > 0` is
+/// `tanh(x) = 2σ(2x) − 1`. The full log-space stabiliser state `mₜ` is **omitted**:
+/// it cancels exactly in the ratio `cₜ/nₜ` (a pure numerical device). Instead the
+/// input-gate argument `ĩₜ` is defensively clamped (see [`clamp_gate_arg`]) so
+/// `exp` cannot overflow to `+inf` on an unbounded projection; the normaliser
+/// `nₜ ≥ iₜ = exp(ĩₜ) > 0` is
 /// provably positive so the division is always well-defined. Because `cₜ/nₜ` is a
 /// positive-weighted average of `zₜ ∈ (−1,1)`, the output is intrinsically bounded
 /// in `(−1,1)` (stable without the stabiliser). Recurrent gate connections (memory
@@ -1450,7 +1649,9 @@ pub fn slstm_scan<'t>(
     let mut n = tape.input(TensorND::zeros(&[1, d])); // normaliser n_0 = 0
     let mut outs: Vec<NdVar<'t>> = Vec::with_capacity(seq);
     for t in 0..seq {
-        let i_t = i_pre.gather(&[t]).exp(); // exponential input gate
+        // exponential input gate, with the argument clamped so exp cannot
+        // overflow to +inf (which would give NaN in the c/n ratio below).
+        let i_t = clamp_gate_arg(tape, i_pre.gather(&[t]), GATE_EXP_CLAMP).exp();
         let f_t = f_pre.gather(&[t]).sigmoid(); // forget gate ∈ (0,1)
         let z_t = z_pre.gather(&[t]).mul(two).sigmoid().mul(two).sub(one); // tanh
         let o_t = o_pre.gather(&[t]).sigmoid(); // output gate ∈ (0,1)
@@ -1496,7 +1697,7 @@ pub fn mlstm_scan<'t>(
         let q_t = q.gather(&[t]); // (1,d)
         let k_t = k.gather(&[t]); // (1,d)
         let v_t = v.gather(&[t]); // (1,d)
-        let i_t = i_pre.gather(&[t]).exp(); // (1,1) exp gate
+        let i_t = clamp_gate_arg(tape, i_pre.gather(&[t]), GATE_EXP_CLAMP).exp(); // (1,1) exp gate, clamped
         let f_t = f_pre.gather(&[t]).sigmoid(); // (1,1) forget gate
         let outer = v_t.reshape(&[d, 1]).matmul(k_t); // vₜᵀkₜ  (d,d)
         cmat = f_t.mul(cmat).add(i_t.mul(outer)); // Cₜ
@@ -1564,27 +1765,16 @@ impl NdXlstm {
 /// y[t,c] = Σ_{τ=0}^{t} h[τ,c]·u[t−τ,c]
 /// ```
 ///
-/// expressed on the tape as `y = Σ_τ h[τ,:] ⊙ (Sτ·u)`, where each `Sτ` is the
-/// **constant** shift-down-by-`τ` matrix (1 on its `τ`-th lower sub-diagonal).
-/// Distributing the matmul over the (learnable) taps keeps the whole thing
-/// differentiable in both `u` and `h` without a scatter op. `u` and `h` are
-/// `(seq, d)`; returns `(seq, d)`. Causal, deterministic; gradient-checked.
-pub fn hyena_long_conv<'t>(tape: &'t NdTape, u: NdVar<'t>, h: NdVar<'t>) -> NdVar<'t> {
-    let us = u.shape();
-    let (seq, d) = (us[0], us[1]);
-    let mut y = tape.input(TensorND::zeros(&[seq, d]));
-    for tau in 0..seq {
-        // Sτ : (seq×seq), Sτ[t, t−τ] = 1 ⇒ (Sτ·u)[t] = u[t−τ] (0 for t<τ).
-        let mut sdata = vec![0f32; seq * seq];
-        for t in tau..seq {
-            sdata[t * seq + (t - tau)] = 1.0;
-        }
-        let s = tape.input(TensorND::new(sdata, vec![seq, seq]));
-        let shifted = s.matmul(u); // (seq,d): row t = u[t−τ]
-        let tap = h.gather(&[tau]); // (1,d): filter tap at lag τ
-        y = y.add(tap.mul(shifted)); // += h[τ,:] ⊙ shifted
-    }
-    y
+/// evaluated by the fused [`NdVar::causal_conv`] tape op. The previous
+/// formulation expanded this as `y = Σ_τ h[τ,:] ⊙ (Sτ·u)`, materialising a
+/// `(seq×seq)` shift matrix `Sτ` per lag and running a full matmul against it —
+/// `O(seq³·d)` work (and `O(seq²)` scratch per tap) to move data around. The
+/// fused op does the same accumulation directly in `O(seq²·d)`; because it sums
+/// the taps in the same `τ`-ascending order, the result is bit-for-bit
+/// identical. `u` and `h` are `(seq, d)`; returns `(seq, d)`. Causal,
+/// deterministic; gradient-checked and differentiable in both `u` and `h`.
+pub fn hyena_long_conv<'t>(_tape: &'t NdTape, u: NdVar<'t>, h: NdVar<'t>) -> NdVar<'t> {
+    u.causal_conv(h)
 }
 
 /// **Hyena implicit filter** — the convolution filter is not stored tap-by-tap but
@@ -1772,8 +1962,10 @@ pub fn ssd_dual<'t>(
 }
 
 /// **Mamba-2 block** (SSD): from the input it projects the value stream `x`, the
-/// state vectors `B`/`C`, and a scalar step `Δ = softplus(·)`; the per-step scalar
-/// decay is `a_logₜ = Δₜ·A` with a learnable `A = −exp(A_raw) < 0` (contractive),
+/// state vectors `B`/`C`, and a positive scalar step `Δ = exp(·)` (a log-space
+/// stand-in for softplus, so no `log`/`softplus` op is needed); the input is
+/// discretized as `B̄ₜ = Δₜ·Bₜ` and the per-step scalar decay is `a_logₜ = Δₜ·A`
+/// with a learnable `A = −exp(A_raw) < 0` (contractive),
 /// runs the [`ssd_dual`] quadratic scan, adds a gated skip `D⊙x` and projects back.
 /// Deterministic; trainable through the N-D tape. `(seq, d_model) → (seq, d_model)`.
 pub struct NdMamba2 {
@@ -1817,10 +2009,16 @@ impl NdMamba2 {
         let neg1 = tape.input(TensorND::new(vec![-1.0f32], vec![1, 1]));
         let a_scalar = a_raw.exp().mul(neg1); // A = −exp(a_raw) < 0
         let a_log = dt.mul(a_scalar); // a_logₜ = Δₜ·A < 0  (seq,1)
-        let scan = ssd_dual(tape, xv, b, c, a_log); // (seq, d_inner)
+        // Discretize the input contribution: B̄ₜ = Δₜ·Bₜ (canonical Mamba-2 SSD,
+        // and what the crate's own v1 `selective_scan` does with `dbx = Δ·B·x`).
+        // Folding Δ into the value stream is equivalent, since the j-th input's
+        // contribution is scaled by the scalar Δⱼ. The previous code fed x raw,
+        // applying Δ only to the decay — an off-by-Δ vs. the canonical algorithm.
+        let xv_disc = xv.mul(dt); // (seq, d_inner) ⊙ (seq,1)
+        let scan = ssd_dual(tape, xv_disc, b, c, a_log); // (seq, d_inner)
         let skip = tape.input(self.d_skip.clone());
         self.d_idx = Some(skip.idx());
-        let y = scan.add(skip.mul(xv)); // gated skip D⊙x
+        let y = scan.add(skip.mul(xv)); // gated skip D⊙x on the RAW value stream
         self.out_proj.forward(tape, y) // (seq, d_model)
     }
 
@@ -2410,6 +2608,45 @@ mod tests {
         let (first2, last2) = run();
         assert_eq!(first.to_bits(), first2.to_bits());
         assert_eq!(last.to_bits(), last2.to_bits());
+    }
+
+    /// A large (unbounded) input-gate pre-activation must not overflow `exp` to
+    /// `+inf` and poison the `c/n` ratio with `NaN`. The clamp on the gate
+    /// argument keeps the output finite.
+    #[test]
+    fn slstm_scan_large_input_gate_stays_finite() {
+        let (seq, d) = (3usize, 2usize);
+        let t = NdTape::new();
+        let iv = t.input(TensorND::new(vec![100.0f32; seq * d], vec![seq, d])); // huge ĩ
+        let fv = t.input(TensorND::new(vec![0.5f32; seq * d], vec![seq, d]));
+        let zv = t.input(TensorND::new(vec![0.3f32; seq * d], vec![seq, d]));
+        let ov = t.input(TensorND::new(vec![0.1f32; seq * d], vec![seq, d]));
+        let y = slstm_scan(&t, iv, fv, zv, ov);
+        let yt = t.value(y);
+        assert!(
+            yt.data.iter().all(|v| v.is_finite()),
+            "sLSTM output non-finite for a large input gate: {:?}",
+            yt.data
+        );
+    }
+
+    /// Same overflow guard for the matrix-memory mLSTM cell.
+    #[test]
+    fn mlstm_scan_large_input_gate_stays_finite() {
+        let (seq, d) = (3usize, 2usize);
+        let t = NdTape::new();
+        let q = t.input(TensorND::new(vec![0.2f32; seq * d], vec![seq, d]));
+        let k = t.input(TensorND::new(vec![0.3f32; seq * d], vec![seq, d]));
+        let v = t.input(TensorND::new(vec![0.4f32; seq * d], vec![seq, d]));
+        let ip = t.input(TensorND::new(vec![100.0f32; seq], vec![seq, 1])); // huge ĩ
+        let fp = t.input(TensorND::new(vec![0.5f32; seq], vec![seq, 1]));
+        let y = mlstm_scan(&t, q, k, v, ip, fp);
+        let yt = t.value(y);
+        assert!(
+            yt.data.iter().all(|z| z.is_finite()),
+            "mLSTM output non-finite for a large input gate: {:?}",
+            yt.data
+        );
     }
 
     /// `slstm_scan` gradients (w.r.t. the four gate pre-activations) match finite
@@ -3717,7 +3954,7 @@ mod tests {
 
         // Gradient check on A and B (perturb after a few updates so B ≠ 0).
         let a0 = lora.a.data.clone();
-        let mut b0 = lora.b.data.clone();
+        let mut b0 = lora.b.data.to_vec();
         for v in b0.iter_mut() {
             *v = 0.1; // make B non-trivial for the check
         }
@@ -3731,8 +3968,8 @@ mod tests {
             t.value(o.mul(o).sum()).data[0]
         };
         let mut lr = LoraLinear::new(w.clone(), in_f, out_f, r, 8.0, &mut PcgEngine::new(2));
-        lr.a = TensorND::new(a0.clone(), vec![in_f, r]);
-        lr.b = TensorND::new(b0.clone(), vec![r, out_f]);
+        lr.a = TensorND::new(a0.to_vec(), vec![in_f, r]);
+        lr.b = TensorND::new(b0.to_vec(), vec![r, out_f]);
         let t = NdTape::new();
         let xv = t.input(TensorND::new(x.clone(), vec![2, in_f]));
         let o = lr.forward(&t, xv);
@@ -3922,7 +4159,7 @@ mod tests {
             let t = NdTape::new();
             let xv = t.input(TensorND::new(xd.to_vec(), vec![seq, d_model]));
             let out = attn.forward(&t, xv);
-            t.value(out).data.clone()
+            t.value(out).data.to_vec()
         };
 
         let a = run(&base, &mut attn);

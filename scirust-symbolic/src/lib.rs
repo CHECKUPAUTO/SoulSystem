@@ -367,9 +367,9 @@ pub fn diff(expr: &Expr, var: &str) -> Expr {
                     coef * pow * diff(a, var)
                 }
                 _ => {
-                    // General case: treat as exp(b * ln(a))
-                    // derivative = a^b * (b' * ln(a) + b * a' / a)
-                    // Stub: fall back to unsimplified form
+                    // General case by logarithmic differentiation
+                    // (a^b = exp(b·ln a)): d/dx = a^b·(b'·ln a + b·a'/a).
+                    // Correct, but returned unsimplified.
                     Expr::Mul(
                         Box::new(expr.clone()),
                         Box::new(
@@ -504,7 +504,21 @@ pub fn solve_quadratic(expr: &Expr, var: &str) -> Vec<f64> {
     }
     let disc = disc.max(0.0);
     let sqrt_disc = disc.sqrt();
-    let mut roots = vec![(-b + sqrt_disc) / (2.0 * a), (-b - sqrt_disc) / (2.0 * a)];
+    // Stable form (Numerical Recipes §5.6; Goldberg 1991): computing
+    // q = -½(b + sign(b)·√disc) — a sum of same-signed terms — and then the
+    // roots q/a and c/q (Vieta) avoids the catastrophic cancellation of the
+    // naive (-b ± √disc)/(2a) when b² ≫ 4ac (well-separated roots). The
+    // final sort below makes root order independent of which formula
+    // produced which value, so no ordering convention is lost.
+    let mut roots = if sqrt_disc.abs() < 1e-300 && b.abs() < 1e-300 {
+        // q would be 0 (disc == 0 and b == 0, i.e. a repeated root at 0).
+        let x = -b / (2.0 * a);
+        vec![x, x]
+    } else {
+        let sign_b = if b < 0.0 { -1.0 } else { 1.0 };
+        let q = -0.5 * (b + sign_b * sqrt_disc);
+        vec![q / a, c / q]
+    };
     roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     roots
 }
@@ -530,14 +544,43 @@ pub fn solve_linear(expr: &Expr, var: &str) -> Option<f64> {
 
 // ── Proof ──
 
+/// Collect the set of free variable names appearing in `expr`.
+/// Returned in sorted order so callers see deterministic results.
+fn collect_vars(expr: &Expr, out: &mut std::collections::BTreeSet<String>) {
+    match expr {
+        Expr::Const(_) => {}
+        Expr::Var(v) => {
+            out.insert(v.clone());
+        }
+        Expr::Add(a, b) | Expr::Sub(a, b) | Expr::Mul(a, b) | Expr::Div(a, b) | Expr::Pow(a, b) => {
+            collect_vars(a, out);
+            collect_vars(b, out);
+        }
+        Expr::Neg(a)
+        | Expr::Sin(a)
+        | Expr::Cos(a)
+        | Expr::Exp(a)
+        | Expr::Ln(a)
+        | Expr::Sqrt(a)
+        | Expr::Abs(a) => collect_vars(a, out),
+    }
+}
+
 /// Check if two expressions are equivalent by evaluating at random points.
 pub fn prove_equal(a: &Expr, b: &Expr) -> bool {
-    let vars = ["x", "y", "z", "u", "v", "w"];
+    // Bind every variable that appears in either expression, not just a fixed
+    // handful — otherwise an expression using e.g. `t` would fail to evaluate
+    // and be wrongly reported as "not equal". Sorted order keeps the sample
+    // points deterministic regardless of variable-name discovery order.
+    let mut var_set = std::collections::BTreeSet::new();
+    collect_vars(a, &mut var_set);
+    collect_vars(b, &mut var_set);
+    let vars: Vec<String> = var_set.into_iter().collect();
     for i in 0..20 {
         let mut bindings = HashMap::new();
         for (j, v) in vars.iter().enumerate() {
             let val = ((i * 7919 + j * 6271 + 127) as f64 / 1000.0) % 20.0 - 10.0;
-            bindings.insert(v.to_string(), val);
+            bindings.insert(v.clone(), val);
         }
         match (eval(a, &bindings), eval(b, &bindings)) {
             (Ok(va), Ok(vb)) => {
@@ -577,7 +620,11 @@ pub fn to_rust_code(expr: &Expr) -> String {
 
 pub fn apply_trig_identity(expr: &Expr) -> Expr {
     match expr {
-        Expr::Pow(a, _) => {
+        // The half-angle identities sin²θ = (1 - cos 2θ)/2 and
+        // cos²θ = (1 + cos 2θ)/2 hold ONLY for the square. Matching any other
+        // exponent would silently rewrite e.g. sin³ into a false form, so the
+        // power must be exactly 2 (any other Pow falls through to `_` below).
+        Expr::Pow(a, b) if matches!(b.as_ref(), Expr::Const(n) if (*n - 2.0).abs() < 1e-12) => {
             if let Expr::Sin(inner) = a.as_ref() {
                 // sin²(x) → (1 - cos(2x)) / 2
                 let cos_2x = Expr::Cos(Box::new(Expr::Mul(
@@ -587,6 +634,7 @@ pub fn apply_trig_identity(expr: &Expr) -> Expr {
                 return Expr::Sub(Box::new(Expr::Const(1.0)), Box::new(cos_2x)) / Expr::Const(2.0);
             }
             if let Expr::Cos(inner) = a.as_ref() {
+                // cos²(x) → (1 + cos(2x)) / 2
                 let cos_2x = Expr::Cos(Box::new(Expr::Mul(
                     Box::new(Expr::Const(2.0)),
                     inner.clone(),
@@ -599,26 +647,67 @@ pub fn apply_trig_identity(expr: &Expr) -> Expr {
     }
 }
 
-// ── Optimizer (stub — numeric gradient descent) ──
+// ── Optimizer: momentum SGD with numeric (central-difference) gradients ──
 
+/// Momentum stochastic-gradient-descent optimizer.
 pub struct Optimizer {
     pub lr: f64,
     pub momentum: f64,
-    #[allow(dead_code)]
-    velocity: HashMap<usize, f64>,
+    pub max_iter: usize,
+    velocity: Vec<f64>,
 }
 
 impl Optimizer {
-    pub fn new(lr: f64, _max_iter: usize) -> Self {
+    pub fn new(lr: f64, max_iter: usize) -> Self {
         Self {
             lr,
             momentum: 0.9,
-            velocity: HashMap::new(),
+            max_iter,
+            velocity: Vec::new(),
         }
     }
 
     pub fn set_momentum(&mut self, m: f64) {
         self.momentum = m;
+    }
+
+    /// One in-place momentum update: `v ← momentum·v − lr·grad`, then
+    /// `params ← params + v`. The velocity is (re)initialised to match `params`.
+    pub fn step(&mut self, params: &mut [f64], grad: &[f64]) {
+        if self.velocity.len() != params.len() {
+            self.velocity = vec![0.0; params.len()];
+        }
+        for ((p, v), g) in params
+            .iter_mut()
+            .zip(self.velocity.iter_mut())
+            .zip(grad.iter())
+        {
+            *v = self.momentum * *v - self.lr * *g;
+            *p += *v;
+        }
+    }
+
+    /// Minimize a scalar objective from `x0` with momentum SGD, taking the
+    /// gradient by central differences. Runs up to `max_iter` steps and returns
+    /// the final point.
+    pub fn minimize<F: Fn(&[f64]) -> f64>(&mut self, f: F, x0: &[f64]) -> Vec<f64> {
+        let mut x = x0.to_vec();
+        self.velocity = vec![0.0; x.len()];
+        let eps = 1e-6;
+        for _ in 0..self.max_iter {
+            let mut g = vec![0.0; x.len()];
+            for i in 0..x.len() {
+                let orig = x[i];
+                x[i] = orig + eps;
+                let fp = f(&x);
+                x[i] = orig - eps;
+                let fm = f(&x);
+                x[i] = orig;
+                g[i] = (fp - fm) / (2.0 * eps);
+            }
+            self.step(&mut x, &g);
+        }
+        x
     }
 }
 
@@ -812,7 +901,19 @@ impl Dual {
     }
     pub fn powf(self, other: Self) -> Self {
         let v = self.primal.powf(other.primal);
-        let d = v * (other.tangent * self.primal.ln() + other.primal * self.tangent / self.primal);
+        // Constant-exponent fast path: d/dx[x^n] = n·x^(n-1)·x'. Unlike the
+        // general log-derivative formula below (valid only for primal > 0,
+        // since it goes through `ln(self.primal)`), this holds for any base,
+        // including negative — e.g. d/dx[x^2] at x = -3 is -6, not NaN. This
+        // is also the overwhelmingly common case (a fixed integer/real power
+        // of a variable). The general formula remains for the case where the
+        // exponent itself varies (`other.tangent != 0`), which has no real
+        // derivative for a negative base and is left as NaN by design.
+        let d = if other.tangent == 0.0 {
+            other.primal * self.primal.powf(other.primal - 1.0) * self.tangent
+        } else {
+            v * (other.tangent * self.primal.ln() + other.primal * self.tangent / self.primal)
+        };
         Self {
             primal: v,
             tangent: d,
@@ -871,7 +972,7 @@ impl Neg for Dual {
     }
 }
 
-// ── SIMD operations stubs ──
+// ── Elementwise vector ops (scalar reference; the platform's SIMD is in scirust-simd) ──
 
 pub mod ops {
     pub fn add_f32(a: &[f32], b: &[f32], out: &mut [f32]) {
@@ -896,25 +997,14 @@ pub mod ops {
     }
 }
 
+/// Add 1.0 to each element (scalar reference implementation).
 pub fn simd_add_one(data: &mut [f32]) {
     for x in data {
         *x += 1.0;
     }
 }
 
-// ── GPU dispatch stub ──
-
-pub mod dispatch {
-    pub fn gpu_or_cpu<F, G, T>(_on_gpu: F, on_cpu: G) -> T
-    where
-        F: FnOnce() -> T,
-        G: FnOnce() -> T,
-    {
-        on_cpu()
-    }
-}
-
-// ── IA Bridge stubs ──
+// ── End-to-end expression pipeline (parse → simplify → diff → eval → codegen) ──
 
 pub struct Pipeline {
     vars: HashMap<String, f64>,
@@ -984,10 +1074,6 @@ pub fn parse_natural(input: &str) -> NaturalCommand {
         NaturalCommand::Evaluate(input.to_string())
     }
 }
-
-// ── Autodiff macros stub ──
-
-pub mod macros_stub {}
 
 // ── Derivative helpers for prelude ──
 
@@ -1068,12 +1154,67 @@ mod tests {
     }
 
     #[test]
+    fn test_dual_powf_constant_exponent_on_negative_base() {
+        // Regression test for a P0 audit finding: the log-derivative formula
+        // (v * (n·ln(x) + ...)) unconditionally computed `self.primal.ln()`,
+        // which is NaN for a negative base — even for a constant integer
+        // exponent, where the real derivative is perfectly well-defined.
+        // d/dx[x^2] at x = -3 is 2*(-3) = -6, not NaN.
+        let x = Dual::var(-3.0);
+        let fx = x.powf(Dual::primal(2.0));
+        assert_eq!(fx.primal, 9.0);
+        assert!(
+            (fx.tangent - (-6.0)).abs() < 1e-10,
+            "expected tangent -6, got {}",
+            fx.tangent
+        );
+
+        // Odd power: d/dx[x^3] at x = -2 is 3*(-2)^2 = 12.
+        let y = Dual::var(-2.0);
+        let fy = y.powf(Dual::primal(3.0));
+        assert_eq!(fy.primal, -8.0);
+        assert!(
+            (fy.tangent - 12.0).abs() < 1e-10,
+            "expected tangent 12, got {}",
+            fy.tangent
+        );
+
+        // Positive-base case must still match the classical log-derivative
+        // result (no regression there).
+        let z = Dual::var(2.0);
+        let fz = z.powf(Dual::primal(3.0));
+        assert_eq!(fz.primal, 8.0);
+        assert!((fz.tangent - 12.0).abs() < 1e-10);
+    }
+
+    #[test]
     fn test_solve_quadratic() {
         // x^2 - 4 = 0 → roots ±2
         let e = parse("x^2 - 4").unwrap();
         let roots = solve_quadratic(&e, "x");
         assert!((roots[0] + 2.0).abs() < 1e-6);
         assert!((roots[1] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_solve_quadratic_no_cancellation_with_well_separated_roots() {
+        // Regression test for a P1 audit finding: the naive
+        // (-b ± √disc)/(2a) formula loses essentially all precision on the
+        // small root when b² ≫ 4ac. True roots of x² + 1e8·x + 1 = 0 are
+        // ≈ -1e8 and ≈ -1e-8 (product = c/a = 1, by Vieta).
+        let e = parse("x^2 + 100000000*x + 1").unwrap();
+        let roots = solve_quadratic(&e, "x");
+        assert_eq!(roots.len(), 2);
+        assert!(
+            ((roots[0] - (-1e8)) / 1e8).abs() < 1e-12,
+            "large root: {:e}",
+            roots[0]
+        );
+        assert!(
+            ((roots[1] - (-1e-8)) / 1e-8).abs() < 1e-6,
+            "small root should be accurate to ~1e-6 relative, got {:e}",
+            roots[1]
+        );
     }
 
     #[test]
@@ -1084,6 +1225,184 @@ mod tests {
         let coeffs = polynomial_fit(&xs, &ys, 1).unwrap();
         assert!((coeffs[0] - 1.0).abs() < 1e-6);
         assert!((coeffs[1] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn solve_linear_finds_the_root() {
+        // 2x - 4 = 0 → x = 2
+        let e = parse("2*x - 4").unwrap();
+        assert!((solve_linear(&e, "x").unwrap() - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn prove_equal_distinguishes_equivalent_from_different() {
+        assert!(prove_equal(
+            &parse("x + x").unwrap(),
+            &parse("2*x").unwrap()
+        ));
+        assert!(!prove_equal(&parse("x").unwrap(), &parse("x + 1").unwrap()));
+    }
+
+    #[test]
+    fn prove_equal_handles_variables_outside_the_fixed_set() {
+        // `t` and `k` are not in the old hard-coded ["x","y","z","u","v","w"]
+        // sample set, so evaluation used to fail and report "not equal".
+        assert!(prove_equal(
+            &parse("t + t").unwrap(),
+            &parse("2*t").unwrap()
+        ));
+        assert!(prove_equal(&parse("k*k").unwrap(), &parse("k^2").unwrap()));
+        // Genuinely different expressions in such variables still compare unequal.
+        assert!(!prove_equal(&parse("t").unwrap(), &parse("t + 1").unwrap()));
+    }
+
+    #[test]
+    fn to_rust_code_emits_evaluable_source() {
+        let code = to_rust_code(&parse("x^2 + 1").unwrap());
+        assert!(code.contains(".powf(2)"), "got: {code}");
+        assert!(code.contains("+ 1"), "got: {code}");
+    }
+
+    #[test]
+    fn linear_regression_recovers_intercept_and_slope() {
+        // y = 1 + 2x
+        let (intercept, slope) =
+            linear_regression(&[0.0, 1.0, 2.0, 3.0], &[1.0, 3.0, 5.0, 7.0]).unwrap();
+        assert!((intercept - 1.0).abs() < 1e-6, "intercept {intercept}");
+        assert!((slope - 2.0).abs() < 1e-6, "slope {slope}");
+    }
+
+    #[test]
+    fn discover_patterns_detects_trend_and_stability() {
+        assert!(discover_patterns(&[1.0, 2.0, 3.0, 4.0, 5.0]).contains(&"trend_upward".to_string()));
+        assert!(discover_patterns(&[5.0, 5.0, 5.0, 5.0]).contains(&"stable".to_string()));
+    }
+
+    #[test]
+    fn pattern_memory_round_trips() {
+        let mut mem = PatternMemory::new();
+        mem.store("ramp", vec![1.0, 2.0, 3.0]);
+        assert_eq!(mem.recall("ramp"), Some(&[1.0, 2.0, 3.0][..]));
+        assert!(mem.recall("absent").is_none());
+    }
+
+    #[test]
+    fn finite_difference_helpers_match_known_gradients() {
+        // d/dx x^2 at 3 = 6
+        assert!((derivative_1d(|x| x * x, 3.0) - 6.0).abs() < 1e-4);
+        // ∇(x² + y²) at (1,2) = (2,4)
+        let (gx, gy) = gradient_2d(|x, y| x * x + y * y, 1.0, 2.0);
+        assert!((gx - 2.0).abs() < 1e-4 && (gy - 4.0).abs() < 1e-4);
+        // ∇(x² + y² + z²) at (1,2,3) = (2,4,6)
+        let (a, b, c) = gradient_3d(|x, y, z| x * x + y * y + z * z, 1.0, 2.0, 3.0);
+        assert!((a - 2.0).abs() < 1e-4 && (b - 4.0).abs() < 1e-4 && (c - 6.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn optimizer_minimizes_a_quadratic_bowl() {
+        // minimize (x-3)² + (y+1)² → (3, -1)
+        let mut opt = Optimizer::new(0.1, 1000);
+        let x = opt.minimize(|p| (p[0] - 3.0).powi(2) + (p[1] + 1.0).powi(2), &[0.0, 0.0]);
+        assert!((x[0] - 3.0).abs() < 1e-2, "x0 = {}", x[0]);
+        assert!((x[1] + 1.0).abs() < 1e-2, "x1 = {}", x[1]);
+    }
+
+    #[test]
+    fn optimizer_step_applies_a_momentum_update() {
+        // First step from zero velocity: v = -lr·grad, x += v.
+        let mut opt = Optimizer::new(0.1, 1);
+        let mut p = vec![1.0];
+        opt.step(&mut p, &[2.0]); // v = -0.1·2 = -0.2 → p = 0.8
+        assert!((p[0] - 0.8).abs() < 1e-12);
+    }
+
+    #[test]
+    fn pipeline_parses_simplifies_and_evaluates() {
+        let mut vars = HashMap::new();
+        vars.insert("x".to_string(), 2.0);
+        let out = Pipeline::new().with_vars(vars).run("x^2 + 1").unwrap();
+        assert!((out.value - 5.0).abs() < 1e-9, "value {}", out.value);
+        assert!(!out.rust_code.is_empty());
+        assert!(!out.simplified.is_empty());
+    }
+
+    #[test]
+    fn parse_natural_dispatches_intents() {
+        assert!(matches!(
+            parse_natural("solve x^2 = 4"),
+            NaturalCommand::Solve(_)
+        ));
+        assert!(matches!(
+            parse_natural("derive x^2"),
+            NaturalCommand::Derive(_)
+        ));
+        assert!(matches!(
+            parse_natural("2 + 2"),
+            NaturalCommand::Evaluate(_)
+        ));
+    }
+
+    #[test]
+    fn simplify_drops_identities() {
+        assert_eq!(
+            simplify(&parse("x * 1").unwrap()),
+            Expr::Var("x".to_string())
+        );
+        assert_eq!(
+            simplify(&parse("x + 0").unwrap()),
+            Expr::Var("x".to_string())
+        );
+    }
+
+    #[test]
+    fn trig_identity_rewrites_sin_squared_preserving_value() {
+        // sin²(x) → (1 - cos 2x)/2 is a TRUE identity: the rewrite must
+        // change the expression yet evaluate identically everywhere.
+        let sin2 = parse("sin(x)^2").unwrap();
+        let out = apply_trig_identity(&sin2);
+        assert_ne!(out, sin2, "the identity should fire on the square");
+        assert!(prove_equal(&out, &sin2), "sin² rewrite changed the value");
+        // Hand check at x = 0.7: sin(0.7)² = 0.41501642…
+        let mut b = HashMap::new();
+        b.insert("x".to_string(), 0.7);
+        assert!((eval(&out, &b).unwrap() - 0.7_f64.sin().powi(2)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn trig_identity_rewrites_cos_squared_preserving_value() {
+        // cos²(x) → (1 + cos 2x)/2, also a true identity.
+        let cos2 = parse("cos(x)^2").unwrap();
+        let out = apply_trig_identity(&cos2);
+        assert_ne!(out, cos2, "the identity should fire on the square");
+        assert!(prove_equal(&out, &cos2), "cos² rewrite changed the value");
+        let mut b = HashMap::new();
+        b.insert("x".to_string(), 0.7);
+        assert!((eval(&out, &b).unwrap() - 0.7_f64.cos().powi(2)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn trig_identity_leaves_non_square_powers_untouched() {
+        // The half-angle identity is FALSE for any exponent ≠ 2; firing on
+        // sin³ or cos⁵ would silently corrupt the expression. Regression
+        // guard for the `Pow(_, _)` wildcard that used to match any power.
+        let sin3 = parse("sin(x)^3").unwrap();
+        assert_eq!(apply_trig_identity(&sin3), sin3, "must not rewrite a cube");
+        let cos5 = parse("cos(x)^5").unwrap();
+        assert_eq!(
+            apply_trig_identity(&cos5),
+            cos5,
+            "must not rewrite a fifth power"
+        );
+    }
+
+    #[test]
+    fn trig_identity_leaves_unrelated_expressions_untouched() {
+        // A square of a non-trig base, and non-Pow nodes, are returned
+        // verbatim — the rewriter is a single, exact rule.
+        let poly = parse("x^2").unwrap();
+        assert_eq!(apply_trig_identity(&poly), poly, "x² is not a trig square");
+        let e = parse("sin(x) + 1").unwrap();
+        assert_eq!(apply_trig_identity(&e), e);
     }
 }
 

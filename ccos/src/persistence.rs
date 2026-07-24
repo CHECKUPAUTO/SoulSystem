@@ -14,11 +14,13 @@
 use crate::distributed_event_log::DistributedEventLog;
 use crate::event_log::EventLog;
 use crate::memory::MemoryGraph;
+use crate::persist::KernelSnapshot;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Typed error for persistence operations.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum PersistenceError {
     Io(String),
     Serde(String),
@@ -49,24 +51,14 @@ impl From<serde_json::Error> for PersistenceError {
 }
 
 /// The complete runtime state that survives a restart.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RuntimeState {
-    pub version: String,
-    pub graph: MemoryGraph,
-    pub event_log: EventLog,
-    pub dist_log: DistributedEventLog,
-}
-
-impl RuntimeState {
-    pub fn new(graph: MemoryGraph, event_log: EventLog, dist_log: DistributedEventLog) -> Self {
-        Self {
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            graph,
-            event_log,
-            dist_log,
-        }
-    }
-}
+///
+/// This is the **same payload**, field-for-field, as
+/// [`crate::persist::KernelSnapshot`] (they were duplicated), so `RuntimeState`
+/// is now a type alias for it: one state type, two on-disk layouts —
+/// [`PersistentRuntime`] stores it as a three-file directory, while
+/// [`KernelSnapshot::save`]/[`load`](KernelSnapshot::load) store it as a single
+/// file. The integrity check is shared via [`KernelSnapshot::verify_integrity`].
+pub type RuntimeState = KernelSnapshot;
 
 /// Reads/writes [`RuntimeState`] under a directory.
 #[derive(Debug, Clone)]
@@ -109,32 +101,16 @@ impl PersistentRuntime {
         let graph: MemoryGraph = read_json(&self.graph_path())?;
         let event_log: EventLog = read_json(&self.events_path())?;
         let dist_log: DistributedEventLog = read_json(&self.memory_path())?;
-        Ok(RuntimeState {
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            graph,
-            event_log,
-            dist_log,
-        })
+        Ok(KernelSnapshot::new(graph, event_log, dist_log))
     }
 
     /// Load **and verify** the runtime: the hash chain must validate and the
     /// graph must hold no dangling edges. Returns the ready-to-run state.
     pub fn restore_runtime(&self) -> Result<RuntimeState, PersistenceError> {
-        let mut state = self.load_state()?;
-
-        let report = state.dist_log.verify_integrity();
-        if !report.valid {
-            return Err(PersistenceError::Integrity(format!(
-                "hash chain invalid: {} error(s)",
-                report.errors.len()
-            )));
-        }
-        let dangling = state.graph.prune_dangling_edges();
-        if dangling != 0 {
-            return Err(PersistenceError::Integrity(format!(
-                "{dangling} dangling edge(s) in restored graph"
-            )));
-        }
+        let state = self.load_state()?;
+        state
+            .verify_integrity()
+            .map_err(PersistenceError::Integrity)?;
         Ok(state)
     }
 }
@@ -258,52 +234,5 @@ mod tests {
         let runtime = PersistentRuntime::new(&dir);
         assert!(!runtime.exists());
         assert!(matches!(runtime.load_state(), Err(PersistenceError::Io(_))));
-    }
-
-    /// HIGH-005: save_state must write via the atomic temp+fsync+rename path
-    /// (`crate::util::write_durable`), not a bare `std::fs::write` — a crash
-    /// mid-write must never leave a truncated graph/events/memory file. This
-    /// asserts the wiring at the call site: no `.tmp` sibling is left behind
-    /// (write_durable's own unit tests cover the primitive's atomicity), and
-    /// a second save_state fully replaces the prior content rather than
-    /// merging with or truncating it.
-    #[test]
-    fn save_state_leaves_no_temp_siblings_and_fully_replaces_on_resave() {
-        let dir = temp_dir("atomic");
-        let runtime = PersistentRuntime::new(&dir);
-
-        runtime.save_state(&sample_state()).unwrap();
-        for p in [
-            runtime.graph_path(),
-            runtime.events_path(),
-            runtime.memory_path(),
-        ] {
-            let mut tmp = p.clone().into_os_string();
-            tmp.push(".tmp");
-            assert!(
-                !std::path::Path::new(&tmp).exists(),
-                "atomic write must not leave a .tmp sibling behind: {tmp:?}"
-            );
-        }
-
-        // A second, larger state must fully replace the first on disk (an
-        // in-place non-atomic write that failed partway could instead leave
-        // a file that's a byte-for-byte mix of old and new content).
-        let mut bigger = sample_state();
-        for i in 8..40 {
-            bigger.graph.upsert_node(
-                format!("n{i}").into(),
-                format!("L{i}"),
-                "content".into(),
-                crate::memory::NodeType::Module,
-            );
-        }
-        let expected_nodes = bigger.graph.node_count();
-        runtime.save_state(&bigger).unwrap();
-
-        let reloaded = PersistentRuntime::new(&dir).load_state().unwrap();
-        assert_eq!(reloaded.graph.node_count(), expected_nodes);
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -34,6 +34,15 @@ pub trait Module {
     /// entraînables (utilisé par parameter_indices ensuite).
     fn forward<'t>(&mut self, tape: &'t Tape, input: Var<'t>) -> Var<'t>;
 
+    /// Fallible forward. Modules whose forward can fail on a bad input shape or
+    /// configuration may override this to return a structured [`Result`] instead
+    /// of panicking. The default delegates to [`Module::forward`] (which panics
+    /// on misuse), so surfacing errors this way is opt-in per module. (This is
+    /// the `try_forward` hook referenced by `crate::error`.)
+    fn try_forward<'t>(&mut self, tape: &'t Tape, input: Var<'t>) -> Result<Var<'t>> {
+        Ok(self.forward(tape, input))
+    }
+
     fn forward_steered<'t>(
         &mut self,
         tape: &'t Tape,
@@ -43,6 +52,15 @@ pub trait Module {
         // Default implementation delegates to forward if no hook or not handled
         self.forward(tape, input)
     }
+
+    /// Bascule le mode entraînement/évaluation. Défaut : no-op (couches pures).
+    /// Les composites DOIVENT propager aux enfants ; les couches à état de mode
+    /// (Dropout, BatchNorm) basculent leur champ `training`.
+    ///
+    /// Convention eval : `model.train(false)` = mode inférence (Dropout devient
+    /// l'identité, BatchNorm utilise ses running stats) ; `model.train(true)`
+    /// ré-active le mode entraînement.
+    fn train(&mut self, _on: bool) {}
 
     /// Indices des paramètres entraînables sur la dernière tape vue.
     /// Ne fonctionne que si forward a été appelé d'abord.

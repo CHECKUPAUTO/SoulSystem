@@ -8,7 +8,23 @@
 //! result). The optimizer holds the moment buffers aligned to that list. All
 //! arithmetic is plain `f32` in a fixed order, so a run is **bit-for-bit
 //! deterministic**.
+//!
+//! # Place in the optimizer layering
+//!
+//! This is the **N-D family**, one of the three optimizer families in
+//! scirust-core (see [`crate::optim`] for the full picture):
+//!
+//! - tape family ([`crate::autodiff::optim`]) — 2-D training on the tape;
+//! - **N-D family (this module)** — every single-gradient optimizer here
+//!   implements [`NdOptimizer`], so training code can hold a
+//!   `Box<dyn NdOptimizer>` and swap `NdAdam` for `NdLion`, `NdSoap`, …;
+//! - raw-slice family ([`crate::optim`]) — manual loops over `&[f32]`.
+//!
+//! All of them implement [`HasLearningRate`], so any
+//! [`LrSchedule`](crate::autodiff::scheduler::LrSchedule) drives any
+//! optimizer via [`drive`](crate::autodiff::scheduler::LrSchedule::drive).
 
+use crate::optim::HasLearningRate;
 use crate::tensor::tensor_nd::TensorND;
 
 /// A handle to one trainable parameter for an optimizer: a mutable view of its
@@ -18,6 +34,31 @@ pub struct NdParam<'a> {
     pub value: &'a mut TensorND,
     /// Index of this parameter's gradient in the `backward` result.
     pub grad_idx: usize,
+}
+
+// ================================================================== //
+//  NdOptimizer — the swappable N-D optimizer interface                //
+// ================================================================== //
+
+/// The common interface of the single-gradient N-D optimizers, so a training
+/// loop can hold a `Box<dyn NdOptimizer>` and swap [`NdAdam`] for [`NdLion`],
+/// [`NdSoap`], … without being rewritten. Each implementation delegates to
+/// the optimizer's inherent `step` (which stays the primary, documented API).
+///
+/// The supertrait [`HasLearningRate`] means every `NdOptimizer` can also be
+/// driven by any [`LrSchedule`](crate::autodiff::scheduler::LrSchedule)
+/// through [`drive`](crate::autodiff::scheduler::LrSchedule::drive).
+///
+/// The two-phase optimizers — [`NdSam`] (ascent/descent) and [`NdSophia`]
+/// (probe/step) — need gradients at **two** points per update and therefore
+/// cannot fit this single-gradient contract; they implement only
+/// [`HasLearningRate`].
+pub trait NdOptimizer: HasLearningRate {
+    /// One optimization step over `params`, reading each gradient from
+    /// `grads` by the parameter's `grad_idx`. Same ordering contract as
+    /// [`NdAdam::step`]: the same parameters, in the same order, on every
+    /// call.
+    fn step(&mut self, params: &mut [NdParam<'_>], grads: &[TensorND]);
 }
 
 /// Adam / **AdamW** hyper-parameters. [`Default`] is the canonical
@@ -140,8 +181,9 @@ impl NdAdam {
                 let mhat = mk[j] / bc1;
                 let vhat = vk[j] / bc2;
                 // AdamW: decoupled weight decay on the pre-update parameter.
-                let theta = p.value.data[j];
-                p.value.data[j] = theta - lr * (mhat / (vhat.sqrt() + eps) + weight_decay * theta);
+                let theta = p.value.data_mut()[j];
+                p.value.data_mut()[j] =
+                    theta - lr * (mhat / (vhat.sqrt() + eps) + weight_decay * theta);
             }
         }
     }
@@ -235,8 +277,8 @@ impl NdLion {
                 } else {
                     0.0
                 };
-                let theta = p.value.data[j];
-                p.value.data[j] = theta - lr * (step + weight_decay * theta);
+                let theta = p.value.data_mut()[j];
+                p.value.data_mut()[j] = theta - lr * (step + weight_decay * theta);
                 // Momentum update uses β2.
                 mk[j] = beta2 * mk[j] + (1.0 - beta2) * gj;
             }
@@ -384,7 +426,7 @@ impl NdMuon {
         for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             let mk = &mut self.m[k];
-            for (mj, &gj) in mk.iter_mut().zip(g) {
+            for (mj, &gj) in mk.iter_mut().zip(g.iter()) {
                 *mj = momentum * *mj + (1.0 - momentum) * gj;
             }
 
@@ -393,12 +435,12 @@ impl NdMuon {
                 let (r, c) = (shape[0], shape[1]);
                 let o = newton_schulz_orthogonalize(mk, r, c, ns_steps);
                 let scale = (r as f32 / c as f32).max(1.0).sqrt();
-                for (pv, &ov) in p.value.data.iter_mut().zip(&o) {
+                for (pv, &ov) in p.value.data_mut().iter_mut().zip(&o) {
                     *pv -= lr * (scale * ov + weight_decay * *pv);
                 }
             } else {
                 // Non-matrix parameter: momentum SGD.
-                for (pv, &mv) in p.value.data.iter_mut().zip(mk.iter()) {
+                for (pv, &mv) in p.value.data_mut().iter_mut().zip(mk.iter()) {
                     *pv -= lr * (mv + weight_decay * *pv);
                 }
             }
@@ -470,7 +512,7 @@ impl NdScheduleFree {
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
         if self.z.is_empty() && !params.is_empty() {
             // z₁ = x₁ = θ₀ (the current parameter values, which equal y₁).
-            self.z = params.iter().map(|p| p.value.data.clone()).collect();
+            self.z = params.iter().map(|p| p.value.data.to_vec()).collect();
             self.x = self.z.clone();
         }
         assert_eq!(
@@ -491,11 +533,11 @@ impl NdScheduleFree {
             let zk = &mut self.z[k];
             let xk = &mut self.x[k];
             for j in 0..p.value.data.len() {
-                let yj = p.value.data[j]; // gradient was taken here
+                let yj = p.value.data_mut()[j]; // gradient was taken here
                 let geff = g[j] + weight_decay * yj;
                 zk[j] -= lr * geff;
                 xk[j] = (1.0 - c) * xk[j] + c * zk[j];
-                p.value.data[j] = (1.0 - beta) * zk[j] + beta * xk[j];
+                p.value.data_mut()[j] = (1.0 - beta) * zk[j] + beta * xk[j];
             }
         }
     }
@@ -504,7 +546,7 @@ impl NdScheduleFree {
     /// tensors — call before measuring/deploying the model.
     pub fn write_eval_point(&self, params: &mut [NdParam]) {
         for (k, p) in params.iter_mut().enumerate() {
-            p.value.data.copy_from_slice(&self.x[k]);
+            p.value.data_mut().copy_from_slice(&self.x[k]);
         }
     }
 }
@@ -618,8 +660,8 @@ impl NdAdEMAMix {
                 vk[j] = beta2 * vk[j] + (1.0 - beta2) * gj * gj;
                 let m1hat = m1k[j] / bc1;
                 let vhat = vk[j] / bc2;
-                let theta = p.value.data[j];
-                p.value.data[j] = theta
+                let theta = p.value.data_mut()[j];
+                p.value.data_mut()[j] = theta
                     - lr * ((m1hat + alpha * m2k[j]) / (vhat.sqrt() + eps) + weight_decay * theta);
             }
         }
@@ -834,8 +876,8 @@ impl NdSoap {
                     st.mom2[i] = cfg.beta2 * st.mom2[i] + (1.0 - cfg.beta2) * gi * gi;
                     let mhat = st.mom1[i] / bc1;
                     let vhat = st.mom2[i] / bc2;
-                    let theta = p.value.data[i];
-                    p.value.data[i] = theta
+                    let theta = p.value.data_mut()[i];
+                    p.value.data_mut()[i] = theta
                         - cfg.lr * (mhat / (vhat.sqrt() + cfg.eps) + cfg.weight_decay * theta);
                 }
                 continue;
@@ -870,7 +912,7 @@ impl NdSoap {
             let qrt = transpose(&st.qr, n, n);
             let ul = matmul(&st.ql, m, m, &upd, n); // m×n
             let u = matmul(&ul, m, n, &qrt, n); // m×n
-            for (pv, &uv) in p.value.data.iter_mut().zip(&u) {
+            for (pv, &uv) in p.value.data_mut().iter_mut().zip(&u) {
                 *pv -= cfg.lr * (uv + cfg.weight_decay * *pv);
             }
 
@@ -886,7 +928,7 @@ impl NdSoap {
             }
 
             // Periodically refresh the eigenbasis and rotate the moments into it.
-            if t_now as usize % cfg.precond_freq == 0 {
+            if (t_now as usize).is_multiple_of(cfg.precond_freq) {
                 let ql_new = jacobi_eigenvectors(&st.l, m);
                 let qr_new = jacobi_eigenvectors(&st.r, n);
                 let rot_l = matmul(&transpose(&ql_new, m, m), m, m, &st.ql, m); // m×m
@@ -959,7 +1001,7 @@ impl NdLookahead {
     pub fn step(&mut self, params: &mut [NdParam], grads: &[TensorND]) {
         if self.slow.is_empty() && !params.is_empty() {
             // Slow weights start at the current parameters.
-            self.slow = params.iter().map(|p| p.value.data.clone()).collect();
+            self.slow = params.iter().map(|p| p.value.data.to_vec()).collect();
         }
         assert_eq!(
             self.slow.len(),
@@ -970,11 +1012,11 @@ impl NdLookahead {
         self.base.step(params, grads);
         self.t += 1;
         // Every k steps: pull the slow weights toward fast, then reset fast to slow.
-        if self.t as usize % self.cfg.k == 0 {
+        if (self.t as usize).is_multiple_of(self.cfg.k) {
             let alpha = self.cfg.alpha;
             for (k, p) in params.iter_mut().enumerate() {
                 let slow = &mut self.slow[k];
-                for (s, pv) in slow.iter_mut().zip(p.value.data.iter_mut()) {
+                for (s, pv) in slow.iter_mut().zip(p.value.data_mut().iter_mut()) {
                     *s += alpha * (*pv - *s);
                     *pv = *s;
                 }
@@ -1088,7 +1130,7 @@ impl NdLamb {
                 vk[j] = beta2 * vk[j] + (1.0 - beta2) * gj * gj;
                 let mhat = mk[j] / bc1;
                 let vhat = vk[j] / bc2;
-                let theta = p.value.data[j];
+                let theta = p.value.data_mut()[j];
                 r[j] = mhat / (vhat.sqrt() + eps) + weight_decay * theta;
                 w_norm2 += theta * theta;
                 r_norm2 += r[j] * r[j];
@@ -1100,7 +1142,7 @@ impl NdLamb {
             } else {
                 1.0
             };
-            for (pv, &rj) in p.value.data.iter_mut().zip(&r) {
+            for (pv, &rj) in p.value.data_mut().iter_mut().zip(&r) {
                 *pv -= lr * trust * rj;
             }
         }
@@ -1227,7 +1269,7 @@ impl NdAdan {
                 nk[j] = (1.0 - beta3) * nk[j] + beta3 * gn * gn;
                 let eta = lr / (nk[j].sqrt() + eps);
                 let upd = eta * (mk[j] + (1.0 - beta2) * vk[j]);
-                p.value.data[j] = (p.value.data[j] - upd) * decay;
+                p.value.data_mut()[j] = (p.value.data_mut()[j] - upd) * decay;
                 gp[j] = gj;
             }
         }
@@ -1419,7 +1461,7 @@ impl NdAdafactor {
                     *ui = gi / vi.sqrt();
                 }
             } else {
-                for (vi, &gi) in st.v.iter_mut().zip(g) {
+                for (vi, &gi) in st.v.iter_mut().zip(g.iter()) {
                     *vi = beta2 * *vi + (1.0 - beta2) * (gi * gi + cfg.eps1);
                 }
                 for (ui, (&gi, &vi)) in u.iter_mut().zip(g.iter().zip(&st.v)) {
@@ -1445,7 +1487,7 @@ impl NdAdafactor {
             }
 
             // 4) Step with decoupled weight decay.
-            for (pv, &ui) in p.value.data.iter_mut().zip(&u) {
+            for (pv, &ui) in p.value.data_mut().iter_mut().zip(&u) {
                 *pv -= cfg.lr * (ui + cfg.weight_decay * *pv);
             }
         }
@@ -1621,22 +1663,22 @@ impl NdShampoo {
                 for (ri, &v) in st.r.iter_mut().zip(&gtg) {
                     *ri = b * *ri + (1.0 - b) * v;
                 }
-                if st.il.is_empty() || t % cfg.precond_freq == 0 {
+                if st.il.is_empty() || t.is_multiple_of(cfg.precond_freq) {
                     st.il = inverse_pth_root(&st.l, m, 4.0, cfg.eps);
                     st.ir = inverse_pth_root(&st.r, n, 4.0, cfg.eps);
                 }
                 // Preconditioned update U = L^(−1/4) G R^(−1/4).
                 let ilg = matmul(&st.il, m, m, g, n); // m×n
                 let u = matmul(&ilg, m, n, &st.ir, n); // m×n
-                for (pv, &uv) in p.value.data.iter_mut().zip(&u) {
+                for (pv, &uv) in p.value.data_mut().iter_mut().zip(&u) {
                     *pv -= cfg.lr * (uv + cfg.weight_decay * *pv);
                 }
             } else {
                 // Diagonal Adagrad fallback.
-                for (a, &gi) in st.g2.iter_mut().zip(g) {
+                for (a, &gi) in st.g2.iter_mut().zip(g.iter()) {
                     *a += gi * gi;
                 }
-                for (pv, (&gi, &a)) in p.value.data.iter_mut().zip(g.iter().zip(&st.g2)) {
+                for (pv, (&gi, &a)) in p.value.data_mut().iter_mut().zip(g.iter().zip(&st.g2)) {
                     *pv -= cfg.lr * (gi / (a.sqrt() + cfg.eps) + cfg.weight_decay * *pv);
                 }
             }
@@ -1728,7 +1770,7 @@ impl NdSam {
         // Global L2 norm of the full gradient (over all parameters).
         let mut sumsq = 0.0f32;
         for p in params.iter() {
-            for &gi in &grads[p.grad_idx].data {
+            for &gi in grads[p.grad_idx].data.iter() {
                 sumsq += gi * gi;
             }
         }
@@ -1736,7 +1778,13 @@ impl NdSam {
         for (k, p) in params.iter_mut().enumerate() {
             let g = &grads[p.grad_idx].data;
             let store = &mut self.eps_store[k];
-            for ((pv, &gi), e_slot) in p.value.data.iter_mut().zip(g.iter()).zip(store.iter_mut()) {
+            for ((pv, &gi), e_slot) in p
+                .value
+                .data_mut()
+                .iter_mut()
+                .zip(g.iter())
+                .zip(store.iter_mut())
+            {
                 let e = scale * gi;
                 *e_slot = e;
                 *pv += e;
@@ -1759,7 +1807,13 @@ impl NdSam {
         for (k, p) in params.iter_mut().enumerate() {
             let g = &grads_perturbed[p.grad_idx].data;
             let store = &self.eps_store[k];
-            for ((pv, &gi), &e) in p.value.data.iter_mut().zip(g.iter()).zip(store.iter()) {
+            for ((pv, &gi), &e) in p
+                .value
+                .data_mut()
+                .iter_mut()
+                .zip(g.iter())
+                .zip(store.iter())
+            {
                 *pv -= e; // restore θ
                 *pv -= lr * (gi + weight_decay * *pv); // SGD step at the perturbed gradient
             }
@@ -1869,7 +1923,7 @@ impl NdSophia {
         }
         self.eps_fd = eps_fd;
         for (k, p) in params.iter_mut().enumerate() {
-            for (pv, vv) in p.value.data.iter_mut().zip(self.v[k].iter_mut()) {
+            for (pv, vv) in p.value.data_mut().iter_mut().zip(self.v[k].iter_mut()) {
                 let s = if self.rng.next_u32() & 1 == 0 {
                     1.0
                 } else {
@@ -1912,7 +1966,7 @@ impl NdSophia {
             let g = &grad[p.grad_idx].data;
             let gp = &grad_plus[p.grad_idx].data;
             for i in 0..p.value.data.len() {
-                p.value.data[i] -= efd * self.v[k][i]; // restore θ
+                p.value.data_mut()[i] -= efd * self.v[k][i]; // restore θ
                 let hv = (gp[i] - g[i]) / efd; // FD Hessian-vector product
                 let hhat = self.v[k][i] * hv; // Hutchinson diagonal estimate
                 self.m[k][i] = beta1 * self.m[k][i] + (1.0 - beta1) * g[i];
@@ -1920,7 +1974,7 @@ impl NdSophia {
                 let m_hat = self.m[k][i] / bc1;
                 let denom = (gamma * self.h[k][i]).max(eps);
                 let upd = (m_hat / denom).clamp(-rho, rho);
-                p.value.data[i] -= lr * upd;
+                p.value.data_mut()[i] -= lr * upd;
             }
         }
     }
@@ -2019,7 +2073,7 @@ impl NdProdigy {
             self.m = z();
             self.v = z();
             self.s = z();
-            self.x0 = params.iter().map(|p| p.value.data.clone()).collect();
+            self.x0 = params.iter().map(|p| p.value.data.to_vec()).collect();
             self.d = self.cfg.d0;
         }
         assert_eq!(
@@ -2066,7 +2120,7 @@ impl NdProdigy {
         for (k, p) in params.iter_mut().enumerate() {
             let (mk, vk) = (&self.m[k], &self.v[k]);
             for j in 0..p.value.data.len() {
-                p.value.data[j] -= lr * d * mk[j] / (vk[j].sqrt() + d * eps);
+                p.value.data_mut()[j] -= lr * d * mk[j] / (vk[j].sqrt() + d * eps);
             }
         }
         self.d = d_next;
@@ -2306,7 +2360,7 @@ impl NdGalore {
         } = self.cfg;
         let bc1 = 1.0 - beta1.powi(self.t as i32);
         let bc2 = 1.0 - beta2.powi(self.t as i32);
-        let refresh = (self.t - 1) % update_gap.max(1) as u64 == 0;
+        let refresh = (self.t - 1).is_multiple_of(update_gap.max(1) as u64);
 
         for (k, p) in params.iter_mut().enumerate() {
             let g_full = &grads[p.grad_idx].data;
@@ -2318,7 +2372,7 @@ impl NdGalore {
                         v[j] = beta2 * v[j] + (1.0 - beta2) * gj * gj;
                         let mhat = m[j] / bc1;
                         let vhat = v[j] / bc2;
-                        p.value.data[j] -= lr * mhat / (vhat.sqrt() + eps);
+                        p.value.data_mut()[j] -= lr * mhat / (vhat.sqrt() + eps);
                     }
                 }
                 GaloreState::LowRank {
@@ -2335,7 +2389,7 @@ impl NdGalore {
                     let g = if *transpose {
                         galore_transpose(g_full, b, a) // stored rows×cols = b×a
                     } else {
-                        g_full.clone()
+                        g_full.to_vec()
                     };
                     // (Re)compute the projector P (a×r) from the gradient subspace.
                     if refresh || proj.is_empty() {
@@ -2362,7 +2416,7 @@ impl NdGalore {
                     } else {
                         dw
                     };
-                    for (pj, &dj) in p.value.data.iter_mut().zip(&dw) {
+                    for (pj, &dj) in p.value.data_mut().iter_mut().zip(&dw) {
                         *pj -= lr * scale * dj;
                     }
                 }
@@ -2371,10 +2425,218 @@ impl NdGalore {
     }
 }
 
+// ================================================================== //
+//  Trait impls — HasLearningRate + NdOptimizer for the whole family   //
+// ================================================================== //
+
+/// Implements [`HasLearningRate`] through the `lr` field of the optimizer's
+/// config struct (the pattern shared by the whole family).
+macro_rules! impl_has_lr_via_cfg {
+    ($($ty:ident),* $(,)?) => {$(
+        impl HasLearningRate for $ty {
+            fn lr(&self) -> f32 {
+                self.cfg.lr
+            }
+
+            fn set_lr(&mut self, lr: f32) {
+                self.cfg.lr = lr;
+            }
+        }
+    )*};
+}
+
+impl_has_lr_via_cfg!(
+    NdAdam,
+    NdLion,
+    NdMuon,
+    NdScheduleFree,
+    NdAdEMAMix,
+    NdSoap,
+    NdLamb,
+    NdAdan,
+    NdAdafactor,
+    NdShampoo,
+    NdSam,
+    NdSophia,
+    NdProdigy,
+    NdGalore,
+);
+
+/// [`NdLookahead`] has no learning rate of its own — the slow-weight sync is
+/// governed by `k`/`alpha` — so it exposes the inner (fast) [`NdAdam`]'s.
+impl HasLearningRate for NdLookahead {
+    fn lr(&self) -> f32 {
+        self.base.cfg.lr
+    }
+
+    fn set_lr(&mut self, lr: f32) {
+        self.base.cfg.lr = lr;
+    }
+}
+
+/// Implements [`NdOptimizer`] by delegating to the inherent `step` (the
+/// `$ty::step` path resolves to the inherent method, which takes priority
+/// over the trait method).
+macro_rules! impl_nd_optimizer {
+    ($($ty:ident),* $(,)?) => {$(
+        impl NdOptimizer for $ty {
+            fn step(&mut self, params: &mut [NdParam<'_>], grads: &[TensorND]) {
+                $ty::step(self, params, grads)
+            }
+        }
+    )*};
+}
+
+impl_nd_optimizer!(
+    NdAdam,
+    NdLion,
+    NdMuon,
+    NdScheduleFree,
+    NdAdEMAMix,
+    NdSoap,
+    NdLookahead,
+    NdLamb,
+    NdAdan,
+    NdAdafactor,
+    NdShampoo,
+    NdProdigy,
+    NdGalore,
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::nn::PcgEngine;
+    use std::sync::Arc;
+
+    // ---------- NdOptimizer / HasLearningRate ---------- //
+
+    /// `HasLearningRate` get/set across the N-D family, including the
+    /// delegating wrapper (`NdLookahead` forwards to its inner `NdAdam`).
+    #[test]
+    fn has_learning_rate_get_set_on_nd_family() {
+        let mut adam = NdAdam::with_lr(0.1);
+        assert_eq!(adam.lr(), 0.1);
+        adam.set_lr(0.05);
+        assert_eq!(adam.lr(), 0.05);
+
+        let mut lookahead = NdLookahead::with_lr(0.2);
+        assert_eq!(lookahead.lr(), 0.2);
+        lookahead.set_lr(0.3);
+        assert_eq!(lookahead.lr(), 0.3);
+
+        // The two-phase optimizers are schedulable too, even though they
+        // cannot implement `NdOptimizer`.
+        let mut sam = NdSam::with_rho_lr(0.05, 0.1);
+        sam.set_lr(0.01);
+        assert_eq!(sam.lr(), 0.01);
+        let mut sophia = NdSophia::with_lr_seed(0.1, 42);
+        sophia.set_lr(0.2);
+        assert_eq!(sophia.lr(), 0.2);
+    }
+
+    /// Runs `steps` iterations of the quadratic oracle through the
+    /// `NdOptimizer` **trait** (dyn-dispatched), returning the final params.
+    fn minimize_boxed(mut opt: Box<dyn NdOptimizer>, steps: usize) -> Vec<f32> {
+        let target = [2.0f32, -1.0];
+        let mut x = TensorND::new(vec![0.0, 0.0], vec![2]);
+        for _ in 0..steps {
+            let gd: Vec<f32> = x
+                .data
+                .iter()
+                .zip(&target)
+                .map(|(&xi, &ti)| 2.0 * (xi - ti))
+                .collect();
+            let grads = vec![TensorND::new(gd, vec![2])];
+            let mut params = vec![NdParam {
+                value: &mut x,
+                grad_idx: 0,
+            }];
+            opt.step(&mut params, &grads);
+        }
+        x.data.to_vec()
+    }
+
+    /// The point of `NdOptimizer`: the same training loop runs unchanged
+    /// with different optimizers behind `Box<dyn NdOptimizer>`, and each
+    /// still converges on the oracle problem.
+    #[test]
+    fn boxed_nd_optimizers_are_swappable() {
+        let optimizers: Vec<(&str, Box<dyn NdOptimizer>)> = vec![
+            ("NdAdam", Box::new(NdAdam::with_lr(0.1))),
+            ("NdLion", Box::new(NdLion::with_lr(0.01))),
+            ("NdLamb", Box::new(NdLamb::with_lr(0.01))),
+        ];
+        for (name, opt) in optimizers {
+            let x = minimize_boxed(opt, 600);
+            assert!(
+                (x[0] - 2.0).abs() < 0.05 && (x[1] + 1.0).abs() < 0.05,
+                "{name} behind dyn NdOptimizer did not converge: {x:?}"
+            );
+        }
+    }
+
+    /// The trait `step` is a pure delegation: dyn-dispatched NdAdam must
+    /// produce the bit-identical trajectory of the inherent `step`.
+    #[test]
+    fn trait_step_matches_inherent_step_bitwise() {
+        let via_trait = minimize_boxed(Box::new(NdAdam::with_lr(0.1)), 50);
+
+        let target = [2.0f32, -1.0];
+        let mut x = TensorND::new(vec![0.0, 0.0], vec![2]);
+        let mut opt = NdAdam::with_lr(0.1);
+        for _ in 0..50 {
+            let gd: Vec<f32> = x
+                .data
+                .iter()
+                .zip(&target)
+                .map(|(&xi, &ti)| 2.0 * (xi - ti))
+                .collect();
+            let grads = vec![TensorND::new(gd, vec![2])];
+            let mut params = vec![NdParam {
+                value: &mut x,
+                grad_idx: 0,
+            }];
+            opt.step(&mut params, &grads);
+        }
+
+        for (a, b) in via_trait.iter().zip(x.data.iter()) {
+            assert_eq!(a.to_bits(), b.to_bits(), "trait/inherent divergence");
+        }
+    }
+
+    /// A scheduler drives an `NdOptimizer` mid-training through the generic
+    /// `LrSchedule::drive`: the optimizer's lr follows the schedule curve.
+    #[test]
+    fn scheduler_drives_nd_optimizer_during_training() {
+        use crate::autodiff::scheduler::{LrSchedule, StepLr};
+
+        let sched = StepLr::new(0.1, 0.1, 20); // /10 every 20 steps
+        let target = [1.0f32];
+        let mut x = TensorND::new(vec![0.0], vec![1]);
+        let mut opt = NdAdam::with_lr(0.0);
+
+        for step in 0..40 {
+            sched.drive(&mut opt, step);
+            assert_eq!(opt.lr(), sched.lr_at(step), "step {step}");
+
+            let gd: Vec<f32> = x
+                .data
+                .iter()
+                .zip(&target)
+                .map(|(&xi, &ti)| 2.0 * (xi - ti))
+                .collect();
+            let grads = vec![TensorND::new(gd, vec![1])];
+            let mut params = vec![NdParam {
+                value: &mut x,
+                grad_idx: 0,
+            }];
+            opt.step(&mut params, &grads);
+        }
+
+        // The schedule actually changed the lr along the curve.
+        assert!((opt.lr() - 0.01).abs() < 1e-7, "final lr = {}", opt.lr());
+    }
 
     /// Adam minimises a quadratic `Σ(xᵢ − targetᵢ)²` (gradient `2(x − target)`),
     /// driving `x` to the target — the standard optimizer oracle.
@@ -2399,11 +2661,11 @@ mod tests {
             opt.step(&mut params, &grads);
         }
 
-        for (&xi, &ti) in x.data.iter().zip(&target) {
+        for (&xi, &ti) in x.data.to_vec().iter().zip(&target) {
             assert!(
                 (xi - ti).abs() < 1e-3,
                 "x={:?}, target={:?}",
-                x.data,
+                x.data.to_vec(),
                 target
             );
         }
@@ -2432,7 +2694,7 @@ mod tests {
                 }];
                 opt.step(&mut params, &grads);
             }
-            x.data
+            x.data.to_vec()
         };
         assert_eq!(run(), run());
     }
@@ -2465,7 +2727,7 @@ mod tests {
             );
         }
         // Plain Adam: untouched by a zero gradient.
-        assert_eq!(x_plain.data, vec![1.0, -2.0]);
+        assert_eq!(x_plain.data, Arc::from(vec![1.0, -2.0]));
         // AdamW: each |value| strictly shrank toward 0.
         assert!(x_wd.data[0].abs() < 1.0 && x_wd.data[1].abs() < 2.0);
     }
@@ -2494,11 +2756,11 @@ mod tests {
                 &grads,
             );
         }
-        for (&xi, &ti) in x.data.iter().zip(&target) {
+        for (&xi, &ti) in x.data.to_vec().iter().zip(&target) {
             assert!(
                 (xi - ti).abs() < 0.05,
                 "x={:?}, target={:?}",
-                x.data,
+                x.data.to_vec(),
                 target
             );
         }
@@ -2527,7 +2789,7 @@ mod tests {
                     &grads,
                 );
             }
-            x.data
+            x.data.to_vec()
         };
         assert_eq!(run(), run());
     }
@@ -2580,6 +2842,7 @@ mod tests {
 
         let loss = |w: &TensorND| -> f32 {
             w.data
+                .to_vec()
                 .iter()
                 .zip(&target)
                 .map(|(&a, &b)| (a - b) * (a - b))
@@ -2631,7 +2894,7 @@ mod tests {
                     &grads,
                 );
             }
-            w.data
+            w.data.to_vec()
         };
         assert_eq!(run(), run());
     }
@@ -2667,11 +2930,11 @@ mod tests {
             value: &mut p,
             grad_idx: 0,
         }]);
-        for (&xi, &ti) in p.data.iter().zip(&target) {
+        for (&xi, &ti) in p.data.to_vec().iter().zip(&target) {
             assert!(
                 (xi - ti).abs() < 0.02,
                 "x={:?}, target={:?}",
-                p.data,
+                p.data.to_vec(),
                 target
             );
         }
@@ -2704,7 +2967,7 @@ mod tests {
                 value: &mut p,
                 grad_idx: 0,
             }]);
-            p.data
+            p.data.to_vec()
         };
         assert_eq!(run(), run());
     }
@@ -2734,8 +2997,13 @@ mod tests {
                 &grads,
             );
         }
-        for (&xi, &ti) in x.data.iter().zip(&target) {
-            assert!((xi - ti).abs() < 0.1, "x={:?}, target={:?}", x.data, target);
+        for (&xi, &ti) in x.data.to_vec().iter().zip(&target) {
+            assert!(
+                (xi - ti).abs() < 0.1,
+                "x={:?}, target={:?}",
+                x.data.to_vec(),
+                target
+            );
         }
     }
 
@@ -2762,7 +3030,7 @@ mod tests {
                     &grads,
                 );
             }
-            x.data
+            x.data.to_vec()
         };
         assert_eq!(run(), run());
     }
@@ -2846,7 +3114,7 @@ mod tests {
                 &grads,
             );
         }
-        for (wi, ti) in w.data.iter().zip(&target) {
+        for (wi, ti) in w.data.to_vec().iter().zip(&target) {
             assert!((wi - ti).abs() < 0.1, "SOAP did not converge: {wi} vs {ti}");
         }
     }
@@ -2875,7 +3143,7 @@ mod tests {
                     &grads,
                 );
             }
-            w.data
+            w.data.to_vec()
         };
         assert_eq!(run(), run());
     }
@@ -2903,7 +3171,7 @@ mod tests {
                 &grads,
             );
         }
-        for (xi, ti) in x.data.iter().zip(&target) {
+        for (xi, ti) in x.data.to_vec().iter().zip(&target) {
             assert!((xi - ti).abs() < 0.05, "Lookahead off: {xi} vs {ti}");
         }
         assert_eq!(opt.step_count(), 400);
@@ -2933,7 +3201,7 @@ mod tests {
                     &grads,
                 );
             }
-            x.data
+            x.data.to_vec()
         };
         assert_eq!(run(), run());
     }
@@ -2961,7 +3229,7 @@ mod tests {
                 &grads,
             );
         }
-        x.data
+        x.data.to_vec()
     }
 
     /// LAMB minimises the quadratic oracle, and is bit-for-bit deterministic.
@@ -3064,6 +3332,7 @@ mod tests {
         let mut opt = NdAdafactor::with_lr(0.05);
         let loss = |w: &TensorND| -> f32 {
             w.data
+                .to_vec()
                 .iter()
                 .zip(&target)
                 .map(|(&a, &b)| 0.5 * (a - b) * (a - b))
@@ -3071,7 +3340,13 @@ mod tests {
         };
         let first = loss(&w);
         for _ in 0..1500 {
-            let gd: Vec<f32> = w.data.iter().zip(&target).map(|(&a, &b)| a - b).collect();
+            let gd: Vec<f32> = w
+                .data
+                .to_vec()
+                .iter()
+                .zip(&target)
+                .map(|(&a, &b)| a - b)
+                .collect();
             let grads = vec![TensorND::new(gd, vec![rows, cols])];
             opt.step(
                 &mut [NdParam {
@@ -3129,7 +3404,13 @@ mod tests {
             let mut w = TensorND::new(vec![0.0; rows * cols], vec![rows, cols]);
             let mut opt = NdShampoo::with_lr(0.2);
             for _ in 0..1500 {
-                let gd: Vec<f32> = w.data.iter().zip(&target).map(|(&a, &b)| a - b).collect();
+                let gd: Vec<f32> = w
+                    .data
+                    .to_vec()
+                    .iter()
+                    .zip(&target)
+                    .map(|(&a, &b)| a - b)
+                    .collect();
                 let grads = vec![TensorND::new(gd, vec![rows, cols])];
                 opt.step(
                     &mut [NdParam {
@@ -3139,7 +3420,7 @@ mod tests {
                     &grads,
                 );
             }
-            w.data
+            w.data.to_vec()
         };
         let w = run();
         for (wi, ti) in w.iter().zip(&target) {
@@ -3171,7 +3452,7 @@ mod tests {
     #[test]
     fn nd_sam_ascent_perturbs_by_rho_along_gradient() {
         let mut x = TensorND::new(vec![1.0, 2.0, -2.0], vec![3]);
-        let theta0 = x.data.clone();
+        let theta0 = x.data.to_vec().to_vec();
         let g = vec![TensorND::new(vec![3.0, 0.0, 4.0], vec![3])]; // ‖g‖ = 5
         let rho = 0.1;
         let mut opt = NdSam::with_rho_lr(rho, 0.1);
@@ -3185,7 +3466,13 @@ mod tests {
         // ε = ρ·g/‖g‖ = 0.1·[3,0,4]/5 = [0.06, 0, 0.08].
         let expected = [0.06f32, 0.0, 0.08];
         let mut dnorm2 = 0.0f32;
-        for ((xi, t0), e) in x.data.iter().zip(&theta0).zip(&expected) {
+        for ((xi, t0), e) in x
+            .data
+            .to_vec()
+            .iter()
+            .zip(theta0.iter())
+            .zip(expected.iter())
+        {
             let disp = xi - t0;
             assert!((disp - e).abs() < 1e-6, "perturbation off: {disp} vs {e}");
             dnorm2 += disp * disp;
@@ -3237,7 +3524,7 @@ mod tests {
                     &[TensorND::new(g1, vec![3])],
                 );
             }
-            x.data
+            x.data.to_vec()
         };
         let x = run();
         for (xi, ti) in x.iter().zip(&target) {
@@ -3285,14 +3572,14 @@ mod tests {
                     &[TensorND::new(g1, vec![3])],
                 );
             }
-            x.data
+            x.data.to_vec()
         };
         let x = run();
         for (xi, ti) in x.iter().zip(&target) {
             assert!((xi - ti).abs() < 0.05, "Sophia off: {xi} vs {ti}");
         }
         let x2 = run();
-        for (a, b) in x.iter().zip(&x2) {
+        for (a, b) in x.iter().zip(x2.iter()) {
             assert_eq!(a.to_bits(), b.to_bits());
         }
     }
@@ -3327,7 +3614,7 @@ mod tests {
                     &[TensorND::new(gd, vec![3])],
                 );
             }
-            (x.data.clone(), opt.d())
+            (x.data.to_vec().to_vec(), opt.d())
         };
         let (x, d) = run();
         let loss: f32 = x
@@ -3453,7 +3740,7 @@ mod tests {
             );
         }
         let slen = opt.state_len(0);
-        (w.data, slen)
+        (w.data.to_vec(), slen)
     }
 
     /// **GaLore converges on a low-rank target with a compressed optimizer state.**
