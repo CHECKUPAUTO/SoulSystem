@@ -273,6 +273,16 @@ impl Sandbox {
                 }
 
                 if let Some(ref p) = profile {
+                    // SECCOMP_SET_MODE_FILTER requires either CAP_SYS_ADMIN
+                    // in the caller's user namespace or no_new_privs set —
+                    // otherwise prctl(PR_SET_SECCOMP, ...) fails EACCES
+                    // (seccomp(2)). Root has the former; sets no_new_privs
+                    // unconditionally so this also works for the common case
+                    // of an unprivileged caller (e.g. a non-root CI runner),
+                    // which has neither by default.
+                    if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
                     crate::seccomp::install_filter(p)?;
                 }
                 Ok(())
