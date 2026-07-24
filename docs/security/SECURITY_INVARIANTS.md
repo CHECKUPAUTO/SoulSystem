@@ -61,10 +61,10 @@ PR sequence (A–P).
 
 | ID | Invariant | PR | Status |
 |----|-----------|----|--------|
-| INV-MEM-1 | Tool output is screened before it reaches any persistence path. | H | TARGET |
-| INV-MEM-2 | Quarantined content never enters prompts or training. | H | TARGET |
-| INV-MEM-3 | Every persisted memory record carries provenance and a trust level. | H | TARGET |
-| INV-MEM-4 | Direct `store()` calls require a screened/trusted wrapper type. | H | TARGET |
+| INV-MEM-1 | Tool output is screened before it reaches any persistence path. | H | HELD for the agent tool-dispatch path (`soul-agent-core`: `screen_tool_output` now runs before `ccos_observe_tool`/`planner.history.record`; `ccos_never_ingests_unscreened_malicious_payload`) |
+| INV-MEM-2 | Quarantined content never enters prompts or training. | H | PARTIAL (quarantine placeholder — not the raw payload — is what reaches CCOS/planner/chat session; a dedicated non-injectable quarantine store with retention/deletion policy is a follow-up) |
+| INV-MEM-3 | Every persisted memory record carries provenance and a trust level. | H | TARGET (full `MemoryProvenance` struct not yet introduced; follow-up) |
+| INV-MEM-4 | Direct `store()` calls require a screened/trusted wrapper type. | H | HELD for `ccos_observe_tool` (`soul-agent-core::screening::ScreenedContent` — private constructor, only obtainable via `screening::screen`; `ccos_observe_tool`'s `output` parameter is `&ScreenedContent`, not `&str`, so it cannot be called with unscreened data from anywhere in the crate) |
 
 ## Planner and autonomy
 
