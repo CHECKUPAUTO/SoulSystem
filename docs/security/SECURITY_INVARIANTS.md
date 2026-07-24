@@ -80,6 +80,7 @@ PR sequence (A–P).
 |----|-----------|----|--------|
 | INV-MOD-1 | Self-modification is disabled by default and cannot be enabled in production without a signing + approval policy. | A/K | PARTIAL (guard rejects unsigned self-mod in production; safe flow in K) |
 | INV-MOD-2 | Self-modification never writes directly to live code; promotion is PR-only. | K | TARGET |
+| INV-MOD-3 | Any skill definition induced from LLM output passes a mandatory, non-bypassable validation gate (structural + a path-traversal-safe name) before it is persisted, regardless of caller. | K | HELD (`soul-skills`: `SkillLoader::save_skill` rejects any name that isn't a safe single-segment filename with `SkillError::InvalidName` before writing — `save_skill_rejects_path_traversal_name`; `StructuralValidator` enforces the same check plus min-steps/min-triggers/tool-allowlist — `structural_validator_rejects_path_traversal_name`, `structural_validator_rejects_thin_skill`. `soul-agent-core::AutonomousAgent::crystallize_skills` now routes every LLM-induced candidate through `StructuralValidator::validate` via the extracted `validate_and_save_skill` before ever calling `save_skill` — `validate_and_save_skill_rejects_path_traversal_name`, `validate_and_save_skill_rejects_malformed_skill`, `validate_and_save_skill_persists_well_formed_skill`. Distinct from INV-MOD-1/2, which cover live-code self-modification via `soul-automodify`, not skill crystallization.) |
 
 ## Persistence
 

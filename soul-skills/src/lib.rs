@@ -21,9 +21,34 @@ pub enum SkillError {
     Parse(String),
     #[error("Skill not found: {0}")]
     NotFound(String),
+    #[error("invalid skill name (must be a safe, single-segment filename): {0:?}")]
+    InvalidName(String),
 }
 
 pub type Result<T> = std::result::Result<T, SkillError>;
+
+/// A skill name must be a safe, single path-segment filename component: not
+/// empty, not `.`/`..`, and containing no path separators or NUL bytes.
+/// `SkillLoader::save_skill` builds its write target by joining this name
+/// directly onto `base_path` — an unvalidated name (e.g. `"../../evil"`) is a
+/// path-traversal write primitive (HIGH-004), so both `save_skill` and
+/// [`validation::StructuralValidator`] enforce this same check.
+pub(crate) fn is_safe_skill_name(name: &str) -> bool {
+    if name.is_empty() || name.contains('\0') {
+        return false;
+    }
+    // `\` isn't a path separator on Unix (Path::components() would happily
+    // treat "a\b" as one Normal segment), but it's rejected explicitly here
+    // for a portable, conservative name policy rather than one that only
+    // holds on the platform this happens to run on.
+    if name.contains('\\') {
+        return false;
+    }
+    matches!(
+        Path::new(name).components().collect::<Vec<_>>().as_slice(),
+        [std::path::Component::Normal(_)]
+    )
+}
 
 // ─── Skill Definition ────────────────────────────────────────────────────────
 
@@ -318,6 +343,11 @@ impl SkillLoader {
         self.skills.get(name)
     }
 
+    /// All currently loaded skills, for passing as validation library context.
+    pub fn all_skills(&self) -> Vec<&Skill> {
+        self.skills.values().collect()
+    }
+
     pub fn find_matching(&self, input: &str) -> Vec<&Skill> {
         let mut matches: Vec<&Skill> = self
             .skills
@@ -330,8 +360,12 @@ impl SkillLoader {
 
     pub fn save_skill(&self, skill: &Skill) -> impl std::future::Future<Output = Result<()>> + '_ {
         let skill = skill.clone();
+        let name_is_safe = is_safe_skill_name(&skill.name);
         let path = self.base_path.join(format!("{}.md", skill.name));
         async move {
+            if !name_is_safe {
+                return Err(SkillError::InvalidName(skill.name.clone()));
+            }
             let content = self.skill_to_markdown(&skill);
             fs::write(&path, content)
                 .await
@@ -555,5 +589,57 @@ Triggers: run, execute, do
         let matches = loader.find_matching("test this");
         assert_eq!(matches[0].name, "high");
         assert_eq!(matches[1].name, "low");
+    }
+
+    // ── HIGH-004: skill-name path-traversal hardening ───────────────────
+
+    #[test]
+    fn safe_skill_name_accepts_ordinary_names() {
+        assert!(is_safe_skill_name("code-review"));
+        assert!(is_safe_skill_name("deploy_v2"));
+    }
+
+    #[test]
+    fn safe_skill_name_rejects_traversal_and_separators() {
+        for bad in [
+            "../../evil",
+            "..",
+            ".",
+            "",
+            "a/b",
+            "a\\b",
+            "/etc/passwd",
+            "nested/../../escape",
+        ] {
+            assert!(!is_safe_skill_name(bad), "should reject {bad:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn save_skill_rejects_path_traversal_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let loader = SkillLoader::new(dir.path());
+        let evil = Skill {
+            triggers: vec!["x".into()],
+            ..Skill::new("../../evil", "malicious")
+        };
+        let result = loader.save_skill(&evil).await;
+        assert!(matches!(result, Err(SkillError::InvalidName(_))));
+        // Confirm nothing was written anywhere outside (or inside) base_path.
+        assert!(dir.path().read_dir().unwrap().next().is_none());
+        let escaped = dir.path().parent().unwrap().join("evil.md");
+        assert!(!escaped.exists());
+    }
+
+    #[tokio::test]
+    async fn save_skill_accepts_safe_name_and_writes_inside_base_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let loader = SkillLoader::new(dir.path());
+        let ok = Skill {
+            triggers: vec!["x".into()],
+            ..Skill::new("my-safe-skill", "fine")
+        };
+        loader.save_skill(&ok).await.unwrap();
+        assert!(dir.path().join("my-safe-skill.md").exists());
     }
 }
