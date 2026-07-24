@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 /// Unique identifier for a secret.
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
@@ -11,10 +12,14 @@ impl std::fmt::Display for SecretId {
 }
 
 /// A decrypted secret value.
-#[derive(Debug, Clone)]
+///
+/// `value` is [`SecretValue`], not a raw `Vec<u8>`: it zeroizes on drop and
+/// its `Debug` impl is redacted, so a stray `{:?}` on a `DecryptedSecret`
+/// (e.g. in a log statement) cannot print the plaintext (INV-SEC-1, INV-SEC-2).
+#[derive(Debug)]
 pub struct DecryptedSecret {
     pub id: SecretId,
-    pub value: Vec<u8>,
+    pub value: SecretValue,
     pub metadata: SecretMetadata,
 }
 
@@ -27,13 +32,15 @@ pub struct SecretMetadata {
     pub tags: Vec<String>,
 }
 
-/// Wrapper for secret values that prevents accidental logging.
-#[derive(Clone)]
-pub struct SecretValue(Vec<u8>);
+/// Wrapper for secret values that prevents accidental logging and zeroizes
+/// its contents on drop. Deliberately not `Clone`: a secret should have one
+/// owner at a time, not silently-duplicated copies each needing their own
+/// zeroization (INV-SEC-1).
+pub struct SecretValue(Zeroizing<Vec<u8>>);
 
 impl SecretValue {
     pub fn new(value: Vec<u8>) -> Self {
-        Self(value)
+        Self(Zeroizing::new(value))
     }
     pub fn expose(&self) -> &[u8] {
         &self.0
@@ -61,4 +68,47 @@ pub enum SecretError {
     Io(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
     Serialization(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secret_value_debug_redacts_bytes() {
+        let secret = SecretValue::new(b"top-secret-api-key".to_vec());
+        let debug = format!("{secret:?}");
+        assert!(debug.contains("REDACTED"));
+        assert!(!debug.contains("top-secret-api-key"));
+        assert_eq!(secret.expose(), b"top-secret-api-key");
+    }
+
+    #[test]
+    fn secret_value_debug_length_only_no_content() {
+        // The redacted Debug output leaks the byte length (useful for
+        // diagnostics) but never any byte of the content itself.
+        let secret = SecretValue::new(vec![0xAB; 42]);
+        let debug = format!("{secret:?}");
+        assert_eq!(debug, "SecretValue([REDACTED 42 bytes])");
+    }
+
+    #[test]
+    fn decrypted_secret_debug_does_not_leak_value() {
+        let decrypted = DecryptedSecret {
+            id: SecretId("api-key".into()),
+            value: SecretValue::new(b"sk-super-secret-12345".to_vec()),
+            metadata: SecretMetadata {
+                created_at: 0,
+                updated_at: 0,
+                description: None,
+                tags: vec![],
+            },
+        };
+        let debug = format!("{decrypted:?}");
+        assert!(
+            !debug.contains("sk-super-secret-12345"),
+            "DecryptedSecret Debug output must never contain the raw secret value, got: {debug}"
+        );
+        assert!(debug.contains("REDACTED"));
+    }
 }

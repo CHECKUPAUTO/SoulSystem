@@ -9,6 +9,7 @@ aes-gcm = "0.10"
 hkdf = "0.12"
 sha2 = "0.10"
 secrecy = "0.8"
+zeroize = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
