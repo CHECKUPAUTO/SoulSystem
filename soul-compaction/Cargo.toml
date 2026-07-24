@@ -2,6 +2,7 @@
 name = "soul_compaction"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "4-pass context compaction: Reclaim → Shrink → Collapse → Evict"
 
 [dependencies]

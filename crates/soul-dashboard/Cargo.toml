@@ -2,6 +2,7 @@
 name = "soul-dashboard"
 version = "13.5.0"
 edition = "2021"
+license.workspace = true
 description = "SoulSystem — Web dashboard for monitoring organ health and system status"
 
 [dependencies]

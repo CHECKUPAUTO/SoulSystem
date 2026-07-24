@@ -2,6 +2,7 @@
 name = "soul-memory"
 version = "0.7.0"
 edition = "2021"
+license.workspace = true
 description = "Unified memory system: vector store, persistence, conversations, knowledge graph, RAG"
 
 [dependencies]

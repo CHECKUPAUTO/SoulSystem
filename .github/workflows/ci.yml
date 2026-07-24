@@ -86,3 +86,33 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Advisories, bans, licenses, sources
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --workspace
+
+  msrv:
+    name: MSRV (1.93.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL 2>/dev/null || true
+          sudo docker image prune -af 2>/dev/null || true
+          sudo apt-get clean
+          df -h /
+      - run: sudo apt-get update && sudo apt-get install -y libleptonica-dev libtesseract-dev
+      - name: Check workspace against declared MSRV
+        run: cargo check --workspace --all-targets

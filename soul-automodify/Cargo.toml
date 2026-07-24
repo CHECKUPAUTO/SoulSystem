@@ -2,6 +2,7 @@
 name = "soul_automodify"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Self-code modification with backup and rollback"
 
 [dependencies]

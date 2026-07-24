@@ -2,6 +2,7 @@
 name = "soul_goaltree"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Hierarchical goal decomposition and tracking"
 
 [dependencies]

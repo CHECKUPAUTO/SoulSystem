@@ -2,6 +2,7 @@
 name = "soul-bridge"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Unified bridge to all external subsystems — replaces 9 individual bridge crates"
 
 [dependencies]

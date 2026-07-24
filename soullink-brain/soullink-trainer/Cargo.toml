@@ -2,6 +2,7 @@
 name = "soullink-trainer"
 version = "13.5.0"
 edition = "2021"
+license.workspace = true
 description = "SoulSystem — Fine-tuning pipeline: harvest trajectories, filter, export, train"
 
 [dependencies]

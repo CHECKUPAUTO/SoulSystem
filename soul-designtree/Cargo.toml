@@ -2,6 +2,7 @@
 name = "soul_designtree"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Design tree with OpenSpec lifecycle for feature development"
 
 [dependencies]

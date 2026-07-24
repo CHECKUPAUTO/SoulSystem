@@ -2,6 +2,7 @@
 name = "soul_skills"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Standardized skill system (Claude Code / OpenCode compatible .skills/ format)"
 
 [dependencies]

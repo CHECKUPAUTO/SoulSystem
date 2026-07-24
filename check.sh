@@ -1,4 +1,4 @@
 #!/bin/bash
-cd /root/soul_system
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cargo check 2>&1
 echo "EXIT=$?"
