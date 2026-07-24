@@ -70,7 +70,7 @@ PR sequence (A–P).
 
 | ID | Invariant | PR | Status |
 |----|-----------|----|--------|
-| INV-PLAN-1 | Planner history records the actual tool outcome (`success == actual result`). | I | TARGET |
+| INV-PLAN-1 | Planner history records the actual tool outcome (`success == actual result`). | I | HELD (`soul-agent-core`: `record_tool_outcome` passes real `tool_ok`, not a hardcoded literal, to `planner.history.record`; `planner_history_records_actual_outcome_not_hardcoded_success`, `planner_history_all_failures_yields_zero_success_rate`) |
 | INV-PLAN-2 | Autonomous execution has hard budgets (turns, tool calls, writes, time, tokens). | I | TARGET |
 | INV-PLAN-3 | Emergency stop denies new side effects and is durable across restart. | I | TARGET |
 

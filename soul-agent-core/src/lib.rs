@@ -470,6 +470,28 @@ impl AutonomousAgent {
         let _ = name;
     }
 
+    /// Persist a tool call's outcome to CCOS causal memory and planner
+    /// history. `tool_ok` must be the actual dispatch outcome: planner
+    /// history's recorded `success` is always `tool_ok`, never a fixed value
+    /// (HIGH-009 / INV-PLAN-1). `decide()`'s retry/replan/abort logic and the
+    /// operator-visible success rate (`agent status`) both depend on
+    /// `ActionHistory::success_rate()` reflecting real outcomes — a hardcoded
+    /// success here would silently defeat both.
+    fn record_tool_outcome(
+        &mut self,
+        name: &str,
+        args: &serde_json::Value,
+        safe_result: &screening::ScreenedContent,
+        tool_ok: bool,
+    ) {
+        self.ccos_observe_tool(name, args, safe_result, tool_ok);
+        self.planner.history.record(
+            format!("{}({})", name, truncate_output(&args.to_string(), 100)),
+            truncate_output(safe_result, 200),
+            tool_ok,
+        );
+    }
+
     /// Recall a bounded, causally-coherent context window for `task` (highest
     /// causal score first). Public so callers/tests can inspect what CCOS would
     /// keep in context.
@@ -904,15 +926,10 @@ impl AutonomousAgent {
                         // the type system, not just by this comment.
                         let safe_result = self.screen_tool_output(&name, &result);
 
-                        // Feed the causal context memory: ingest any file the
-                        // tool surfaced, and inject failure pressure on errors.
-                        self.ccos_observe_tool(&name, &args, &safe_result, tool_ok);
-
-                        self.planner.history.record(
-                            format!("{}({})", name, truncate_output(&args.to_string(), 100)),
-                            truncate_output(&safe_result, 200),
-                            true,
-                        );
+                        // Feed the causal context memory and planner history
+                        // with the ACTUAL outcome, not an assumed success
+                        // (HIGH-009 / INV-PLAN-1).
+                        self.record_tool_outcome(&name, &args, &safe_result, tool_ok);
 
                         self.chat_session
                             .add_tool_result(&tc.id, &truncate_output(&safe_result, 3000));
@@ -1947,6 +1964,52 @@ mod tests {
             !agent.ccos.file_unchanged("src/notes.md", evil),
             "CCOS must NOT have stored the raw, unscreened injection payload"
         );
+    }
+
+    #[test]
+    fn planner_history_records_actual_outcome_not_hardcoded_success() {
+        // Regression for HIGH-009: planner.history.record's third argument
+        // was a hardcoded `true`, so success_rate() was always 1.0 regardless
+        // of real tool failures — decide()'s retry/replan/abort logic (which
+        // reads historical_rate) never saw a failure, and the operator-facing
+        // `agent status` success rate was fabricated. record_tool_outcome
+        // must pass the REAL tool_ok through to both CCOS and planner
+        // history. With the bug present, success_rate() below would be 1.0,
+        // not 0.5.
+        let mut agent = make_test_agent();
+        let args = serde_json::json!({});
+
+        let ok_result = agent.screen_tool_output("shell", "did the thing");
+        agent.record_tool_outcome("shell", &args, &ok_result, true);
+
+        let err_result = agent.screen_tool_output("shell", "boom: command failed");
+        agent.record_tool_outcome("shell", &args, &err_result, false);
+
+        assert_eq!(
+            agent.planner.history.success_rate(),
+            0.5,
+            "one success and one real failure must average to 0.5, not 1.0"
+        );
+        let recent = agent.planner.history.recent(2);
+        assert!(
+            recent.iter().any(|r| !r.success),
+            "the failure must be recorded as a failure, not silently as success"
+        );
+        assert!(
+            recent.iter().any(|r| r.success),
+            "the success must still be recorded as a success"
+        );
+    }
+
+    #[test]
+    fn planner_history_all_failures_yields_zero_success_rate() {
+        let mut agent = make_test_agent();
+        let args = serde_json::json!({});
+        for _ in 0..3 {
+            let result = agent.screen_tool_output("shell", "boom");
+            agent.record_tool_outcome("shell", &args, &result, false);
+        }
+        assert_eq!(agent.planner.history.success_rate(), 0.0);
     }
 
     #[tokio::test]
