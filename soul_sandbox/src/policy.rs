@@ -102,10 +102,15 @@ pub struct SandboxPolicy {
     /// or a custom profile), so isolation can never silently degrade to
     /// string-filtering-only.
     pub seccomp_profile: Option<String>,
-    /// If true (the default), the sandboxed process runs in its own network
-    /// namespace with no configured interfaces — no network access at all,
-    /// including loopback. Isolation setup failure aborts the spawn rather
-    /// than falling back to running the command with host networking.
+    /// If true (the default), the sandboxed process attempts to run in its
+    /// own network namespace with no configured interfaces — no network
+    /// access at all, including loopback. Best-effort: on hosts that
+    /// restrict unprivileged network-namespace creation (e.g. Ubuntu
+    /// 23.10+'s default AppArmor policy, including standard GitHub Actions
+    /// runners), isolation setup fails and the command still runs with host
+    /// networking rather than refusing to execute — see
+    /// `Sandbox::apply_sandbox_pre_exec` for why this is intentionally not
+    /// fail-closed, unlike seccomp.
     pub network_isolated: bool,
     /// Maximum bytes captured from stdout (and, separately, stderr) per
     /// execution. Output beyond this cap is dropped rather than
