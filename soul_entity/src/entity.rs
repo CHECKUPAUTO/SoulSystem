@@ -39,6 +39,7 @@ pub struct SoulEntity {
     pub memory: Arc<LongTermMemory>,
     pub hierarchical_memory: Arc<HierarchicalMemory>,
     pub openclaw: Arc<OpenClawFacade>,
+    pub skill_library: Arc<tokio::sync::RwLock<Vec<soul_skills::Skill>>>,
     pub events: PersistentEventStore,
     pub sub_agents: Arc<SubAgentManager>,
     pub cron: Arc<Mutex<CronScheduler>>,
@@ -84,6 +85,7 @@ impl SoulEntity {
 
         let sub_agents = Arc::new(SubAgentManager::new(config.llm.clone(), 4));
         let cron = Arc::new(Mutex::new(CronScheduler::new()));
+        let skill_library = Arc::new(tokio::sync::RwLock::new(soul_skills::builtin_skills()));
 
         let event_store = if let Some(ref path) = config.event_store_path {
             PersistentEventStore::new(path, 10, 1000)
@@ -116,6 +118,7 @@ impl SoulEntity {
             memory,
             hierarchical_memory,
             openclaw: Arc::new(OpenClawFacade::new()),
+            skill_library,
             events: event_store,
             sub_agents,
             cron,
@@ -557,8 +560,20 @@ impl SoulEntity {
         prompt: &str,
         goal_id: &str,
     ) -> std::result::Result<String, String> {
+        let skills = self.skill_library.read().await;
+        let selected = skills
+            .iter()
+            .filter(|skill| skill.enabled && skill.matches_trigger(prompt))
+            .max_by_key(|skill| skill.priority);
+        let augmented;
+        let effective_prompt = if let Some(skill) = selected {
+            augmented = format!("{}\n\n## User request\n{prompt}", skill.to_prompt());
+            augmented.as_str()
+        } else {
+            prompt
+        };
         self.llm
-            .generate_with_goal(prompt, goal_id)
+            .generate_with_goal(effective_prompt, goal_id)
             .await
             .map(|r| r.text)
             .map_err(|e| format!("{e}"))
@@ -567,6 +582,22 @@ impl SoulEntity {
     /// Retourne les stats d'usage LLM pour un goal
     pub fn llm_usage(&self, goal_id: &str) -> Option<soul_llm::LlmUsage> {
         self.llm.budget().get_goal_usage(goal_id)
+    }
+
+    /// Load Markdown skills and make them active in the entity's prompt path.
+    pub async fn load_skills_from(&self, path: &std::path::Path) -> Result<usize, String> {
+        let mut loader = soul_skills::SkillLoader::new(path);
+        let loaded = loader.load_all().await.map_err(|error| error.to_string())?;
+        let count = loaded.len();
+        let mut library = self.skill_library.write().await;
+        for skill in loaded {
+            if let Some(existing) = library.iter_mut().find(|item| item.name == skill.name) {
+                *existing = skill;
+            } else {
+                library.push(skill);
+            }
+        }
+        Ok(count)
     }
 
     /// Retourne tous les usages LLM par goal
@@ -831,6 +862,16 @@ impl soul_gateway::EntityHandle for SoulEntity {
         };
         self.events.publish(event);
         Ok(())
+    }
+    async fn spawn_subagent(&self, description: &str) -> Result<String, String> {
+        SoulEntity::spawn_subagent(self, description, None).await
+    }
+    async fn list_subagents(&self) -> Vec<serde_json::Value> {
+        SoulEntity::subagent_tasks(self)
+            .await
+            .into_iter()
+            .map(|task| serde_json::to_value(task).unwrap_or_else(|_| json!({})))
+            .collect()
     }
 }
 

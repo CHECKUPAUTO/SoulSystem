@@ -3,7 +3,7 @@ name = "soulsystem-common"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
-rust-version = "1.75"
+rust-version = "1.93"
 description = "SoulSystem — Types et utilities partagés entre tous les sous-systèmes"
 
 [dependencies]
@@ -17,6 +17,8 @@ chrono = { workspace = true }
 toml = { workspace = true }
 anyhow = { workspace = true }
 seahash = "4"
+keyring = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

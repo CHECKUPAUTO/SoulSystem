@@ -10,12 +10,13 @@
 //!                  discovery, soul_memory, telemetry.
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
+mod automation;
 mod prod_guard;
 mod setup_tui;
 use soul_entity::{EntityConfig, SoulEntity};
-use soul_gateway::{serve as serve_gateway, GatewayAuth, GatewayState};
+use soul_gateway::{serve_with_tls as serve_gateway, GatewayAuth, GatewayState, TlsConfig};
 use soul_llm::LlmConfig;
 use soul_openclaw::{Skill, SkillVersion};
 use soul_sandbox::SandboxPolicy;
@@ -59,6 +60,9 @@ use tracing_subscriber::EnvFilter;
     about = "SoulSystem — secure autonomous-agent runtime and operator CLI"
 )]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Check configuration, local services, sandboxing and security prerequisites
     #[arg(long)]
     doctor: bool,
@@ -107,6 +111,14 @@ struct Cli {
     #[arg(long, default_value = "127.0.0.1:7878")]
     gateway_addr: String,
 
+    /// PEM certificate used to expose the gateway over native TLS
+    #[arg(long, value_name = "FILE", requires = "tls_key")]
+    tls_cert: Option<PathBuf>,
+
+    /// PEM private key used to expose the gateway over native TLS
+    #[arg(long, value_name = "FILE", requires = "tls_cert")]
+    tls_key: Option<PathBuf>,
+
     /// LLM provider for the autonomous entity
     #[arg(long, default_value = "ollama")]
     provider: soul_llm::ProviderKind,
@@ -136,6 +148,55 @@ struct Cli {
     setup_tui: bool,
 }
 
+#[derive(Subcommand)]
+enum Command {
+    /// Store and manage credentials in the operating-system credential store
+    Secrets {
+        #[command(subcommand)]
+        action: SecretAction,
+    },
+    /// Create and manage persistent scheduled goals
+    Automation {
+        #[command(subcommand)]
+        action: AutomationAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum SecretAction {
+    /// Read a secret without echo and store it in the native credential manager
+    Set {
+        /// Secret name, for example llm/openai or gateway/operator
+        name: String,
+    },
+    /// Report whether a secret exists without revealing its value
+    Status { name: String },
+    /// Delete a secret from the native credential manager
+    Delete { name: String },
+}
+
+#[derive(Subcommand)]
+enum AutomationAction {
+    /// Add a scheduled goal (examples: hourly, daily@08:30, every-15m, or cron)
+    Add {
+        name: String,
+        #[arg(long)]
+        schedule: String,
+        #[arg(long)]
+        goal: String,
+        #[arg(long, default_value_t = 5)]
+        priority: u8,
+    },
+    /// List configured scheduled goals
+    List,
+    /// Remove a scheduled goal
+    Remove { name: String },
+    /// Enable a scheduled goal
+    Enable { name: String },
+    /// Disable a scheduled goal without deleting it
+    Disable { name: String },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -143,6 +204,10 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    if let Some(Command::Secrets { action }) = &cli.command {
+        return run_secret_command(action);
+    }
 
     if cli.setup {
         return run_setup_wizard().await;
@@ -170,8 +235,23 @@ async fn main() -> Result<()> {
         }
     }
 
+    if let Some(Command::Automation { action }) = &cli.command {
+        return run_automation_command(action, &settings.paths.config_dir);
+    }
+
+    let resolved_api_key = cli.api_key.clone().or_else(|| {
+        soulsystem_common::secrets::resolve_llm_secret(&cli.provider.to_string())
+            .map(|secret| secret.to_string())
+    });
+    if cli.api_key.is_some() {
+        warn!(
+            "--api-key can be exposed through process listings; prefer `soulsystem secrets set llm/{}` or an environment variable",
+            cli.provider
+        );
+    }
+
     if cli.doctor {
-        return run_doctor(&cli, &settings).await;
+        return run_doctor(&cli, &settings, resolved_api_key.as_deref()).await;
     }
 
     // ── Fail-closed production readiness guard ─────────────────────────────
@@ -184,7 +264,17 @@ async fn main() -> Result<()> {
     // evaluating the production posture. Reusing this instance prevents the
     // guard from claiming authentication that differs from the serving path.
     let gateway_auth = GatewayAuth::from_env();
-    prod_guard::enforce_startup_security(&cli.gateway_addr, &settings, &gateway_auth)?;
+    let gateway_tls = match (&cli.tls_cert, &cli.tls_key) {
+        (Some(cert), Some(key)) => Some(TlsConfig::load(cert.clone(), key.clone()).await?),
+        (None, None) => None,
+        _ => unreachable!("clap requires --tls-cert and --tls-key together"),
+    };
+    prod_guard::enforce_startup_security(
+        &cli.gateway_addr,
+        &settings,
+        &gateway_auth,
+        gateway_tls.is_some(),
+    )?;
 
     // ── Bus central (file d'attente 256 messages) ──────────────────────────
     #[allow(unused_variables)]
@@ -1312,7 +1402,7 @@ async fn main() -> Result<()> {
                 temperature: 0.7,
                 http_timeout: Duration::from_secs(30),
                 connect_timeout: Duration::from_secs(5),
-                auth_token: cli.api_key.clone(),
+                auth_token: resolved_api_key.clone(),
                 max_tokens: 4096,
                 goal_token_budget: 50000,
                 tokens_per_minute_budget: 100000,
@@ -1328,6 +1418,16 @@ async fn main() -> Result<()> {
             event_store_path: Some(std::path::PathBuf::from("/tmp/soul_events")),
         };
         let entity = Arc::new(SoulEntity::new(entity_config).map_err(|e| anyhow::anyhow!("{e}"))?);
+        let skills_dir = settings.paths.config_dir.join("skills");
+        let loaded_skills = entity
+            .load_skills_from(&skills_dir)
+            .await
+            .map_err(|error| anyhow::anyhow!("cannot load skills: {error}"))?;
+        info!(
+            "skills: {} fichier(s) chargé(s) depuis {}",
+            loaded_skills,
+            skills_dir.display()
+        );
         entity.openclaw.skills.install(Skill::new(
             "system_info",
             SkillVersion::new(1, 0, 0),
@@ -1344,6 +1444,33 @@ async fn main() -> Result<()> {
             "Lit un fichier texte",
         ));
         entity.create_goal("Vérifier l'état initial du système", 5);
+
+        let automation_repository =
+            automation::AutomationRepository::in_config_dir(&settings.paths.config_dir);
+        let configured_automations = automation_repository.list()?;
+        for automation in configured_automations.iter().filter(|item| item.enabled) {
+            entity.register_cron(automation.as_cron_task()?);
+        }
+        info!(
+            "automations: {} tâche(s) active(s) chargée(s) depuis {}",
+            entity.cron_task_count(),
+            automation_repository.path().display()
+        );
+        let entity_for_cron = entity.clone();
+        let cron_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(20));
+            loop {
+                interval.tick().await;
+                for task in entity_for_cron.cron_tick(&chrono::Utc::now()) {
+                    info!(
+                        automation = task.name,
+                        schedule = task.expr,
+                        "création du but planifié"
+                    );
+                    entity_for_cron.create_goal(&task.goal_description, task.goal_priority);
+                }
+            }
+        });
 
         let entity_for_loop = entity.clone();
         let loop_handle = if cli.autonomous {
@@ -1362,12 +1489,17 @@ async fn main() -> Result<()> {
             entity.clone() as Arc<dyn soul_gateway::EntityHandle>,
             gateway_auth,
         );
+        let gateway_scheme = if gateway_tls.is_some() {
+            "https"
+        } else {
+            "http"
+        };
         let gw_handle = tokio::spawn(async move {
-            if let Err(e) = serve_gateway(gw_state, gw_addr).await {
+            if let Err(e) = serve_gateway(gw_state, gw_addr, gateway_tls).await {
                 tracing::error!("gateway crashed: {e}");
             }
         });
-        info!("gateway HTTP/WS sur http://{gw_addr}");
+        info!("gateway HTTP/WS sur {gateway_scheme}://{gw_addr}");
 
         if cli.repl {
             match soul_repl::ReplState::new(soul_llm::LlmConfig::default()) {
@@ -1384,6 +1516,7 @@ async fn main() -> Result<()> {
         }
         entity.stop();
         gw_handle.abort();
+        cron_handle.abort();
         if let Some(h) = loop_handle {
             h.abort();
         }
@@ -1556,7 +1689,11 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn run_doctor(cli: &Cli, settings: &soulsystem::config::Settings) -> Result<()> {
+async fn run_doctor(
+    cli: &Cli,
+    settings: &soulsystem::config::Settings,
+    api_key: Option<&str>,
+) -> Result<()> {
     let mut warnings = 0usize;
 
     println!("SoulSystem doctor {}", env!("CARGO_PKG_VERSION"));
@@ -1573,7 +1710,7 @@ async fn run_doctor(cli: &Cli, settings: &soulsystem::config::Settings) -> Resul
 
     let provider_url = cli.llm_url.trim_end_matches('/');
     let client = reqwest::Client::new();
-    match doctor_llm_request(&client, cli.provider, provider_url, cli.api_key.as_deref())
+    match doctor_llm_request(&client, cli.provider, provider_url, api_key)
         .timeout(Duration::from_secs(3))
         .send()
         .await
@@ -1698,7 +1835,9 @@ async fn run_setup_wizard() -> Result<()> {
     cfg.llm.model = prompt_with_default("Model", default_model)?;
 
     if provider != "ollama" {
-        let key = prompt_password("API key (optional, leave empty for env var)")?;
+        let key = prompt_password(
+            "API key (optional; stored in the operating-system credential manager)",
+        )?;
         cfg.llm.api_key = if key.is_empty() { None } else { Some(key) };
     } else {
         cfg.llm.api_key = None;
@@ -1766,11 +1905,104 @@ fn prompt_with_default(label: &str, default: &str) -> Result<String> {
 }
 
 fn prompt_password(label: &str) -> Result<String> {
-    print!("{}: ", label);
-    io::stdout().flush()?;
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    Ok(input.trim().to_string())
+    rpassword::prompt_password(format!("{label}: ")).map_err(Into::into)
+}
+
+fn run_secret_command(action: &SecretAction) -> Result<()> {
+    use soulsystem_common::secrets::{SecretName, SystemSecretStore};
+
+    match action {
+        SecretAction::Set { name } => {
+            let name = SecretName::parse(name.clone())?;
+            let value = rpassword::prompt_password(format!("Secret {}: ", name.as_str()))?;
+            if value.is_empty() {
+                anyhow::bail!("refusing to store an empty secret");
+            }
+            SystemSecretStore::set(&name, &value)?;
+            println!(
+                "Stored '{}' in the operating-system credential manager.",
+                name.as_str()
+            );
+        }
+        SecretAction::Status { name } => {
+            let name = SecretName::parse(name.clone())?;
+            match SystemSecretStore::get(&name) {
+                Ok(_) => println!("Secret '{}' is configured.", name.as_str()),
+                Err(soulsystem_common::secrets::SecretStoreError::NotFound(_)) => {
+                    println!("Secret '{}' is not configured.", name.as_str())
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        SecretAction::Delete { name } => {
+            let name = SecretName::parse(name.clone())?;
+            SystemSecretStore::delete(&name)?;
+            println!(
+                "Deleted '{}' from the operating-system credential manager.",
+                name.as_str()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn run_automation_command(action: &AutomationAction, config_dir: &std::path::Path) -> Result<()> {
+    let repository = automation::AutomationRepository::in_config_dir(config_dir);
+    match action {
+        AutomationAction::Add {
+            name,
+            schedule,
+            goal,
+            priority,
+        } => {
+            let automation = automation::Automation::new(
+                name.clone(),
+                schedule.clone(),
+                goal.clone(),
+                *priority,
+            )?;
+            let normalized = automation.schedule.clone();
+            repository.add(automation)?;
+            println!("Automation '{name}' added ({normalized}).");
+        }
+        AutomationAction::List => {
+            let automations = repository.list()?;
+            if automations.is_empty() {
+                println!("No automations configured.");
+            } else {
+                println!("NAME\tSTATE\tSCHEDULE\tPRIORITY\tGOAL");
+                for item in automations {
+                    println!(
+                        "{}\t{}\t{}\t{}\t{}",
+                        item.name,
+                        if item.enabled { "enabled" } else { "disabled" },
+                        item.schedule,
+                        item.priority,
+                        item.goal
+                    );
+                }
+            }
+        }
+        AutomationAction::Remove { name } => {
+            if !repository.remove(name)? {
+                anyhow::bail!("automation '{name}' does not exist");
+            }
+            println!("Automation '{name}' removed.");
+        }
+        AutomationAction::Enable { name } => {
+            if !repository.set_enabled(name, true)? {
+                anyhow::bail!("automation '{name}' does not exist");
+            }
+            println!("Automation '{name}' enabled.");
+        }
+        AutomationAction::Disable { name } => {
+            if !repository.set_enabled(name, false)? {
+                anyhow::bail!("automation '{name}' does not exist");
+            }
+            println!("Automation '{name}' disabled.");
+        }
+    }
+    Ok(())
 }
 
 fn prompt_yes_no(label: &str, default: bool) -> Result<bool> {
@@ -1789,8 +2021,7 @@ fn prompt_yes_no(label: &str, default: bool) -> Result<bool> {
 fn mask_key(key: Option<&str>) -> String {
     match key {
         None => "(none)".into(),
-        Some(k) if k.len() <= 8 => "***".into(),
-        Some(k) => format!("{}...***", &k[..4]),
+        Some(_) => "configured in system credential store".into(),
     }
 }
 

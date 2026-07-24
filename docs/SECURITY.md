@@ -9,10 +9,12 @@ not as an untrusted public service.
 - Bind gateways to loopback (`127.0.0.1` or `::1`).
 - Use `SOULSYSTEM_ENV=production` outside local development. Production startup
   fails closed when required controls are missing.
-- Set a strong `SOULSYSTEM_GATEWAY_TOKEN` before any non-loopback deployment.
+- Set strong named `SOULSYSTEM_GATEWAY_TOKENS` and pass `--tls-cert` plus
+  `--tls-key` before any non-loopback gateway deployment.
 - Install bubblewrap on Linux and keep sandbox enforcement enabled.
 - Run under a dedicated, unprivileged operating-system account.
-- Keep provider credentials in environment variables or a secret manager.
+- Keep provider credentials in the native credential store through
+  `soulsystem secrets set`, or in provider-specific environment variables.
 
 Run `soulsystem --doctor` before the first start and after configuration
 changes.
@@ -22,7 +24,8 @@ changes.
 - Tool calls use a typed registry, capability classification, approval gates,
   and the sandboxed execution path.
 - Tool output is screened before it enters planner history or causal memory.
-- Gateway state-changing routes require authentication in production.
+- Gateway operator routes require bearer authentication and support multiple
+  named operators. Native Rustls TLS is available for the gateway.
 - CCOS snapshots and runtime state use atomic, fsync-backed writes and verify
   hash-chain integrity when restored.
 - Production readiness checks live in `crates/soul-prod-guard`.
@@ -36,10 +39,11 @@ The latest evidence-backed framework review is
 
 ## Exposure warning
 
-Do not expose dashboard, gateway, MCP, PTY, webhook, or metrics endpoints
-directly to the Internet. Put remotely accessed endpoints behind authenticated
-TLS termination and restrict the network path. Local-only defaults are a risk
-reduction, not an authentication mechanism.
+Do not expose dashboard, MCP, PTY, webhook, or metrics endpoints directly to
+the Internet. The gateway has native TLS and bearer authentication, but not
+fine-grained RBAC or tenant data isolation yet. Restrict its network path;
+keep every other endpoint on loopback or behind a hardened authenticated
+reverse proxy.
 
 ## Persistence and logs
 

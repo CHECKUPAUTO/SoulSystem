@@ -108,6 +108,12 @@ pub trait EntityHandle: Send + Sync {
     async fn list_goals(&self) -> Vec<serde_json::Value>;
     async fn replay_events(&self, n: usize) -> Vec<EntityEvent>;
     async fn alert(&self, level: &str, message: &str) -> Result<(), String>;
+    async fn spawn_subagent(&self, _description: &str) -> Result<String, String> {
+        Err("subagents are not supported by this entity".into())
+    }
+    async fn list_subagents(&self) -> Vec<serde_json::Value> {
+        Vec::new()
+    }
 }
 
 /// Hub d'événements : tous les clients WS sont notifiés.
@@ -156,45 +162,113 @@ impl EventHub {
 /// byte, and it is never included in `Debug` output or logs.
 #[derive(Clone)]
 pub struct GatewayAuth {
-    token: Option<Arc<str>>,
+    credentials: Arc<[GatewayCredential]>,
+}
+
+#[derive(Clone)]
+struct GatewayCredential {
+    principal: Arc<str>,
+    token: Arc<str>,
+}
+
+/// Authenticated gateway identity, available from request extensions.
+#[derive(Clone, Debug)]
+pub struct GatewayPrincipal(pub Arc<str>);
+
+impl GatewayPrincipal {
+    pub fn name(&self) -> &str {
+        &self.0
+    }
 }
 
 impl std::fmt::Debug for GatewayAuth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GatewayAuth")
-            .field("configured", &self.token.is_some())
+            .field("configured", &self.is_configured())
+            .field("principal_count", &self.credentials.len())
             .finish()
     }
 }
 
 impl GatewayAuth {
-    /// Read the token from `SOULSYSTEM_GATEWAY_TOKEN`. An unset or empty
-    /// value means authentication is not configured — `is_configured()` is
-    /// `false` and every request is rejected.
+    /// Read gateway credentials from the environment.
+    ///
+    /// `SOULSYSTEM_GATEWAY_TOKENS` accepts a comma-separated list of
+    /// `principal=token` entries. `SOULSYSTEM_GATEWAY_TOKEN` remains supported
+    /// as the single-user, backwards-compatible form.
     pub fn from_env() -> Self {
+        let mut credentials = Vec::new();
+        if let Ok(entries) = std::env::var("SOULSYSTEM_GATEWAY_TOKENS") {
+            for entry in entries.split(',') {
+                if let Some((principal, token)) = entry.split_once('=') {
+                    let principal = principal.trim();
+                    let token = token.trim();
+                    if !principal.is_empty() && !token.is_empty() {
+                        credentials.push(GatewayCredential {
+                            principal: Arc::from(principal),
+                            token: Arc::from(token),
+                        });
+                    }
+                }
+            }
+        }
+        if let Ok(token) = std::env::var("SOULSYSTEM_GATEWAY_TOKEN") {
+            if !token.is_empty() {
+                credentials.push(GatewayCredential {
+                    principal: Arc::from("legacy"),
+                    token: Arc::from(token),
+                });
+            }
+        }
         Self {
-            token: std::env::var("SOULSYSTEM_GATEWAY_TOKEN")
-                .ok()
-                .filter(|t| !t.is_empty())
-                .map(Arc::from),
+            credentials: credentials.into(),
         }
     }
 
     /// Build an authenticator with an explicit token (tests, embedders).
     pub fn configured(token: impl Into<Arc<str>>) -> Self {
         Self {
-            token: Some(token.into()),
+            credentials: vec![GatewayCredential {
+                principal: Arc::from("operator"),
+                token: token.into(),
+            }]
+            .into(),
+        }
+    }
+
+    /// Build an authenticator for multiple named operators.
+    pub fn configured_users<I, N, T>(credentials: I) -> Self
+    where
+        I: IntoIterator<Item = (N, T)>,
+        N: Into<Arc<str>>,
+        T: Into<Arc<str>>,
+    {
+        Self {
+            credentials: credentials
+                .into_iter()
+                .map(|(principal, token)| GatewayCredential {
+                    principal: principal.into(),
+                    token: token.into(),
+                })
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 
     /// An authenticator with no token configured — every request rejected.
     pub fn unconfigured() -> Self {
-        Self { token: None }
+        Self {
+            credentials: Arc::from([]),
+        }
     }
 
     /// Whether a token is configured at all.
     pub fn is_configured(&self) -> bool {
-        self.token.is_some()
+        !self.credentials.is_empty()
+    }
+
+    pub fn principal_count(&self) -> usize {
+        self.credentials.len()
     }
 
     /// Check a bearer token extracted from an `Authorization` header. Returns
@@ -202,22 +276,27 @@ impl GatewayAuth {
     /// the provided value does not match — the same outcome for every
     /// rejection reason (no oracle for which case failed).
     fn verify(&self, provided: Option<&str>) -> bool {
-        match (&self.token, provided) {
-            (Some(expected), Some(given)) => {
-                constant_time_eq(expected.as_bytes(), given.as_bytes())
+        self.authenticate(provided).is_some()
+    }
+
+    fn authenticate(&self, provided: Option<&str>) -> Option<GatewayPrincipal> {
+        let given = provided?;
+        let mut matched = None;
+        for credential in self.credentials.iter() {
+            if constant_time_eq(credential.token.as_bytes(), given.as_bytes()) {
+                matched = Some(GatewayPrincipal(credential.principal.clone()));
             }
-            _ => false,
         }
+        matched
     }
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
+    let mut diff = (a.len() ^ b.len()) as u64;
+    for index in 0..a.len().max(b.len()) {
+        diff |= u64::from(
+            a.get(index).copied().unwrap_or_default() ^ b.get(index).copied().unwrap_or_default(),
+        );
     }
     diff == 0
 }
@@ -227,7 +306,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// missing or does not match; never with a message that reveals which.
 async fn require_auth(
     State(state): State<GatewayState>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Result<axum::response::Response, (StatusCode, Json<ErrorResponse>)> {
     let provided = req
@@ -236,7 +315,8 @@ async fn require_auth(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "));
 
-    if state.auth.verify(provided) {
+    if let Some(principal) = state.auth.authenticate(provided) {
+        req.extensions_mut().insert(principal);
         Ok(next.run(req).await)
     } else {
         Err((
@@ -292,6 +372,11 @@ pub struct AskResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct GoalRequest {
+    pub description: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubAgentRequest {
     pub description: String,
 }
 
@@ -489,6 +574,32 @@ async fn handle_list_goals(State(st): State<GatewayState>) -> impl IntoResponse 
     Json(st.entity.list_goals().await)
 }
 
+async fn handle_spawn_subagent(
+    State(st): State<GatewayState>,
+    Json(req): Json<SubAgentRequest>,
+) -> impl IntoResponse {
+    if req.description.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "description cannot be empty"})),
+        );
+    }
+    match st.entity.spawn_subagent(&req.description).await {
+        Ok(id) => (
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({"id": id, "status": "pending"})),
+        ),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": error})),
+        ),
+    }
+}
+
+async fn handle_list_subagents(State(st): State<GatewayState>) -> impl IntoResponse {
+    Json(st.entity.list_subagents().await)
+}
+
 async fn handle_recent_events(State(st): State<GatewayState>) -> impl IntoResponse {
     Json(st.events.recent(50))
 }
@@ -601,6 +712,10 @@ pub fn router(state: GatewayState) -> Router {
         .route("/v1/cycle", post(handle_cycle))
         .route("/v1/status", get(handle_status))
         .route("/v1/goals", get(handle_list_goals))
+        .route(
+            "/v1/subagents",
+            get(handle_list_subagents).post(handle_spawn_subagent),
+        )
         .route("/v1/events", get(handle_recent_events))
         .route("/v1/stream", get(handle_ws))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
@@ -621,6 +736,15 @@ pub fn router(state: GatewayState) -> Router {
 /// Lance le serveur sur l'adresse donnée et démarre les channel providers
 /// configurés. Bloque jusqu'à arrêt.
 pub async fn serve(state: GatewayState, addr: SocketAddr) -> std::io::Result<()> {
+    serve_with_tls(state, addr, None).await
+}
+
+/// Start the gateway with optional native Rustls TLS.
+pub async fn serve_with_tls(
+    state: GatewayState,
+    addr: SocketAddr,
+    tls: Option<TlsConfig>,
+) -> std::io::Result<()> {
     // Start messaging providers (Telegram, etc.) if configured.
     providers::start_all(providers::ChannelConfig {
         entity: state.entity.clone(),
@@ -629,80 +753,57 @@ pub async fn serve(state: GatewayState, addr: SocketAddr) -> std::io::Result<()>
     .await;
 
     let app = router(state);
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!("soul_gateway listening on {}", addr);
-    axum::serve(listener, app).await
+    if let Some(tls) = tls {
+        tracing::info!("soul_gateway listening with TLS on {}", addr);
+        axum_server::bind_rustls(addr, tls.rustls)
+            .serve(app.into_make_service())
+            .await
+    } else {
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        tracing::info!("soul_gateway listening on {}", addr);
+        axum::serve(listener, app).await
+    }
 }
 
-// ── TLS Support (mTLS ready) ────────────────────────────────
+// ── Native TLS support ──────────────────────────────────────
 
 use std::path::PathBuf;
 
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use rustls::ServerConfig;
-use rustls_pemfile::{certs, pkcs8_private_keys};
-use std::fs::File;
-use std::io::BufReader;
-
-/// TLS configuration for the gateway (supports mTLS via client_auth)
-#[derive(Debug, Clone)]
+/// TLS configuration for the gateway.
+#[derive(Clone)]
 pub struct TlsConfig {
     pub cert_path: PathBuf,
     pub key_path: PathBuf,
-    pub client_ca_path: Option<PathBuf>, // For mTLS: require client certificates
+    rustls: axum_server::tls_rustls::RustlsConfig,
 }
 
 impl TlsConfig {
-    /// Load TLS configuration from certificate and key files
-    pub fn load(
-        cert_path: PathBuf,
-        key_path: PathBuf,
-        client_ca_path: Option<PathBuf>,
-    ) -> std::io::Result<Self> {
-        let cert_file = File::open(&cert_path)?;
-        let cert_bytes = certs(&mut BufReader::new(cert_file))?;
-
-        let key_file = File::open(&key_path)?;
-        let key_bytes = pkcs8_private_keys(&mut BufReader::new(key_file))?;
-
-        if cert_bytes.is_empty() || key_bytes.is_empty() {
+    /// Parse both PEM files before startup security checks accept TLS.
+    pub async fn load(cert_path: PathBuf, key_path: PathBuf) -> std::io::Result<Self> {
+        if !cert_path.is_file() || !key_path.is_file() {
             return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Invalid certificate or key",
+                std::io::ErrorKind::NotFound,
+                "TLS certificate and private key must both be readable files",
             ));
         }
 
+        let rustls =
+            axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert_path, &key_path).await?;
         Ok(Self {
             cert_path,
             key_path,
-            client_ca_path,
+            rustls,
         })
     }
+}
 
-    /// Create a rustls ServerConfig (rustls 0.23 API)
-    pub fn make_server_config(&self) -> std::io::Result<Arc<ServerConfig>> {
-        let cert_file = File::open(&self.cert_path)?;
-        let key_file = File::open(&self.key_path)?;
-
-        let cert_bytes = certs(&mut BufReader::new(cert_file))?;
-        let mut key_bytes = pkcs8_private_keys(&mut BufReader::new(key_file))?;
-
-        if cert_bytes.is_empty() || key_bytes.is_empty() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Invalid certificate or key",
-            ));
-        }
-
-        let certs: Vec<CertificateDer> = cert_bytes.into_iter().map(CertificateDer::from).collect();
-        let key = PrivateKeyDer::Pkcs8(key_bytes.remove(0).into());
-
-        let config = ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(certs, key)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-        Ok(Arc::new(config))
+impl std::fmt::Debug for TlsConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TlsConfig")
+            .field("cert_path", &self.cert_path)
+            .field("key_path", &self.key_path)
+            .finish_non_exhaustive()
     }
 }
 
@@ -751,6 +852,12 @@ mod tests {
         }
         async fn alert(&self, _level: &str, _msg: &str) -> Result<(), String> {
             Ok(())
+        }
+        async fn spawn_subagent(&self, description: &str) -> Result<String, String> {
+            Ok(format!("subagent-{description}"))
+        }
+        async fn list_subagents(&self) -> Vec<serde_json::Value> {
+            vec![serde_json::json!({"id": "subagent-1", "status": "running"})]
         }
     }
 
@@ -893,6 +1000,16 @@ mod tests {
         assert!(gw_err.to_string().contains("file missing"));
     }
 
+    #[tokio::test]
+    async fn tls_config_rejects_invalid_pem_before_serving() {
+        let directory = tempfile::tempdir().unwrap();
+        let certificate = directory.path().join("certificate.pem");
+        let key = directory.path().join("key.pem");
+        std::fs::write(&certificate, "not a certificate").unwrap();
+        std::fs::write(&key, "not a key").unwrap();
+        assert!(TlsConfig::load(certificate, key).await.is_err());
+    }
+
     // ── GatewayAuth ───────────────────────────────────────────
 
     #[test]
@@ -911,6 +1028,18 @@ mod tests {
         assert!(!auth.verify(Some("wrong")));
         assert!(!auth.verify(Some("s3cret-extra")));
         assert!(!auth.verify(None));
+    }
+
+    #[test]
+    fn auth_supports_multiple_named_users_without_debugging_secrets() {
+        let auth =
+            GatewayAuth::configured_users([("alice", "alice-secret"), ("bob", "bob-secret")]);
+        assert_eq!(auth.principal_count(), 2);
+        assert_eq!(auth.authenticate(Some("bob-secret")).unwrap().name(), "bob");
+        assert!(!auth.verify(Some("charlie-secret")));
+        let debug = format!("{auth:?}");
+        assert!(!debug.contains("alice-secret"));
+        assert!(!debug.contains("bob-secret"));
     }
 
     #[test]
@@ -997,6 +1126,37 @@ mod tests {
         let app = router(mock_state(GatewayAuth::configured("tok")));
         let status = send(app, "POST", "/v1/goal", None, r#"{"description":"x"}"#).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn subagent_routes_are_authenticated_and_reach_the_entity() {
+        let app = router(mock_state(GatewayAuth::configured("tok")));
+        assert_eq!(
+            send(
+                app.clone(),
+                "POST",
+                "/v1/subagents",
+                None,
+                r#"{"description":"research"}"#,
+            )
+            .await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            send(
+                app.clone(),
+                "POST",
+                "/v1/subagents",
+                Some("tok"),
+                r#"{"description":"research"}"#,
+            )
+            .await,
+            StatusCode::ACCEPTED
+        );
+        assert_eq!(
+            send(app, "GET", "/v1/subagents", Some("tok"), "").await,
+            StatusCode::OK
+        );
     }
 
     #[tokio::test]

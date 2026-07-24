@@ -159,12 +159,8 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
                 new_cfg.llm.model.bright_yellow(),
                 new_cfg.llm.base_url.bright_yellow(),
             );
-            if let Some(ref key) = new_cfg.llm.api_key {
-                println!(
-                    "  --api-key {}...{}",
-                    &key[..4.min(key.len())],
-                    &key[key.len().saturating_sub(4)..]
-                );
+            if new_cfg.llm.api_key.is_some() {
+                println!("  Clé API enregistrée dans le gestionnaire de secrets système.");
             }
             return Ok(());
         }
@@ -173,7 +169,7 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
             let provider = cli.provider;
             let llm_url = cli.llm_url.clone();
             let model = cli.model.clone();
-            let api_key = cli.api_key.clone();
+            let api_key = resolve_api_key(cli.api_key.clone(), cli.provider);
 
             let llm_cfg = LlmConfig {
                 provider,
@@ -206,7 +202,7 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
     let provider = cli.provider;
     let llm_url = cli.llm_url.clone();
     let model = cli.model.clone();
-    let api_key = cli.api_key.clone();
+    let api_key = resolve_api_key(cli.api_key.clone(), cli.provider);
     let name = cli.name.clone();
 
     print_banner(
@@ -430,6 +426,13 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
         serde_json::to_string_pretty(&final_status).unwrap_or_default()
     );
     Ok(())
+}
+
+fn resolve_api_key(explicit: Option<String>, provider: ProviderKind) -> Option<String> {
+    explicit.or_else(|| {
+        soulsystem_common::secrets::resolve_llm_secret(&provider.to_string())
+            .map(|secret| secret.to_string())
+    })
 }
 
 #[allow(dead_code)]

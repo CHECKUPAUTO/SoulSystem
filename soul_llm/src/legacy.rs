@@ -298,6 +298,32 @@ pub fn build_tool_schemas() -> Vec<ToolSchema> {
                 "required": ["path", "content"]
             }),
         },
+        ToolSchema {
+            name: "browser_read".into(),
+            description:
+                "Navigate a locally controlled Chrome browser and return visible page text".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string" },
+                    "cdp_endpoint": { "type": "string" }
+                },
+                "required": ["url"]
+            }),
+        },
+        ToolSchema {
+            name: "mcp_call".into(),
+            description: "Call a tool exposed by an MCP WebSocket server".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "server_url": { "type": "string" },
+                    "tool": { "type": "string" },
+                    "arguments": { "type": "object" }
+                },
+                "required": ["server_url", "tool"]
+            }),
+        },
     ]
 }
 

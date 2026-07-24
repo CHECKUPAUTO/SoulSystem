@@ -9,3 +9,4 @@ pub mod health;
 pub mod llm_client;
 pub mod memory_types;
 pub mod metacognition;
+pub mod secrets;

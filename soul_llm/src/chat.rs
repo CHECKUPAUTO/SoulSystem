@@ -249,19 +249,14 @@ pub fn build_tool_schemas() -> Vec<ToolSchema> {
             json!({"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","old_text","new_text"]}),
         ),
         tool(
-            "list_directory",
-            "List the entries of a directory.",
-            json!({"type":"object","properties":{"path":{"type":"string"}}}),
+            "browser_read",
+            "Navigate a locally controlled Chrome browser to a URL and return visible page text.",
+            json!({"type":"object","properties":{"url":{"type":"string"},"cdp_endpoint":{"type":"string","default":"http://127.0.0.1:9222"}},"required":["url"]}),
         ),
         tool(
-            "search_files",
-            "Find files matching a name pattern under a path.",
-            json!({"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}),
-        ),
-        tool(
-            "grep_content",
-            "Search file contents for a substring.",
-            json!({"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"},"file_pattern":{"type":"string"}},"required":["pattern"]}),
+            "mcp_call",
+            "Call a tool exposed by an MCP WebSocket server. This state-changing network capability requires approval.",
+            json!({"type":"object","properties":{"server_url":{"type":"string"},"tool":{"type":"string"},"arguments":{"type":"object"}},"required":["server_url","tool"]}),
         ),
     ]
 }

@@ -22,6 +22,9 @@ pub struct LlmPersistConfig {
     pub provider: String,
     pub base_url: String,
     pub model: String,
+    /// Legacy in-memory import field. `save_config` migrates this value into
+    /// the OS credential manager and it is never serialized to TOML.
+    #[serde(default, skip_serializing)]
     pub api_key: Option<String>,
     pub temperature: f32,
     pub max_tokens: usize,
@@ -83,7 +86,15 @@ pub fn save_config(cfg: &PersistConfig) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("impossible de créer {}", parent.display()))?;
     }
-    let content = toml::to_string_pretty(cfg).context("erreur sérialisation TOML")?;
+    if let Some(key) = cfg.llm.api_key.as_deref().filter(|key| !key.is_empty()) {
+        let name = soulsystem_common::secrets::llm_secret_name(&cfg.llm.provider)
+            .context("nom de secret provider invalide")?;
+        soulsystem_common::secrets::SystemSecretStore::set(&name, key)
+            .context("impossible de stocker la clé dans le gestionnaire d'identifiants système")?;
+    }
+    let mut sanitized = cfg.clone();
+    sanitized.llm.api_key = None;
+    let content = toml::to_string_pretty(&sanitized).context("erreur sérialisation TOML")?;
     fs::write(&path, &content)
         .with_context(|| format!("impossible d'écrire {}", path.display()))?;
     // Sécurité: restreindre les permissions du fichier contenant la clé API
@@ -733,17 +744,30 @@ fn draw_edit_dialog(f: &mut Frame, size: Rect, app: &ConfigApp) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let display = if app.edit_buffer.is_empty() {
+    let secret_field = matches!(app.edit_field, Some(SettingField::ApiKey));
+    let masked_buffer;
+    let displayed_buffer = if secret_field {
+        masked_buffer = "•".repeat(app.edit_buffer.chars().count());
+        masked_buffer.as_str()
+    } else {
+        app.edit_buffer.as_str()
+    };
+    let display = if displayed_buffer.is_empty() {
         Span::styled("│", Style::default().fg(Color::Cyan))
     } else {
-        Span::styled(&app.edit_buffer, Style::default().fg(Color::White))
+        Span::styled(displayed_buffer, Style::default().fg(Color::White))
     };
 
     let paragraph = Paragraph::new(Line::from(display));
     f.render_widget(paragraph, inner);
 
     if !app.edit_buffer.is_empty() || app.focus == Focus::EditDialog {
-        let cursor_x = inner.x + app.edit_cursor as u16;
+        let cursor_offset = if secret_field {
+            app.edit_buffer[..app.edit_cursor].chars().count()
+        } else {
+            app.edit_cursor
+        };
+        let cursor_x = inner.x + cursor_offset as u16;
         f.set_cursor_position((cursor_x, inner.y));
     }
 
@@ -916,8 +940,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 
 fn mask_api_key(key: &Option<String>) -> String {
     match key {
-        Some(k) if k.len() > 8 => format!("{}...{}", &k[..4], &k[k.len() - 4..]),
-        Some(k) => "*".repeat(k.len().min(8)),
+        Some(_) => "configurée dans le gestionnaire système".into(),
         None => "non définie".into(),
     }
 }
@@ -987,12 +1010,20 @@ mod tests {
     }
 
     #[test]
+    fn serialization_never_contains_plaintext_api_key() {
+        let mut cfg = PersistConfig::default();
+        cfg.llm.api_key = Some("sk-plaintext-must-not-leak".into());
+        let serialized = toml::to_string_pretty(&cfg).unwrap();
+        assert!(!serialized.contains("sk-plaintext-must-not-leak"));
+        assert!(!serialized.contains("api_key"));
+    }
+
+    #[test]
     fn mask_api_key_works() {
         assert_eq!(mask_api_key(&None), "non définie");
-        assert_eq!(mask_api_key(&Some("short".into())), "*****");
         assert_eq!(
             mask_api_key(&Some("sk-1234567890abcdef".into())),
-            "sk-1...cdef"
+            "configurée dans le gestionnaire système"
         );
     }
 

@@ -21,10 +21,19 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: macos-13
+            archive: tar
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            archive: tar
+          - os: macos-15-intel
             target: x86_64-apple-darwin
-          - os: macos-14
+            archive: tar
+          - os: macos-15
             target: aarch64-apple-darwin
+            archive: tar
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
     steps:
       - uses: actions/checkout@v4
 
@@ -36,16 +45,35 @@ jobs:
       - name: Build soulsystem
         run: cargo build --release --bin soulsystem --target ${{ matrix.target }}
 
-      - name: Package
+      - name: Package Unix
+        if: matrix.archive == 'tar'
         run: |
           bin="soulsystem"
           dist="${bin}-${{ matrix.target }}"
           tar -czf "${dist}.tar.gz" -C "target/${{ matrix.target }}/release" "$bin"
           shasum -a 256 "${dist}.tar.gz" > "${dist}.tar.gz.sha256"
 
-      - name: Upload to release
+      - name: Package Windows
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $dist = "soulsystem-${{ matrix.target }}"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/soulsystem.exe" -DestinationPath "$dist.zip"
+          $hash = (Get-FileHash "$dist.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $dist.zip" | Set-Content -NoNewline "$dist.zip.sha256"
+
+      - name: Upload Unix release
+        if: matrix.archive == 'tar'
         uses: softprops/action-gh-release@v2
         with:
           files: |
             soulsystem-${{ matrix.target }}.tar.gz
             soulsystem-${{ matrix.target }}.tar.gz.sha256
+
+      - name: Upload Windows release
+        if: matrix.archive == 'zip'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            soulsystem-${{ matrix.target }}.zip
+            soulsystem-${{ matrix.target }}.zip.sha256

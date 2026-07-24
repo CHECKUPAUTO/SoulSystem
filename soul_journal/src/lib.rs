@@ -1,4 +1,3 @@
-use std::ffi::CString;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
@@ -17,6 +16,7 @@ const fn padded_len(payload_size: usize) -> usize {
 }
 
 pub struct MmapJournal {
+    mmap: memmap2::MmapMut,
     mmap_ptr: *mut u8,
     write_offset: AtomicUsize,
     size: usize,
@@ -35,50 +35,25 @@ impl MmapJournal {
     /// Comme `new` mais avec une taille de segment explicite (rotation / tests).
     pub fn new_with_size(file_path: &str, size: usize) -> std::io::Result<Self> {
         let size = size.max(8);
-        let c_path = CString::new(file_path)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-        // SAFETY:
-        // 1. `c_path` is a valid, NUL-terminated CString derived from a &str; `open()` dereferences
-        //    it only for the duration of this call.
-        // 2. `fd` is checked for < 0 before any further use; every error path calls `close(fd)`.
-        // 3. `ftruncate` is only called on a valid fd and its failure is handled.
-        // 4. `mmap` receives a valid size (> 0 after `.max(8)`), a valid fd (open + ftruncated),
-        //    and returns either MAP_FAILED or a valid pointer; we check for MAP_FAILED before
-        //    storing the result.
-        // 5. The fd is closed immediately after mmap — MAP_SHARED keeps the mapping alive.
-        // 6. No other thread can access this struct until `new` returns, so there is no data race
-        //    on `mmap_ptr` or `write_offset`.
-        // INVARIANTS: After this block, `mmap_ptr` points to a valid `size`-byte shared-memory
-        // region (or the function returned Err). The fd must NOT be used after close.
-        // FAILURE: If any syscall fails, we return `Err` with the OS error — no memory is leaked.
-        unsafe {
-            let fd = libc::open(c_path.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600);
-            if fd < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            if libc::ftruncate(fd, size as libc::off_t) != 0 {
-                let e = std::io::Error::last_os_error();
-                libc::close(fd);
-                return Err(e);
-            }
-            let mmap_ptr = libc::mmap(
-                std::ptr::null_mut(),
-                size,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_SHARED,
-                fd,
-                0,
-            );
-            libc::close(fd);
-            if mmap_ptr == libc::MAP_FAILED {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(Self {
-                mmap_ptr: mmap_ptr as *mut u8,
-                write_offset: AtomicUsize::new(0),
-                size,
-            })
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
         }
+        let file = options.open(file_path)?;
+        file.set_len(size as u64)?;
+        // SAFETY: the file remains valid for mapping creation, its length is
+        // set to `size`, and the owned MmapMut keeps the mapping alive.
+        let mut mmap = unsafe { memmap2::MmapOptions::new().len(size).map_mut(&file)? };
+        let mmap_ptr = mmap.as_mut_ptr();
+        Ok(Self {
+            mmap,
+            mmap_ptr,
+            write_offset: AtomicUsize::new(0),
+            size,
+        })
     }
 
     /// PROTOCOLE DE PUBLICATION : reserve le slot (CAS), ecrit tag+payload, PUIS
@@ -202,7 +177,7 @@ impl MmapJournal {
         // FAILURE: msync returns 0 on success; a non-zero return indicates a failure
         //    (e.g., the mapping was unmapped by another thread — impossible here since
         //    only `drop` calls munmap). Returns false on failure, no UB.
-        unsafe { libc::msync(self.mmap_ptr as *mut libc::c_void, len, libc::MS_SYNC) == 0 }
+        self.mmap.flush_range(0, len).is_ok()
     }
 
     pub fn spawn_flusher(self: &Arc<Self>, period: Duration) -> std::io::Result<JoinHandle<()>> {
@@ -223,26 +198,9 @@ impl MmapJournal {
 
 impl Drop for MmapJournal {
     fn drop(&mut self) {
-        // SAFETY:
-        // 1. This is called exactly once during Drop — no other code accesses `mmap_ptr`
-        //    after this point (single-threaded ownership at drop time).
-        // 2. `self.write_offset.load(Acquire)` returns the last committed write offset.
-        //    We msync only the written portion (`len`) so we don't sync beyond the mapping.
-        // 3. `msync` with MS_SYNC flushes all dirty pages before `munmap` — guarantees
-        //    durability before releasing the mapping.
-        // 4. `munmap(self.mmap_ptr, self.size)` unmaps exactly the region originally
-        //    created by mmap — the pointer and size match the original allocation.
-        // INVARIANT: `mmap_ptr` is the exact pointer from mmap, and `self.size` is the
-        //    exact size passed to mmap. Only called once (Drop semantics).
-        // FAILURE: If msync fails, we proceed with munmap anyway (data may not be durable
-        //    but the mapping is still valid to unmap). munmap cannot fail on a valid
-        //    mapping. No memory leak — the virtual address range is reclaimed.
-        unsafe {
-            let len = self.write_offset.load(Ordering::Acquire);
-            if len > 0 {
-                libc::msync(self.mmap_ptr as *mut libc::c_void, len, libc::MS_SYNC);
-            }
-            libc::munmap(self.mmap_ptr as *mut libc::c_void, self.size);
+        let len = self.write_offset.load(Ordering::Acquire);
+        if len > 0 {
+            let _ = self.mmap.flush_range(0, len);
         }
     }
 }

@@ -1,6 +1,6 @@
 # Matrice de parité — SoulSystem vs OpenClaw vs Hermes-Agent
 
-**Date :** 2026-06-16  
+**Date :** 2026-07-24
 **Objectif :** suivre objectivement l'écart entre SoulSystem et ses deux concurrents directs, et piloter le plan de rattrapage.
 
 ## Légende
@@ -22,7 +22,7 @@
 | **WhatsApp** | ✅ | ✅ | ✅ webhook-based (Business API) |
 | **Discord** | ✅ | ✅ | ✅ webhook-based + REST send |
 | **Slack** | ✅ | ⚠️ | ✅ webhook-based + REST send |
-| **Signal/iMessage** | ✅ | ⚠️ | ❌ |
+| **Signal/iMessage** | ✅ | ⚠️ | ⚠️ Signal bidirectionnel via `signal-cli`; iMessage sortant macOS uniquement |
 | **Multi-provider LLM** | ✅ | ✅ | ✅ Ollama/OpenAI/Anthropic via `LlmClient` |
 | **Tool calling natif** | ✅ | ✅ | ⚠️ `soul_tools` dispatch, mais les outils sont aplatis en prompt pour `LlmClient` ; seul `soul_llm::chat` Ollama fait du vrai tool-calling |
 | **Sandboxing** | ✅ Docker/SSH/Modal | ✅ 5 backends | ⚠️ whitelist + timeout + seccomp-BPF ; pas de backend container/VM |
@@ -30,26 +30,23 @@
 | **Mémoire persistante** | ✅ MEMORY.md | ✅ FTS5 + summary | ⚠️ deux systèmes coexistent : `soul_persistence::LongTermMemory` dans `SoulEntity` et `soullink-memory-hierarchy::HierarchicalMemory` dans `AutonomousAgent` |
 | **Auto-création de skills** | ✅ | ✅ | ⚠️ `soul-skills::ValidatedSkillLibrary` + cristallisation LLM dans `AutonomousAgent`, mais pas de validation empirique automatique en prod |
 | **Skill self-improvement** | ✅ hot-reload | ✅ during use | ⚠️ induction + validation structurelle, pas de boucle fermée en prod |
-| **Subagents** | ✅ | ✅ | ⚠️ `soul-subagents::SubAgentManager` existe mais n'est câblé que comme worker LLM simple dans `soul-daemon` ; pas exposé dans `SoulEntity` |
-| **Cron / scheduling** | ✅ | ✅ | ❌ `soul_scheduler` est un ordonnanceur CPU work-stealing, pas un cron ; les tâches périodiques sont commentées dans `src/main.rs` |
+| **Subagents** | ✅ | ✅ | ✅ `SubAgentManager` dans `SoulEntity`, API gateway authentifiée |
+| **Cron / scheduling** | ✅ | ✅ | ✅ parser cinq champs, alias conviviaux, stockage persistant et création réelle de buts |
 | **Onboarding wizard** | ✅ `openclaw onboard` | ✅ curl \| bash | ✅ `soulsystem --setup` / `--setup-tui` (ratatui) |
 | **Migration OpenClaw** | N/A | ✅ `hermes claw migrate` | ❌ |
 | **TUI riche** | ✅ apps | ✅ `hermes` TUI | ✅ `soulsystem --setup-tui` (ratatui) |
 | **Code signing / BoundSystem** | ❌ | ❌ | ✅ |
-| **MCP protocol** | ✅ | ⚠️ | ❌ `soul-mcp` est un client/serveur JSON-RPC sur channel, non branché aux outils |
-| **Browser / web exploration** | ✅ | ✅ | ⚠️ `soul-browser` (CDP) et `soul-webfetch` existent mais ne sont pas utilisés par l'entité |
+| **MCP protocol** | ✅ | ⚠️ | ✅ `mcp_call` WebSocket typé dans le dispatcher agent |
+| **Browser / web exploration** | ✅ | ✅ | ✅ `browser_read` CDP typé dans le dispatcher agent |
 | **Empirical validation gate** | ❌ | ❌ | ⚠️ concept `soul-rsi` / `soul-automodify` ; pas en boucle de prod |
 
 ## Écarts prioritaires à combler (plan d'action)
 
 1. **Unifier la mémoire** — `SoulEntity` et `AutonomousAgent` doivent partager `HierarchicalMemory` ; `LongTermMemory` reste un archive JSON structurée.
-2. **Cron / scheduling** — transformer `soul_scheduler` en scheduler de tâches temporelles, ou créer un nouveau crate `soul-cron`, et câbler les objectifs périodiques.
-3. **Tool calling multi-provider** — étendre `LlmClient` et les providers pour supporter nativement `tools` et parser les `tool_calls` (pas seulement Ollama).
-4. **Subagents** — exposer `SubAgentManager` dans `SoulEntity` et permettre au ReAct loop de décomposer les goals complexes.
+2. **Tool calling multi-provider** — étendre `LlmClient` et les providers pour supporter nativement `tools` et parser les `tool_calls` (pas seulement Ollama).
+3. **Subagents avancés** — ajouter budgets par utilisateur, délégation automatique et isolation par tenant.
 5. **Sandbox backends** — ajouter un backend containerisé (bubblewrap chroot ou podman/Docker) en complément du seccomp.
-6. **Canaux de messagerie** — Signal / iMessage (WhatsApp, Discord, Slack déjà implémentés).
-7. **MCP integration** — brancher `soul-mcp` comme source/destination d'outils pour `soul_tools`.
-8. **Browser/webfetch** — intégrer `soul-browser` + `soul-webfetch` comme outils de l'agent.
+6. **Canaux de messagerie** — durcir `signal-cli`; iMessage entrant reste bloqué par l'absence d'API bot Apple.
 9. **Migration OpenClaw** — importer une config OpenClaw existante (modèle, skills, MEMORY.md) vers SoulSystem.
 10. **Validation gate** — valider chaque skill cristallisée par un test avant archive.
 
@@ -64,3 +61,5 @@
 
 - 2026-06-16 : merge PR #53 — TUI wizard, providers Slack/WhatsApp, docs, `main` unique.
 - 2026-06-16 : `cargo check --workspace` et `cargo test --workspace --lib` verts.
+- 2026-07-24 : secrets natifs, TLS/multi-opérateur, automatisations, Signal,
+  outils browser/MCP, skills actifs, subagents gateway et releases Windows/arm64.
