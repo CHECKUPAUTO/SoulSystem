@@ -33,3 +33,4 @@ async-trait = "0.1"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
+tempfile = { workspace = true }

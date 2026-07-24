@@ -71,8 +71,8 @@ PR sequence (A–P).
 | ID | Invariant | PR | Status |
 |----|-----------|----|--------|
 | INV-PLAN-1 | Planner history records the actual tool outcome (`success == actual result`). | I | HELD (`soul-agent-core`: `record_tool_outcome` passes real `tool_ok`, not a hardcoded literal, to `planner.history.record`; `planner_history_records_actual_outcome_not_hardcoded_success`, `planner_history_all_failures_yields_zero_success_rate`) |
-| INV-PLAN-2 | Autonomous execution has hard budgets (turns, tool calls, writes, time, tokens). | I | TARGET |
-| INV-PLAN-3 | Emergency stop denies new side effects and is durable across restart. | I | TARGET |
+| INV-PLAN-2 | Autonomous execution has hard budgets (turns, tool calls, writes, time, tokens). | I-2 | HELD for turns/tool-calls/writes/wall-clock (`soul-agent-core`: `AgentConfig::{max_turns,max_tool_calls,max_write_operations,max_wall_clock_secs}` enforced in `run_task`'s turn loop and tool-dispatch loop — over-budget tool calls are refused per-call with a `BLOCKED:` result, and the wall-clock budget aborts the run; `agent_config_default_has_sane_budgets`, `new_agent_starts_with_zeroed_budgets_and_no_task_start`). Token budget not yet wired — follow-up. |
+| INV-PLAN-3 | Emergency stop denies new side effects and is durable across restart. | I-2 | HELD (`soul-agent-core::emergency_stop::EmergencyStop` — a file-backed latch checked at `run_task` entry and on every turn/tool-dispatch iteration; durability across restart is by construction, since the check is a filesystem read with no in-memory state to lose, not an `AtomicBool`; `trip_does_not_survive_only_in_memory_a_fresh_handle_sees_it`, `run_task_refuses_to_start_when_emergency_stop_already_tripped`, `run_task_starts_normally_when_emergency_stop_untripped`, `trip_emergency_stop_trips_latch_and_aborts_running_flag`) |
 
 ## Self-modification
 

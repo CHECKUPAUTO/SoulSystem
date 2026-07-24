@@ -9616,6 +9616,7 @@ dependencies = [
  "soullink-octasoma-backend",
  "soullink-reasoning",
  "soullink-trainer",
+ "tempfile",
  "tokio",
  "tracing",
  "uuid",
