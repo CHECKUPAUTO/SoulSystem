@@ -155,6 +155,16 @@ pub struct LlmConfig {
     pub tokens_per_minute_budget: usize,
     pub pool_max_idle: usize,
     pub pool_idle_timeout: Duration,
+    /// Maximum number of provider requests in flight at once, across every
+    /// dispatch entry point (`generate`, `generate_with_goal`,
+    /// `generate_stream`, `stream`, `chat`). Enforced independently of the
+    /// token budgets above — a burst of concurrent calls can exceed no
+    /// remaining-budget check yet still overwhelm the provider, since token
+    /// accounting only bounds volume over time, not simultaneity. `0`
+    /// disables the cap (unbounded concurrency), matching the
+    /// disabled-when-zero convention of `goal_token_budget` /
+    /// `tokens_per_minute_budget`.
+    pub max_concurrent_requests: usize,
 }
 
 impl Default for LlmConfig {
@@ -172,6 +182,7 @@ impl Default for LlmConfig {
             tokens_per_minute_budget: 100000,
             pool_max_idle: 10,
             pool_idle_timeout: Duration::from_secs(30),
+            max_concurrent_requests: 8,
         }
     }
 }

@@ -18,3 +18,4 @@ chrono = { workspace = true, features = ["serde"] }
 parking_lot = { workspace = true }
 futures = { workspace = true }
 zeroize = { workspace = true }
+tokio = { workspace = true }
