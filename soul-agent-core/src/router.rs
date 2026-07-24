@@ -98,6 +98,7 @@ impl Default for RouterConfig {
                         tokens_per_minute_budget: 50000,
                         pool_max_idle: 2,
                         pool_idle_timeout: std::time::Duration::from_secs(30),
+                        ..Default::default()
                     },
                     tier: ModelTier::FastLocal,
                     domains: vec![TaskDomain::System, TaskDomain::General],
@@ -121,6 +122,7 @@ impl Default for RouterConfig {
                         tokens_per_minute_budget: 100000,
                         pool_max_idle: 2,
                         pool_idle_timeout: std::time::Duration::from_secs(30),
+                        ..Default::default()
                     },
                     tier: ModelTier::GeneralPurpose,
                     domains: vec![
@@ -150,6 +152,7 @@ impl Default for RouterConfig {
                         tokens_per_minute_budget: 200000,
                         pool_max_idle: 2,
                         pool_idle_timeout: std::time::Duration::from_secs(30),
+                        ..Default::default()
                     },
                     tier: ModelTier::CloudPremium,
                     domains: vec![TaskDomain::Creative, TaskDomain::Research],
@@ -561,6 +564,7 @@ mod tests {
             tokens_per_minute_budget: 10000,
             pool_max_idle: 1,
             pool_idle_timeout: std::time::Duration::from_secs(30),
+            ..Default::default()
         }
     }
 

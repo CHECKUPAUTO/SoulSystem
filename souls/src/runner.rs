@@ -188,6 +188,7 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
                 tokens_per_minute_budget: 100000,
                 pool_max_idle: 10,
                 pool_idle_timeout: Duration::from_secs(30),
+                ..Default::default()
             };
             let mut repl_state =
                 soul_repl::ReplState::new(llm_cfg).map_err(|e| anyhow::anyhow!(e))?;
@@ -246,6 +247,7 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
             tokens_per_minute_budget: 100000,
             pool_max_idle: 10,
             pool_idle_timeout: Duration::from_secs(30),
+            ..Default::default()
         },
         sandbox_policy,
         loop_config: soul_openclaw::AgentLoopConfig::default(),
@@ -397,6 +399,7 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
             tokens_per_minute_budget: 100000,
             pool_max_idle: 10,
             pool_idle_timeout: Duration::from_secs(30),
+            ..Default::default()
         };
         let mut repl_state = soul_repl::ReplState::new(llm_cfg).map_err(|e| anyhow::anyhow!(e))?;
         repl_state.entity_name = name.clone();

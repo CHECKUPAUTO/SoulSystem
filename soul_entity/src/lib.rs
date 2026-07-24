@@ -45,6 +45,7 @@ mod tests {
                 tokens_per_minute_budget: 0,
                 pool_max_idle: 1,
                 pool_idle_timeout: Duration::from_secs(1),
+                ..Default::default()
             },
             sandbox_policy: SandboxPolicy::default(),
             loop_config: AgentLoopConfig::default(),

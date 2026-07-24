@@ -2360,6 +2360,7 @@ mod tests {
             tokens_per_minute_budget: 10000,
             pool_max_idle: 1,
             pool_idle_timeout: Duration::from_secs(30),
+            ..Default::default()
         };
         let llm = OllamaClient::new(llm_config);
         let config = AgentConfig {
