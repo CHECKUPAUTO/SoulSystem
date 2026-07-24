@@ -48,7 +48,7 @@ use soul_intrinsic_motivation::IntrinsicMotivation;
 use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolSchema};
 use soul_memory::{KnowledgeGraph, Node, NodeType};
 use soul_planner::{CognitiveLoop, Goal, GoalStatus};
-use soul_skills::SkillLoader;
+use soul_skills::{SkillLoader, SkillValidator};
 use soul_tools::{async_dispatch_tool, discover_system_tools, AsyncShellExecutor, ToolRegistry};
 use soullink_autonomy::{
     error_metrics::{ErrorWeights, GlobalError},
@@ -1557,6 +1557,42 @@ Only return the JSON, no explanation."#,
         }
     }
 
+    /// Validate a candidate skill against [`soul_skills::StructuralValidator`]
+    /// and, only if it clears that gate, persist it via `loader`. Returns
+    /// whether the skill was persisted.
+    ///
+    /// This is the mandatory validation gate for HIGH-004: any skill induced
+    /// from LLM output (a candidate's `name`, `steps`, and `tools_required`
+    /// are all LLM-controlled) must clear structural validation — including
+    /// the safe-filename check that blocks path-traversal names like
+    /// `"../../evil"` — before `SkillLoader::save_skill` ever runs. Callable
+    /// directly (independent of an LLM round-trip) so this gate is unit
+    /// testable on its own.
+    async fn validate_and_save_skill(
+        loader: &Arc<RwLock<soul_skills::SkillLoader>>,
+        skill: soul_skills::Skill,
+    ) -> bool {
+        let loader_lock = loader.read().await;
+        let existing: Vec<soul_skills::Skill> =
+            loader_lock.all_skills().into_iter().cloned().collect();
+        let fitness = soul_skills::StructuralValidator::default().validate(&skill, &existing);
+        if !fitness.valid {
+            tracing::warn!(
+                "Skill '{}' rejected by validation gate, not persisted: {:?}",
+                skill.name,
+                fitness.issues
+            );
+            return false;
+        }
+        match loader_lock.save_skill(&skill).await {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!("Skill save failed for '{}': {:?}", skill.name, e);
+                false
+            }
+        }
+    }
+
     async fn crystallize_skills(&self, task: &str, result: &str) {
         let loader = match &self.skill_loader {
             Some(l) => l,
@@ -1635,10 +1671,7 @@ Only return the JSON array, no explanation."#,
                             ..skill
                         };
 
-                        let loader_lock = loader.read().await;
-                        if let Err(e) = loader_lock.save_skill(&skill).await {
-                            tracing::warn!("Skill save failed for '{}': {:?}", name, e);
-                        } else {
+                        if Self::validate_and_save_skill(loader, skill).await {
                             crystallized += 1;
                         }
                     }
@@ -2926,5 +2959,57 @@ mod tests {
         let loader = soul_skills::SkillLoader::new(std::path::Path::new("/tmp/test-skills"));
         agent.set_skill_loader(loader);
         assert!(agent.skill_loader.is_some());
+    }
+
+    // ── HIGH-004: skill crystallization validation gate ───────────────────
+
+    #[tokio::test]
+    async fn validate_and_save_skill_persists_well_formed_skill() {
+        let dir = tempfile::tempdir().unwrap();
+        let loader = Arc::new(RwLock::new(soul_skills::SkillLoader::new(dir.path())));
+        let skill = soul_skills::Skill {
+            triggers: vec!["x".into()],
+            steps: vec!["a".into(), "b".into()],
+            ..soul_skills::Skill::new("good-skill", "fine")
+        };
+        let persisted = AutonomousAgent::validate_and_save_skill(&loader, skill).await;
+        assert!(persisted);
+        assert!(dir.path().join("good-skill.md").exists());
+    }
+
+    #[tokio::test]
+    async fn validate_and_save_skill_rejects_path_traversal_name() {
+        // Simulates a poisoned LLM response: "name" is entirely
+        // LLM-controlled in crystallize_skills, so a malicious/hallucinated
+        // completion can put anything there, including a path-traversal
+        // sequence.
+        let dir = tempfile::tempdir().unwrap();
+        let loader = Arc::new(RwLock::new(soul_skills::SkillLoader::new(dir.path())));
+        let evil = soul_skills::Skill {
+            triggers: vec!["x".into()],
+            steps: vec!["a".into(), "b".into()],
+            ..soul_skills::Skill::new("../../evil", "malicious, LLM-controlled name")
+        };
+        let persisted = AutonomousAgent::validate_and_save_skill(&loader, evil).await;
+        assert!(
+            !persisted,
+            "a path-traversal skill name must never be persisted"
+        );
+        assert!(dir.path().read_dir().unwrap().next().is_none());
+        let escaped = dir.path().parent().unwrap().join("evil.md");
+        assert!(!escaped.exists(), "must not write outside base_path");
+    }
+
+    #[tokio::test]
+    async fn validate_and_save_skill_rejects_malformed_skill() {
+        let dir = tempfile::tempdir().unwrap();
+        let loader = Arc::new(RwLock::new(soul_skills::SkillLoader::new(dir.path())));
+        let thin = soul_skills::Skill::new("thin-skill", "no triggers or steps");
+        let persisted = AutonomousAgent::validate_and_save_skill(&loader, thin).await;
+        assert!(
+            !persisted,
+            "a skill failing structural validation must not be persisted"
+        );
+        assert!(!dir.path().join("thin-skill.md").exists());
     }
 }

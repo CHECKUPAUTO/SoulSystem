@@ -84,6 +84,12 @@ impl SkillValidator for StructuralValidator {
         if candidate.name.trim().is_empty() {
             issues.push("name is empty".into());
         }
+        if !crate::is_safe_skill_name(&candidate.name) {
+            issues.push(format!(
+                "name {:?} is not a safe filename (must be a single path segment: no '.', '..', '/', '\\', or NUL)",
+                candidate.name
+            ));
+        }
         if candidate.name.len() > self.max_name_len {
             issues.push(format!(
                 "name exceeds {} chars ({})",
@@ -358,6 +364,19 @@ mod tests {
         let f = v.validate(&candidate, &[]);
         assert!(!f.valid);
         assert!(f.issues.iter().any(|i| i.contains("rm_rf")));
+    }
+
+    #[test]
+    fn structural_validator_rejects_path_traversal_name() {
+        let v = StructuralValidator::default();
+        let candidate = Skill {
+            triggers: vec!["x".into()],
+            steps: vec!["a".into(), "b".into()],
+            ..Skill::new("../../evil", "Path traversal via name")
+        };
+        let f = v.validate(&candidate, &[]);
+        assert!(!f.valid);
+        assert!(f.issues.iter().any(|i| i.contains("safe filename")));
     }
 
     #[test]
