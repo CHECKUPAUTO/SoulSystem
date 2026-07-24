@@ -15,7 +15,7 @@ scirust-macros = { path = "../scirust-macros" }
 scirust-simd = { path = "../scirust-simd" }
 scirust-gpu-macros = { path = "../scirust-gpu-macros" }
 
-rand = "0.8"
+rand = "0.10"
 rand_distr = "0.4"
 ndarray = "0.16"
 blas = { version = "0.22", optional = true }
