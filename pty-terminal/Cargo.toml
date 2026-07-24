@@ -2,6 +2,7 @@
 name = "pty-terminal"
 version = "0.6.0"
 edition = "2021"
+license.workspace = true
 
 [dependencies]
 portable-pty = "0.8"

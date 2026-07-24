@@ -2,6 +2,7 @@
 name = "soulsystem-mesh"
 version = "1.0.0"
 edition = "2021"
+license.workspace = true
 description = "SoulSystem Mesh — méta-crate liant tous les composants de l'écosystème"
 
 [dependencies]

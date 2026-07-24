@@ -2,6 +2,7 @@
 name = "soullink-octasoma-backend"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "SoulSystem semantic-memory backend backed by the OctaSoma 3-D fractal engine"
 
 [dependencies]

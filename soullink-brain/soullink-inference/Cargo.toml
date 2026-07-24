@@ -2,6 +2,7 @@
 name = "soullink-inference"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "NUMA-aware inference engine for SoulLink V13.5"
 
 [dependencies]

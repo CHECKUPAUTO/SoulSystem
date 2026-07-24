@@ -2,6 +2,7 @@
 name = "soul_rag"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "RAG integration combining web fetch, browser, and memory"
 
 [dependencies]

@@ -2,6 +2,7 @@
 name = "soullink-svs"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 description = "SoulLink V13.5 — Intel ScalableVectorSearch bindings (AVX-512/AVX2)"
 
 [features]

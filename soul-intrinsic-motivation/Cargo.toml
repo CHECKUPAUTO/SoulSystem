@@ -2,6 +2,7 @@
 name = "soul-intrinsic-motivation"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Curiosity-driven autonomous goal generation — bridges soul-cognition curiosity to soul-goaltree"
 
 [dependencies]

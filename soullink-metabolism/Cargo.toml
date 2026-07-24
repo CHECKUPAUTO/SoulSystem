@@ -2,6 +2,7 @@
 name = "soullink-metabolism"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "SoulLink digital metabolism — energy budget, resource costing, auto-throttle"
 
 [dependencies]

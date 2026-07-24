@@ -2,6 +2,7 @@
 name = "brain-system-rs"
 version = "8.5.0"
 edition = "2021"
+license.workspace = true
 description = "SoulLink Brain System v8.5 — LIF neural network with persistence and 3D visualization (Rust port)"
 
 [dependencies]

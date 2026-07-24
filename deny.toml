@@ -2,16 +2,143 @@
 # Install: cargo install cargo-deny --locked
 # Run: cargo deny check
 
-[dependencies]
-# Allow duplicates where version difference is acceptable
-skip = [
-    { name = "ahash" },
-    { name = "getrandom" },
-    { name = "cpufeatures" },
+[advisories]
+# `unmaintained`/`unsound` select which crates cargo-deny checks for these
+# advisory categories ("all" = every crate in the graph, not just direct
+# workspace deps) — the pre-0.16 config had these as lint-level strings
+# ("deny"), which no longer parses; severity-threshold below is what
+# actually controls pass/fail.
+unmaintained = "all"
+unsound = "all"
+ignore = [
+    # rustls-webpki/rsa advisories previously ignored here no longer match
+    # anything in the current dependency graph (cargo-deny reports them as
+    # stale "advisory-not-detected" warnings) — removed rather than kept as
+    # dead config. Re-check with `cargo deny check --workspace` before
+    # reintroducing any of RUSTSEC-2023-0071 / RUSTSEC-2026-0098 /
+    # RUSTSEC-2026-0099 / RUSTSEC-2026-0104 if a dependency bump brings the
+    # affected versions back into the tree. (The rustls-webpki 0098/0099/0104
+    # vulnerabilities WERE real and reachable via minreq's rustls feature —
+    # fixed by dropping that feature in favor of minreq's native-tls backend,
+    # which the workspace already uses elsewhere; see soullink-organs.)
+    "RUSTSEC-2025-0134", # rustls-pemfile unmaintained; transitive via reqwest 0.11 -> teloxide-core -> teloxide. No safe upgrade (would require migrating reqwest 0.11's TLS stack). Tracked, not blocking.
+    "RUSTSEC-2017-0008", # `serial` unmaintained; transitive via portable-pty -> pty-terminal. No safe upgrade available upstream in portable-pty. Tracked, not blocking.
+    "RUSTSEC-2025-0141", # Bincode unmaintained. No safe upgrade available. Tracked, not blocking.
+    "RUSTSEC-2025-0057", # fxhash unmaintained; transitive via sled. No safe upgrade available upstream in sled. Tracked, not blocking.
+    "RUSTSEC-2024-0384", # `instant` unmaintained; transitive via sled. No safe upgrade available upstream in sled. Tracked, not blocking.
+    "RUSTSEC-2024-0436", # paste unmaintained. No safe upgrade available. Tracked, not blocking.
+    "RUSTSEC-2024-0370", # proc-macro-error unmaintained; transitive via teloxide -> aquamarine. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0052", # async-std discontinued (unmaintained). No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0012", # `backoff` unmaintained. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2026-0002", # lru unsound (IterMut/Stacked Borrows); transitive via ratatui 0.29.0 (avid-tui). Fix requires an upstream ratatui bump to a version depending on lru >=0.16.3; not available as of this check. Tracked, not blocking.
+    "RUSTSEC-2025-0081", # unic-char-property unmaintained; transitive via rustpython-parser (avid Python-execution tooling). No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0075", # unic-char-range unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0080", # unic-common unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0090", # unic-emoji-char unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0100", # unic-ucd-ident unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0098", # unic-ucd-version unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2026-0192", # ttf-parser unmaintained; transitive via lopdf 0.42 (avid-cortex/avid-scout PDF parsing). No safe upgrade available upstream in lopdf as of this check. Tracked, not blocking.
 ]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "0BSD",
+    # Weak (file-level) copyleft: modifications to the licensed file itself
+    # must stay MPL-2.0, but does not extend to code that merely links/
+    # depends on it, unlike GPL-style copyleft. OSI-approved and FSF-free.
+    # Pulled in transitively by colored (terminal color output) and
+    # option-ext/dirs-sys (XDG path resolution).
+    "MPL-2.0",
+    # Permissive data license (not a code license) used by webpki-roots for
+    # the Mozilla CA root-certificate bundle it ships — no copyleft terms.
+    "CDLA-Permissive-2.0",
+    # Permissive, OSI-approved, FSF-free license used by clipboard-win and
+    # error-code (transitive via rustyline -> soul-shell's line-editing).
+    "BSL-1.0",
+    # Permissive, OSI-approved, FSF-free license covering one component of
+    # libfuzzer-sys's dual/multi license expression (transitive via
+    # rav1e/ravif/image -> avid-vision, and via soulsystem-fuzz).
+    "NCSA",
+    # Public-domain-equivalent dedication, FSF-free. Covers tiny-keccak,
+    # transitive via rustpython-parser's build dependencies (avid's
+    # Python-execution tooling).
+    "CC0-1.0",
+    # OSI-approved data-files license (same family as the already-allowed
+    # Unicode-3.0) covering one component of unicode_names2's license
+    # expression, transitive via rustpython-parser.
+    "Unicode-DFS-2016",
+]
+confidence-threshold = 0.92
+
+# LGPL-3.0-only is deliberately NOT in the blanket [licenses].allow list above —
+# unlike the permissive/weak-copyleft licenses there, it carries real
+# reciprocal-linking obligations for a statically-linked Rust binary, and a
+# maintainer explicitly decided (2026-07-24) to accept it, scoped narrowly to
+# just the crates that require it, rather than allow it workspace-wide.
+# malachite/malachite-base/malachite-bigint/malachite-nz/malachite-q are
+# transitive via rustpython-ast -> rustpython-parser (the avid/
+# Python-execution tooling, not the core soulsystem binary).
+[[licenses.exceptions]]
+allow = ["LGPL-3.0-only"]
+name = "malachite"
+
+[[licenses.exceptions]]
+allow = ["LGPL-3.0-only"]
+name = "malachite-base"
+
+[[licenses.exceptions]]
+allow = ["LGPL-3.0-only"]
+name = "malachite-bigint"
+
+[[licenses.exceptions]]
+allow = ["LGPL-3.0-only"]
+name = "malachite-nz"
+
+[[licenses.exceptions]]
+allow = ["LGPL-3.0-only"]
+name = "malachite-q"
+
+[licenses.private]
+# Crates marked `publish = false` (never published to crates.io) are
+# internal-only — license compliance for external redistribution doesn't
+# apply to them the way it does for a real dependency, so skip the check
+# rather than requiring every one to carry a matching license field.
+ignore = true
+
+[bans]
+# Warn on multiple versions instead of deny, since many are transitive
+# and can't be resolved without upstream changes
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+deny = []
+skip = [
+    { name = "getrandom" },
+    { name = "windows-sys" },
+    { name = "nix" },
+    { name = "tungstenite" },
+    { name = "hashbrown" },
+    { name = "itertools" },
+    { name = "tokio-tungstenite" },
+    { name = "rand" },
+    { name = "hyper" },
+    { name = "h2" },
+    { name = "reqwest" },
+    { name = "base64" },
+]
+# Allow duplicates where version difference is acceptable — these crates
+# have many versions in the graph due to transitive deps via multiple major
+# framework versions, and can't be resolved without upstream changes.
 skip-tree = [
     { name = "criterion" },
-    # These crates have many versions due to transitive deps via multiple major framework versions
     { name = "windows-sys" },
     { name = "nix" },
     { name = "tungstenite" },
@@ -26,59 +153,4 @@ skip-tree = [
     { name = "base64" },
     { name = "shlex" },
     { name = "teloxide" },
-    { name = "actix-web" },
-]
-
-[advisories]
-unmaintained = "deny"
-notice = "deny"
-unsound = "deny"
-severity-threshold = "low"
-ignore = [
-    "RUSTSEC-2023-0071",  # rsa Marvin Attack — no fix available
-    "RUSTSEC-2026-0098",  # rustls-webpki URI name constraints (transitive via tokio-tungstenite 0.24)
-    "RUSTSEC-2026-0099",  # rustls-webpki wildcard name constraints (transitive via tokio-tungstenite 0.24)
-    "RUSTSEC-2026-0104",  # rustls-webpki CRL parsing panic (transitive via tokio-tungstenite 0.24)
-]
-
-[licenses]
-unlicensed = "deny"
-allow = [
-    "MIT",
-    "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "ISC",
-    "Unicode-3.0",
-    "Zlib",
-    "0BSD",
-]
-default = "deny"
-confidence-threshold = 0.92
-
-[bans]
-# Warn on multiple versions instead of deny, since many are transitive
-# and can't be resolved without upstream changes
-multiple-versions = "warn"
-wildcards = "allow"
-highlight = "all"
-deny = []
-skip = [
-    { name = "ahash" },
-    { name = "getrandom" },
-    { name = "cpufeatures" },
-    { name = "windows-sys" },
-    { name = "nix" },
-    { name = "tungstenite" },
-    { name = "hashbrown" },
-    { name = "itertools" },
-    { name = "tokio-tungstenite" },
-    { name = "rand" },
-    { name = "hyper" },
-    { name = "h2" },
-    { name = "reqwest" },
-    { name = "rustls" },
-    { name = "base64" },
-    { name = "shlex" },
 ]

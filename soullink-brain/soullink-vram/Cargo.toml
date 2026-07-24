@@ -2,6 +2,7 @@
 name = "soullink-vram"
 version = "13.5.0"
 edition = "2021"
+license.workspace = true
 description = "SoulSystem — Dynamic VRAM management with pressure-based model eviction"
 
 [dependencies]

@@ -2,6 +2,7 @@
 name = "soul_agent_core"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Autonomous agent core — ReAct loop, safety, task queue, self-evolution"
 
 [dependencies]

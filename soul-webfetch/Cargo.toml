@@ -2,6 +2,7 @@
 name = "soul_webfetch"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Web content fetching and extraction for RAG integration"
 
 [dependencies]

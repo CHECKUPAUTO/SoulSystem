@@ -2,6 +2,7 @@
 name = "soullink-hooks"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Lifecycle hooks for SoulLink operations (IronClaw-inspired)"
 
 [dependencies]

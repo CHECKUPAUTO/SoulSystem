@@ -2,6 +2,7 @@
 name = "soul_critique"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 description = "Self-critique loop with Reflexion pattern quality scoring"
 
 [dependencies]
