@@ -10047,6 +10047,7 @@ dependencies = [
  "chrono",
  "fastrand",
  "libc",
+ "libloading 0.8.9",
  "soul_orchestrator",
  "soul_scheduler",
  "tracing",
