@@ -32,9 +32,13 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libleptonica-dev libtesseract-dev
       - name: Check workspace (CPU-only)
         run: cargo check --workspace --all-targets
-      - name: Check GPU/CUDA sub-workspace
-        working-directory: workspaces/gpu
-        run: cargo check --workspace --all-targets
+      - name: Check GPU/CUDA crates
+        run: |
+          cargo check --manifest-path scirust-gpu/Cargo.toml --all-targets
+          cargo check --manifest-path scirust-gpu-macros/Cargo.toml --all-targets
+          cargo check --manifest-path soullink-brain/soullink-cutlass/Cargo.toml --all-targets
+          cargo check --manifest-path soullink-brain/soullink-dali/Cargo.toml --all-targets
+          cargo check --manifest-path soullink-brain/soullink-onednn/Cargo.toml --all-targets
 
   test:
     name: Test
@@ -73,9 +77,13 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libleptonica-dev libtesseract-dev
       - name: Clippy workspace (CPU-only)
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Clippy GPU sub-workspace
-        working-directory: workspaces/gpu
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Clippy GPU/CUDA crates
+        run: |
+          cargo clippy --manifest-path scirust-gpu/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path scirust-gpu-macros/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path soullink-brain/soullink-cutlass/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path soullink-brain/soullink-dali/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path soullink-brain/soullink-onednn/Cargo.toml --all-targets -- -D warnings
 
   fmt:
     name: Format

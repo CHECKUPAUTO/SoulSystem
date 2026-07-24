@@ -10,7 +10,7 @@ reqwest = { workspace = true }
 regex = "1"
 async-trait = "0.1"
 toml = "0.8"
-quick-xml = "0.36"
+quick-xml = "0.41"
 serde = { workspace = true }
 serde_json = "1"
 tracing = "0.1"

@@ -3,6 +3,14 @@
 *.log
 node_modules/
 
+# Standalone GPU library manifests are checked independently and do not commit
+# resolver lockfiles.
+/scirust-gpu/Cargo.lock
+/scirust-gpu-macros/Cargo.lock
+/soullink-brain/soullink-cutlass/Cargo.lock
+/soullink-brain/soullink-dali/Cargo.lock
+/soullink-brain/soullink-onednn/Cargo.lock
+
 # Generated graph analysis output
 graphify-out/
 

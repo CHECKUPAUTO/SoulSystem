@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal"] }
-teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
+teloxide = { version = "0.17", features = ["macros", "ctrlc_handler"] }
 bound-system = { workspace = true }
 ansi-converter = { workspace = true }
 spinner = { workspace = true }

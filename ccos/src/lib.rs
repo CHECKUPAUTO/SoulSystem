@@ -145,6 +145,7 @@ pub mod query;
 pub mod retrieval;
 pub mod retrodict;
 pub mod sanitizer;
+pub mod shield;
 pub mod spectral;
 pub mod trace;
 pub mod util;

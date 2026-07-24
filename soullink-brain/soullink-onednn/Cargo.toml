@@ -1,10 +1,9 @@
 [package]
 name = "soullink-onednn"
-workspace = "../../workspaces/gpu"
-version.workspace = true
-edition.workspace = true
+version = "13.5.0"
+edition = "2021"
 description = "SoulLink V13.5 — Intel oneDNN bindings (AVX-512/AVX2 primitives)"
 
 [dependencies]
-anyhow = { workspace = true }
-tracing = { workspace = true }
+anyhow = "1"
+tracing = "0.1"

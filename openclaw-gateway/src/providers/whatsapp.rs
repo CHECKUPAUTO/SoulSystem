@@ -463,8 +463,9 @@ impl WhatsappProvider {
                 info!("WhatsApp Cloud API connected (phone_number_id={})", self.config.phone_number_id);
             }
             Ok(resp) => {
+                let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                warn!("WhatsApp Cloud API connectivity check failed: HTTP {} — {}", resp.status().as_u16(), body);
+                warn!("WhatsApp Cloud API connectivity check failed: HTTP {} — {}", status.as_u16(), body);
                 self.status.state = "auth_error".into();
                 return Err(anyhow::anyhow!("WhatsApp API connectivity check failed: {}", body));
             }
@@ -574,7 +575,7 @@ impl WhatsappProvider {
                     id: Some(media_id),
                     link: None,
                     caption: if caption.is_empty() { None } else { Some(caption.to_string()) },
-                    filename: filename.or(Some("attachment")),
+                    filename: Some(filename.unwrap_or("attachment").to_string()),
                 },
             )
         };
@@ -714,7 +715,7 @@ fn extract_message_body(msg: &WebhookIncomingMessage) -> String {
     if let Some(doc) = &msg.document {
         return doc.caption.clone().unwrap_or_else(|| "[document]".into());
     }
-    if let Some(aud) = &msg.audio {
+    if msg.audio.is_some() {
         return "[audio]".into();
     }
     if let Some(vid) = &msg.video {
