@@ -387,9 +387,7 @@ impl CervoBridge {
                 // Copier les hyperparamètres du champion
                 let algo = members[elite_idx].algorithm.clone();
                 let factor = if algo == "amplify" {
-                    let perturb = (members[elite_idx].factor as i64 + rng.gen_range(-1..=1))
-                        .clamp(2, 8) as usize;
-                    perturb
+                    (members[elite_idx].factor as i64 + rng.gen_range(-1..=1)).clamp(2, 8) as usize
                 } else {
                     1
                 };
@@ -401,16 +399,13 @@ impl CervoBridge {
                     &algo
                 };
                 let new_factor = if new_algo == "amplify" { factor } else { 1 };
-                match self.spawn_unit(new_algo, Some(new_factor)).await {
-                    Ok(new_id) => {
-                        members[weak_idx] = Member {
-                            algorithm: new_algo.to_string(),
-                            factor: new_factor,
-                            unit_id: new_id,
-                            score: 0.0,
-                        };
-                    }
-                    Err(_) => {}
+                if let Ok(new_id) = self.spawn_unit(new_algo, Some(new_factor)).await {
+                    members[weak_idx] = Member {
+                        algorithm: new_algo.to_string(),
+                        factor: new_factor,
+                        unit_id: new_id,
+                        score: 0.0,
+                    };
                 }
             }
 
@@ -478,9 +473,8 @@ impl CervoBridge {
                 } else {
                     1
                 };
-                match self.spawn_unit(&algo, Some(factor)).await {
-                    Ok(uid) => unit_ids.push(uid),
-                    Err(_) => {}
+                if let Ok(uid) = self.spawn_unit(&algo, Some(factor)).await {
+                    unit_ids.push(uid);
                 }
             }
 
@@ -740,7 +734,7 @@ impl CervoCcosMemory {
             .recall("semantic", Some(query), None, Some(budget))
             .await
             .map_err(|e| format!("ccos recall: {e}"))?;
-        Ok(serde_json::to_string(&window).map_err(|e| format!("serialize: {e}"))?)
+        serde_json::to_string(&window).map_err(|e| format!("serialize: {e}"))
     }
 }
 

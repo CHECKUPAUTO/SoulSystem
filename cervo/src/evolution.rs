@@ -164,7 +164,7 @@ mod tests {
     fn test_new_tracker_default_fitness() {
         let t = fresh_tracker();
         assert_eq!(t.fitness("nonexistent"), 0.5);
-        assert!(!t.best_family().is_some());
+        assert!(t.best_family().is_none());
     }
 
     #[test]

@@ -494,7 +494,7 @@ pub struct MemoryGraph {
     /// length changes whenever the edge set does). Runtime-only; rebuilt lazily,
     /// and only ever consulted when `scoring_weights.w_centrality != 0`.
     #[serde(skip)]
-    indegree_cache: Arc<RwLock<Option<(usize, HashMap<NodeId, u32>)>>>,
+    indegree_cache: Arc<RwLock<IndegreeCache>>,
     /// Cached eigenvector-centrality vector for the structural-centrality score term,
     /// keyed on `(nodes.len(), edges.len())` (a cheap proxy for "the graph changed",
     /// matching [`indegree_cache`](Self::indegree_cache)). Runtime-only; rebuilt lazily
@@ -557,6 +557,7 @@ pub struct MemoryGraph {
 /// by `(nodes.len(), edges.len())` — a cheap "did the graph change" stamp. Aliased to keep
 /// the field type readable (and clippy's `type_complexity` happy).
 type EigenCentralityCache = Option<((usize, usize), HashMap<NodeId, f64>)>;
+type IndegreeCache = Option<(usize, HashMap<NodeId, u32>)>;
 
 /// A bound spill store plus the resident-content budget that triggers a flush.
 /// Not serialised — held only while a [`MemoryGraph`] is live.

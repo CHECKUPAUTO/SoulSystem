@@ -78,23 +78,12 @@ impl Default for MutationConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CervoConfig {
     pub sandbox: SandboxConfig,
     pub dynamics: DynamicsConfig,
     pub memory: MemoryConfig,
     pub mutation: MutationConfig,
-}
-
-impl Default for CervoConfig {
-    fn default() -> Self {
-        CervoConfig {
-            sandbox: SandboxConfig::default(),
-            dynamics: DynamicsConfig::default(),
-            memory: MemoryConfig::default(),
-            mutation: MutationConfig::default(),
-        }
-    }
 }
 
 impl CervoConfig {

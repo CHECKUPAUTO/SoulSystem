@@ -3,6 +3,7 @@ name = "ccos"
 version = "0.3.0"
 edition = "2021"
 license = "LicenseRef-CheckupAuto-Dual"
+publish = false
 # The `ccos` CLI is the primary binary. Declaring it here keeps a bare
 # `cargo run` (e.g. the CI smoke `cargo run --features llm -- version`)
 # unambiguous now that the workspace also ships the `ccos-migrate` tool.

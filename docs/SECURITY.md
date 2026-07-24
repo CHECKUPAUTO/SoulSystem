@@ -31,6 +31,8 @@ The exact requirements and evidence anchors are documented in
 [`security/SECURITY_INVARIANTS.md`](security/SECURITY_INVARIANTS.md). The
 hardening backlog is in
 [`security/PRODUCTION_HARDENING_PLAN.md`](security/PRODUCTION_HARDENING_PLAN.md).
+The latest evidence-backed framework review is
+[`audit/SOULSYSTEM_FULL_AUDIT_2026-07-24.md`](audit/SOULSYSTEM_FULL_AUDIT_2026-07-24.md).
 
 ## Exposure warning
 

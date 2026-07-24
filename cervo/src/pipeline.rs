@@ -112,15 +112,11 @@ impl Transformation for PipelineTransform {
     }
 }
 
+type TransformationCreator =
+    dyn Fn(&serde_json::Value) -> Result<Box<dyn Transformation>, PipelineError> + Send + Sync;
+
 pub struct TransformationRegistry {
-    creators: HashMap<
-        String,
-        Box<
-            dyn Fn(&serde_json::Value) -> Result<Box<dyn Transformation>, PipelineError>
-                + Send
-                + Sync,
-        >,
-    >,
+    creators: HashMap<String, Box<TransformationCreator>>,
 }
 
 impl TransformationRegistry {

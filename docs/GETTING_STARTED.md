@@ -62,7 +62,9 @@ Run `soulsystem --help` for the complete CLI.
   arguments can be visible in process listings.
 
 Review [Security](SECURITY.md), [security invariants](security/SECURITY_INVARIANTS.md),
-and the repository threat model before exposing a service.
+and the [latest framework audit](audit/SOULSYSTEM_FULL_AUDIT_2026-07-24.md)
+before exposing a service. The deployment-specific threat model is pending
+owner confirmation of exposure, tenancy, and data sensitivity.
 
 ## Build from a clone
 

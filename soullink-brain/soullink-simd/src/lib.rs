@@ -155,7 +155,7 @@ pub mod avx2 {
 /// Le résultat est identique, seule la vitesse diffère.
 pub fn cosine_dispatch(a: &[f32], b: &[f32]) -> f32 {
     let rem = a.len() % 8;
-    if rem == 0 && b.len() % 8 == 0 {
+    if rem == 0 && b.len().is_multiple_of(8) {
         #[cfg(target_arch = "x86_64")]
         if avx2::has_avx2_fma() {
             return unsafe { avx2::cosine_avx2_fma(a, b) };

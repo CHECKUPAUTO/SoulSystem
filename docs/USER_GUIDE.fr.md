@@ -81,7 +81,7 @@ SoulSystem est un workspace Rust unifié qui intègre le monolith original SoulS
 
 ```bash
 # Cloner le dépôt
-cgit clone https://github.com/copilotacker/SoulSystem
+git clone https://github.com/Memorithm/SoulSystem
 s cd SoulSystem
 
 # Build et installation en release
@@ -95,7 +95,7 @@ sudo cp target/release/soulsystem /usr/local/bin/
 
 ```bash
 # Cloner le dépôt si non déjà fait
-cgit clone https://github.com/copilotacker/SoulSystem
+git clone https://github.com/Memorithm/SoulSystem
 s cd SoulSystem
 
 # Rendre le script exécutable
@@ -112,7 +112,7 @@ sudo systemctl start soulsystem-autonomous
 
 ```bash
 # Cloner tous les sous-modèles (nécessite plus d'espace disque)
-git clone --recursive https://github.com/copilotacker/SoulSystem
+git clone --recursive https://github.com/Memorithm/SoulSystem
 
 # Build workspace complet
 cd SoulSystem
@@ -706,6 +706,6 @@ MIT
 
 Pour toute question, problème ou suggestion, veuillez contacter l'équipe SoulSystem à support@soulsystem.ai.
 
-Vous pouvez également ouvrir un issue sur GitHub : https://github.com/copilotacker/SoulSystem/issues
+Vous pouvez également ouvrir un ticket sur GitHub : https://github.com/Memorithm/SoulSystem/issues
 
 Les retours sont toujours les bienvenus ! 🎉

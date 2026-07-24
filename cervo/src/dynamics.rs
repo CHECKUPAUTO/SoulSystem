@@ -32,7 +32,7 @@ pub fn cycle_step(
     saturation: f64,
     config: &DynamicsConfig,
 ) -> &'static str {
-    let phase = if *rsi < config.attraction_threshold {
+    if *rsi < config.attraction_threshold {
         apply_attraction(rsi, *entropy, saturation, config);
         *entropy = (*entropy + 0.15).min(1.0);
         "attraction"
@@ -43,8 +43,7 @@ pub fn cycle_step(
     } else {
         apply_entropy(rsi, entropy, config);
         "entropy"
-    };
-    phase
+    }
 }
 
 #[cfg(test)]
@@ -80,21 +79,21 @@ mod tests {
         let mut entropy = 0.5;
         let phase = cycle_step(&mut rsi, &mut entropy, 0.0, &config());
         assert_eq!(phase, "entropy");
-        assert!(rsi >= 0.0 && rsi <= 100.0);
+        assert!((0.0..=100.0).contains(&rsi));
     }
 
     #[test]
     fn test_attraction_clamps() {
         let mut rsi = 0.0;
         apply_attraction(&mut rsi, 1.0, 0.0, &config());
-        assert!(rsi >= 0.0 && rsi <= 100.0);
+        assert!((0.0..=100.0).contains(&rsi));
     }
 
     #[test]
     fn test_repulsion_clamps() {
         let mut rsi = 100.0;
         apply_repulsion(&mut rsi, 1.0, 0.0, &config());
-        assert!(rsi >= 0.0 && rsi <= 100.0);
+        assert!((0.0..=100.0).contains(&rsi));
     }
 
     #[test]

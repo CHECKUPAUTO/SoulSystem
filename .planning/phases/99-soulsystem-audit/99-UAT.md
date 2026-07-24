@@ -42,15 +42,18 @@ Files: `scripts/start-soulsystem.sh`, `scripts/status.sh`,
 `scripts/tmux-session.sh`, `scripts/ecosystem-test.sh`,
 `soul-bridge/src/ccos.rs`, `soul-bridge/src/octasoma.rs`.
 
-Status: open; auto-fixable by resolving paths relative to the repository,
-`PATH`, and explicit environment overrides.
+Status: fixed in `22bf709d`; paths resolve through explicit environment
+overrides, `PATH`, sibling binaries, and repository-relative fallbacks. The
+bridge's 28 tests and all script syntax checks pass.
 
 ### F-05 — Medium — `--doctor` probes an Ollama-only path for every provider
 
 The new diagnostic command checks `/api/tags` even when the selected provider
 is OpenAI or Anthropic, producing a false warning. File: `src/main.rs`.
 
-Status: open; auto-fixable with provider-specific health checks.
+Status: fixed in `9069a0f2`; Ollama uses `/api/tags`, OpenAI-compatible and
+Anthropic providers use `/v1/models`, and credentials stay in provider-specific
+headers. Two focused tests pass.
 
 ### F-06 — Medium — Production posture still reports the authenticated gateway as unauthenticated
 
@@ -59,8 +62,9 @@ although `soul_gateway` now enforces the configured bearer token on operator
 routes. This makes readiness evidence stale. Files: `src/prod_guard.rs`,
 `soul_gateway/src/lib.rs`.
 
-Status: open; auto-fixable for the gateway. The local API and WebSocket bridge
-must remain explicitly unauthenticated until they gain middleware.
+Status: fixed in `09202943`; the guard evaluates the exact `GatewayAuth`
+instance consumed by the server. The local API and WebSocket bridge remain
+explicitly unauthenticated and fail closed in production posture.
 
 ### F-07 — High — Setup secret entry is echoed and persisted as plaintext
 
@@ -93,3 +97,19 @@ Internet exposure, tenancy, and data sensitivity were not defined. These
 assumptions materially affect gateway, MCP, sandbox, and secret-handling risk.
 
 Status: manual-only pending owner clarification.
+
+### F-11 — High — `quinn-proto` allowed remote memory exhaustion
+
+The refreshed lockfile selected `quinn-proto` 0.11.14, affected by
+RUSTSEC-2026-0185 (unbounded out-of-order stream reassembly).
+
+Status: fixed by updating the lockfile to 0.11.15. `cargo audit` and
+`cargo deny check` now pass with no blocking vulnerability.
+
+### F-12 — Medium — Strict lint gate failed across imported components
+
+Current Rust/Clippy rejected stale lint names and several mechanical patterns
+in SciRust, CCOS, CERVO, SoulBridge, and SoulLink dependencies.
+
+Status: fixed; the audited package set passes `cargo clippy --all-targets --
+-D warnings`.
