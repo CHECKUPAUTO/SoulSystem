@@ -1,53 +1,60 @@
-#!/bin/bash
-# SoulSystem — Status script
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "═══════════════════════════════════════════════════════════"
-echo "🦞 SoulSystem Status"
-echo "═══════════════════════════════════════════════════════════"
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 
-# OpenClaw-U
-if systemctl is-active openclaw-u.service >/dev/null 2>&1; then
-    echo "✅ OpenClaw-U     — RUNNING"
-    journalctl -u openclaw-u --no-pager -n 1 | grep -oP 'cycle #\d+' | head -1
+echo "=== soulsystem-lite ==="
+PID=$(pgrep -x soulsystem-lite 2>/dev/null || pgrep -f "target/release/soulsystem" 2>/dev/null || true)
+if [ -n "$PID" ]; then
+    echo "RUNNING (PID=$PID)"
+    echo "$PID" > /tmp/soulsystem-lite.pid 2>/dev/null || true
+    curl -sf http://127.0.0.1:9023/health | python3 -m json.tool 2>/dev/null || echo "health endpoint unreachable"
 else
-    echo "❌ OpenClaw-U     — STOPPED"
+    echo "STOPPED"
 fi
 
-# SoulLink organs
 echo ""
-echo "🧠 SoulLink Organs:"
-for svc in sl13-monolith soul-decision-v13 soullink-gateway; do
-    if systemctl is-active "$svc.service" >/dev/null 2>&1; then
-        echo "  ✅ $svc"
+echo "=== CCOS MCP ==="
+ps aux | grep "ccos.*mcp" | grep -v grep | awk '{print "RUNNING (PID="$2", cmd="$11" "$12")"}'
+
+echo ""
+echo "=== CERVO ==="
+if [ -n "$PID" ]; then
+    echo "(embedded in soulsystem-lite PID=$PID)"
+    curl -sf http://127.0.0.1:9023/cervo/status | python3 -m json.tool 2>/dev/null || echo "cervo endpoint unreachable"
+else
+    echo "STOPPED (soulsystem-lite not running)"
+fi
+
+echo ""
+echo "=== OpenClaw Gateway ==="
+GW=$(ps aux | grep "openclaw.*gateway" | grep -v grep | awk '{print $2}')
+if [ -n "$GW" ]; then
+    echo "RUNNING (PID=$GW)"
+else
+    echo "STOPPED"
+fi
+
+echo ""
+echo "=== OctaSoma ==="
+if ps aux | grep "octasoma-mcp" | grep -v grep > /dev/null 2>&1; then
+    OCTA_PID=$(ps aux | grep "octasoma-mcp" | grep -v grep | awk '{print $2}')
+    WM_FILE=$(ps aux | grep "octasoma-mcp" | grep -v grep | awk '{print $NF}')
+    echo "RUNNING (PID=$OCTA_PID, workspace=$WM_FILE)"
+    OCTA_BIN="${OCTASOMA_CMD:-}"
+    [ -z "$OCTA_BIN" ] && OCTA_BIN=$(command -v octasoma-mcp 2>/dev/null || true)
+    [ -z "$OCTA_BIN" ] && [ -f "$REPO_ROOT/target/release/octasoma-mcp" ] && OCTA_BIN="$REPO_ROOT/target/release/octasoma-mcp"
+    [ -z "$OCTA_BIN" ] && [ -f "$REPO_ROOT/octasoma/target/release/octasoma-mcp" ] && OCTA_BIN="$REPO_ROOT/octasoma/target/release/octasoma-mcp"
+    if [ -n "$OCTA_BIN" ]; then
+        echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"stats","arguments":{}}}' | timeout 3 "$OCTA_BIN" /tmp/octasoma-status.mem 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "(MCP stat probe unavailable)"
     else
-        echo "  ❌ $svc"
+        echo "(MCP stat probe unavailable: octasoma-mcp not found)"
     fi
-done
-
-# Ports
-echo ""
-echo "🌐 Ports:"
-for port in 9010 9011 9012 9013 9014 9015 9020 9030 9040 9041 9042 9043 9044 9051 9095 9786; do
-    if ss -tlnp | grep -q ":$port "; then
-        echo "  ✅ :$port"
-    else
-        echo "  ❌ :$port"
-    fi
-done
-
-# Resources
-echo ""
-echo "📊 Resources:"
-echo "  CPU: $(grep 'cpu ' /proc/stat | awk '{usage=($2+$4)*100/($2+$4+$5)} END {printf "%.0f%%", usage}')"
-echo "  MEM: $(free | grep Mem | awk '{printf "%.0f%%", $3/$2 * 100.0}')"
-echo "  DISK: $(df / | tail -1 | awk '{printf "%s", $5}')"
-
-# Security
-echo ""
-echo "🛡️ Security Summary:"
-echo "  Failed SSH logins (recent): $(journalctl _COMM=sshd --since "1h" | grep -c 'Failed password')"
-echo "  Open ports count: $(ss -tlnp | grep -c LISTEN)"
-echo "  Iptables rules: $(iptables -L -n | grep -c DROP) blocked IPs"
+else
+    echo "STOPPED"
+fi
 
 echo ""
-echo "═══════════════════════════════════════════════════════════"
+echo "=== Ollama ==="
+curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1 && echo "OK ($(curl -sf http://127.0.0.1:11434/api/tags 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);print(len(d.get('models',[])))") models)" || echo "STOPPED"
