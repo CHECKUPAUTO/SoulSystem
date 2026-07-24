@@ -105,6 +105,17 @@ name = "malachite-nz"
 allow = ["LGPL-3.0-only"]
 name = "malachite-q"
 
+# First-party commercial components use repository-local licensing rather than
+# the permissive workspace default. Keep these exceptions package-scoped so
+# neither license is silently accepted for third-party dependencies.
+[[licenses.exceptions]]
+allow = ["LicenseRef-CheckupAuto-Dual"]
+name = "ccos-memory-runtime"
+
+[[licenses.exceptions]]
+allow = ["PolyForm-Noncommercial-1.0.0"]
+name = "scirust-multivariate"
+
 [licenses.private]
 # Crates marked `publish = false` (never published to crates.io) are
 # internal-only — license compliance for external redistribution doesn't

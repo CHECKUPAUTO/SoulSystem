@@ -3,6 +3,7 @@ name = "soulsystem-lite"
 version = "0.1.0"
 edition = "2021"
 description = "SoulSystem minimal gateway — REST:9023 + WS:9022"
+license.workspace = true
 
 [dependencies]
 soul-bridge = { path = "../soul-bridge" }
