@@ -10,6 +10,7 @@
 //! exhaustively unit-tested there. This module is intentionally thin: it only
 //! observes real facts and forwards them.
 
+use soul_gateway::GatewayAuth;
 use soul_prod_guard::{
     evaluate, GuardReport, ListenerPosture, ModeError, RuntimeMode, SecurityPosture,
 };
@@ -98,7 +99,11 @@ fn is_world_or_group_accessible(_path: &std::path::Path) -> bool {
 /// been proven in the runtime path (an authentication layer, an active TLS
 /// serving path) are reported as absent so production fails closed until the
 /// dedicated PRs wire them in.
-fn assemble_posture(gateway_addr: &str, settings: &Settings) -> SecurityPosture {
+fn assemble_posture(
+    gateway_addr: &str,
+    settings: &Settings,
+    gateway_authenticated: bool,
+) -> SecurityPosture {
     let token = gateway_token();
     let auth_material_present = token
         .as_deref()
@@ -112,15 +117,15 @@ fn assemble_posture(gateway_addr: &str, settings: &Settings) -> SecurityPosture 
         }
     }
 
-    // No authentication layer or active TLS path is wired yet (those land in
-    // the authentication and TLS PRs), so both are reported as unproven.
-    let authenticated = false;
+    // The gateway's operator routes are protected by the GatewayAuth bearer
+    // middleware. The API and local WS bridge below do not use that middleware
+    // and must remain reported as unauthenticated.
     let tls_enabled = false;
 
     let listeners = vec![
-        ListenerPosture::new("gateway", gateway_addr, tls_enabled, authenticated),
-        ListenerPosture::new("api", "127.0.0.1:9023", tls_enabled, authenticated),
-        ListenerPosture::new("ws_bridge", "127.0.0.1:9022", tls_enabled, authenticated),
+        ListenerPosture::new("gateway", gateway_addr, tls_enabled, gateway_authenticated),
+        ListenerPosture::new("api", "127.0.0.1:9023", tls_enabled, false),
+        ListenerPosture::new("ws_bridge", "127.0.0.1:9022", tls_enabled, false),
     ];
 
     let workspace_root_canonical = std::fs::canonicalize(&settings.paths.data_dir).is_ok();
@@ -161,9 +166,10 @@ fn assemble_posture(gateway_addr: &str, settings: &Settings) -> SecurityPosture 
 pub fn enforce_startup_security(
     gateway_addr: &str,
     settings: &Settings,
+    gateway_auth: &GatewayAuth,
 ) -> anyhow::Result<GuardReport> {
     let mode = resolve_mode()?;
-    let posture = assemble_posture(gateway_addr, settings);
+    let posture = assemble_posture(gateway_addr, settings, gateway_auth.is_configured());
 
     match evaluate(mode, &posture) {
         Ok(report) => {
@@ -197,5 +203,42 @@ pub fn enforce_startup_security(
             }
             Err(anyhow::Error::new(rejected))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn listener<'a>(posture: &'a SecurityPosture, name: &str) -> &'a ListenerPosture {
+        posture
+            .listeners
+            .iter()
+            .find(|listener| listener.name == name)
+            .expect("listener must be present in posture")
+    }
+
+    #[test]
+    fn gateway_is_authenticated_when_the_consumed_authenticator_has_a_token() {
+        let settings = Settings::default();
+        let auth = GatewayAuth::configured("a-real-operator-token");
+
+        let posture = assemble_posture("127.0.0.1:7878", &settings, auth.is_configured());
+
+        assert!(listener(&posture, "gateway").authenticated);
+        assert!(!listener(&posture, "api").authenticated);
+        assert!(!listener(&posture, "ws_bridge").authenticated);
+    }
+
+    #[test]
+    fn gateway_is_unauthenticated_when_the_consumed_authenticator_has_no_token() {
+        let settings = Settings::default();
+        let auth = GatewayAuth::unconfigured();
+
+        let posture = assemble_posture("127.0.0.1:7878", &settings, auth.is_configured());
+
+        assert!(!listener(&posture, "gateway").authenticated);
+        assert!(!listener(&posture, "api").authenticated);
+        assert!(!listener(&posture, "ws_bridge").authenticated);
     }
 }

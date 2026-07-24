@@ -15,7 +15,7 @@ use clap::Parser;
 mod prod_guard;
 mod setup_tui;
 use soul_entity::{EntityConfig, SoulEntity};
-use soul_gateway::{serve as serve_gateway, GatewayState};
+use soul_gateway::{serve as serve_gateway, GatewayAuth, GatewayState};
 use soul_llm::LlmConfig;
 use soul_openclaw::{Skill, SkillVersion};
 use soul_sandbox::SandboxPolicy;
@@ -180,7 +180,11 @@ async fn main() -> Result<()> {
     // startup; in development the findings are logged as warnings. The
     // decision logic lives in the `soul-prod-guard` crate. See
     // docs/security/SECURITY_INVARIANTS.md.
-    prod_guard::enforce_startup_security(&cli.gateway_addr, &settings)?;
+    // Construct the exact authenticator that the gateway will consume before
+    // evaluating the production posture. Reusing this instance prevents the
+    // guard from claiming authentication that differs from the serving path.
+    let gateway_auth = GatewayAuth::from_env();
+    prod_guard::enforce_startup_security(&cli.gateway_addr, &settings, &gateway_auth)?;
 
     // ── Bus central (file d'attente 256 messages) ──────────────────────────
     #[allow(unused_variables)]
@@ -1354,7 +1358,10 @@ async fn main() -> Result<()> {
             .gateway_addr
             .parse()
             .map_err(|e| anyhow::anyhow!("adresse gateway invalide: {e}"))?;
-        let gw_state = GatewayState::new(entity.clone() as Arc<dyn soul_gateway::EntityHandle>);
+        let gw_state = GatewayState::with_auth(
+            entity.clone() as Arc<dyn soul_gateway::EntityHandle>,
+            gateway_auth,
+        );
         let gw_handle = tokio::spawn(async move {
             if let Err(e) = serve_gateway(gw_state, gw_addr).await {
                 tracing::error!("gateway crashed: {e}");
