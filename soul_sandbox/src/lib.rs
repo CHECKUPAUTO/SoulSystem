@@ -327,6 +327,9 @@ impl Sandbox {
         child: &mut std::process::Child,
         pid: i32,
     ) -> (Option<i32>, String, String) {
+        #[cfg(not(unix))]
+        let _ = pid;
+
         let timeout = self.policy.timeout;
         let start = Instant::now();
         let mut stdout = String::new();
