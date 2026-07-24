@@ -86,7 +86,7 @@ PR sequence (A–P).
 
 | ID | Invariant | PR | Status |
 |----|-----------|----|--------|
-| INV-PERSIST-1 | CCOS and other durable stores use atomic writes and detect corruption on load. | L | TARGET |
+| INV-PERSIST-1 | CCOS and other durable stores use atomic writes and detect corruption on load. | L | PARTIAL (all three CCOS on-disk causal-graph paths now write via `ccos::util::write_durable` — temp file + fsync + rename, never a bare `std::fs::write` to the live path: `external_memory.rs`'s workspace/session checkpoint was already atomic; `persistence.rs::write_json` (`PersistentRuntime::save_state`) and `persist.rs::KernelSnapshot::save` were the two residual non-atomic call sites, now fixed — `save_state_leaves_no_temp_siblings_and_fully_replaces_on_resave`, `save_and_load_roundtrip_via_disk_leaves_no_temp_sibling`, plus `write_durable`'s own `write_durable_writes_and_replaces_atomically`. Corruption detection on load: `PersistentRuntime::restore_runtime` already verifies the hash chain and prunes dangling edges — `restore_detects_tampered_chain`. Residual (documented in the finding, not addressed here): `save_state` writes three files non-transactionally, so a crash between renames can leave a set-level inconsistency across files even though each file is individually atomic; and other durable stores outside CCOS's causal graph are out of scope for this pass.) |
 | INV-PERSIST-2 | A backup can be taken, state destroyed, and the backup restored with verified integrity. | L/P | TARGET |
 
 ## Truthful capabilities

@@ -37,12 +37,15 @@ impl KernelSnapshot {
         serde_json::from_str(json)
     }
 
-    /// Persist the snapshot to `path` as pretty JSON.
+    /// Persist the snapshot to `path` as pretty JSON, durably and atomically
+    /// (temp file + fsync + rename — see [`crate::util::write_durable`]): a
+    /// crash mid-write leaves the prior good snapshot intact rather than a
+    /// truncated one.
     pub fn save(&self, path: &str) -> std::io::Result<()> {
         let json = self
             .to_json()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        std::fs::write(path, json)
+        crate::util::write_durable(std::path::Path::new(path), json.as_bytes())
     }
 
     /// Load a snapshot previously written by [`KernelSnapshot::save`].
@@ -91,5 +94,64 @@ mod tests {
         assert_eq!(restored.event_log.event_count(), 1);
         assert!(restored.dist_log.verify_integrity().valid);
         assert_eq!(restored.version, env!("CARGO_PKG_VERSION"));
+    }
+
+    /// HIGH-005: KernelSnapshot::save must write via the atomic
+    /// temp+fsync+rename path (`crate::util::write_durable`), not a bare
+    /// `std::fs::write`. Asserts the wiring at the call site: save/load
+    /// round-trips through a real file, no `.tmp` sibling is left behind,
+    /// and a second save fully replaces the prior content.
+    #[test]
+    fn save_and_load_roundtrip_via_disk_leaves_no_temp_sibling() {
+        let path = std::env::temp_dir().join(format!(
+            "ccos-kernel-snapshot-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let path_str = path.to_str().unwrap();
+
+        let mut graph = MemoryGraph::default();
+        graph.upsert_node("a".into(), "A".into(), "x".into(), NodeType::Module);
+        let snap = KernelSnapshot::new(graph, EventLog::new("kernel-save".into()), {
+            let mut d = DistributedEventLog::new();
+            d.append("e0".into(), "kernel".into());
+            d
+        });
+        snap.save(path_str).unwrap();
+
+        let mut tmp = path.clone().into_os_string();
+        tmp.push(".tmp");
+        assert!(
+            !std::path::Path::new(&tmp).exists(),
+            "atomic save must not leave a .tmp sibling behind"
+        );
+
+        let loaded = KernelSnapshot::load(path_str).unwrap();
+        assert_eq!(loaded.graph.node_count(), 1);
+
+        // A second save with different content must fully replace the file.
+        let mut bigger_graph = MemoryGraph::default();
+        for i in 0..10 {
+            bigger_graph.upsert_node(
+                format!("n{i}").into(),
+                format!("L{i}"),
+                "content".into(),
+                NodeType::Module,
+            );
+        }
+        let snap2 = KernelSnapshot::new(
+            bigger_graph,
+            EventLog::new("kernel-save-2".into()),
+            DistributedEventLog::new(),
+        );
+        snap2.save(path_str).unwrap();
+        let reloaded = KernelSnapshot::load(path_str).unwrap();
+        assert_eq!(reloaded.graph.node_count(), 10);
+
+        let _ = std::fs::remove_file(&path);
     }
 }

@@ -141,7 +141,7 @@ impl PersistentRuntime {
 
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), PersistenceError> {
     let json = serde_json::to_string(value)?;
-    std::fs::write(path, json)?;
+    crate::util::write_durable(path, json.as_bytes())?;
     Ok(())
 }
 
@@ -258,5 +258,52 @@ mod tests {
         let runtime = PersistentRuntime::new(&dir);
         assert!(!runtime.exists());
         assert!(matches!(runtime.load_state(), Err(PersistenceError::Io(_))));
+    }
+
+    /// HIGH-005: save_state must write via the atomic temp+fsync+rename path
+    /// (`crate::util::write_durable`), not a bare `std::fs::write` — a crash
+    /// mid-write must never leave a truncated graph/events/memory file. This
+    /// asserts the wiring at the call site: no `.tmp` sibling is left behind
+    /// (write_durable's own unit tests cover the primitive's atomicity), and
+    /// a second save_state fully replaces the prior content rather than
+    /// merging with or truncating it.
+    #[test]
+    fn save_state_leaves_no_temp_siblings_and_fully_replaces_on_resave() {
+        let dir = temp_dir("atomic");
+        let runtime = PersistentRuntime::new(&dir);
+
+        runtime.save_state(&sample_state()).unwrap();
+        for p in [
+            runtime.graph_path(),
+            runtime.events_path(),
+            runtime.memory_path(),
+        ] {
+            let mut tmp = p.clone().into_os_string();
+            tmp.push(".tmp");
+            assert!(
+                !std::path::Path::new(&tmp).exists(),
+                "atomic write must not leave a .tmp sibling behind: {tmp:?}"
+            );
+        }
+
+        // A second, larger state must fully replace the first on disk (an
+        // in-place non-atomic write that failed partway could instead leave
+        // a file that's a byte-for-byte mix of old and new content).
+        let mut bigger = sample_state();
+        for i in 8..40 {
+            bigger.graph.upsert_node(
+                format!("n{i}").into(),
+                format!("L{i}"),
+                "content".into(),
+                crate::memory::NodeType::Module,
+            );
+        }
+        let expected_nodes = bigger.graph.node_count();
+        runtime.save_state(&bigger).unwrap();
+
+        let reloaded = PersistentRuntime::new(&dir).load_state().unwrap();
+        assert_eq!(reloaded.graph.node_count(), expected_nodes);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
