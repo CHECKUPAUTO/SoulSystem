@@ -21,8 +21,9 @@ pub mod providers;
 use async_trait::async_trait;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::State,
-    http::StatusCode,
+    extract::{Request, State},
+    http::{header, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Json},
     routing::{get, post},
     Router,
@@ -147,18 +148,132 @@ impl EventHub {
     }
 }
 
+/// Bearer-token authenticator for the gateway's operator routes.
+///
+/// Fails closed: with no token configured, every request is rejected — there
+/// is no implicit "open" state (CRIT-007 / INV-NET-1). The token is compared
+/// in constant time so response latency cannot be used to recover it byte by
+/// byte, and it is never included in `Debug` output or logs.
+#[derive(Clone)]
+pub struct GatewayAuth {
+    token: Option<Arc<str>>,
+}
+
+impl std::fmt::Debug for GatewayAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GatewayAuth")
+            .field("configured", &self.token.is_some())
+            .finish()
+    }
+}
+
+impl GatewayAuth {
+    /// Read the token from `SOULSYSTEM_GATEWAY_TOKEN`. An unset or empty
+    /// value means authentication is not configured — `is_configured()` is
+    /// `false` and every request is rejected.
+    pub fn from_env() -> Self {
+        Self {
+            token: std::env::var("SOULSYSTEM_GATEWAY_TOKEN")
+                .ok()
+                .filter(|t| !t.is_empty())
+                .map(Arc::from),
+        }
+    }
+
+    /// Build an authenticator with an explicit token (tests, embedders).
+    pub fn configured(token: impl Into<Arc<str>>) -> Self {
+        Self {
+            token: Some(token.into()),
+        }
+    }
+
+    /// An authenticator with no token configured — every request rejected.
+    pub fn unconfigured() -> Self {
+        Self { token: None }
+    }
+
+    /// Whether a token is configured at all.
+    pub fn is_configured(&self) -> bool {
+        self.token.is_some()
+    }
+
+    /// Check a bearer token extracted from an `Authorization` header. Returns
+    /// `false` whenever no token is configured, no header was provided, or
+    /// the provided value does not match — the same outcome for every
+    /// rejection reason (no oracle for which case failed).
+    fn verify(&self, provided: Option<&str>) -> bool {
+        match (&self.token, provided) {
+            (Some(expected), Some(given)) => {
+                constant_time_eq(expected.as_bytes(), given.as_bytes())
+            }
+            _ => false,
+        }
+    }
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// `axum::middleware::from_fn_with_state` handler enforcing [`GatewayAuth`] on
+/// the routes it is layered over. Rejects with `401` when the bearer token is
+/// missing or does not match; never with a message that reveals which.
+async fn require_auth(
+    State(state): State<GatewayState>,
+    req: Request,
+    next: Next,
+) -> Result<axum::response::Response, (StatusCode, Json<ErrorResponse>)> {
+    let provided = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+
+    if state.auth.verify(provided) {
+        Ok(next.run(req).await)
+    } else {
+        Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "unauthorized".into(),
+            }),
+        ))
+    }
+}
+
 /// État partagé entre les handlers.
 #[derive(Clone)]
 pub struct GatewayState {
     pub entity: Arc<dyn EntityHandle>,
     pub events: EventHub,
+    pub auth: GatewayAuth,
 }
 
 impl GatewayState {
+    /// Authentication is read from `SOULSYSTEM_GATEWAY_TOKEN` (see
+    /// [`GatewayAuth::from_env`]). Use [`GatewayState::with_auth`] to inject
+    /// an explicit authenticator instead (tests, embedders).
     pub fn new(entity: Arc<dyn EntityHandle>) -> Self {
         Self {
             entity,
             events: EventHub::new(500),
+            auth: GatewayAuth::from_env(),
+        }
+    }
+
+    /// Build state with an explicit authenticator.
+    pub fn with_auth(entity: Arc<dyn EntityHandle>, auth: GatewayAuth) -> Self {
+        Self {
+            entity,
+            events: EventHub::new(500),
+            auth,
         }
     }
 }
@@ -382,31 +497,61 @@ async fn handle_ws(State(st): State<GatewayState>, ws: WebSocketUpgrade) -> impl
     ws.on_upgrade(move |socket| ws_loop(socket, st))
 }
 
+/// Whether a webhook provider's verification secret is configured (non-empty).
+///
+/// Fail-closed partial fix for HIGH-007: previously a webhook payload was
+/// processed unconditionally, whether or not a secret was configured to
+/// verify it. Now an unset secret rejects the request outright. This does
+/// NOT yet verify the request's actual signature against that secret — full
+/// per-provider cryptographic verification (Discord Ed25519, Slack/WhatsApp
+/// HMAC-SHA256, timestamp freshness, replay protection) is a follow-up PR.
+fn webhook_secret_configured(var: &str) -> bool {
+    std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false)
+}
+
 async fn handle_discord_webhook(
     State(st): State<GatewayState>,
     Json(payload): Json<providers::discord::DiscordWebhookBody>,
-) -> impl IntoResponse {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    if !webhook_secret_configured("DISCORD_PUBLIC_KEY") {
+        return Err(webhook_not_configured("discord"));
+    }
     let response =
         providers::discord::handle_webhook(&st.entity, &Some(st.events.clone()), payload).await;
-    Json(response)
+    Ok(Json(response))
 }
 
 async fn handle_slack_webhook(
     State(st): State<GatewayState>,
     Json(payload): Json<providers::slack::SlackWebhookBody>,
-) -> impl IntoResponse {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    if !webhook_secret_configured("SLACK_SIGNING_SECRET") {
+        return Err(webhook_not_configured("slack"));
+    }
     let response =
         providers::slack::handle_webhook(&st.entity, &Some(st.events.clone()), payload).await;
-    Json(response)
+    Ok(Json(response))
 }
 
 async fn handle_whatsapp_webhook(
     State(st): State<GatewayState>,
     Json(payload): Json<providers::whatsapp::WhatsAppWebhookBody>,
-) -> impl IntoResponse {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    if !webhook_secret_configured("WHATSAPP_WEBHOOK_SECRET") {
+        return Err(webhook_not_configured("whatsapp"));
+    }
     let response =
         providers::whatsapp::handle_webhook(&st.entity, &Some(st.events.clone()), payload).await;
-    Json(response)
+    Ok(Json(response))
+}
+
+fn webhook_not_configured(provider: &str) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ErrorResponse {
+            error: format!("{provider} webhook verification secret is not configured"),
+        }),
+    )
 }
 
 async fn ws_loop(mut socket: WebSocket, state: GatewayState) {
@@ -435,9 +580,19 @@ async fn ws_loop(mut socket: WebSocket, state: GatewayState) {
 }
 
 /// Construit le routeur axum.
+///
+/// Every operator route (`/v1/*`) requires a valid `Authorization: Bearer
+/// <token>` header, enforced by [`require_auth`] — including status/goal/event
+/// disclosure routes, not only state-changing ones (CRIT-007 / INV-NET-1).
+/// `/health` is the sole exception (liveness probe; carries no state).
+/// `/providers/*/webhook` routes are not bearer-authenticated (the caller is
+/// an external provider, not an operator) but each fails closed when its
+/// provider secret is unset (see `webhook_secret_configured`) — full
+/// cryptographic signature verification is scoped to a follow-up PR.
+///
+/// CORS remains `permissive()` here; strict CORS is PR G.
 pub fn router(state: GatewayState) -> Router {
-    Router::new()
-        .route("/health", get(health))
+    let operator_routes = Router::new()
         .route("/v1/ask", post(handle_ask))
         .route("/v1/goal", post(handle_create_goal))
         .route("/v1/plan/:goal_id", post(handle_plan))
@@ -448,9 +603,17 @@ pub fn router(state: GatewayState) -> Router {
         .route("/v1/goals", get(handle_list_goals))
         .route("/v1/events", get(handle_recent_events))
         .route("/v1/stream", get(handle_ws))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
+    let webhook_routes = Router::new()
         .route("/providers/discord/webhook", post(handle_discord_webhook))
         .route("/providers/slack/webhook", post(handle_slack_webhook))
-        .route("/providers/whatsapp/webhook", post(handle_whatsapp_webhook))
+        .route("/providers/whatsapp/webhook", post(handle_whatsapp_webhook));
+
+    Router::new()
+        .route("/health", get(health))
+        .merge(operator_routes)
+        .merge(webhook_routes)
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state)
 }
@@ -728,5 +891,160 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
         let gw_err: GatewayError = io_err.into();
         assert!(gw_err.to_string().contains("file missing"));
+    }
+
+    // ── GatewayAuth ───────────────────────────────────────────
+
+    #[test]
+    fn auth_unconfigured_rejects_everything() {
+        let auth = GatewayAuth::unconfigured();
+        assert!(!auth.is_configured());
+        assert!(!auth.verify(None));
+        assert!(!auth.verify(Some("anything")));
+    }
+
+    #[test]
+    fn auth_configured_requires_exact_match() {
+        let auth = GatewayAuth::configured("s3cret");
+        assert!(auth.is_configured());
+        assert!(auth.verify(Some("s3cret")));
+        assert!(!auth.verify(Some("wrong")));
+        assert!(!auth.verify(Some("s3cret-extra")));
+        assert!(!auth.verify(None));
+    }
+
+    #[test]
+    fn constant_time_eq_rejects_length_mismatch() {
+        assert!(!constant_time_eq(b"abc", b"ab"));
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"", b"x"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    // ── Router / CRIT-007: mandatory authentication ──────────
+
+    fn mock_state(auth: GatewayAuth) -> GatewayState {
+        let entity = Arc::new(MockEntity {
+            ask_calls: AtomicUsize::new(0),
+            goal_calls: AtomicUsize::new(0),
+            plan_calls: AtomicUsize::new(0),
+        });
+        GatewayState::with_auth(entity, auth)
+    }
+
+    async fn send(
+        app: Router,
+        method: &str,
+        uri: &str,
+        bearer: Option<&str>,
+        body: &str,
+    ) -> axum::http::StatusCode {
+        use tower::ServiceExt;
+        let mut builder = axum::http::Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(token) = bearer {
+            builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        let req = builder
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap();
+        app.oneshot(req).await.unwrap().status()
+    }
+
+    #[tokio::test]
+    async fn health_is_reachable_without_auth() {
+        let app = router(mock_state(GatewayAuth::configured("tok")));
+        let status = send(app, "GET", "/health", None, "").await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn operator_route_rejects_missing_auth() {
+        let app = router(mock_state(GatewayAuth::configured("tok")));
+        let status = send(app, "GET", "/v1/status", None, "").await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn operator_route_rejects_wrong_token() {
+        let app = router(mock_state(GatewayAuth::configured("tok")));
+        let status = send(app, "GET", "/v1/status", Some("nope"), "").await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn operator_route_accepts_correct_token() {
+        let app = router(mock_state(GatewayAuth::configured("tok")));
+        let status = send(app, "GET", "/v1/status", Some("tok"), "").await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn operator_route_rejects_when_auth_unconfigured() {
+        // Fail closed: with no token configured at all, even a request that
+        // supplies SOME bearer value is rejected — there is no implicit
+        // "open" state (CRIT-007 / INV-NET-1).
+        let app = router(mock_state(GatewayAuth::unconfigured()));
+        let status = send(app, "GET", "/v1/status", Some("anything"), "").await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn state_changing_operator_route_also_requires_auth() {
+        // Not just status/read routes — the state-changing ones too.
+        let app = router(mock_state(GatewayAuth::configured("tok")));
+        let status = send(app, "POST", "/v1/goal", None, r#"{"description":"x"}"#).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn goals_and_events_disclosure_routes_require_auth() {
+        let app = router(mock_state(GatewayAuth::configured("tok")));
+        assert_eq!(
+            send(app.clone(), "GET", "/v1/goals", None, "").await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            send(app, "GET", "/v1/events", None, "").await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    // ── Router / HIGH-007: webhooks fail closed when unset ───
+
+    #[tokio::test]
+    async fn discord_webhook_fails_closed_when_secret_unset() {
+        assert!(std::env::var("DISCORD_PUBLIC_KEY").is_err());
+        let app = router(mock_state(GatewayAuth::configured("tok")));
+        let status = send(app, "POST", "/providers/discord/webhook", None, "{}").await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn slack_webhook_fails_closed_when_secret_unset() {
+        assert!(std::env::var("SLACK_SIGNING_SECRET").is_err());
+        let app = router(mock_state(GatewayAuth::configured("tok")));
+        let status = send(app, "POST", "/providers/slack/webhook", None, "{}").await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn whatsapp_webhook_fails_closed_when_secret_unset() {
+        assert!(std::env::var("WHATSAPP_WEBHOOK_SECRET").is_err());
+        let app = router(mock_state(GatewayAuth::configured("tok")));
+        let status = send(app, "POST", "/providers/whatsapp/webhook", None, "{}").await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn webhook_routes_do_not_require_bearer_auth() {
+        // Webhooks come from external providers, not an operator — they must
+        // not be rejected merely for lacking a Bearer header (they fail
+        // closed on their OWN secret instead, tested above).
+        let app = router(mock_state(GatewayAuth::configured("tok")));
+        let status = send(app, "POST", "/providers/discord/webhook", None, "{}").await;
+        assert_ne!(status, StatusCode::UNAUTHORIZED);
     }
 }
