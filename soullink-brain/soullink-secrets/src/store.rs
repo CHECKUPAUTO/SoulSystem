@@ -64,8 +64,9 @@ impl SecretsStore {
         Ok(())
     }
 
-    /// Retrieve and decrypt a secret.
-    pub fn get(&self, id: &SecretId) -> Result<Vec<u8>, SecretError> {
+    /// Retrieve and decrypt a secret. The returned plaintext is zeroized on
+    /// drop.
+    pub fn get(&self, id: &SecretId) -> Result<zeroize::Zeroizing<Vec<u8>>, SecretError> {
         let (encrypted, salt) = self
             .cache
             .get(id)
@@ -101,7 +102,7 @@ mod tests {
         let mut store = SecretsStore::open(dir.path(), &master).await.unwrap();
         let id = SecretId("api-key".into());
         store.put(&id, b"sk-12345").await.unwrap();
-        assert_eq!(store.get(&id).unwrap(), b"sk-12345");
+        assert_eq!(store.get(&id).unwrap().as_slice(), b"sk-12345");
     }
 
     #[tokio::test]
@@ -113,7 +114,10 @@ mod tests {
             store.put(&SecretId("token".into()), b"abc").await.unwrap();
         }
         let store = SecretsStore::open(dir.path(), &master).await.unwrap();
-        assert_eq!(store.get(&SecretId("token".into())).unwrap(), b"abc");
+        assert_eq!(
+            store.get(&SecretId("token".into())).unwrap().as_slice(),
+            b"abc"
+        );
     }
 
     #[tokio::test]

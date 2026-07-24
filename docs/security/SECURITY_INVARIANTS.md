@@ -53,8 +53,8 @@ PR sequence (A–P).
 
 | ID | Invariant | PR | Status |
 |----|-----------|----|--------|
-| INV-SEC-1 | Secrets use redacting/zeroizing types; `Debug`/`Display` never reveal them. | J | TARGET |
-| INV-SEC-2 | No secret appears in logs, metrics, traces, panic messages, or URLs. | J | PARTIAL (guard is secret-free; full sweep in J/N) |
+| INV-SEC-1 | Secrets use redacting/zeroizing types; `Debug`/`Display` never reveal them. | J | HELD for `soullink-secrets` (`SecretsCrypto::master_key` is `secrecy::Secret<Vec<u8>>`; derived keys and decrypted plaintext are `zeroize::Zeroizing<Vec<u8>>`; `SecretValue`/`DecryptedSecret` redact `Debug` and drop `Clone` — `zeroize_actually_clears_key_bytes`, `secret_value_debug_redacts_bytes`, `decrypted_secret_debug_does_not_leak_value`). Not yet extended to other secret-holding code (LLM API keys, webhook secrets in `soul_gateway`) — follow-up. |
+| INV-SEC-2 | No secret appears in logs, metrics, traces, panic messages, or URLs. | J | PARTIAL (guard and `soullink-secrets` are secret-free/redacted; full workspace sweep is a follow-up) |
 | INV-SEC-3 | Default/example secrets are rejected in production. | A | HELD (`default_secret_rejected`) |
 
 ## Memory trust
