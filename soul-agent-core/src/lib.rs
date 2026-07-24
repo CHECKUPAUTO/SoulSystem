@@ -29,6 +29,7 @@
 
 pub mod builder;
 pub mod consolidation;
+pub mod emergency_stop;
 pub mod finetune;
 pub mod parallel;
 pub mod prioritization;
@@ -86,6 +87,17 @@ pub struct AgentConfig {
     pub working_memory_capacity: usize,
     pub enable_sub_agents: bool,
     pub max_sub_agents: usize,
+    /// Hard ceiling on the total number of tool calls across one `run_task`
+    /// run (every call counts, not just per-turn — a single turn's response
+    /// may request several). INV-PLAN-2.
+    pub max_tool_calls: usize,
+    /// Hard ceiling on the number of non-`Read` (Write/Destructive) tool
+    /// calls across one `run_task` run — a stricter budget for
+    /// state-changing actions specifically. INV-PLAN-2.
+    pub max_write_operations: usize,
+    /// Hard wall-clock ceiling, in seconds, on one `run_task` run.
+    /// INV-PLAN-2.
+    pub max_wall_clock_secs: u64,
 }
 
 impl Default for AgentConfig {
@@ -102,6 +114,9 @@ impl Default for AgentConfig {
             working_memory_capacity: 50,
             enable_sub_agents: true,
             max_sub_agents: 4,
+            max_tool_calls: 500,
+            max_write_operations: 100,
+            max_wall_clock_secs: 3600,
         }
     }
 }
@@ -208,6 +223,20 @@ pub struct AutonomousAgent {
     /// fractal store). Complements CCOS (causal code context) and the tiered
     /// hierarchical memory: this is for "what have I seen/said about X?".
     pub semantic: SemanticMemory,
+    /// Durable, file-backed halt latch, checked before every tool dispatch.
+    /// Tripping it (from anywhere holding a handle to the same path, in this
+    /// process or a future one) denies new side effects immediately and
+    /// requires an explicit operator reset (INV-PLAN-3).
+    pub emergency_stop: emergency_stop::EmergencyStop,
+    /// Total tool calls dispatched in the current `run_task` run, reset at
+    /// the start of each run. Bounded by `config.max_tool_calls`.
+    pub tool_call_count: usize,
+    /// Non-`Read` (Write/Destructive) tool calls dispatched in the current
+    /// run. Bounded by `config.max_write_operations`.
+    pub write_operation_count: usize,
+    /// When the current `run_task` run started, for the wall-clock budget
+    /// (`config.max_wall_clock_secs`). `None` before the first run.
+    pub task_started_at: Option<std::time::Instant>,
 }
 
 impl AutonomousAgent {
@@ -285,6 +314,10 @@ impl AutonomousAgent {
             gate: ApprovalGate::new(ExecutionMode::Autonomous),
             ccos: CcosMemory::new(),
             semantic: SemanticMemory::offline(256, 0),
+            emergency_stop: emergency_stop::EmergencyStop::from_env(),
+            tool_call_count: 0,
+            write_operation_count: 0,
+            task_started_at: None,
         }
     }
 
@@ -359,6 +392,10 @@ impl AutonomousAgent {
             gate: ApprovalGate::new(ExecutionMode::Autonomous),
             ccos: CcosMemory::new(),
             semantic: SemanticMemory::offline(256, 0),
+            emergency_stop: emergency_stop::EmergencyStop::from_env(),
+            tool_call_count: 0,
+            write_operation_count: 0,
+            task_started_at: None,
         }
     }
 
@@ -585,8 +622,18 @@ impl AutonomousAgent {
     // ── Core ReAct Loop ──
 
     pub async fn run_task(&mut self, task: &str) -> Result<String, String> {
+        if self.emergency_stop.is_tripped() {
+            let reason = self.emergency_stop.reason().unwrap_or_default();
+            return Err(format!(
+                "refusing to start: emergency stop is active ({reason})"
+            ));
+        }
+
         *self.running.write().await = true;
         self.turn = 0;
+        self.tool_call_count = 0;
+        self.write_operation_count = 0;
+        self.task_started_at = Some(std::time::Instant::now());
         self.chat_session.clear();
 
         // ── Adaptive Strategy Selection ──
@@ -742,6 +789,19 @@ impl AutonomousAgent {
             if !*self.running.read().await {
                 return Err("Task aborted".to_string());
             }
+            if self.emergency_stop.is_tripped() {
+                let reason = self.emergency_stop.reason().unwrap_or_default();
+                return Err(format!("Emergency stop is active: {reason}"));
+            }
+            if let Some(started) = self.task_started_at {
+                if started.elapsed().as_secs() > self.config.max_wall_clock_secs {
+                    return Err(format!(
+                        "Wall-clock budget exceeded ({}s > {}s)",
+                        started.elapsed().as_secs(),
+                        self.config.max_wall_clock_secs
+                    ));
+                }
+            }
 
             self.turn += 1;
 
@@ -849,6 +909,37 @@ impl AutonomousAgent {
                             args: args.clone(),
                         });
 
+                        // Emergency stop and execution budgets (INV-PLAN-2/3)
+                        // are checked before ANY dispatch decision — including
+                        // the approval gate — so a tripped latch or an
+                        // exhausted budget denies the call unconditionally.
+                        if self.emergency_stop.is_tripped() {
+                            let reason = self.emergency_stop.reason().unwrap_or_default();
+                            let msg = format!("BLOCKED: emergency stop is active ({reason})");
+                            self.emit_event(AgentEvent::ToolResult {
+                                name: name.clone(),
+                                output: msg.clone(),
+                                success: false,
+                            });
+                            self.chat_session.add_tool_result(&tc.id, &msg);
+                            continue;
+                        }
+
+                        self.tool_call_count += 1;
+                        if self.tool_call_count > self.config.max_tool_calls {
+                            let msg = format!(
+                                "BLOCKED: tool-call budget exceeded ({}/{})",
+                                self.tool_call_count, self.config.max_tool_calls
+                            );
+                            self.emit_event(AgentEvent::ToolResult {
+                                name: name.clone(),
+                                output: msg.clone(),
+                                success: false,
+                            });
+                            self.chat_session.add_tool_result(&tc.id, &msg);
+                            continue;
+                        }
+
                         // Outbound policy gate. The required permission is
                         // derived from the trusted tool registry — never from a
                         // caller-supplied level — so write_file/patch_file are
@@ -864,6 +955,23 @@ impl AutonomousAgent {
                         } else {
                             name.clone()
                         };
+
+                        if permission != soul_tools::PermissionLevel::Read {
+                            self.write_operation_count += 1;
+                            if self.write_operation_count > self.config.max_write_operations {
+                                let msg = format!(
+                                    "BLOCKED: write-operation budget exceeded ({}/{})",
+                                    self.write_operation_count, self.config.max_write_operations
+                                );
+                                self.emit_event(AgentEvent::ToolResult {
+                                    name: name.clone(),
+                                    output: msg.clone(),
+                                    success: false,
+                                });
+                                self.chat_session.add_tool_result(&tc.id, &msg);
+                                continue;
+                            }
+                        }
 
                         let req = permission_requirement(permission);
                         match self.gate.evaluate(&name, &scope, &req).await {
@@ -1554,6 +1662,19 @@ Only return the JSON array, no explanation."#,
         *self.running.write().await = false;
     }
 
+    /// Trip the durable emergency-stop latch and immediately cancel the
+    /// current run. Unlike [`abort`](Self::abort) (in-process, resettable by
+    /// simply calling `run_task` again), this denies new tool dispatch for
+    /// every agent instance sharing the same latch path — including one
+    /// started in a future process — until an operator explicitly clears it
+    /// via `self.emergency_stop.operator_reset()` (never called by agent
+    /// code). INV-PLAN-3.
+    pub async fn trip_emergency_stop(&self, reason: &str) -> std::io::Result<()> {
+        self.emergency_stop.trip(reason)?;
+        self.abort().await;
+        Ok(())
+    }
+
     pub fn auto_repair(&mut self) -> Vec<String> {
         if !self.config.auto_repair
             || self.consecutive_failures < self.config.max_consecutive_failures
@@ -2012,6 +2133,89 @@ mod tests {
         assert_eq!(agent.planner.history.success_rate(), 0.0);
     }
 
+    // ── INV-PLAN-2/3: execution budgets + emergency stop ─────────────
+
+    #[test]
+    fn agent_config_default_has_sane_budgets() {
+        let cfg = AgentConfig::default();
+        assert!(cfg.max_tool_calls > 0);
+        assert!(cfg.max_write_operations > 0);
+        assert!(cfg.max_wall_clock_secs > 0);
+        // Write budget must be no looser than the overall call budget.
+        assert!(cfg.max_write_operations <= cfg.max_tool_calls);
+    }
+
+    #[test]
+    fn new_agent_starts_with_zeroed_budgets_and_no_task_start() {
+        let agent = make_test_agent();
+        assert_eq!(agent.tool_call_count, 0);
+        assert_eq!(agent.write_operation_count, 0);
+        assert!(agent.task_started_at.is_none());
+        assert!(!agent.emergency_stop.is_tripped());
+    }
+
+    #[tokio::test]
+    async fn run_task_refuses_to_start_when_emergency_stop_already_tripped() {
+        // This must return before ever touching the LLM (the check is the
+        // first statement in run_task), so it's safely testable without a
+        // live LLM connection.
+        let mut agent = make_test_agent();
+        let dir = tempfile::tempdir().unwrap();
+        let estop = emergency_stop::EmergencyStop::at(dir.path().join("estop.latch"));
+        estop.trip("pre-tripped for test").unwrap();
+        agent.emergency_stop = estop;
+
+        let result = agent.run_task("do something").await;
+        let err = result.expect_err("must refuse to start when the latch is tripped");
+        assert!(err.contains("emergency stop"), "got: {err}");
+        assert!(err.contains("pre-tripped for test"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn run_task_starts_normally_when_emergency_stop_untripped() {
+        let mut agent = make_test_agent();
+        let dir = tempfile::tempdir().unwrap();
+        agent.emergency_stop = emergency_stop::EmergencyStop::at(dir.path().join("estop.latch"));
+        assert!(!agent.emergency_stop.is_tripped());
+        // Confirm the untripped case does NOT hit the early-refusal path
+        // (it will fail later trying to reach a real LLM, which is fine —
+        // we only assert it's not rejected for the emergency-stop reason).
+        let result = agent.run_task("do something").await;
+        if let Err(e) = result {
+            assert!(
+                !e.contains("emergency stop"),
+                "must not be rejected as an emergency-stop refusal, got: {e}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn trip_emergency_stop_trips_latch_and_aborts_running_flag() {
+        let agent = make_test_agent();
+        let dir = tempfile::tempdir().unwrap();
+        let estop = emergency_stop::EmergencyStop::at(dir.path().join("estop.latch"));
+        // Swap in a fresh handle so this test doesn't touch the real
+        // env-derived default path.
+        let mut agent = agent;
+        agent.emergency_stop = estop.clone();
+
+        *agent.running.write().await = true;
+        agent
+            .trip_emergency_stop("test-triggered trip")
+            .await
+            .unwrap();
+
+        assert!(agent.emergency_stop.is_tripped());
+        assert_eq!(
+            agent.emergency_stop.reason().as_deref(),
+            Some("test-triggered trip")
+        );
+        assert!(
+            !*agent.running.read().await,
+            "trip_emergency_stop must also abort the current run"
+        );
+    }
+
     #[tokio::test]
     async fn gate_denies_destructive_allows_read_write() {
         use soul_tools::PermissionLevel;
@@ -2137,6 +2341,7 @@ mod tests {
             working_memory_capacity: 10,
             enable_sub_agents: false,
             max_sub_agents: 0,
+            ..Default::default()
         };
         AutonomousAgent::new(llm, config)
     }
@@ -2173,6 +2378,7 @@ mod tests {
             working_memory_capacity: 200,
             enable_sub_agents: false,
             max_sub_agents: 10,
+            ..Default::default()
         };
         assert_eq!(cfg.name, "MyBot");
         assert_eq!(cfg.max_turns, 100);
