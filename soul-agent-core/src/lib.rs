@@ -49,7 +49,7 @@ use soul_llm::{build_tool_schemas, ChatSession, OllamaClient, ToolSchema};
 use soul_memory::{KnowledgeGraph, Node, NodeType};
 use soul_planner::{CognitiveLoop, Goal, GoalStatus};
 use soul_skills::{SkillLoader, SkillValidator};
-use soul_tools::{async_dispatch_tool, discover_system_tools, AsyncShellExecutor, ToolRegistry};
+use soul_tools::{async_dispatch_tool, discover_system_tools, ToolRegistry};
 use soullink_autonomy::{
     error_metrics::{ErrorWeights, GlobalError},
     metacognition::MetaCognition,
@@ -178,7 +178,6 @@ pub struct AutonomousAgent {
     pub chat_session: ChatSession,
     pub planner: CognitiveLoop,
     pub registry: ToolRegistry,
-    pub executor: AsyncShellExecutor,
     pub tool_schemas: Vec<ToolSchema>,
     pub history: Vec<String>,
     pub turn: usize,
@@ -284,7 +283,6 @@ impl AutonomousAgent {
             chat_session,
             planner: CognitiveLoop::new(),
             registry,
-            executor: AsyncShellExecutor::new(config.shell_timeout_secs),
             tool_schemas,
             history: Vec::new(),
             turn: 0,
@@ -362,7 +360,6 @@ impl AutonomousAgent {
             chat_session,
             planner: CognitiveLoop::new(),
             registry,
-            executor: AsyncShellExecutor::new(config.shell_timeout_secs),
             tool_schemas,
             history: Vec::new(),
             turn: 0,
@@ -2268,6 +2265,36 @@ mod tests {
             gate.evaluate("execute_shell", "rm -rf /", &destr).await,
             GateDecision::Deny(_)
         ));
+    }
+
+    /// HIGH-008: `run_react`'s tool-dispatch loop calls exactly
+    /// `async_dispatch_tool(&name, args.clone())` (see the real call site
+    /// above) to execute a shell tool — the dead `AutonomousAgent::executor`
+    /// field (an unused, never-wired `AsyncShellExecutor`, removed by this
+    /// change) previously sat beside this path implying a second, unused
+    /// sandboxing mechanism existed. This calls the *exact* function the
+    /// live agent loop calls, not a mock, proving the real dispatch path a
+    /// daemon-driven ReAct loop actually takes is mediated by
+    /// `soul_sandbox::Sandbox` end-to-end, with no bare
+    /// `std::process::Command` reachable from it.
+    #[tokio::test]
+    async fn run_react_dispatch_path_is_sandboxed_for_destructive_commands() {
+        let result =
+            async_dispatch_tool("execute_shell", serde_json::json!({"command": "rm -rf /"})).await;
+        assert!(
+            result.is_err(),
+            "the exact dispatch call run_react uses must refuse a destructive command"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_react_dispatch_path_allows_a_safe_command() {
+        let result =
+            async_dispatch_tool("execute_shell", serde_json::json!({"command": "echo hi"})).await;
+        assert!(
+            result.is_ok(),
+            "a safe command must still succeed: {result:?}"
+        );
     }
 
     // ── CCOS causal context memory ──────────────────────────────────────
