@@ -157,8 +157,17 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
+    /// Unique per-call counter so concurrent tests in this file never share a
+    /// temp directory: `cargo test` runs tests in parallel threads within one
+    /// process by default, and `std::process::id()` alone is identical for
+    /// every thread — two tests racing on `remove_dir_all`/`create_dir_all`
+    /// for the same path could observe each other's files vanish mid-test.
+    static SETUP_PROJECT_COUNTER: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+
     fn setup_project() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("ccos_test_{}", std::process::id()));
+        let n = SETUP_PROJECT_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("ccos_test_{}_{n}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let src = dir.join("src");
         fs::create_dir_all(&src).unwrap();
