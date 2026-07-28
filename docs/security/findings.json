@@ -88,8 +88,8 @@
       "original_reachable_path": [
         "AutonomousAgent::run_react -> async_dispatch_tool -> dispatch_tool -> execute_shell -> bare std::process::Command"
       ],
-      "current_state": "The original vector is closed: soul_tools::execute_shell now constructs a soul_sandbox::Sandbox and no bare Command remains on the agent tool-dispatch path. However INV-EXEC-1's workspace-wide claim does NOT hold. A process-execution inventory across the live tree (excluding the excluded os-agents/ and soullink-node/ trees) returns 227 matches, 110 of them inside 25 workspace-member crates. At least one is production-reachable from the soulsystem binary and is NOT sandboxed: src/main.rs instantiates SelfHealer during daemon startup ('Phase 5'), ungated by any feature flag or production guard, and spawns a bus-subscriber task that calls SelfHealer::execute on error.* events; that method runs `kill`, `systemctl restart/start` and `df` via bare std::process::Command. soul-automodify invokes `cargo`, and soul_gateway's iMessage provider invokes `osascript`, both also outside the sandbox.",
-      "remaining_exposure": "Bus-triggered SelfHealer actions execute privileged host commands (process kill, service restart) with no sandbox, no seccomp filter, no output bound and no capability check. An attacker able to publish an 'error.*' bus message, or to influence the PIDs/service names that reach a DefenseAction, reaches host command execution.",
+      "current_state": "The original vector is closed: soul_tools::execute_shell constructs a soul_sandbox::Sandbox and no bare Command remains on the agent tool-dispatch path. Re-examined more precisely at this commit, correcting an overstatement in the previous re-verification: of the three process-execution sites in src/self_healer.rs, only ONE was ever live. `read_system_stats` ran `df --output=pcent` on every tick of the 30-second run() loop spawned from src/main.rs. The KillNonEssential and RestartService arms exec `kill` and `systemctl`, but no producer in the workspace constructs either DefenseAction variant - Preservation emits only Throttle, MemoryDump, EmergencySave, LocalFallback, DistressSignal and GracefulShutdown - so those two arms were latent, not attacker-reachable as previously described. Both classes are now addressed: the df exec is replaced by a statvfs(3) call (SelfHealer::root_disk_used_percent), removing the spawn entirely rather than sandboxing it; `kill(1)` is replaced by a direct libc::kill signal; and both privileged arms are gated behind ProcessControl::Enabled, which defaults to Disabled, so adding a producer cannot by itself turn bus traffic into host process control. The systemctl unit name is additionally validated by is_safe_service_name. tests/architecture_process_execution.rs now pins the permitted set of process-spawning files in the soulsystem binary crate and fails CI on any new one.",
+      "remaining_exposure": "The architecture guard covers the root soulsystem binary crate (src/) only. The wider workspace inventory - 110 process-execution matches across 25 workspace-member crates, including 22 in the separate soul-kernel binary - is not yet enforced; each would need classifying before the guard could be widened without false positives. soul-automodify still invokes `cargo` and the soul_gateway iMessage provider still invokes `osascript`, both outside the sandbox and outside this guard's scope. RestartService, when explicitly enabled, still spawns systemctl unsandboxed by design - restarting a host unit is inherently a host operation, so the control is that it is opt-in, not that it is confined.",
       "required_invariant": "No production-reachable code path invokes process execution outside the approved soul_sandbox executor (INV-EXEC-1).",
       "fixing_prs": [
         {
@@ -99,6 +99,31 @@
         }
       ],
       "verification_tests": [
+        {
+          "crate": "soulsystem",
+          "name": "self_healer::tests::process_control_is_disabled_by_default",
+          "command": "cargo test -p soulsystem --lib self_healer::tests::process_control_is_disabled_by_default"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "self_healer::tests::disabled_process_control_refuses_kill_and_restart",
+          "command": "cargo test -p soulsystem --lib self_healer::tests::disabled_process_control_refuses_kill_and_restart"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "self_healer::tests::root_disk_usage_is_read_without_spawning_a_process",
+          "command": "cargo test -p soulsystem --lib self_healer::tests::root_disk_usage_is_read_without_spawning_a_process"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "self_healer::tests::service_name_validator_rejects_option_and_path_injection",
+          "command": "cargo test -p soulsystem --lib self_healer::tests::service_name_validator_rejects_option_and_path_injection"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "no_unapproved_process_execution_in_the_soulsystem_binary",
+          "command": "cargo test --test architecture_process_execution"
+        },
         {
           "crate": "soul_tools",
           "name": "execute_shell_routes_through_sandbox",
@@ -110,8 +135,8 @@
           "command": "cargo test -p soul_agent_core --lib run_react_dispatch_path_is_sandboxed_for_destructive_commands"
         }
       ],
-      "residual_risk": "Agent tool dispatch is sandboxed and tested; the self-healing, self-modification and iMessage provider paths are not. No architecture test bans bare Command outside soul_sandbox, so new unsandboxed call sites can be added without CI noticing.",
-      "follow_up": "Route SelfHealer/soul-automodify/iMessage command execution through soul_sandbox, or gate them off in production; add a CI architecture guard that fails on bare Command outside the approved executor."
+      "residual_risk": "Agent tool dispatch is sandboxed and tested, the binary's only live unsandboxed spawn is gone, and new ones in src/ now fail CI. Workspace-wide enforcement, and the soul-automodify / iMessage spawns, remain open.",
+      "follow_up": "Classify the 110 workspace-wide process-execution matches and widen tests/architecture_process_execution.rs beyond src/; route soul-automodify's cargo invocation and the soul_gateway iMessage osascript invocation through soul_sandbox or gate them."
     },
     {
       "id": "CRIT-002",
