@@ -75,20 +75,7 @@ impl SelfHealer {
                     return;
                 }
                 for pid in pids {
-                    info!("SelfHealer: killing non-essential process PID {}", pid);
-                    // Signalling a PID directly, rather than shelling out to
-                    // `kill(1)`: no process is spawned, so there is no exec to
-                    // sandbox and no argument string to mis-quote.
-                    // SAFETY: `kill` is async-signal-safe and takes scalars; an
-                    // invalid or vanished PID returns -1 rather than being UB.
-                    let rc = unsafe { libc::kill(*pid as libc::pid_t, libc::SIGTERM) };
-                    if rc != 0 {
-                        warn!(
-                            "SelfHealer: failed to signal PID {}: {}",
-                            pid,
-                            std::io::Error::last_os_error()
-                        );
-                    }
+                    Self::signal_process(*pid);
                 }
             }
             DefenseAction::DistressSignal { message } => {
@@ -284,6 +271,7 @@ impl SelfHealer {
     /// Returns `None` when the syscall fails or reports no blocks, so callers
     /// keep their existing "unknown -> 0.0" behaviour instead of inventing a
     /// reading.
+    #[cfg(unix)]
     fn root_disk_used_percent() -> Option<f64> {
         // SAFETY: `stat` is zeroed and lives for the whole call; the path is a
         // NUL-terminated literal. `statvfs` only writes into `stat` and returns
@@ -305,6 +293,54 @@ impl SelfHealer {
         // reports in its "Use%" column.
         let available = stat.f_bavail as f64;
         Some(((total - available) / total) * 100.0)
+    }
+
+    /// Non-Unix hosts report unknown disk usage.
+    ///
+    /// This is not a regression: the previous implementation read `/proc/mounts`
+    /// and shelled out to `df`, neither of which exists on Windows, so it
+    /// already yielded `None` -> 0.0 there. Reporting "unknown" is preferable to
+    /// inventing a reading; a real Windows implementation would use
+    /// `GetDiskFreeSpaceExW`, which needs a Windows API dependency this crate
+    /// does not currently take.
+    #[cfg(not(unix))]
+    fn root_disk_used_percent() -> Option<f64> {
+        None
+    }
+
+    /// Ask a process to terminate.
+    ///
+    /// Unix signals the PID directly rather than shelling out to `kill(1)`: no
+    /// process is spawned, so there is no exec to sandbox and no argument
+    /// string to mis-quote (INV-EXEC-1 / CRIT-001).
+    #[cfg(unix)]
+    fn signal_process(pid: u32) {
+        info!("SelfHealer: killing non-essential process PID {}", pid);
+        // SAFETY: `kill` takes scalars and has no memory-safety preconditions;
+        // an invalid or already-exited PID returns -1 rather than being UB.
+        let rc = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+        if rc != 0 {
+            warn!(
+                "SelfHealer: failed to signal PID {}: {}",
+                pid,
+                std::io::Error::last_os_error()
+            );
+        }
+    }
+
+    /// Non-Unix hosts do not implement process termination.
+    ///
+    /// Refusing is the fail-closed choice: the alternative would be spawning
+    /// `taskkill`, reintroducing exactly the unsandboxed process execution this
+    /// change removed. No producer constructs `KillNonEssential` today, so this
+    /// path is unreachable in practice on any platform.
+    #[cfg(not(unix))]
+    fn signal_process(pid: u32) {
+        warn!(
+            "SelfHealer: refusing to terminate PID {} — process termination is not \
+             implemented on this platform",
+            pid
+        );
     }
 }
 
@@ -392,14 +428,23 @@ mod tests {
 
     /// Disk telemetry must not spawn a process. This is the site that used to
     /// run `df --output=pcent` every 30 seconds from `run()`.
+    #[cfg(unix)]
     #[test]
     fn root_disk_usage_is_read_without_spawning_a_process() {
         let pct = SelfHealer::root_disk_used_percent()
-            .expect("statvfs on / should succeed on any supported host");
+            .expect("statvfs on / should succeed on any supported Unix host");
         assert!(
             (0.0..=100.0).contains(&pct),
             "disk usage must be a percentage, got {pct}"
         );
+    }
+
+    /// Non-Unix reports unknown rather than fabricating a value. This matches
+    /// the pre-change behaviour, where `/proc/mounts` and `df` were both absent.
+    #[cfg(not(unix))]
+    #[test]
+    fn root_disk_usage_is_unknown_off_unix() {
+        assert!(SelfHealer::root_disk_used_percent().is_none());
     }
 
     #[test]
