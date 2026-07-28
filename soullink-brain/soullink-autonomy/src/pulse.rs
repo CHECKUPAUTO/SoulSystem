@@ -84,7 +84,7 @@ impl AutonomyPulse {
             node.evolve(0.0, thermal + noise);
         }
 
-        if tick % 60 == 0 {
+        if tick.is_multiple_of(60) {
             // Log every 60 ticks (~1 minute)
             let snapshot = self.snapshot_internal(&nodes);
             info!(
