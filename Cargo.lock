@@ -11301,6 +11301,7 @@ dependencies = [
  "tokio-stream",
  "tokio-tungstenite 0.29.0",
  "toml 0.8.23",
+ "tower 0.5.3",
  "tracing",
  "tracing-subscriber",
  "uuid",
