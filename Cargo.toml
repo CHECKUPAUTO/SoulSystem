@@ -440,6 +440,10 @@ soul_security = { path = "soul_security" }
 
 ccos = { workspace = true }
 
+[dev-dependencies]
+# `ServiceExt::oneshot`, for driving the api router in tests.
+tower = { workspace = true }
+
 [features]
 dev = []
 gpu = []

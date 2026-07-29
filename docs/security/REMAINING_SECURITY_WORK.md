@@ -16,11 +16,16 @@ finding move to `FIXED_AND_VERIFIED`.
 The verdict follows from the register, not from campaign progress: 2 of 6
 critical findings and 2 of 10 high findings remain `PARTIALLY_FIXED`, and one
 high finding is `CONFIRMED_CURRENT`. **Both P0 items are closed, and P1-1
-through P1-4 are closed**, but the verdict does not move to
+through P1-4 plus P1-9's authentication half are closed**, but the verdict does not move to
 `LIMITED_PRODUCTION` on that alone: the P1 set below still contains
-unauthenticated surface (`src/api.rs`), an unbounded sandbox process count, no
-filesystem or PID isolation for sandboxed commands, unbounded connection counts
-and no per-client rate limiting.
+all-or-nothing authorization on both bearer-authenticated listeners, an
+unbounded sandbox process count, no filesystem or PID isolation for sandboxed
+commands, unbounded connection counts and no per-client rate limiting.
+
+**Every production listener now authenticates and fails closed** (`gateway`,
+`ws_bridge`, `api`), which is the whole of INV-NET-1's authentication half.
+What is left there is *authorization*: one compromised token still yields full
+operator power, including shell execution, on either listener.
 
 `LIMITED_PRODUCTION` is defensible for a **trusted, loopback-only, single-tenant**
 deployment where: the process bus cannot be reached by untrusted input, the
@@ -337,17 +342,67 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   observing a failure at all; the two layers' attempt counts sum to a
   configured ceiling rather than multiplying.
 
-### P1-9 Authenticate `src/api.rs` and add per-scope authorization
+### ~~P1-9 Authenticate `src/api.rs`~~ — CLOSED (authentication only)
 
 - **Findings / invariants:** CRIT-007 (residual), INV-NET-1
-- **Surface:** `src/api.rs` builds a `Router` with no authentication layer,
-  served on `127.0.0.1:9023`. Separately, the gateway's bearer token is
-  all-or-nothing: every authenticated caller has full operator power.
-- **Current risk:** the API listener is reported to the guard as
-  unauthenticated (so production startup fails on it), but it has no auth of its
-  own and is mitigated only by the loopback bind.
-- **Acceptance tests:** an unauthenticated request to a state-changing `api`
-  route is rejected; a token scoped to read-only cannot reach a write route.
+- **Status:** closed by `security/p1-9-api-auth-and-scopes` **for
+  authentication**. Per-scope authorization is *not* done and is split out as
+  P1-9-B below, because it depends on a product decision I should not make
+  unilaterally.
+- **What changed:** `src/api.rs` applies its own fail-closed bearer middleware
+  (`ApiAuth`, `SOULSYSTEM_API_TOKEN`) to every route except `/health`. That
+  listener exposed `/api/exec` — shell execution via `BoundSystem` — and
+  `/api/pty/*` — interactive terminals — with **no authentication of any kind**,
+  mitigated only by its `127.0.0.1:9023` bind. Loopback is not a control here:
+  it does not stop another user on the host, nor a request driven from a page
+  the operator's browser loaded.
+- **`/metrics` is inside the authenticated set.** Request counts and error
+  rates describe what the host is doing, so it is a disclosure route and gets
+  the same treatment `/v1/status` got on the gateway. A scraper now needs the
+  token.
+- **Its own variable, not the gateway's.** These are different listeners with
+  different audiences; sharing one value would mean rotating one forces
+  rotating the other.
+- **Behaviour change worth flagging.** `prod_guard::assemble_posture` used to
+  hardcode this listener's posture to `false`. That made the
+  unauthenticated-listener violation *unconditional*, so **production startup
+  could never succeed** regardless of configuration. The posture is now derived
+  from the real `ApiAuth`, so a correctly configured production deployment can
+  actually start — and an unconfigured one still aborts.
+  (`api_posture_is_derived_from_its_real_configuration`,
+  `production_rejects_an_unauthenticated_api_listener`.)
+- **Acceptance evidence:** 12 tests on the listener plus 2 on the guard.
+  Verified negatively: removing the `route_layer` makes 5 of them fail.
+
+### P1-9-B Per-scope authorization — blocked on a product decision
+
+- **Findings / invariants:** CRIT-007 (residual), INV-NET-1 (`PARTIAL`)
+- **Surface:** `soul_gateway::GatewayAuth` and `api::ApiAuth`. Both are
+  all-or-nothing: any authenticated caller has full operator power, including
+  shell execution.
+- **Why this is not just more engineering.** The mechanism is easy — a scope
+  set per credential, a required scope per route. The blocking question is what
+  an **existing unscoped token** should be granted:
+  - Grant it everything, and scopes are opt-in: no deployment breaks, but no
+    deployment is safer until someone reconfigures. The register would have to
+    keep INV-NET-1 at `PARTIAL` indefinitely.
+  - Grant it read-only, and every existing deployment's write and exec calls
+    start returning 403 on upgrade — a silent, potentially production-breaking
+    change delivered by a security patch.
+  - Refuse to start on an unscoped token, which is the honest fail-closed
+    option and also the most disruptive.
+
+  Each is defensible and the choice is about how operators' running systems
+  behave, not about code quality, so it belongs to a maintainer rather than to
+  this campaign. Recorded here rather than decided.
+- **Recommended scope once decided:** one `Scope` enum (read / write / exec /
+  admin) shared by both listeners, a scope requirement declared per route, and
+  the credential syntax extended to carry a scope list. Both listeners must use
+  the same model or the coherence problem just moves.
+- **Acceptance tests:** a token scoped read-only cannot reach `/api/exec` or
+  `POST /v1/goal`; a token scoped write cannot reach an exec route; the scope
+  requirement is declared per route rather than checked ad hoc inside handlers,
+  so a new route cannot default to unprotected.
 
 ### P1-8 Widen the process-execution guard beyond the binary crate
 

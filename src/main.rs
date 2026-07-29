@@ -286,12 +286,15 @@ async fn main() -> Result<()> {
         },
     };
 
+    let api_auth = soulsystem::api::ApiAuth::from_env();
+
     prod_guard::enforce_startup_security(
         &cli.gateway_addr,
         &settings,
         &gateway_auth,
         gateway_tls.is_some(),
         &ws_bridge_config,
+        &api_auth,
     )?;
 
     // ── Bus central (file d'attente 256 messages) ──────────────────────────
@@ -664,6 +667,7 @@ async fn main() -> Result<()> {
         memory: Some(memory_hub.clone()),
         metrics: metrics_registry,
         bridge_store,
+        auth: api_auth.clone(),
     });
     let api_router = soulsystem::api::router(api_state);
     tokio::spawn(async move {

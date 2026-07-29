@@ -121,6 +121,7 @@ fn assemble_posture(
     gateway_authenticated: bool,
     gateway_tls_enabled: bool,
     ws_bridge: &soulsystem::ws_bridge::WsBridgeConfig,
+    api_authenticated: bool,
 ) -> SecurityPosture {
     let tokens = gateway_tokens();
     let auth_material_present =
@@ -133,12 +134,12 @@ fn assemble_posture(
         }
     }
 
-    // The gateway's operator routes are protected by the GatewayAuth bearer
-    // middleware. `api` does not use that middleware and must remain reported as
-    // unauthenticated. `ws_bridge` reports its *real* posture, derived from the
-    // configuration it will actually serve with, rather than a hardcoded value:
-    // it authenticates exactly when a usable shared secret is configured
-    // (CRIT-007 / INV-NET-1).
+    // Every listener reports its *real* posture, derived from the configuration
+    // it will actually serve with, rather than a hardcoded value. The gateway's
+    // operator routes are protected by the GatewayAuth bearer middleware; `api`
+    // now has its own bearer middleware and reports whether a usable
+    // SOULSYSTEM_API_TOKEN is configured; `ws_bridge` authenticates exactly when
+    // a usable shared secret is configured (CRIT-007 / INV-NET-1).
     let listeners = vec![
         ListenerPosture::new(
             "gateway",
@@ -146,7 +147,7 @@ fn assemble_posture(
             gateway_tls_enabled,
             gateway_authenticated,
         ),
-        ListenerPosture::new("api", "127.0.0.1:9023", false, false),
+        ListenerPosture::new("api", "127.0.0.1:9023", false, api_authenticated),
         ListenerPosture::new(
             "ws_bridge",
             &ws_bridge.listen,
@@ -196,6 +197,7 @@ pub fn enforce_startup_security(
     gateway_auth: &GatewayAuth,
     gateway_tls_enabled: bool,
     ws_bridge: &soulsystem::ws_bridge::WsBridgeConfig,
+    api_auth: &soulsystem::api::ApiAuth,
 ) -> anyhow::Result<GuardReport> {
     let mode = resolve_mode()?;
     let posture = assemble_posture(
@@ -204,6 +206,7 @@ pub fn enforce_startup_security(
         gateway_auth.is_configured(),
         gateway_tls_enabled,
         ws_bridge,
+        api_auth.is_configured(),
     );
 
     match evaluate(mode, &posture) {
@@ -264,6 +267,7 @@ mod tests {
             auth.is_configured(),
             false,
             &soulsystem::ws_bridge::WsBridgeConfig::default(),
+            false,
         );
 
         assert!(listener(&posture, "gateway").authenticated);
@@ -282,6 +286,7 @@ mod tests {
             auth.is_configured(),
             false,
             &soulsystem::ws_bridge::WsBridgeConfig::default(),
+            false,
         );
 
         assert!(!listener(&posture, "gateway").authenticated);
@@ -306,6 +311,7 @@ mod tests {
             auth.is_configured(),
             false,
             &configured,
+            false,
         );
         assert!(
             listener(&posture, "ws_bridge").authenticated,
@@ -326,10 +332,72 @@ mod tests {
             auth.is_configured(),
             false,
             &opted_in,
+            false,
         );
         assert!(
             !listener(&posture, "ws_bridge").authenticated,
             "opting in to unauthenticated access is not authentication"
+        );
+    }
+
+    /// The guard must read the api listener's real configuration too.
+    ///
+    /// Before P1-9 this was hardcoded to `false` because the listener genuinely
+    /// had no authentication. Now it has its own bearer middleware, so a
+    /// hardcoded value would either under-report a secured deployment or —
+    /// worse, if flipped to `true` — let production start on an open listener.
+    #[test]
+    fn api_posture_is_derived_from_its_real_configuration() {
+        let settings = Settings::default();
+        let auth = GatewayAuth::configured("a-real-operator-token");
+        let bridge = soulsystem::ws_bridge::WsBridgeConfig::default();
+
+        let unconfigured = assemble_posture(
+            "127.0.0.1:7878",
+            &settings,
+            auth.is_configured(),
+            false,
+            &bridge,
+            soulsystem::api::ApiAuth::default().is_configured(),
+        );
+        assert!(
+            !listener(&unconfigured, "api").authenticated,
+            "no token configured must not be reported as authenticated"
+        );
+
+        let configured = assemble_posture(
+            "127.0.0.1:7878",
+            &settings,
+            auth.is_configured(),
+            false,
+            &bridge,
+            soulsystem::api::ApiAuth::new(Some("a-real-api-token".into())).is_configured(),
+        );
+        assert!(
+            listener(&configured, "api").authenticated,
+            "a configured token must be reported as authenticated"
+        );
+    }
+
+    /// Production must refuse to start while the api listener is open.
+    #[test]
+    fn production_rejects_an_unauthenticated_api_listener() {
+        let settings = Settings::default();
+        let posture = assemble_posture(
+            "127.0.0.1:7878",
+            &settings,
+            GatewayAuth::configured("a-real-operator-token").is_configured(),
+            false,
+            &soulsystem::ws_bridge::WsBridgeConfig {
+                shared_secret: Some("a-real-bridge-secret".into()),
+                ..Default::default()
+            },
+            false,
+        );
+        let result = evaluate(RuntimeMode::Production, &posture);
+        assert!(
+            result.is_err(),
+            "an unauthenticated api listener must abort production startup"
         );
     }
 
@@ -345,6 +413,7 @@ mod tests {
             auth.is_configured(),
             true,
             &soulsystem::ws_bridge::WsBridgeConfig::default(),
+            false,
         );
 
         let rejected = evaluate(RuntimeMode::Production, &posture)
