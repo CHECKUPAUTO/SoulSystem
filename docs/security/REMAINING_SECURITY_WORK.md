@@ -17,15 +17,19 @@ The verdict follows from the register, not from campaign progress: 2 of 6
 critical findings and 2 of 10 high findings remain `PARTIALLY_FIXED`, and one
 high finding is `CONFIRMED_CURRENT`. **Both P0 items are closed, and P1-1
 through P1-4 plus P1-9's authentication half are closed**, but the verdict does not move to
-`LIMITED_PRODUCTION` on that alone: the P1 set below still contains
-all-or-nothing authorization on both bearer-authenticated listeners, an
+`LIMITED_PRODUCTION` on that alone: the P1 set below still contains an
 unbounded sandbox process count, no filesystem or PID isolation for sandboxed
-commands, unbounded connection counts and no per-client rate limiting.
+commands, unbounded connection counts and no per-client rate limiting — and
+per-scope authorization, while now implemented, is **opt-in**, so an
+unconfigured deployment is still all-or-nothing.
 
 **Every production listener now authenticates and fails closed** (`gateway`,
 `ws_bridge`, `api`), which is the whole of INV-NET-1's authentication half.
-What is left there is *authorization*: one compromised token still yields full
-operator power, including shell execution, on either listener.
+Authorization is now *expressible* — one shared scope model, enforced per route
+on both listeners (P1-9-B) — but it is **opt-in** by recorded product decision,
+so a deployment that has not narrowed its tokens still hands full operator
+power, including shell execution, to any authenticated caller. INV-NET-1 stays
+`PARTIAL` for that reason: the mechanism existing is not the property holding.
 
 `LIMITED_PRODUCTION` is defensible for a **trusted, loopback-only, single-tenant**
 deployment where: the process bus cannot be reached by untrusted input, the
@@ -374,35 +378,46 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
 - **Acceptance evidence:** 12 tests on the listener plus 2 on the guard.
   Verified negatively: removing the `route_layer` makes 5 of them fail.
 
-### P1-9-B Per-scope authorization — blocked on a product decision
+### ~~P1-9-B Per-scope authorization~~ — CLOSED (mechanism; default is opt-in)
 
-- **Findings / invariants:** CRIT-007 (residual), INV-NET-1 (`PARTIAL`)
-- **Surface:** `soul_gateway::GatewayAuth` and `api::ApiAuth`. Both are
-  all-or-nothing: any authenticated caller has full operator power, including
-  shell execution.
-- **Why this is not just more engineering.** The mechanism is easy — a scope
-  set per credential, a required scope per route. The blocking question is what
-  an **existing unscoped token** should be granted:
-  - Grant it everything, and scopes are opt-in: no deployment breaks, but no
-    deployment is safer until someone reconfigures. The register would have to
-    keep INV-NET-1 at `PARTIAL` indefinitely.
-  - Grant it read-only, and every existing deployment's write and exec calls
-    start returning 403 on upgrade — a silent, potentially production-breaking
-    change delivered by a security patch.
-  - Refuse to start on an unscoped token, which is the honest fail-closed
-    option and also the most disruptive.
-
-  Each is defensible and the choice is about how operators' running systems
-  behave, not about code quality, so it belongs to a maintainer rather than to
-  this campaign. Recorded here rather than decided.
-- **Recommended scope once decided:** one `Scope` enum (read / write / exec /
-  admin) shared by both listeners, a scope requirement declared per route, and
-  the credential syntax extended to carry a scope list. Both listeners must use
-  the same model or the coherence problem just moves.
-- **Acceptance tests:** a token scoped read-only cannot reach `/api/exec` or
-  `POST /v1/goal`; a token scoped write cannot reach an exec route; the scope
-  requirement is declared per route rather than checked ad hoc inside handlers,
-  so a new route cannot default to unprotected.
+- **Findings / invariants:** CRIT-007 (residual), INV-NET-1 (still `PARTIAL`)
+- **Status:** closed by `security/p1-9b-per-scope-authorization`.
+- **Product decision, recorded:** the maintainer chose **"grant everything to an
+  unscoped credential"** — scopes are **opt-in**. Upgrading cannot start
+  returning 403 to automation that worked yesterday. The honest consequence is
+  stated below rather than buried: this makes least privilege *expressible*, not
+  *default*.
+- **One model, both listeners.** `soul_gateway::scope` defines
+  `Scope::{Read,Write,Exec,Admin}` and `ScopeSet`; the binary's `src/api.rs`
+  consumes the same types. Two enums would have moved the coherence problem
+  rather than solved it.
+- **Scopes do not imply one another** apart from `Admin`. Implication is easy to
+  get subtly wrong and hard to audit, so a credential that should read *and*
+  write says so. `Exec` is separated from `Write` specifically because it is the
+  scope that turns a leaked token into host compromise.
+- **Declared, not checked ad hoc.** The requirement is a `route_layer` on a
+  group of routes, so it lives next to the route. Each listener additionally has
+  a guard test that **reads its own source**, extracts every declared route, and
+  fails if one sits outside every scoped group. That guard caught a real gap
+  (`/v1/stream`) on its first run rather than after review.
+- **403, not 401,** for insufficient scope — 401 would invite a retry with
+  credentials that fail identically. Authentication still runs first, so an
+  anonymous caller cannot learn which scope a route needs.
+- **Configuration:** `SOULSYSTEM_GATEWAY_TOKENS` gains
+  `principal:scope1+scope2=token`; the api listener gains
+  `SOULSYSTEM_API_SCOPES`. An unrecognised scope name is dropped and logged
+  rather than granted — a typo like `exce` must not become `exec` — and a
+  trailing colon (`alice:`) grants nothing rather than silently restoring
+  everything.
+- **Why INV-NET-1 stays `PARTIAL`.** The mechanism existing is not the property
+  holding. A deployment that does not configure scopes is exactly as exposed as
+  it was before, and one compromised unscoped token still yields full operator
+  power. Only an operator can move this, and this repository cannot prove they
+  have.
+- **Optional follow-up, not scheduled:** have the production startup guard
+  report — or refuse — a credential holding `Admin`, converting the opt-in
+  default into an explicit per-deployment acknowledgement. That is another
+  product decision, so it is noted rather than assumed.
 
 ### P1-8 Widen the process-execution guard beyond the binary crate
 

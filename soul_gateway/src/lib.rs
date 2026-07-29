@@ -18,6 +18,7 @@
 
 pub mod limits;
 pub mod providers;
+pub mod scope;
 pub mod webhook_auth;
 
 use async_trait::async_trait;
@@ -172,15 +173,24 @@ pub struct GatewayAuth {
 struct GatewayCredential {
     principal: Arc<str>,
     token: Arc<str>,
+    scopes: scope::ScopeSet,
 }
 
-/// Authenticated gateway identity, available from request extensions.
+/// Authenticated gateway identity plus the scopes it holds.
+///
+/// Carried in request extensions so a handler can report *who* acted, and so
+/// [`require_scope`] can authorize without re-reading the header.
 #[derive(Clone, Debug)]
-pub struct GatewayPrincipal(pub Arc<str>);
+pub struct GatewayPrincipal(pub Arc<str>, pub scope::ScopeSet);
 
 impl GatewayPrincipal {
     pub fn name(&self) -> &str {
         &self.0
+    }
+
+    /// The scopes this principal holds.
+    pub fn scopes(&self) -> &scope::ScopeSet {
+        &self.1
     }
 }
 
@@ -197,8 +207,14 @@ impl GatewayAuth {
     /// Read gateway credentials from the environment.
     ///
     /// `SOULSYSTEM_GATEWAY_TOKENS` accepts a comma-separated list of
-    /// `principal=token` entries. `SOULSYSTEM_GATEWAY_TOKEN` remains supported
-    /// as the single-user, backwards-compatible form.
+    /// `principal=token` or `principal:scope1+scope2=token` entries.
+    /// `SOULSYSTEM_GATEWAY_TOKEN` remains supported as the single-user,
+    /// backwards-compatible form.
+    ///
+    /// An entry with no scope list is granted every scope — scopes are
+    /// **opt-in**, so upgrading does not start returning 403 to automation that
+    /// worked yesterday. See [`scope`] for why that default was chosen and what
+    /// it does not buy.
     pub fn from_env() -> Self {
         let mut credentials = Vec::new();
         if let Ok(entries) = std::env::var("SOULSYSTEM_GATEWAY_TOKENS") {
@@ -207,9 +223,19 @@ impl GatewayAuth {
                     let principal = principal.trim();
                     let token = token.trim();
                     if !principal.is_empty() && !token.is_empty() {
+                        let (name, scopes, unknown) = scope::split_principal_and_scopes(principal);
+                        if !unknown.is_empty() {
+                            tracing::warn!(
+                                principal = %name,
+                                unknown = %unknown.join(","),
+                                "ignoring unrecognised scope name(s); the \
+                                 credential holds only the scopes that parsed"
+                            );
+                        }
                         credentials.push(GatewayCredential {
-                            principal: Arc::from(principal),
+                            principal: Arc::from(name.as_str()),
                             token: Arc::from(token),
+                            scopes,
                         });
                     }
                 }
@@ -220,6 +246,7 @@ impl GatewayAuth {
                 credentials.push(GatewayCredential {
                     principal: Arc::from("legacy"),
                     token: Arc::from(token),
+                    scopes: scope::ScopeSet::all(),
                 });
             }
         }
@@ -234,6 +261,24 @@ impl GatewayAuth {
             credentials: vec![GatewayCredential {
                 principal: Arc::from("operator"),
                 token: token.into(),
+                scopes: scope::ScopeSet::all(),
+            }]
+            .into(),
+        }
+    }
+
+    /// Build an authenticator for one principal with an explicit scope set
+    /// (tests, embedders that manage their own credential store).
+    pub fn configured_scoped(
+        principal: impl Into<Arc<str>>,
+        token: impl Into<Arc<str>>,
+        scopes: scope::ScopeSet,
+    ) -> Self {
+        Self {
+            credentials: vec![GatewayCredential {
+                principal: principal.into(),
+                token: token.into(),
+                scopes,
             }]
             .into(),
         }
@@ -252,6 +297,7 @@ impl GatewayAuth {
                 .map(|(principal, token)| GatewayCredential {
                     principal: principal.into(),
                     token: token.into(),
+                    scopes: scope::ScopeSet::all(),
                 })
                 .collect::<Vec<_>>()
                 .into(),
@@ -287,7 +333,10 @@ impl GatewayAuth {
         let mut matched = None;
         for credential in self.credentials.iter() {
             if constant_time_eq(credential.token.as_bytes(), given.as_bytes()) {
-                matched = Some(GatewayPrincipal(credential.principal.clone()));
+                matched = Some(GatewayPrincipal(
+                    credential.principal.clone(),
+                    credential.scopes.clone(),
+                ));
             }
         }
         matched
@@ -329,6 +378,60 @@ async fn require_auth(
             }),
         ))
     }
+}
+
+/// Reject an authenticated request whose principal lacks `required`.
+///
+/// Applied as a `route_layer` on a group of routes rather than checked inside
+/// each handler, so the requirement is *declared* alongside the route. A new
+/// route added to a scoped group inherits its scope; a new route added outside
+/// every group has no scope requirement and is caught by
+/// `every_operator_route_declares_a_scope`, which enumerates the router's
+/// routes rather than trusting anyone to remember.
+///
+/// Runs strictly after [`require_auth`], which is what puts the
+/// [`GatewayPrincipal`] in the extensions. A missing principal therefore means
+/// the layers were composed wrong, not that the caller is anonymous — it is
+/// treated as a 500 rather than a 403 so the bug is visible instead of looking
+/// like a policy decision.
+async fn require_scope(
+    required: scope::Scope,
+    req: Request,
+    next: Next,
+) -> Result<axum::response::Response, (StatusCode, Json<ErrorResponse>)> {
+    let Some(principal) = req.extensions().get::<GatewayPrincipal>().cloned() else {
+        tracing::error!(
+            required = %required,
+            "scope layer ran without an authenticated principal — the \
+             authentication layer must be applied outside this one"
+        );
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "authorization misconfigured".into(),
+            }),
+        ));
+    };
+
+    if principal.scopes().allows(required) {
+        return Ok(next.run(req).await);
+    }
+
+    // 403, not 401: the caller authenticated fine, they just cannot do this.
+    // Returning 401 would invite a client to retry with fresh credentials that
+    // would fail identically.
+    tracing::warn!(
+        principal = principal.name(),
+        held = %principal.scopes(),
+        required = %required,
+        "rejected: principal lacks the required scope"
+    );
+    Err((
+        StatusCode::FORBIDDEN,
+        Json(ErrorResponse {
+            error: format!("this credential lacks the '{required}' scope"),
+        }),
+    ))
 }
 
 /// État partagé entre les handlers.
@@ -849,21 +952,43 @@ pub fn router(state: GatewayState) -> Router {
 /// environment.
 pub fn router_with_cors(state: GatewayState, cors: limits::CorsPolicy) -> Router {
     let limits = state.limits;
-    let operator_routes = Router::new()
-        .route("/v1/ask", post(handle_ask))
+    // Grouped by the scope each route requires, so the requirement is declared
+    // next to the route rather than checked ad hoc inside a handler.
+    let read_routes = Router::new()
+        .route("/v1/status", get(handle_status))
+        .route("/v1/goals", get(handle_list_goals))
+        .route("/v1/events", get(handle_recent_events))
+        .route("/v1/stream", get(handle_ws))
+        .route("/v1/subagents", get(handle_list_subagents))
+        .route_layer(middleware::from_fn(move |req, next| {
+            require_scope(scope::Scope::Read, req, next)
+        }));
+
+    let write_routes = Router::new()
         .route("/v1/goal", post(handle_create_goal))
         .route("/v1/plan/:goal_id", post(handle_plan))
+        .route_layer(middleware::from_fn(move |req, next| {
+            require_scope(scope::Scope::Write, req, next)
+        }));
+
+    // `/v1/ask` is Exec, not Write: it spends provider budget and can drive
+    // tool use, so it is closer to "make the host do something" than to
+    // "record an intention".
+    let exec_routes = Router::new()
+        .route("/v1/ask", post(handle_ask))
         .route("/v1/execute/:goal_id", post(handle_execute_plan))
         .route("/v1/run", post(handle_shell))
         .route("/v1/cycle", post(handle_cycle))
-        .route("/v1/status", get(handle_status))
-        .route("/v1/goals", get(handle_list_goals))
-        .route(
-            "/v1/subagents",
-            get(handle_list_subagents).post(handle_spawn_subagent),
-        )
-        .route("/v1/events", get(handle_recent_events))
-        .route("/v1/stream", get(handle_ws))
+        .route("/v1/subagents", post(handle_spawn_subagent))
+        .route_layer(middleware::from_fn(move |req, next| {
+            require_scope(scope::Scope::Exec, req, next)
+        }));
+
+    // Authentication wraps all three groups, so `require_scope` always finds a
+    // principal in the extensions.
+    let operator_routes = read_routes
+        .merge(write_routes)
+        .merge(exec_routes)
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     let webhook_routes = Router::new()
@@ -1673,5 +1798,207 @@ mod tests {
             limits::DEFAULT_MAX_WS_MESSAGE_BYTES
         );
         assert!(st.limits.max_ws_message_bytes > 0);
+    }
+
+    // ── Router / CRIT-007 residual: per-scope authorization ──
+
+    fn scoped_state(token: &str, scopes: scope::ScopeSet) -> GatewayState {
+        let entity = Arc::new(MockEntity {
+            ask_calls: AtomicUsize::new(0),
+            goal_calls: AtomicUsize::new(0),
+            plan_calls: AtomicUsize::new(0),
+        });
+        GatewayState::with_auth(
+            entity,
+            GatewayAuth::configured_scoped("scoped", token, scopes),
+        )
+    }
+
+    /// Every `/v1/*` route, with the scope it is expected to require.
+    ///
+    /// Kept as data so `every_operator_route_declares_a_scope` can compare it
+    /// against the routes actually declared in the source.
+    const SCOPED_ROUTES: &[(&str, &str, scope::Scope)] = &[
+        ("GET", "/v1/status", scope::Scope::Read),
+        ("GET", "/v1/goals", scope::Scope::Read),
+        ("GET", "/v1/events", scope::Scope::Read),
+        ("GET", "/v1/subagents", scope::Scope::Read),
+        // A plain GET without upgrade headers: the scope layer runs before the
+        // WebSocket upgrade, so an under-scoped principal is refused with 403
+        // rather than getting as far as a handshake.
+        ("GET", "/v1/stream", scope::Scope::Read),
+        ("POST", "/v1/goal", scope::Scope::Write),
+        ("POST", "/v1/plan/g1", scope::Scope::Write),
+        ("POST", "/v1/ask", scope::Scope::Exec),
+        ("POST", "/v1/execute/g1", scope::Scope::Exec),
+        ("POST", "/v1/run", scope::Scope::Exec),
+        ("POST", "/v1/cycle", scope::Scope::Exec),
+        ("POST", "/v1/subagents", scope::Scope::Exec),
+    ];
+
+    fn body_for(uri: &str) -> &'static str {
+        if uri.starts_with("/v1/goal") || uri.starts_with("/v1/subagents") {
+            r#"{"description":"x"}"#
+        } else if uri.starts_with("/v1/ask") {
+            r#"{"prompt":"x"}"#
+        } else if uri.starts_with("/v1/run") {
+            r#"{"command":"ls"}"#
+        } else {
+            "{}"
+        }
+    }
+
+    #[tokio::test]
+    async fn a_principal_holding_only_read_cannot_write_or_exec() {
+        let state = scoped_state("tok", scope::ScopeSet::from_scopes([scope::Scope::Read]));
+        let app = router_with_cors(state, limits::CorsPolicy::Disabled);
+
+        assert_eq!(
+            send(app.clone(), "GET", "/v1/status", Some("tok"), "").await,
+            StatusCode::OK
+        );
+        for (method, uri, required) in SCOPED_ROUTES {
+            if *required == scope::Scope::Read {
+                continue;
+            }
+            assert_eq!(
+                send(app.clone(), method, uri, Some("tok"), body_for(uri)).await,
+                StatusCode::FORBIDDEN,
+                "{method} {uri} requires {required} and must be refused"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_principal_holding_only_write_cannot_exec_or_read() {
+        let state = scoped_state("tok", scope::ScopeSet::from_scopes([scope::Scope::Write]));
+        let app = router_with_cors(state, limits::CorsPolicy::Disabled);
+
+        assert_eq!(
+            send(
+                app.clone(),
+                "POST",
+                "/v1/goal",
+                Some("tok"),
+                r#"{"description":"x"}"#
+            )
+            .await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            send(app.clone(), "POST", "/v1/run", Some("tok"), r#"{"command":"ls"}"#).await,
+            StatusCode::FORBIDDEN,
+            "shell execution is the scope that turns a leaked token into host              compromise; write must not imply it"
+        );
+        assert_eq!(
+            send(app, "GET", "/v1/status", Some("tok"), "").await,
+            StatusCode::FORBIDDEN,
+            "scopes do not imply one another in either direction"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_principal_holding_exec_reaches_the_execution_routes() {
+        let state = scoped_state("tok", scope::ScopeSet::from_scopes([scope::Scope::Exec]));
+        let app = router_with_cors(state, limits::CorsPolicy::Disabled);
+
+        for (method, uri, required) in SCOPED_ROUTES {
+            if *required != scope::Scope::Exec {
+                continue;
+            }
+            assert_ne!(
+                send(app.clone(), method, uri, Some("tok"), body_for(uri)).await,
+                StatusCode::FORBIDDEN,
+                "{method} {uri} requires {required}, which this principal holds"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unscoped_legacy_credential_still_reaches_everything() {
+        // The recorded product decision: scopes are opt-in, so an existing
+        // deployment's token keeps working exactly as it did.
+        let app = router_with_cors(
+            mock_state(GatewayAuth::configured("tok")),
+            limits::CorsPolicy::Disabled,
+        );
+        for (method, uri, _) in SCOPED_ROUTES {
+            assert_ne!(
+                send(app.clone(), method, uri, Some("tok"), body_for(uri)).await,
+                StatusCode::FORBIDDEN,
+                "{method} {uri} must stay reachable for an unscoped credential"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn insufficient_scope_is_403_not_401() {
+        // 401 would invite the client to retry with fresh credentials that
+        // would fail identically. The caller authenticated fine.
+        let state = scoped_state("tok", scope::ScopeSet::from_scopes([scope::Scope::Read]));
+        let app = router_with_cors(state, limits::CorsPolicy::Disabled);
+        assert_eq!(
+            send(app, "POST", "/v1/run", Some("tok"), r#"{"command":"ls"}"#).await,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[tokio::test]
+    async fn a_credential_holding_no_scopes_reaches_nothing() {
+        let state = scoped_state("tok", scope::ScopeSet::none());
+        let app = router_with_cors(state, limits::CorsPolicy::Disabled);
+        for (method, uri, _) in SCOPED_ROUTES {
+            assert_eq!(
+                send(app.clone(), method, uri, Some("tok"), body_for(uri)).await,
+                StatusCode::FORBIDDEN,
+                "{method} {uri}"
+            );
+        }
+        assert_eq!(
+            send(app, "GET", "/health", None, "").await,
+            StatusCode::OK,
+            "the unauthenticated liveness probe is unaffected"
+        );
+    }
+
+    /// A route added to `router_with_cors` outside every scoped group would
+    /// silently have no authorization requirement. This reads the source rather
+    /// than trusting anyone to remember to update `SCOPED_ROUTES`.
+    #[test]
+    fn every_operator_route_declares_a_scope() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("own source is readable");
+
+        let declared: std::collections::BTreeSet<String> = source
+            .match_indices(".route(\"/v1/")
+            .map(|(index, _)| {
+                let rest = &source[index + ".route(\"".len()..];
+                let end = rest.find('"').expect("route literal is terminated");
+                rest[..end].to_owned()
+            })
+            .collect();
+
+        // SCOPED_ROUTES carries concrete paths (`/v1/plan/g1`); the source
+        // carries patterns (`/v1/plan/:goal_id`). Compare on the first segment
+        // pair, which is what identifies the route.
+        let prefix =
+            |path: &str| -> String { path.split('/').take(3).collect::<Vec<_>>().join("/") };
+        let covered: std::collections::BTreeSet<String> = SCOPED_ROUTES
+            .iter()
+            .map(|(_, uri, _)| prefix(uri))
+            .collect();
+
+        for route in &declared {
+            assert!(
+                covered.contains(&prefix(route)),
+                "route {route} is declared in router_with_cors but is not in \
+                 SCOPED_ROUTES, so nothing proves it requires a scope"
+            );
+        }
+        assert!(
+            !declared.is_empty(),
+            "the scan found no routes at all — the extraction is broken, not \
+             the router"
+        );
     }
 }

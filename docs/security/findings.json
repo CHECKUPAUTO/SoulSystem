@@ -339,7 +339,8 @@
         "soul_gateway/src/lib.rs",
         "src/ws_bridge.rs",
         "src/api.rs",
-        "src/prod_guard.rs"
+        "src/prod_guard.rs",
+        "soul_gateway/src/scope.rs"
       ],
       "current_symbols": [
         "soul_gateway::require_auth",
@@ -348,13 +349,18 @@
         "ws_bridge::WsBridgeConfig::is_authenticated",
         "api::ApiAuth",
         "api::require_auth",
-        "prod_guard::assemble_posture"
+        "prod_guard::assemble_posture",
+        "soul_gateway::scope::Scope",
+        "soul_gateway::scope::ScopeSet",
+        "soul_gateway::require_scope",
+        "api::require_scope",
+        "GatewayPrincipal::scopes"
       ],
       "original_reachable_path": [
         "axum router -> state-changing /v1 handlers with no authentication middleware"
       ],
-      "current_state": "soul_gateway::router applies require_auth as a route_layer over every /v1/* operator route, comparing the bearer token with constant_time_eq and failing closed when unconfigured. /health is intentionally unauthenticated. The ws_bridge half is now also fail-closed: WsBridgeConfig gained UnauthenticatedAccess (default Deny), so with no usable shared secret handle_connection refuses the connection before the WebSocket handshake instead of initialising `authenticated = true` as it previously did; a blank or whitespace-only secret is treated as unset by effective_secret() so a misconfigured empty value cannot become a credential; and the token comparison now uses a constant-time equality rather than `token == secret`, closing a timing side channel that the gateway had already closed for its bearer token. src/prod_guard.rs no longer hardcodes the bridge's posture: assemble_posture receives the real WsBridgeConfig and reports authenticated exactly when a usable secret is configured, so production startup aborts with an UnauthenticatedListener violation while the bridge is unauthenticated. Serving without authentication now requires the operator to set SOULSYSTEM_WS_BRIDGE_ALLOW_UNAUTHENTICATED, and that opt-in is deliberately NOT reported as authentication. P1-9 closes the last unauthenticated production listener: src/api.rs now applies its own fail-closed bearer middleware (api::ApiAuth, SOULSYSTEM_API_TOKEN) to every route except /health. That listener exposed /api/exec (shell execution via BoundSystem) and /api/pty/* (interactive terminals) with no authentication of any kind, mitigated only by its 127.0.0.1:9023 bind - which does not protect against another user on the host or a browser-driven request from a page the operator loaded. /metrics is inside the authenticated set because it is a disclosure route. A blank token is treated as unset; the comparison is constant-time; Debug never renders the token. prod_guard::assemble_posture no longer hardcodes the api listener's posture to false - it derives it from the real ApiAuth, which also means production startup can now actually be satisfied on that listener (before this change the hardcoded false made an unauthenticated-listener violation unconditional, so production could never start regardless of configuration).",
-      "remaining_exposure": "Authentication is now present on every production listener, but authorization is not: both the gateway bearer token and the new api token are all-or-nothing, so any authenticated caller has full operator power including shell execution. Per-scope authorization is unimplemented and is deliberately deferred rather than guessed at - see roadmap P1-9-B, which records the product decision it depends on (what an existing unscoped token should be granted).",
+      "current_state": "soul_gateway::router applies require_auth as a route_layer over every /v1/* operator route, comparing the bearer token with constant_time_eq and failing closed when unconfigured. /health is intentionally unauthenticated. The ws_bridge half is now also fail-closed: WsBridgeConfig gained UnauthenticatedAccess (default Deny), so with no usable shared secret handle_connection refuses the connection before the WebSocket handshake instead of initialising `authenticated = true` as it previously did; a blank or whitespace-only secret is treated as unset by effective_secret() so a misconfigured empty value cannot become a credential; and the token comparison now uses a constant-time equality rather than `token == secret`, closing a timing side channel that the gateway had already closed for its bearer token. src/prod_guard.rs no longer hardcodes the bridge's posture: assemble_posture receives the real WsBridgeConfig and reports authenticated exactly when a usable secret is configured, so production startup aborts with an UnauthenticatedListener violation while the bridge is unauthenticated. Serving without authentication now requires the operator to set SOULSYSTEM_WS_BRIDGE_ALLOW_UNAUTHENTICATED, and that opt-in is deliberately NOT reported as authentication. P1-9 closes the last unauthenticated production listener: src/api.rs now applies its own fail-closed bearer middleware (api::ApiAuth, SOULSYSTEM_API_TOKEN) to every route except /health. That listener exposed /api/exec (shell execution via BoundSystem) and /api/pty/* (interactive terminals) with no authentication of any kind, mitigated only by its 127.0.0.1:9023 bind - which does not protect against another user on the host or a browser-driven request from a page the operator loaded. /metrics is inside the authenticated set because it is a disclosure route. A blank token is treated as unset; the comparison is constant-time; Debug never renders the token. prod_guard::assemble_posture no longer hardcodes the api listener's posture to false - it derives it from the real ApiAuth, which also means production startup can now actually be satisfied on that listener (before this change the hardcoded false made an unauthenticated-listener violation unconditional, so production could never start regardless of configuration). P1-9-B adds per-scope authorization on both listeners, sharing one model (soul_gateway::scope) so the two cannot drift on what a scope means. Scope::{Read,Write,Exec,Admin}; scopes deliberately do NOT imply one another apart from Admin, because implication is easy to get subtly wrong and hard to audit. Exec is separated from Write specifically because it is the scope that turns a leaked token into host compromise. The requirement is declared per route group via a route_layer rather than checked inside handlers, and a source-reading guard test on each listener fails if a route is declared outside every scoped group - it caught a real gap (/v1/stream) on first run. Insufficient scope returns 403, not 401, so a client is not invited to retry with credentials that would fail identically; authentication is still checked first, so an anonymous caller cannot learn which scope a route needs.",
+      "remaining_exposure": "Per the recorded product decision, a credential configured without a scope list is granted every scope, so scopes are OPT-IN. This makes least privilege expressible, not default: a deployment that does not configure scopes is exactly as exposed as before, and one compromised unscoped token still yields full operator power including shell execution. The invariant therefore is not held by the mechanism existing - it is held only once a deployment narrows its tokens, which this repository cannot prove.",
       "required_invariant": "Every state-changing endpoint requires authentication and an authorization scope (INV-NET-1).",
       "fixing_prs": [
         {
@@ -443,10 +449,85 @@
           "crate": "soulsystem",
           "name": "production_rejects_an_unauthenticated_api_listener",
           "command": "cargo test -p soulsystem production_rejects_an_unauthenticated_api_listener"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "a_principal_holding_only_read_cannot_write_or_exec",
+          "command": "cargo test -p soul_gateway a_principal_holding_only_read_cannot_write_or_exec"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "a_principal_holding_only_write_cannot_exec_or_read",
+          "command": "cargo test -p soul_gateway a_principal_holding_only_write_cannot_exec_or_read"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "a_principal_holding_exec_reaches_the_execution_routes",
+          "command": "cargo test -p soul_gateway a_principal_holding_exec_reaches_the_execution_routes"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "an_unscoped_legacy_credential_still_reaches_everything",
+          "command": "cargo test -p soul_gateway an_unscoped_legacy_credential_still_reaches_everything"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "insufficient_scope_is_403_not_401",
+          "command": "cargo test -p soul_gateway insufficient_scope_is_403_not_401"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "a_credential_holding_no_scopes_reaches_nothing",
+          "command": "cargo test -p soul_gateway a_credential_holding_no_scopes_reaches_nothing"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "every_operator_route_declares_a_scope",
+          "command": "cargo test -p soul_gateway every_operator_route_declares_a_scope"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "scopes_do_not_imply_one_another",
+          "command": "cargo test -p soul_gateway scopes_do_not_imply_one_another"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "a_principal_without_a_scope_list_is_granted_everything",
+          "command": "cargo test -p soul_gateway a_principal_without_a_scope_list_is_granted_everything"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "a_trailing_colon_grants_nothing_rather_than_everything",
+          "command": "cargo test -p soul_gateway a_trailing_colon_grants_nothing_rather_than_everything"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "a_read_only_credential_cannot_execute_shell_or_pty",
+          "command": "cargo test -p soulsystem a_read_only_credential_cannot_execute_shell_or_pty"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "a_write_credential_cannot_reach_the_exec_routes",
+          "command": "cargo test -p soulsystem a_write_credential_cannot_reach_the_exec_routes"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "an_unscoped_credential_still_reaches_everything",
+          "command": "cargo test -p soulsystem an_unscoped_credential_still_reaches_everything"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "authentication_is_checked_before_authorization",
+          "command": "cargo test -p soulsystem authentication_is_checked_before_authorization"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "every_authenticated_route_declares_a_scope",
+          "command": "cargo test -p soulsystem every_authenticated_route_declares_a_scope"
         }
       ],
-      "residual_risk": "Every production listener authenticates and fails closed. The residual is authorization granularity, not authentication: one compromised token still yields full operator power on either listener.",
-      "follow_up": "Roadmap P1-9-B: per-scope authorization across both listeners, blocked on a product decision about legacy unscoped tokens."
+      "residual_risk": "Authentication is complete and fails closed on every production listener, and authorization is now expressible with a shared scope model enforced per route. The residual is that the opt-in default leaves an unconfigured deployment all-or-nothing, so the property depends on operator configuration rather than on code.",
+      "follow_up": "Optional hardening once operators have adopted scopes: have the production startup guard report, or refuse, a credential that holds Admin, converting the opt-in default into an explicit per-deployment acknowledgement."
     },
     {
       "id": "HIGH-001",
