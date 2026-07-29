@@ -7,6 +7,7 @@ license = "MIT OR Apache-2.0"
 description = "Web exploration engine for the AVID autonomous system"
 
 [dependencies]
+soulsystem-common = { workspace = true }
 avid-core = { path = "../avid-core" }
 avid-anticlone = { path = "../avid-anticlone" }
 thiserror = "2"

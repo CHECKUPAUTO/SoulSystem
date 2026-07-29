@@ -9,6 +9,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
+use soulsystem_common::secrets::SecretString;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -25,7 +26,7 @@ pub struct LlmPersistConfig {
     /// Legacy in-memory import field. `save_config` migrates this value into
     /// the OS credential manager and it is never serialized to TOML.
     #[serde(default, skip_serializing)]
-    pub api_key: Option<String>,
+    pub api_key: Option<SecretString>,
     pub temperature: f32,
     pub max_tokens: usize,
 }
@@ -86,7 +87,13 @@ pub fn save_config(cfg: &PersistConfig) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("impossible de créer {}", parent.display()))?;
     }
-    if let Some(key) = cfg.llm.api_key.as_deref().filter(|key| !key.is_empty()) {
+    if let Some(key) = cfg
+        .llm
+        .api_key
+        .as_ref()
+        .map(SecretString::expose)
+        .filter(|key| !key.is_empty())
+    {
         let name = soulsystem_common::secrets::llm_secret_name(&cfg.llm.provider)
             .context("nom de secret provider invalide")?;
         soulsystem_common::secrets::SystemSecretStore::set(&name, key)
@@ -241,7 +248,13 @@ impl ConfigApp {
         }
 
         let current = match &field {
-            SettingField::ApiKey => self.cfg.llm.api_key.clone().unwrap_or_default(),
+            SettingField::ApiKey => self
+                .cfg
+                .llm
+                .api_key
+                .as_ref()
+                .map(|k| k.expose().to_string())
+                .unwrap_or_default(),
             SettingField::Temperature => format!("{:.1}", self.cfg.llm.temperature),
             SettingField::MaxTokens => self.cfg.llm.max_tokens.to_string(),
             SettingField::Url => self.cfg.llm.base_url.clone(),
@@ -264,7 +277,7 @@ impl ConfigApp {
                     self.cfg.llm.api_key = if self.edit_buffer.is_empty() {
                         None
                     } else {
-                        Some(self.edit_buffer.clone())
+                        Some(SecretString::new(self.edit_buffer.clone()))
                     }
                 }
                 SettingField::Temperature => {
@@ -938,7 +951,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-fn mask_api_key(key: &Option<String>) -> String {
+fn mask_api_key(key: &Option<SecretString>) -> String {
     match key {
         Some(_) => "configurée dans le gestionnaire système".into(),
         None => "non définie".into(),

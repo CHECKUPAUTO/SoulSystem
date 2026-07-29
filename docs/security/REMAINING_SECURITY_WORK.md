@@ -533,12 +533,32 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   credentials on `Debug`-deriving types. A budget that stops the set growing is
   not the same as the set being empty.
 
-### P1-5-B Migrate the 16 recorded structs
+### ~~P1-5-B Migrate the 16 recorded structs~~ — CLOSED
 
-- **Findings / invariants:** HIGH-001 (residual), INV-SEC-2
-- Migrate each, lowering `NOT_YET_MIGRATED_BUDGET` with it. Once the `Debug`
-  set is empty, consider extending the guard to `Clone`-only structs, and to a
-  check that does not depend on field naming.
+- **Findings / invariants:** INV-SEC-2 (now `HELD` for the `Debug` set)
+- **Status:** closed by `security/p1-5b-migrate-recorded-secret-structs`.
+  `NOT_YET_MIGRATED_BUDGET` is `0`.
+- **Two of the sixteen needed a different type.** `HelloOk::device_token` and
+  `AuthInfo::token` are handshake fields: serialization is their purpose. A
+  redacting `Serialize` would have handed every client `<redacted>` as its
+  token — authentication broken at runtime, nothing failing to compile. They
+  use the new `ProtocolSecret` instead, which redacts `Debug`/`Display` and
+  serializes faithfully.
+- **The name-based blind spot is real and was hit.** `synergie::Telegram::bot`
+  holds a bot token in a field called `bot`; no amount of matching on `token`,
+  `secret` or `api_key` finds it. It was migrated because a call site led there,
+  not because the guard reported it.
+
+### P1-5-C Beyond the `Debug` set
+
+- **Findings / invariants:** INV-SEC-2 (residual)
+- **Current risk:** the guard keys on `#[derive(Debug)]` and on field *names*.
+  `clawd::Settings` and `soul-dashboard::AppState` hold credentials while
+  deriving only `Clone` — a smaller exposure, not an absent one. A credential in
+  a field named `value`, `blob` or `bot` is invisible to it.
+- **Acceptance tests:** the guard reports `Clone`-only credential holders; a
+  check that does not depend on field naming (for example, flagging any
+  `String` field whose value flows into an `Authorization` header).
 
 ### P1-6 Memory provenance and trust metadata — DONE (INV-MEM-4 held; INV-MEM-3 partial)
 

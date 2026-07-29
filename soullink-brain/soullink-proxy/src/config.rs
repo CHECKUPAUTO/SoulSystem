@@ -1,6 +1,7 @@
 //! Proxy configuration — routes, TLS settings, auth.
 
 use serde::{Deserialize, Serialize};
+use soulsystem_common::secrets::SecretString;
 use std::net::SocketAddr;
 
 /// A backend service to proxy to.
@@ -28,7 +29,7 @@ pub struct ProxyConfig {
     /// Path to TLS private key (PEM). If empty, auto-generate.
     pub key_path: Option<String>,
     /// API token for authentication (Bearer token)
-    pub auth_token: Option<String>,
+    pub auth_token: Option<SecretString>,
     /// CORS allowed origins
     pub cors_origins: Vec<String>,
 }

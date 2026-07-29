@@ -157,7 +157,9 @@ where
                         app.cfg.llm.api_key = if app.temp_api_key.is_empty() {
                             None
                         } else {
-                            Some(app.temp_api_key.clone())
+                            Some(soulsystem_common::secrets::SecretString::new(
+                                app.temp_api_key.clone(),
+                            ))
                         };
                         app.saved = true;
                         return Ok(());

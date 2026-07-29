@@ -1886,7 +1886,11 @@ async fn run_setup_wizard() -> Result<()> {
         let key = prompt_password(
             "API key (optional; stored in the operating-system credential manager)",
         )?;
-        cfg.llm.api_key = if key.is_empty() { None } else { Some(key) };
+        cfg.llm.api_key = if key.is_empty() {
+            None
+        } else {
+            Some(soulsystem_common::secrets::SecretString::new(key))
+        };
     } else {
         cfg.llm.api_key = None;
     }
@@ -1898,7 +1902,10 @@ async fn run_setup_wizard() -> Result<()> {
     println!("  Provider   : {}", cfg.llm.provider);
     println!("  Base URL   : {}", cfg.llm.base_url);
     println!("  Model      : {}", cfg.llm.model);
-    println!("  API key    : {}", mask_key(cfg.llm.api_key.as_deref()));
+    println!(
+        "  API key    : {}",
+        mask_key(cfg.llm.api_key.as_ref().map(|k| k.expose()))
+    );
     println!("  Entity     : {}", cfg.entity_name);
     println!("  Gateway    : {}", cfg.gateway_addr);
 

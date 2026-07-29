@@ -64,7 +64,7 @@ impl AnthropicProvider {
     fn with_headers(&self, mut rb: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         rb = rb.header("anthropic-version", ANTHROPIC_VERSION);
         if let Some(key) = self.config.api_key.as_ref() {
-            rb = rb.header("x-api-key", key);
+            rb = rb.header("x-api-key", key.expose());
         }
         rb
     }

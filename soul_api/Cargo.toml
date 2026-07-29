@@ -5,6 +5,7 @@ edition = "2021"
 license.workspace = true
 
 [dependencies]
+soulsystem-common = { workspace = true }
 serde = { workspace = true }
 serde_json = "1"
 tokio = { workspace = true }

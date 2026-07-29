@@ -11,6 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use soulsystem_common::secrets::ProtocolSecret;
 
 /// Negotiated protocol version. Must match the OpenClaw reference exactly.
 pub const PROTOCOL_VERSION: u16 = 3;
@@ -97,7 +98,10 @@ pub struct HelloOk {
     pub typ: String,
     pub protocol: u16,
     pub session_id: String,
-    pub device_token: String,
+    /// Sent to the client, which must present it back — so this is a
+    /// `ProtocolSecret`, not a `SecretString`: redacting the wire form
+    /// would hand every client `"<redacted>"` as its token.
+    pub device_token: ProtocolSecret,
     pub policy: PolicyInfo,
 }
 
@@ -135,8 +139,9 @@ pub enum Role {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthInfo {
+    /// Presented by the client on the wire, so serialization must be faithful.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
+    pub token: Option<ProtocolSecret>,
 }
 
 /// Build an error `res` frame.
@@ -214,7 +219,7 @@ mod tests {
             typ: "hello-ok".into(),
             protocol: PROTOCOL_VERSION,
             session_id: "s1".into(),
-            device_token: "oc_dev_x".into(),
+            device_token: ProtocolSecret::new("oc_dev_x"),
             policy: PolicyInfo::default(),
         };
         let v = serde_json::to_value(&hello).unwrap();
@@ -237,7 +242,7 @@ mod tests {
         let cr: ConnectRequest = serde_json::from_value(wire).unwrap();
         assert_eq!(cr.max_protocol, 3);
         assert_eq!(cr.role, Role::Operator);
-        assert_eq!(cr.auth.token.as_deref(), Some("secret"));
+        assert_eq!(cr.auth.token.as_ref().map(|t| t.expose()), Some("secret"));
     }
 
     #[test]
@@ -247,5 +252,51 @@ mod tests {
             json!("operator")
         );
         assert_eq!(serde_json::to_value(Role::Node).unwrap(), json!("node"));
+    }
+
+    /// The regression a naive `SecretString` migration would have introduced.
+    ///
+    /// `hello-ok` exists to hand the client the device token it must present
+    /// back. A `Serialize` impl that redacts would send the literal string
+    /// `"<redacted>"` as the token — every client would fail to authenticate,
+    /// at runtime, with nothing failing to compile. Hence `ProtocolSecret`.
+    #[test]
+    fn hello_ok_puts_the_real_device_token_on_the_wire() {
+        let hello = HelloOk {
+            typ: "hello-ok".into(),
+            protocol: 1,
+            session_id: "s-1".into(),
+            device_token: ProtocolSecret::new("oc_dev_realvalue"),
+            policy: PolicyInfo {
+                heartbeat_interval_ms: 1000,
+                max_message_size: 1024,
+                idle_timeout_ms: 5000,
+            },
+        };
+        let json = serde_json::to_string(&hello).expect("serializes");
+        assert!(
+            json.contains("oc_dev_realvalue"),
+            "the client must receive its actual token, got {json}"
+        );
+        assert!(!json.contains("redacted"), "got {json}");
+    }
+
+    /// ...while the Debug path, which is the accidental one, still redacts.
+    #[test]
+    fn hello_ok_debug_does_not_leak_the_device_token() {
+        let hello = HelloOk {
+            typ: "hello-ok".into(),
+            protocol: 1,
+            session_id: "s-1".into(),
+            device_token: ProtocolSecret::new("oc_dev_realvalue"),
+            policy: PolicyInfo {
+                heartbeat_interval_ms: 1000,
+                max_message_size: 1024,
+                idle_timeout_ms: 5000,
+            },
+        };
+        let rendered = format!("{hello:?}");
+        assert!(!rendered.contains("oc_dev_realvalue"), "got {rendered}");
+        assert!(rendered.contains("s-1"), "useful fields kept: {rendered}");
     }
 }

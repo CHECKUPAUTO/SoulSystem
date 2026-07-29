@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use soulsystem_common::secrets::SecretString;
 
 /// Entrée CVE provenant de NVD ou OSV
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,7 +76,7 @@ impl CveAlert {
 /// Configuration du moniteur OSINT
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitorConfig {
-    pub nvd_api_key: Option<String>,
+    pub nvd_api_key: Option<SecretString>,
     pub check_interval_minutes: u64,
     pub max_results_per_check: usize,
 }

@@ -19,12 +19,18 @@
     clippy::significant_drop_tightening
 )]
 use reqwest::header::HeaderValue;
+use soulsystem_common::secrets::SecretString;
 
 /// Authentication method for protected pages.
 #[derive(Debug, Clone)]
 pub enum AuthMethod {
-    Basic { username: String, password: String },
-    Bearer { token: String },
+    Basic {
+        username: String,
+        password: SecretString,
+    },
+    Bearer {
+        token: SecretString,
+    },
 }
 
 /// Build an Authorization header value from an auth method.
@@ -32,7 +38,7 @@ impl AuthMethod {
     pub fn to_header_value(&self) -> HeaderValue {
         match self {
             Self::Basic { username, password } => {
-                let creds = base64::encode(format!("{username}:{password}"));
+                let creds = base64::encode(format!("{username}:{}", password.expose()));
                 HeaderValue::from_str(&format!("Basic {creds}")).expect("valid header")
             }
             Self::Bearer { token } => {

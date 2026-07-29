@@ -648,10 +648,26 @@
           "crate": "soulsystem",
           "name": "an_already_migrated_field_is_not_flagged",
           "command": "cargo test -p soulsystem an_already_migrated_field_is_not_flagged"
+        },
+        {
+          "name": "the_unmigrated_set_does_not_grow",
+          "command": "cargo test -p soulsystem --test architecture_secret_types the_unmigrated_set_does_not_grow"
+        },
+        {
+          "name": "hello_ok_puts_the_real_device_token_on_the_wire",
+          "command": "cargo test -p soullink-gateway hello_ok_puts_the_real_device_token_on_the_wire"
+        },
+        {
+          "name": "it_differs_from_secret_string_in_exactly_one_respect",
+          "command": "cargo test -p soulsystem-common it_differs_from_secret_string_in_exactly_one_respect"
+        },
+        {
+          "name": "the_matcher_still_recognises_a_plaintext_credential",
+          "command": "cargo test -p soulsystem --test architecture_secret_types the_matcher_still_recognises_a_plaintext_credential"
         }
       ],
-      "residual_risk": "Only soullink-secrets is converted. Gateway and LLM provider structs still hold tokens/secrets in ordinary String fields, so INV-SEC-1 remains PARTIAL workspace-wide; a full sweep is outstanding.",
-      "follow_up": "P1-5-B: migrate the 16 recorded structs, lowering NOT_YET_MIGRATED_BUDGET with each. Consider extending the guard to Clone-only structs once the Debug set is empty, and to a taint-style check that does not depend on field naming.",
+      "residual_risk": "Zeroization and OS-store lifecycle are in place, and P1-5/P1-5-B completed the type sweep: no credential remains in a plain `String` on a `Debug`-deriving struct in any workspace member, with the guard's budget at 0. Two of the migrated fields needed a distinct type - `HelloOk::device_token` and `AuthInfo::token` are WebSocket handshake fields whose serialization is their purpose, so they use `ProtocolSecret` (redacting Debug/Display, faithful Serialize); a redacting Serialize there would have broken authentication at runtime with no compile error. Residual: the guard keys on `#[derive(Debug)]` and on field names. Structs holding credentials while deriving only `Clone` (`clawd::Settings`, `soul-dashboard::AppState`) are not reported, and a credential in a field named `value` or `bot` is invisible to name matching - `synergie::Telegram::bot` was migrated only because a call site led there, not because the guard found it.",
+      "follow_up": "P1-5-C: extend the guard to Clone-only credential holders and to a check that does not depend on field naming.",
       "remaining_exposure": "16 structs across workspace members still hold credentials in plain String fields on Debug-deriving types, recorded in the guard's NOT_YET_MIGRATED list with a two-way count budget: AVID's four provider/config structs and its scout AuthMethod enum, the brain gateway's ProviderConfig/TokenInfo/HelloOk/AuthInfo, soullink-proxy's ProxyConfig, synergie's two config structs, souls' LlmPersistConfig, soulsystem-multiagent's SpecializedAgent, avid-intel's MonitorConfig and soul_api's TelegramBot. Two further limitations are stated rather than counted as clean: the guard keys on #[derive(Debug)], so a credential-holding struct deriving only Clone (clawd::Settings, soul-dashboard::AppState both do) is not reported - a smaller exposure, not an absent one, since it still leaks via a hand-written Display, via serde, or the moment somebody adds Debug; and the match is name-based, so a credential in a field called `value` or `blob` will not be found by any amount of this."
     },
     {

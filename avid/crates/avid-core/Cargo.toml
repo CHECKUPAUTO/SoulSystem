@@ -11,6 +11,7 @@ keywords = ["llm", "agent", "orchestrator", "queue", "ollama"]
 categories = ["development-tools"]
 
 [dependencies]
+soulsystem-common = { workspace = true }
 avid-anticlone = { path = "../avid-anticlone" }
 avid-sandbox = { path = "../avid-sandbox" }
 

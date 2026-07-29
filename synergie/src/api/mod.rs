@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use soulsystem_common::secrets::SecretString;
 use tracing::{info, warn};
 
 #[derive(Clone)]
@@ -86,7 +87,7 @@ pub async fn serve(cfg: Arc<Config>, agent: Arc<Agent>) -> Result<()> {
 
 // ─── Auth helper ────────────────────────────────────────────────────────
 
-fn check_auth(headers: &HeaderMap, expected: &Option<String>) -> Result<(), StatusCode> {
+fn check_auth(headers: &HeaderMap, expected: &Option<SecretString>) -> Result<(), StatusCode> {
     let Some(token) = expected else {
         return Ok(());
     };
@@ -94,7 +95,7 @@ fn check_auth(headers: &HeaderMap, expected: &Option<String>) -> Result<(), Stat
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    if h == format!("Bearer {}", token) || h == *token {
+    if h == format!("Bearer {}", token.expose()) || h == token.expose() {
         Ok(())
     } else {
         Err(StatusCode::UNAUTHORIZED)

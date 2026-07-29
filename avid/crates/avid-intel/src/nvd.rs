@@ -3,23 +3,24 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::types::CveEntry;
+use soulsystem_common::secrets::SecretString;
 
 /// Client pour la National Vulnerability Database (NVD) API 2.0
 pub struct NvdClient {
     #[allow(dead_code)]
-    api_key: Option<String>,
+    api_key: Option<SecretString>,
     client: reqwest::Client,
     base_url: String,
 }
 
 impl NvdClient {
     /// Crée un nouveau client NVD
-    pub fn new(api_key: Option<String>) -> Self {
+    pub fn new(api_key: Option<SecretString>) -> Self {
         let mut headers = reqwest::header::HeaderMap::new();
         if let Some(ref key) = api_key {
             headers.insert(
                 "apiKey",
-                reqwest::header::HeaderValue::from_str(key).unwrap(),
+                reqwest::header::HeaderValue::from_str(key.expose()).unwrap(),
             );
         }
         let client = reqwest::Client::builder()

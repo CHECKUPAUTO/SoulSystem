@@ -6,6 +6,7 @@ use crate::detect::DetectConfig;
 use anyhow::{Context, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use soulsystem_common::secrets::SecretString;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,7 +141,7 @@ pub struct ApiCfg {
     #[serde(default)]
     pub cors_allow_any: bool,
     #[serde(default)]
-    pub auth_token: Option<String>,
+    pub auth_token: Option<SecretString>,
 }
 
 fn default_ws_path() -> String {
@@ -154,7 +155,7 @@ pub struct ActionCfg {
     #[serde(default = "default_branch_prefix")]
     pub branch_prefix: String,
     #[serde(default)]
-    pub telegram_bot_token: Option<String>,
+    pub telegram_bot_token: Option<SecretString>,
     #[serde(default)]
     pub telegram_chat_id: Option<String>,
     #[serde(default)]
@@ -197,7 +198,7 @@ impl Config {
     fn apply_env_overrides(&mut self) {
         if let Ok(t) = std::env::var("TELEGRAM_BOT_TOKEN") {
             if !t.is_empty() {
-                self.action.telegram_bot_token = Some(t);
+                self.action.telegram_bot_token = Some(SecretString::new(t));
             }
         }
         if let Ok(c) = std::env::var("TELEGRAM_CHAT_ID") {
