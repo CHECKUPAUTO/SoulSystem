@@ -1575,7 +1575,7 @@
         "strategy selection consumed a fabricated success rate (always 1.0) and auto_retry had no strategy-level policy"
       ],
       "current_state": "The fabricated-success-rate half is fixed by PR #80: success_rate() is computed from really-recorded outcomes and strategy_selector.record_outcome receives a real StrategyOutcome. The retry-policy half is unchanged: there is still no single coherent retry policy - soul_llm performs no provider retry at all (MED-001), while the agent loop retries at the strategy level, so retry behaviour differs by layer with no shared budget or backoff. P1-4 supplies the mechanism for the coordination half: LlmError::is_retryable is one classification both layers can consult instead of maintaining divergent opinions, and LlmError::RetriesExhausted { attempts, last } lets an outer layer distinguish 'failed once, transiently' from 'the provider layer already backed off and retried N times'. soul_llm now performs real bounded retry, so MED-001's half of the gap is closed.",
-      "remaining_exposure": "The mechanism exists but soul-agent-core does not consume it yet: the strategy loop still does not branch on LlmError::RetriesExhausted, so a provider that is hard-down still produces immediate strategy-level replanning on top of the provider layer's own exhausted budget. There is still no single shared attempt budget spanning both layers - the provider budget is per-call.",
+      "remaining_exposure": "P1-13 established WHY the strategy loop never branched on LlmError::RetriesExhausted, and it was not an omission: `soul_llm::OllamaClient` is the LEGACY client, whose `chat` returns `Result<ChatResponse, String>`. The typed error was stringified two layers below the agent loop, so P1-4's `is_retryable` and `RetriesExhausted` were structurally unreachable from there - writing the branch first would have been deciding against evidence already thrown away. P1-13 added `OllamaClient::chat_typed` (preserving LlmError) and `AutonomousAgent::guarded_llm_chat_typed`, which classifies into `ProviderOutcome::{Exhausted{attempts}, Retryable, Permanent, BreakerOpen}` INSIDE the circuit-breaker callback, because the breaker erases the error type on the way out. WHAT REMAINS: the classification is produced and tested but the ReAct loop's retry/replan/abort site does not yet consume it, and there is still no attempt budget spanning both layers. A hard-down provider therefore still draws strategy-level replanning on top of an exhausted provider budget - redundant work, not a hot loop, since the provider layer backs off.",
       "required_invariant": "Retry policy is coherent across layers and driven by real outcome data.",
       "fixing_prs": [
         {
@@ -1592,7 +1592,7 @@
         }
       ],
       "residual_risk": "Outcome data is truthful and the provider layer now backs off, so the worst case is redundant replanning rather than a hot retry loop. The coordination gap remains a resilience rather than a correctness problem.",
-      "follow_up": "Roadmap P1-13: branch soul-agent-core's strategy loop on LlmError::RetriesExhausted and share one attempt budget across the two layers."
+      "follow_up": "P1-13-B: consume ProviderOutcome at the ReAct loop's retry/replan/abort site (abort on Exhausted and Permanent rather than replan) and sum the two layers' attempt counts against one configured ceiling."
     },
     {
       "id": "MED-010",

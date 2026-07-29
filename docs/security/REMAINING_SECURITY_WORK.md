@@ -331,27 +331,35 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   step that was missing. Verified negatively: forcing the policy to
   `disabled()` makes 5 of the client tests fail.
 
-### P1-13 Make the agent loop consume the provider layer's retry outcome
+### ~~P1-13 Make the agent loop consume the provider layer's retry outcome~~ — CLOSED for the plumbing; consumption is P1-13-B
 
 - **Findings / invariants:** MED-009 (`PARTIALLY_FIXED`), INV-PROVIDER-3
-  (`PARTIAL`)
-- **Surface:** `soul-agent-core/src/lib.rs` — the strategy-level
-  retry/replan/abort decision.
-- **What already exists after P1-4:** `LlmError::is_retryable` is a single
-  classification both layers can consult instead of maintaining divergent
-  opinions, and `LlmError::RetriesExhausted { attempts, last }` distinguishes
-  "failed once, transiently" from "the provider layer already backed off and
-  retried N times".
-- **Current risk:** `soul-agent-core` does not branch on either yet, and there
-  is no attempt budget spanning both layers. A hard-down provider therefore
-  still draws immediate strategy-level replanning on top of an already-exhausted
-  provider budget — redundant work rather than a hot loop, since the provider
-  layer now backs off, but still uncoordinated.
-- **Acceptance tests:** a mock provider that always fails causes exactly one
-  bounded provider sequence and then an abort rather than a replan; a mock that
-  fails transiently is recovered by the provider layer without the agent loop
-  observing a failure at all; the two layers' attempt counts sum to a
-  configured ceiling rather than multiplying.
+- **The premise needed correcting.** P1-13 was written as "`soul-agent-core`
+  does not branch on either yet" — implying the branch was simply unwritten.
+  It could not be written: `soul_llm::OllamaClient` is the **legacy** client,
+  whose `chat` returns `Result<ChatResponse, String>`. The typed error was
+  stringified two layers below the agent loop, so P1-4's `is_retryable` and
+  `RetriesExhausted` were structurally unreachable from there. Adding the branch
+  first would have meant deciding against evidence already thrown away.
+- **What landed:** `OllamaClient::chat_typed` preserves `LlmError` alongside the
+  existing `chat`, and `AutonomousAgent::guarded_llm_chat_typed` classifies into
+  `ProviderOutcome::{Exhausted { attempts }, Retryable, Permanent, BreakerOpen}`.
+- **The classification happens *inside* the circuit-breaker callback**, carried
+  out in a side channel. The breaker erases the error type on the way out, so
+  classifying afterwards would mean re-parsing the string — the exact loss this
+  change exists to undo. `BreakerOpen` is the absence of a recorded
+  classification: the closure never ran, so the provider was never asked, which
+  is not a verdict about the provider.
+- **`attempts` is carried, not flattened to a bool**, because that number is
+  what lets the two layers' budgets *sum* against a ceiling rather than
+  multiply.
+- **What is honestly not done (P1-13-B):** the ReAct loop's retry/replan/abort
+  site does not consume `ProviderOutcome` yet, and there is still no attempt
+  budget spanning both layers. Two of the three acceptance tests — "one bounded
+  provider sequence then an abort rather than a replan", and "the two layers'
+  attempt counts sum to a configured ceiling" — are therefore **not met**. The
+  plumbing they need now exists and is tested; the decision site is the next
+  change.
 
 ### ~~P1-9 Authenticate `src/api.rs`~~ — CLOSED (authentication only)
 
