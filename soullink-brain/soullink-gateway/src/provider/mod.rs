@@ -12,6 +12,7 @@ pub mod registry;
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use serde::{Deserialize, Serialize};
+use soulsystem_common::secrets::SecretString;
 use thiserror::Error;
 
 /// A single message in a chat conversation.
@@ -149,7 +150,7 @@ pub struct ProviderConfig {
     pub provider_type: String,
     pub base_url: String,
     #[serde(default)]
-    pub api_key: Option<String>,
+    pub api_key: Option<SecretString>,
     #[serde(default)]
     pub models: Vec<String>,
     #[serde(default)]

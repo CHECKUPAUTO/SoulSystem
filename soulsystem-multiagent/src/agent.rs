@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use soulsystem_common::secrets::SecretString;
 use std::collections::HashMap;
 
 /// Represents a specialized agent with capabilities.
@@ -8,7 +9,7 @@ pub struct SpecializedAgent {
     pub name: String,
     pub capabilities: Vec<AgentCapability>,
     pub endpoint: String,
-    pub token: String,
+    pub token: SecretString,
 }
 
 /// Capability descriptor for an agent.

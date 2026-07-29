@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use soulsystem_common::secrets::SecretString;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -158,7 +159,7 @@ pub struct TelegramMessage {
 }
 
 pub struct TelegramBot {
-    token: Option<String>,
+    token: Option<SecretString>,
 }
 
 impl TelegramBot {
@@ -167,7 +168,7 @@ impl TelegramBot {
     }
 
     pub fn set_token(&mut self, token: &str) {
-        self.token = Some(token.to_string());
+        self.token = Some(SecretString::new(token));
     }
 
     pub fn is_configured(&self) -> bool {

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use std::time::Duration;
+use soulsystem_common::secrets::SecretString;
 
 /// Abstract trait for LLM providers.
 #[async_trait]
@@ -36,7 +37,7 @@ impl LlmProvider for OllamaProvider {
 /// OpenAI LLM provider implementation.
 #[derive(Debug)]
 pub struct OpenAIProvider {
-    pub api_key: String,
+    pub api_key: SecretString,
     pub model: String,
 }
 
@@ -45,7 +46,7 @@ impl LlmProvider for OpenAIProvider {
     async fn complete(&self, system: &str, user: &str, timeout: Duration) -> Result<String, anyhow::Error> {
         let client = reqwest::Client::builder().timeout(timeout).build()?;
         let response = client.post("https://api.openai.com/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Authorization", format!("Bearer {}", self.api_key.expose()))
             .json(&serde_json::json!({
                 "model": self.model,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -57,13 +58,13 @@ impl LlmProvider for OpenAIProvider {
 }
 
 #[derive(Debug)]
-pub struct AnthropicProvider { pub api_key: String, pub model: String }
+pub struct AnthropicProvider { pub api_key: SecretString, pub model: String }
 #[async_trait]
 impl LlmProvider for AnthropicProvider {
     async fn complete(&self, system: &str, user: &str, timeout: Duration) -> Result<String, anyhow::Error> {
         let client = reqwest::Client::builder().timeout(timeout).build()?;
         let response = client.post("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", &self.api_key).header("anthropic-version", "2023-06-01")
+            .header("x-api-key", self.api_key.expose()).header("anthropic-version", "2023-06-01")
             .json(&serde_json::json!({
                 "model": self.model, "system": system, "messages": [{"role": "user", "content": user}], "max_tokens": 1024
             })).send().await?.json::<serde_json::Value>().await?;
@@ -74,12 +75,12 @@ impl LlmProvider for AnthropicProvider {
 }
 
 #[derive(Debug)]
-pub struct GeminiProvider { pub api_key: String, pub model: String }
+pub struct GeminiProvider { pub api_key: SecretString, pub model: String }
 #[async_trait]
 impl LlmProvider for GeminiProvider {
     async fn complete(&self, _system: &str, user: &str, timeout: Duration) -> Result<String, anyhow::Error> {
         let client = reqwest::Client::builder().timeout(timeout).build()?;
-        let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}", self.model, self.api_key);
+        let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}", self.model, self.api_key.expose());
         let response = client.post(url).json(&serde_json::json!({ "contents": [{"parts": [{"text": user}]}] })).send().await?.json::<serde_json::Value>().await?;
         let content = response["candidates"][0]["content"]["parts"][0]["text"].as_str().ok_or_else(|| anyhow::anyhow!("Invalid response"))?;
         Ok(content.to_string())

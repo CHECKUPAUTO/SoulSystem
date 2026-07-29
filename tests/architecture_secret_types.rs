@@ -87,100 +87,14 @@ const NOT_SECRET_MATERIAL: &[&str] = &[
 ///
 /// `(file, struct, why not yet)`. Recorded, not blessed — see the module
 /// header.
-const NOT_YET_MIGRATED: &[(&str, &str, &str)] = &[
-    (
-        "soul_api/src/lib.rs",
-        "TelegramBot",
-        "Bot token. Migrating means touching the Telegram send path; deferred \
-         to keep this sweep reviewable.",
-    ),
-    (
-        "soullink-brain/soullink-proxy/src/config.rs",
-        "ProxyConfig",
-        "Upstream credential in the brain's proxy configuration struct.",
-    ),
-    (
-        "soullink-brain/soullink-gateway/src/provider/mod.rs",
-        "ProviderConfig",
-        "Per-provider API key in the brain's own gateway, separate from \
-         soul_gateway.",
-    ),
-    (
-        "soullink-brain/soullink-gateway/src/ws/auth.rs",
-        "TokenInfo",
-        "WebSocket token record in the brain's own gateway, separate from soul_gateway.",
-    ),
-    (
-        "soullink-brain/soullink-gateway/src/ws/protocol.rs",
-        "HelloOk",
-        "Device token carried in the brain gateway's WebSocket hello message. \
-         A protocol struct rather than a config struct, so migrating it changes \
-         the wire type — deferred to keep this sweep reviewable.",
-    ),
-    (
-        "soullink-brain/soullink-gateway/src/ws/protocol.rs",
-        "AuthInfo",
-        "Auth token in the same WebSocket protocol module as HelloOk; the two \
-         move together.",
-    ),
-    (
-        "avid/crates/avid-cortex/src/llm.rs",
-        "OpenAIProvider",
-        "AVID's own provider structs, parallel to soul_llm's.",
-    ),
-    (
-        "avid/crates/avid-cortex/src/llm.rs",
-        "AnthropicProvider",
-        "AVID's own provider structs, parallel to soul_llm's.",
-    ),
-    (
-        "avid/crates/avid-cortex/src/llm.rs",
-        "GeminiProvider",
-        "AVID's own provider structs, parallel to soul_llm's.",
-    ),
-    (
-        "avid/crates/avid-core/src/config.rs",
-        "Config",
-        "AVID's top-level API token, read from its own config file.",
-    ),
-    (
-        "avid/crates/avid-scout/src/auth.rs",
-        "AuthMethod",
-        "Basic and Bearer credentials AVID uses against scouted endpoints.",
-    ),
-    (
-        "avid/crates/avid-intel/src/types.rs",
-        "MonitorConfig",
-        "NVD vulnerability-feed API key held in AVID's monitor config.",
-    ),
-    (
-        "synergie/src/config.rs",
-        "ApiCfg",
-        "Synergie API credential loaded from its own configuration file.",
-    ),
-    (
-        "synergie/src/config.rs",
-        "ActionCfg",
-        "Synergie per-action credential loaded from its configuration file.",
-    ),
-    (
-        "souls/src/config.rs",
-        "LlmPersistConfig",
-        "LLM credential persisted by the souls runner configuration.",
-    ),
-    (
-        "soulsystem-multiagent/src/agent.rs",
-        "SpecializedAgent",
-        "Per-agent provider API key in the multi-agent coordinator.",
-    ),
-];
+const NOT_YET_MIGRATED: &[(&str, &str, &str)] = &[];
 
 /// How many structs may remain unmigrated.
 ///
 /// Pinned in both directions: it fails if the set grows, and it fails if
 /// entries are removed without lowering the budget — a ratchet that only
 /// tightens one way stops constraining anything.
-const NOT_YET_MIGRATED_BUDGET: usize = 16;
+const NOT_YET_MIGRATED_BUDGET: usize = 0;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -323,7 +237,14 @@ fn secret_string_fields(line: &str) -> Vec<String> {
     out
 }
 
-fn findings() -> Vec<Finding> {
+/// Every non-scaffolding `.rs` file the scan will read, repo-relative.
+///
+/// Split out from [`findings`] so the anchor test can assert the traversal
+/// actually reached the workspace. Once the unmigrated set is empty, "found
+/// nothing" is the *correct* answer, so a findings-count anchor would have to
+/// be deleted — and deleting it is exactly how a scan that silently stops
+/// reading files starts passing every test above vacuously.
+fn scanned_files() -> Vec<(PathBuf, String)> {
     let root = repo_root();
     let mut scan_dirs: Vec<PathBuf> = workspace_member_dirs()
         .iter()
@@ -338,16 +259,22 @@ fn findings() -> Vec<Finding> {
     files.sort();
     files.dedup();
 
+    files
+        .into_iter()
+        .filter_map(|file| {
+            let rel = file
+                .strip_prefix(&root)
+                .unwrap_or(&file)
+                .to_string_lossy()
+                .replace('\\', "/");
+            (!is_test_or_build_scaffolding(&rel)).then_some((file, rel))
+        })
+        .collect()
+}
+
+fn findings() -> Vec<Finding> {
     let mut out = Vec::new();
-    for file in files {
-        let rel = file
-            .strip_prefix(&root)
-            .unwrap_or(&file)
-            .to_string_lossy()
-            .replace('\\', "/");
-        if is_test_or_build_scaffolding(&rel) {
-            continue;
-        }
+    for (file, rel) in scanned_files() {
         let Ok(source) = std::fs::read_to_string(&file) else {
             continue;
         };
@@ -496,19 +423,22 @@ fn every_recorded_entry_is_still_real() {
 }
 
 /// Pinned in both directions — see the constant's documentation.
+///
+/// Now that the budget is `0`, "does not grow" and "does not shrink" are the
+/// same assertion, so this is written as one equality rather than two
+/// comparisons that clippy correctly calls degenerate for `usize`. The
+/// two-way intent is unchanged: adding a struct to the list without raising
+/// the budget fails, and so does leaving a stale budget behind after a
+/// migration.
 #[test]
 fn the_unmigrated_set_does_not_grow() {
     let count = NOT_YET_MIGRATED.len();
-    assert!(
-        count <= NOT_YET_MIGRATED_BUDGET,
-        "{count} structs are recorded as unmigrated but the budget is \
-         {NOT_YET_MIGRATED_BUDGET}. Use SecretString for the new one instead of \
-         extending the list."
-    );
-    assert!(
-        count >= NOT_YET_MIGRATED_BUDGET,
-        "only {count} structs remain unmigrated but the budget is still \
-         {NOT_YET_MIGRATED_BUDGET}. Lower NOT_YET_MIGRATED_BUDGET to {count}."
+    assert_eq!(
+        count, NOT_YET_MIGRATED_BUDGET,
+        "the recorded-unmigrated count is {count} but the budget is \
+         {NOT_YET_MIGRATED_BUDGET}. If a struct was added to NOT_YET_MIGRATED, \
+         use SecretString for it instead of extending the list; if one was \
+         migrated, set NOT_YET_MIGRATED_BUDGET to {count}."
     );
 }
 
@@ -533,25 +463,59 @@ fn the_migrated_structs_use_the_secret_type() {
     }
 }
 
-/// If the scan stopped finding anything, every test above would pass
-/// vacuously.
+/// If the scan stopped *reading files*, every test above would pass vacuously.
+///
+/// This used to anchor on the number of findings, which worked only while
+/// unmigrated structs still existed. Now that the set is empty, "found zero
+/// secret fields" is the correct answer — so the anchor asserts the traversal
+/// reached the workspace instead. A scan that silently reads nothing is the
+/// failure mode worth catching; a scan that reads everything and finds nothing
+/// is the goal.
 #[test]
-fn the_scan_actually_finds_the_known_structs() {
-    let found = findings();
+fn the_scan_actually_reads_the_workspace() {
+    let files = scanned_files();
     assert!(
-        found.len() >= 10,
-        "the scan found only {} secret fields; it is broken, not the workspace",
-        found.len()
+        files.len() > 500,
+        "the scan reached only {} source files; member parsing or directory \
+         traversal is broken, not the workspace",
+        files.len()
     );
 
-    let files: BTreeSet<&str> = found.iter().map(|f| f.file.as_str()).collect();
+    let rels: BTreeSet<&str> = files.iter().map(|(_, rel)| rel.as_str()).collect();
     for expected in [
         "avid/crates/avid-cortex/src/llm.rs",
         "synergie/src/config.rs",
+        "soullink-brain/soullink-gateway/src/ws/protocol.rs",
+        "src/ws_bridge.rs",
     ] {
         assert!(
-            files.contains(expected),
+            rels.contains(expected),
             "the scan did not reach {expected}; member parsing is broken"
+        );
+    }
+}
+
+/// The matcher still reports a plaintext credential when it sees one.
+///
+/// With `NOT_YET_MIGRATED` empty, nothing in the workspace exercises the
+/// positive path any more. This pins it against fixtures so the guard cannot
+/// degrade into one that reports "clean" because it stopped recognising
+/// anything.
+#[test]
+fn the_matcher_still_recognises_a_plaintext_credential() {
+    for (line, expected) in [
+        ("    pub api_key: String,", vec!["api_key"]),
+        ("    pub auth_token: Option<String>,", vec!["auth_token"]),
+        ("    Bearer { token: String },", vec!["token"]),
+        (
+            "pub struct P { pub api_key: String, pub password: String }",
+            vec!["api_key", "password"],
+        ),
+    ] {
+        assert_eq!(
+            secret_string_fields(line),
+            expected,
+            "the matcher stopped recognising: {line}"
         );
     }
 }

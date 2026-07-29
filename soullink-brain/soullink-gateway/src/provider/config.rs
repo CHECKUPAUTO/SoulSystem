@@ -20,6 +20,7 @@
 use std::collections::HashMap;
 
 use crate::provider;
+use soulsystem_common::secrets::SecretString;
 
 /// Load provider configurations from the gateway config TOML.
 ///
@@ -97,7 +98,7 @@ pub fn load_provider_configs() -> HashMap<String, provider::ProviderConfig> {
                             provider::ProviderConfig {
                                 provider_type,
                                 base_url,
-                                api_key,
+                                api_key: api_key.map(SecretString::new),
                                 models,
                                 default_model,
                                 timeout_secs,

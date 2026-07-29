@@ -13,10 +13,11 @@ use tracing::{debug, info};
 use uuid::Uuid;
 
 use super::protocol::Role;
+use soulsystem_common::secrets::SecretString;
 
 #[derive(Debug, Clone)]
 pub struct TokenInfo {
-    pub token: String,
+    pub token: SecretString,
     pub role: Role,
     pub scopes: Vec<String>,
     pub created_at_ms: i64,
@@ -57,7 +58,7 @@ impl AuthManager {
         if let Some(ref cfg) = self.config_token {
             if token == cfg {
                 return Some(TokenInfo {
-                    token: token.to_string(),
+                    token: SecretString::new(token),
                     role: Role::Operator,
                     scopes: vec!["operator.admin".into()],
                     created_at_ms: now_ms(),
@@ -88,7 +89,7 @@ impl AuthManager {
         let token = format!("oc_dev_{}", Uuid::new_v4().as_simple());
         let now = now_ms();
         let info = TokenInfo {
-            token: token.clone(),
+            token: SecretString::new(token.clone()),
             role,
             scopes,
             created_at_ms: now,
@@ -137,7 +138,7 @@ mod tests {
     fn issued_device_token_round_trips() {
         let auth = AuthManager::new(Some("secret".into()));
         let dev = auth.generate_device_token(Role::Operator, vec![], "client-1".into());
-        assert!(dev.token.starts_with("oc_dev_"));
-        assert!(auth.validate_token(&dev.token).is_some());
+        assert!(dev.token.expose().starts_with("oc_dev_"));
+        assert!(auth.validate_token(dev.token.expose()).is_some());
     }
 }

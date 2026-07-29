@@ -16,6 +16,7 @@ use super::protocol::*;
 use super::session::SessionStore;
 use crate::api::ApiState;
 use crate::provider::{Provider, ProviderError};
+use soulsystem_common::secrets::ProtocolSecret;
 
 /// Thread-safe error type for WS handler.
 type HandlerResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -167,7 +168,7 @@ async fn handle_connect(
 
     // Token is required whenever a gateway token is configured (operator mode).
     if auth.requires_token() {
-        let Some(token) = req.auth.token.as_deref() else {
+        let Some(token) = req.auth.token.as_ref().map(|t| t.expose()) else {
             send(
                 ws,
                 error_response(&frame.id, ERR_AUTH_REQUIRED, "missing token"),
@@ -196,7 +197,7 @@ async fn handle_connect(
         typ: "hello-ok".into(),
         protocol: PROTOCOL_VERSION,
         session_id: session.id.clone(),
-        device_token: device.token,
+        device_token: ProtocolSecret::new(device.token.expose()),
         policy: PolicyInfo::default(),
     };
     send(

@@ -3,12 +3,16 @@
 use crate::types::Synergy;
 use anyhow::Result;
 use serde::Serialize;
+use soulsystem_common::secrets::SecretString;
 use std::time::Duration;
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
 pub struct Telegram {
-    bot: Option<String>,
+    /// Bot token. Named `bot` rather than `bot_token`, which is why the
+    /// name-based secret guard never reported it — see INV-SEC-2's stated
+    /// blind spot.
+    bot: Option<SecretString>,
     chat: Option<String>,
     http: reqwest::Client,
 }
@@ -22,7 +26,7 @@ struct SendPayload<'a> {
 }
 
 impl Telegram {
-    pub fn new(bot: Option<String>, chat: Option<String>) -> Self {
+    pub fn new(bot: Option<SecretString>, chat: Option<String>) -> Self {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
@@ -39,7 +43,9 @@ impl Telegram {
             debug!(target: "telegram", "non configuré — message ignoré");
             return Ok(false);
         };
-        let url = format!("https://api.telegram.org/bot{}/sendMessage", bot);
+        // The token is part of the path; anything that logs this URL leaks
+        // it, which no wrapper type can prevent.
+        let url = format!("https://api.telegram.org/bot{}/sendMessage", bot.expose());
         let payload = SendPayload {
             chat_id: chat,
             text: &truncate(text, 3900),

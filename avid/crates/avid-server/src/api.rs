@@ -104,7 +104,7 @@ pub async fn auth(
         if let Some(token) = auth_header.strip_prefix("Bearer ") {
             if token
                 .as_bytes()
-                .ct_eq(state.config.api_token.as_bytes())
+                .ct_eq(state.config.api_token.expose().as_bytes())
                 .into()
             {
                 return Ok(next.run(req).await);

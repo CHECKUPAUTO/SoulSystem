@@ -258,6 +258,169 @@ impl serde::Serialize for SecretString {
     }
 }
 
+/// A credential whose serialization is its **purpose**, not a leak.
+///
+/// [`SecretString`] redacts in `Serialize` because a config struct that is
+/// serialized is usually being dumped somewhere it should not go. A protocol
+/// message is the opposite case: the whole reason `HelloOk` exists is to put a
+/// device token on the wire for the client that must present it back. Using
+/// `SecretString` there does not harden anything — it sends the string
+/// `"<redacted>"` to the client as its token and breaks authentication at
+/// runtime, silently, with no compile error to catch it.
+///
+/// So this type redacts `Debug` and `Display` — the accidental paths, which are
+/// just as real here: `tracing::debug!(?hello)` on a handshake response leaks
+/// the token it carries — while `Serialize` and `Deserialize` are faithful.
+///
+/// # Choosing between the two
+///
+/// Ask what serialization *means* for the field:
+///
+/// - Written to a config file, a state dump, a debug endpoint → [`SecretString`].
+///   Serialization is an escape route and redacting it is protection.
+/// - Written to the peer that needs the value → [`ProtocolSecret`].
+///   Redacting it is a bug.
+///
+/// If both are true of one struct, it is carrying a credential in a place that
+/// wants splitting, and neither type will save it.
+#[derive(Clone, Default, PartialEq, Eq, zeroize::ZeroizeOnDrop)]
+pub struct ProtocolSecret(String);
+
+impl ProtocolSecret {
+    /// Wrap a credential that travels over a protocol.
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// Borrow the plaintext. Named to be visible in review, like
+    /// [`SecretString::expose`].
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether a value is present.
+    pub fn is_present(&self) -> bool {
+        !self.0.is_empty()
+    }
+
+    /// Length of the underlying credential.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether the credential is empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl fmt::Debug for ProtocolSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(REDACTED)
+    }
+}
+
+impl fmt::Display for ProtocolSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(REDACTED)
+    }
+}
+
+impl From<String> for ProtocolSecret {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for ProtocolSecret {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+/// Faithful, unlike [`SecretString`]'s: the peer needs the real value.
+impl serde::Serialize for ProtocolSecret {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ProtocolSecret {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Self)
+    }
+}
+
+#[cfg(test)]
+mod protocol_secret_tests {
+    use super::*;
+
+    const TOKEN: &str = "dev-8c1f0a4b93e27d65";
+
+    #[test]
+    fn debug_and_display_still_redact() {
+        let secret = ProtocolSecret::new(TOKEN);
+        assert_eq!(format!("{secret:?}"), REDACTED);
+        assert_eq!(format!("{secret}"), REDACTED);
+    }
+
+    #[test]
+    fn an_enclosing_derived_debug_is_safe() {
+        // The accidental path is identical for a protocol message: nobody
+        // prints the token, they print the handshake response holding it.
+        #[derive(Debug)]
+        struct HelloOk {
+            session_id: String,
+            device_token: ProtocolSecret,
+        }
+        let hello = HelloOk {
+            session_id: "s-1".into(),
+            device_token: ProtocolSecret::new(TOKEN),
+        };
+        let rendered = format!("{hello:?}");
+        assert!(!rendered.contains(TOKEN), "Debug leaked the token");
+        assert!(rendered.contains("s-1"), "and kept the useful fields");
+    }
+
+    #[test]
+    fn serialization_is_faithful_because_the_peer_needs_the_value() {
+        // The whole point of the type. If this ever redacts, every client
+        // receiving a handshake gets "<redacted>" as its token and
+        // authentication breaks at runtime with no compile error.
+        let secret = ProtocolSecret::new(TOKEN);
+        let json = serde_json::to_string(&secret).unwrap();
+        assert_eq!(json, format!("\"{TOKEN}\""));
+    }
+
+    #[test]
+    fn it_round_trips_through_serde() {
+        let secret = ProtocolSecret::new(TOKEN);
+        let json = serde_json::to_string(&secret).unwrap();
+        let back: ProtocolSecret = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.expose(), TOKEN);
+    }
+
+    #[test]
+    fn it_differs_from_secret_string_in_exactly_one_respect() {
+        // Pins the distinction the two types exist to draw, so a future edit
+        // cannot quietly collapse them into each other.
+        let protocol = ProtocolSecret::new(TOKEN);
+        let config = SecretString::new(TOKEN);
+
+        assert_eq!(
+            format!("{protocol:?}"),
+            format!("{config:?}"),
+            "Debug: same"
+        );
+        assert_eq!(format!("{protocol}"), format!("{config}"), "Display: same");
+        assert_ne!(
+            serde_json::to_string(&protocol).unwrap(),
+            serde_json::to_string(&config).unwrap(),
+            "Serialize: the one deliberate difference"
+        );
+    }
+}
+
 #[cfg(test)]
 mod secret_string_tests {
     use super::*;

@@ -1,3 +1,4 @@
+use soulsystem_common::secrets::SecretString;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -13,7 +14,7 @@ pub enum ConfigError {
 /// Application configuration loaded from environment variables.
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub api_token: String,
+    pub api_token: SecretString,
     pub home: PathBuf,
     pub ollama_url: String,
     pub ollama_model: String,
@@ -76,7 +77,7 @@ impl Config {
         let log_level = std::env::var("AVID_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
 
         Ok(Self {
-            api_token,
+            api_token: SecretString::new(api_token),
             home: home_path,
             ollama_url,
             ollama_model,
