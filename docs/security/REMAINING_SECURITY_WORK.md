@@ -470,20 +470,25 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   arbitrary-execution sites has not removed them. The invariant holds when they
   are gone, not when they are inventoried.
 
-### P1-8-B Route the remaining 11 sites through the sandbox, and decide about the non-member trees
+### P1-8-B Route the remaining 8 sites through the sandbox, and decide about the non-member trees
 
-- **Findings / invariants:** CRIT-001 (residual), INV-EXEC-1, MED-013
-- **Status of the first site:** `soullink-orchestrator-standalone/src/routes/spawn.rs`
-  is **done** — see below. `UNSANDBOXED_ARBITRARY_BUDGET` is now **11**.
-- **What the remaining 11 need.** Most are `sh -c` sites (soullink-workflow
-  node/conditions, soullink-actions' shell action, soul-kernel action and
-  perception), which is a genuinely different problem from the spawn route: they
-  pass a *shell string*, so `Sandbox::execute` is the right API for them and the
-  work is threading a policy through, not designing a new one. `soul-bridge`'s
-  two child spawns and `soul-kernel/parallel` are structured-argv spawns like
-  the route was, so they want `spawn_supervised`. The gateway's `osascript`
-  iMessage provider is macOS-only and the sandbox's isolation hook is
-  Linux-specific — that one needs a decision, not a mechanical fix.
+- **Findings / invariants:** CRIT-001 (residual), INV-EXEC-1, MED-013, MED-014
+- **Done so far:** the request-reachable spawn route (round 1), and the whole
+  `sh -c` group (round 2). `UNSANDBOXED_ARBITRARY_BUDGET` is now **8**.
+- **What is left, and it is not homogeneous.**
+  - `soul-kernel`'s `OptimizeSystem` runs three *fixed* `sh -c` strings
+    (`sync && echo 3 > /proc/sys/vm/drop_caches`, a `journalctl --vacuum-time`,
+    a `find /tmp -delete`). No caller input reaches them, so there is nothing to
+    inject — but the sandbox would refuse all three, since they are shell
+    composition and destructive-pattern matches. They want rewriting as direct
+    operations, not wrapping.
+  - `soul-bridge`'s two child spawns and `soul-kernel/parallel` are
+    structured-argv spawns, so they want `spawn_supervised`.
+  - `soul-kernel/perception` is mostly fixed argv (`df --output=pcent /`,
+    `systemctl is-active`) plus one fixed `journalctl | grep` pipeline.
+  - `soul_gateway`'s `osascript` iMessage provider is macOS-only while the
+    isolation hook is Linux-specific. That one needs a decision, not a
+    mechanical fix.
 - **Decide what to do about the non-member trees.** `intel-integrations/`,
   `openevolve/`, `backlog/`, `os-agents/`, `openclaw-evolution/`, `soul-rsi/`,
   `jit-agentic-engine/`, `soullink-node/`, `turboquant/` and
@@ -491,8 +496,37 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   workspace members, so `cargo build --workspace` never builds them and this
   guard says nothing about them. Either they are shipped code — in which case
   they belong in the workspace and under the guard — or they are dead weight
-  that should be deleted. A product question about what this repository ships,
-  so it is recorded rather than answered.
+  that should be deleted. A product question about what this repository ships.
+
+### ~~P1-8-B(2) The `sh -c` group~~ — CLOSED
+
+- **Findings / invariants:** MED-014 (new), CRIT-001 (residual), INV-EXEC-1
+- **Four sites, three files off the allowlist.** soullink-workflow's bash node
+  and `TestsPass` condition, soullink-actions' shell tool, and soul-kernel's
+  `Action::ExecuteShell` now go through `Sandbox::execute`. Unlike the spawn
+  route, `execute` *is* the right API here: these pass a shell string, which is
+  exactly what it takes.
+- **A real bypass in existing "security" code (MED-014).**
+  `is_safe_shell_command` blocked `;`, `&&`, `||`, `|`, backtick, `$(`, `${`
+  and `>` — but not a **newline**, which `sh` treats as a separator exactly like
+  `;`. `"ls\nrm -rf /tmp/x"` passed validation and both halves ran. Verified
+  directly. `&`, `<` and `$'\x3b'`-style encodings were missed too. The fix is
+  not a longer list — the next missing character reopens it — but removing the
+  shell. The filter stays as a first pass, with a test asserting the newline is
+  **still admitted**, so anyone who later "fixes" the list has to read why the
+  list was never what held.
+- **This changes what these sites can express.** Pipelines, redirects and `&&`
+  chains no longer work; the sandbox neutralises them, which is the whole
+  point. A workflow relying on `a | b` now fails instead of doing something
+  else quietly — the right failure direction, but a behaviour change for
+  existing definitions, not transparent hardening.
+- **Two gaps in the sandbox surfaced and were closed.**
+  `SandboxPolicy::working_dir` — soullink-actions' shell tool had a `workdir`
+  the sandbox could not express, and silently dropping it would have moved
+  commands to a different directory without failing. And `SandboxVerdict::timed_out`
+  — a deadline kill was previously reported *only* by appending a sentence to
+  `stderr`, so a caller distinguishing "timed out" from "exited without a code"
+  had to string-match the sandbox's own prose.
 
 ### ~~P1-8-B(1) The request-reachable spawn route~~ — CLOSED
 

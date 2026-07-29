@@ -48,6 +48,15 @@ pub struct SandboxVerdict {
     pub started_at: DateTime<Utc>,
     pub finished_at: DateTime<Utc>,
     pub threats: Vec<String>,
+    /// True when the sandbox killed the process group because
+    /// `policy.timeout` elapsed, rather than the command exiting on its own.
+    ///
+    /// Previously this was communicated only by appending a sentence to
+    /// `stderr`, which meant a caller that wanted to distinguish "timed out"
+    /// from "exited without a code" had to string-match the sandbox's own
+    /// prose — and would break silently the day that prose was reworded. It is
+    /// a fact about the execution, so it is a field.
+    pub timed_out: bool,
 }
 
 /// Type de flux (stdout ou stderr) pour le streaming (C.7).

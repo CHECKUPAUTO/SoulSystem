@@ -195,30 +195,18 @@ const ALLOWED: &[(&str, Category, &str)] = &[
     // ── Known unsandboxed arbitrary execution ────────────────────────────
     // These are the P1-8 findings, not P1-8's approvals. See the module header.
     (
-        "soullink-brain/soullink-workflow/src/node.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "A workflow node runs `sh -c <command>` with the command taken from \
-         the workflow definition. Unsandboxed. Should route through \
-         soul_sandbox.",
-    ),
-    (
-        "soullink-brain/soullink-workflow/src/conditions.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "A workflow condition evaluates `sh -c <command>`. Same problem as \
-         node.rs, same fix.",
-    ),
-    (
-        "soullink-brain/soullink-actions/src/shell.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "The brain's shell action spawns `sh` directly rather than through \
-         soul_sandbox.",
-    ),
-    (
         "soul-kernel/src/action/mod.rs",
         Category::UnsandboxedArbitraryCommand,
-        "Kernel actions run `sh -c <cmd>`, `systemctl`, `iptables`, `chmod` \
-         and a fixed `/usr/local/bin/claudex` path. The `sh -c` sites take \
-         caller-supplied commands outside any sandbox.",
+        "`Action::ExecuteShell` was routed through `soul_sandbox` by P1-8-B and \
+         is no longer a bare spawn. The entry stays for the rest of the file: \
+         `OptimizeSystem` runs three fixed `sh -c` strings (`sync && echo 3 > \
+         /proc/sys/vm/drop_caches`, a `journalctl --vacuum-time`, a `find /tmp \
+         -delete`) that the sandbox would refuse outright, since they are \
+         shell composition and destructive-pattern matches. They take no \
+         caller input, so there is nothing to inject - but they are privileged \
+         host mutations that want rewriting as direct operations rather than \
+         shelling out. `RestartService`/`BlockIp`/`TuneGpuPower` are structured \
+         argv guarded by `is_safe_name`/`is_valid_ip`.",
     ),
     (
         "soul-kernel/src/perception/mod.rs",
@@ -274,7 +262,7 @@ const ALLOWED: &[(&str, Category, &str)] = &[
 /// Pinned so the category cannot grow quietly. Lowering it as sites are fixed
 /// is the intended direction; raising it should require saying so out loud in a
 /// review.
-const UNSANDBOXED_ARBITRARY_BUDGET: usize = 11;
+const UNSANDBOXED_ARBITRARY_BUDGET: usize = 8;
 
 /// Patterns that indicate a process spawn.
 const SPAWN_PATTERNS: &[&str] = &[
@@ -590,7 +578,7 @@ fn the_scan_reaches_crates_across_the_workspace() {
         "bound-system/src/lib.rs",
         "soul_sandbox/src/lib.rs",
         "soul-kernel/src/action/mod.rs",
-        "soullink-brain/soullink-workflow/src/node.rs",
+        "soul-bridge/src/ccos.rs",
         "src/self_healer.rs",
     ] {
         assert!(

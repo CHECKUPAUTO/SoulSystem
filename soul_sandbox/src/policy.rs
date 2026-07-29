@@ -225,6 +225,21 @@ pub struct SandboxPolicy {
     /// [`ResourceLimits`] for what each bound does, and for why this is
     /// `setrlimit` rather than cgroups.
     pub resource_limits: ResourceLimits,
+
+    /// Working directory for the child, or the parent's cwd if `None`.
+    ///
+    /// Exists because callers that had one before they were sandboxed would
+    /// otherwise lose it silently: a command that ran in `/srv/app` and now
+    /// runs in whatever directory the daemon happens to be in does not fail,
+    /// it does the wrong thing quietly. Carrying it explicitly is the
+    /// difference between a migration and a regression.
+    ///
+    /// This is *not* a containment boundary. It sets where the child starts,
+    /// not where it can reach — nothing stops it opening an absolute path
+    /// elsewhere. Confinement is `SENSITIVE_PATHS`, seccomp and the rlimits;
+    /// treating a cwd as a jail is a classic way to believe in a boundary that
+    /// was never there.
+    pub working_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for SandboxPolicy {
@@ -239,6 +254,7 @@ impl Default for SandboxPolicy {
             network_isolated: true,
             max_output_bytes: 2 * 1024 * 1024,
             resource_limits: ResourceLimits::default(),
+            working_dir: None,
         }
     }
 }
