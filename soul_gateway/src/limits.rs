@@ -19,10 +19,8 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use axum::http::{HeaderValue, Method};
 use parking_lot::Mutex;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tower_http::cors::{AllowOrigin, CorsLayer};
 
 /// Maximum accepted request body, in bytes.
 ///
@@ -299,79 +297,17 @@ pub fn rate_key(principal: Option<&str>, peer: Option<IpAddr>) -> String {
 }
 
 /// The configured cross-origin policy.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CorsPolicy {
-    /// No cross-origin browser access. The default when the allowlist is unset.
-    ///
-    /// This is not the same as "no CORS layer": a layer that emits no
-    /// `Access-Control-Allow-Origin` is what makes a browser refuse the
-    /// response, which is the intended restrictive behaviour.
-    Disabled,
-    /// Exactly these origins are permitted.
-    Allowlist(Vec<String>),
-}
-
-impl CorsPolicy {
-    /// Parse the allowlist from the environment.
-    ///
-    /// Unset, empty, or all-blank yields [`CorsPolicy::Disabled`] — the
-    /// fail-closed direction. `*` is **not** accepted as a wildcard: allowing
-    /// every origin has to be a deliberate enumeration, not a one-character
-    /// config value that looks like a default.
-    pub fn from_env() -> Self {
-        match std::env::var(CORS_ALLOWLIST_VAR) {
-            Ok(raw) => Self::parse(&raw),
-            Err(_) => Self::Disabled,
-        }
-    }
-
-    /// Parse a comma-separated origin list.
-    pub fn parse(raw: &str) -> Self {
-        let origins: Vec<String> = raw
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && *s != "*")
-            .map(str::to_owned)
-            .collect();
-        if origins.is_empty() {
-            Self::Disabled
-        } else {
-            Self::Allowlist(origins)
-        }
-    }
-
-    /// Whether `origin` is permitted.
-    pub fn allows(&self, origin: &str) -> bool {
-        match self {
-            Self::Disabled => false,
-            Self::Allowlist(origins) => origins.iter().any(|o| o == origin),
-        }
-    }
-
-    /// Build the tower-http layer for this policy.
-    pub fn layer(&self) -> CorsLayer {
-        let base = CorsLayer::new()
-            .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-            .allow_headers([
-                axum::http::header::AUTHORIZATION,
-                axum::http::header::CONTENT_TYPE,
-            ])
-            .max_age(Duration::from_secs(600));
-
-        match self {
-            // An empty origin list emits no Access-Control-Allow-Origin, so a
-            // browser refuses the cross-origin response.
-            Self::Disabled => base.allow_origin(AllowOrigin::list([])),
-            Self::Allowlist(origins) => {
-                let parsed: Vec<HeaderValue> = origins
-                    .iter()
-                    .filter_map(|o| HeaderValue::from_str(o).ok())
-                    .collect();
-                base.allow_origin(AllowOrigin::list(parsed))
-            }
-        }
-    }
-}
+///
+/// Re-exported from [`soul_cors`] rather than defined here. This crate carried
+/// its own copy from P1-2, and `soul-cors` (P1-10) was later extracted with
+/// byte-identical parsing, the same `Disabled`/`Allowlist` shape, and the same
+/// fail-closed default — two implementations of one rule, which is one more
+/// than can be kept correct. The risk is not that the copy was wrong today; it
+/// is that a fix applied to one would silently not reach the other.
+///
+/// The re-export keeps `limits::CorsPolicy` naming both here and at every call
+/// site, so this is a deduplication and not an API break.
+pub use soul_cors::CorsPolicy;
 
 #[cfg(test)]
 mod tests {
@@ -425,9 +361,9 @@ mod tests {
     #[test]
     fn every_policy_builds_a_layer() {
         // Guards against a panic in HeaderValue conversion for odd input.
-        let _ = CorsPolicy::Disabled.layer();
-        let _ = CorsPolicy::parse("https://ops.example.com").layer();
-        let _ = CorsPolicy::parse("not a valid header value\u{7f}").layer();
+        let _ = CorsPolicy::Disabled.read_write_layer();
+        let _ = CorsPolicy::parse("https://ops.example.com").read_write_layer();
+        let _ = CorsPolicy::parse("not a valid header value\u{7f}").read_write_layer();
     }
 
     #[test]

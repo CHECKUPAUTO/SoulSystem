@@ -1006,7 +1006,10 @@ async fn ws_loop(mut socket: WebSocket, state: GatewayState) {
 /// [`limits::CorsPolicy::from_env`] / [`GatewayState::limits`]; use
 /// [`router_with_cors`] to inject a policy explicitly.
 pub fn router(state: GatewayState) -> Router {
-    router_with_cors(state, limits::CorsPolicy::from_env())
+    router_with_cors(
+        state,
+        limits::CorsPolicy::from_env(limits::CORS_ALLOWLIST_VAR),
+    )
 }
 
 /// [`router`], with the cross-origin policy supplied rather than read from the
@@ -1086,7 +1089,7 @@ pub fn router_with_cors(state: GatewayState, cors: limits::CorsPolicy) -> Router
         ))
         // Outermost, so error responses (401, 413) carry the same origin
         // decision as successful ones.
-        .layer(cors.layer())
+        .layer(cors.read_write_layer())
         .with_state(state)
 }
 

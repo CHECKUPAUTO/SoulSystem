@@ -6,6 +6,7 @@ license.workspace = true
 description = "SoulSystem — Web dashboard for monitoring organ health and system status"
 
 [dependencies]
+soul-cors = { workspace = true }
 axum = { workspace = true, features = ["ws", "query"] }
 tokio = { workspace = true }
 tokio-tungstenite = "0.26"
