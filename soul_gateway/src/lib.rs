@@ -16,6 +16,7 @@
 //! implémente, ce qui permet de tester le gateway sans dépendre du runtime
 //! complet.
 
+pub mod limits;
 pub mod providers;
 pub mod webhook_auth;
 
@@ -23,7 +24,7 @@ use async_trait::async_trait;
 use axum::{
     body::Bytes,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::{Request, State},
+    extract::{DefaultBodyLimit, Request, State},
     http::{header, HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json},
@@ -339,6 +340,11 @@ pub struct GatewayState {
     /// Signatures already accepted, so a captured webhook cannot be replayed
     /// while its timestamp is still fresh (HIGH-007 / INV-NET-3).
     pub webhook_replay: Arc<webhook_auth::ReplayCache>,
+    /// Body / concurrency / WebSocket-message bounds (INV-NET-5).
+    ///
+    /// Carried on the state rather than captured by [`router`] alone because
+    /// [`handle_ws`] needs the WebSocket bound at upgrade time.
+    pub limits: limits::GatewayLimits,
 }
 
 impl GatewayState {
@@ -351,6 +357,7 @@ impl GatewayState {
             events: EventHub::new(500),
             auth: GatewayAuth::from_env(),
             webhook_replay: Arc::new(webhook_auth::ReplayCache::new()),
+            limits: limits::GatewayLimits::from_env(),
         }
     }
 
@@ -361,7 +368,14 @@ impl GatewayState {
             events: EventHub::new(500),
             auth,
             webhook_replay: Arc::new(webhook_auth::ReplayCache::new()),
+            limits: limits::GatewayLimits::default(),
         }
+    }
+
+    /// Override the request limits (tests, embedders).
+    pub fn with_limits(mut self, limits: limits::GatewayLimits) -> Self {
+        self.limits = limits;
+        self
     }
 }
 
@@ -611,20 +625,16 @@ async fn handle_recent_events(State(st): State<GatewayState>) -> impl IntoRespon
     Json(st.events.recent(50))
 }
 
-async fn handle_ws(State(st): State<GatewayState>, ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| ws_loop(socket, st))
-}
-
-/// Whether a webhook provider's verification secret is configured (non-empty).
+/// Upgrade to a WebSocket, bounding what a single message may make us buffer.
 ///
-/// Fail-closed partial fix for HIGH-007: previously a webhook payload was
-/// processed unconditionally, whether or not a secret was configured to
-/// verify it. Now an unset secret rejects the request outright. This does
-/// NOT yet verify the request's actual signature against that secret — full
-/// per-provider cryptographic verification (Discord Ed25519, Slack/WhatsApp
-/// HMAC-SHA256, timestamp freshness, replay protection) is a follow-up PR.
-fn webhook_secret_configured(var: &str) -> bool {
-    std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false)
+/// `/v1/stream` is bearer-authenticated, but an authenticated client must
+/// still not be able to announce an unbounded frame and make the server
+/// allocate for it (INV-NET-5).
+async fn handle_ws(State(st): State<GatewayState>, ws: WebSocketUpgrade) -> impl IntoResponse {
+    let max_message = st.limits.max_ws_message_bytes;
+    ws.max_message_size(max_message)
+        .max_frame_size(max_message)
+        .on_upgrade(move |socket| ws_loop(socket, st))
 }
 
 /// Read a header as UTF-8, or `MalformedHeader`.
@@ -821,12 +831,24 @@ async fn ws_loop(mut socket: WebSocket, state: GatewayState) {
 /// disclosure routes, not only state-changing ones (CRIT-007 / INV-NET-1).
 /// `/health` is the sole exception (liveness probe; carries no state).
 /// `/providers/*/webhook` routes are not bearer-authenticated (the caller is
-/// an external provider, not an operator) but each fails closed when its
-/// provider secret is unset (see `webhook_secret_configured`) — full
-/// cryptographic signature verification is scoped to a follow-up PR.
+/// an external provider, not an operator); each one instead verifies the
+/// provider's cryptographic signature over the raw body, checks timestamp
+/// freshness and rejects replays (HIGH-007 / INV-NET-3, see
+/// [`webhook_auth`]).
 ///
-/// CORS remains `permissive()` here; strict CORS is PR G.
+/// Cross-origin access is an explicit allowlist read from the environment and
+/// defaults to *no* cross-origin access (INV-NET-4), and every route carries a
+/// body-size and concurrency bound (INV-NET-5). Both come from
+/// [`limits::CorsPolicy::from_env`] / [`GatewayState::limits`]; use
+/// [`router_with_cors`] to inject a policy explicitly.
 pub fn router(state: GatewayState) -> Router {
+    router_with_cors(state, limits::CorsPolicy::from_env())
+}
+
+/// [`router`], with the cross-origin policy supplied rather than read from the
+/// environment.
+pub fn router_with_cors(state: GatewayState, cors: limits::CorsPolicy) -> Router {
+    let limits = state.limits;
     let operator_routes = Router::new()
         .route("/v1/ask", post(handle_ask))
         .route("/v1/goal", post(handle_create_goal))
@@ -853,7 +875,23 @@ pub fn router(state: GatewayState) -> Router {
         .route("/health", get(health))
         .merge(operator_routes)
         .merge(webhook_routes)
-        .layer(tower_http::cors::CorsLayer::permissive())
+        // Innermost: the body bound has to be visible to the extractors that
+        // consult it (`Bytes`, `Json`), so it is applied closest to the routes.
+        .layer(DefaultBodyLimit::max(limits.max_body_bytes))
+        // Bounds the requests being *served* at once. `Global` and not
+        // `ConcurrencyLimitLayer`: the latter builds a fresh semaphore on every
+        // `Layer::layer` call, so with `Router::layer` each route would get its
+        // own budget of N and the real ceiling would be N × routes. The global
+        // layer shares one semaphore across every route and every clone of the
+        // router. Excess requests wait on it rather than erroring, so a burst
+        // degrades latency instead of failing; note this bounds work in flight,
+        // not the number of queued connections.
+        .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
+            limits.max_concurrent_requests,
+        ))
+        // Outermost, so error responses (401, 413) carry the same origin
+        // decision as successful ones.
+        .layer(cors.layer())
         .with_state(state)
 }
 
@@ -1330,5 +1368,310 @@ mod tests {
         let app = router(mock_state(GatewayAuth::configured("tok")));
         let status = send(app, "POST", "/providers/discord/webhook", None, "{}").await;
         assert_ne!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    // ── Router / INV-NET-4: CORS is an explicit allowlist ────
+
+    async fn send_with_origin(app: Router, uri: &str, origin: &str) -> axum::response::Response {
+        use tower::ServiceExt;
+        let req = axum::http::Request::builder()
+            .method("GET")
+            .uri(uri)
+            .header(header::ORIGIN, origin)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        app.oneshot(req).await.unwrap()
+    }
+
+    fn allow_origin_header(resp: &axum::response::Response) -> Option<String> {
+        resp.headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned)
+    }
+
+    #[tokio::test]
+    async fn default_router_grants_no_cross_origin_access() {
+        // The regression this closes: the router used to apply
+        // `CorsLayer::permissive()` to the *merged* router, so every origin
+        // got `Access-Control-Allow-Origin: *` on the authenticated operator
+        // routes. With no allowlist configured the answer is now "no origin".
+        let app = router_with_cors(
+            mock_state(GatewayAuth::configured("tok")),
+            limits::CorsPolicy::Disabled,
+        );
+        let resp = send_with_origin(app, "/health", "https://evil.example.com").await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "the request itself is served"
+        );
+        assert_eq!(
+            allow_origin_header(&resp),
+            None,
+            "no Access-Control-Allow-Origin means the browser refuses the response"
+        );
+    }
+
+    #[tokio::test]
+    async fn allowlisted_origin_is_echoed_and_others_are_not() {
+        let app = router_with_cors(
+            mock_state(GatewayAuth::configured("tok")),
+            limits::CorsPolicy::parse("https://ops.example.com"),
+        );
+
+        let allowed = send_with_origin(app.clone(), "/health", "https://ops.example.com").await;
+        assert_eq!(
+            allow_origin_header(&allowed).as_deref(),
+            Some("https://ops.example.com")
+        );
+
+        let denied = send_with_origin(app, "/health", "https://evil.example.com").await;
+        assert_eq!(
+            allow_origin_header(&denied),
+            None,
+            "an origin outside the allowlist gets no header, and never `*`"
+        );
+    }
+
+    #[tokio::test]
+    async fn authenticated_operator_routes_are_covered_by_the_cors_policy() {
+        // The layer sits on the merged router, so it must apply to `/v1/*` and
+        // not only to `/health` — that breadth is what made `permissive()`
+        // dangerous, and it is the same breadth the allowlist has to cover.
+        let app = router_with_cors(
+            mock_state(GatewayAuth::configured("tok")),
+            limits::CorsPolicy::parse("https://ops.example.com"),
+        );
+
+        let denied = send_with_origin(app.clone(), "/v1/status", "https://evil.example.com").await;
+        assert_eq!(allow_origin_header(&denied), None);
+
+        let allowed = send_with_origin(app, "/v1/status", "https://ops.example.com").await;
+        // Unauthenticated, so 401 — but the CORS decision is still made, which
+        // is what "outermost layer" buys us.
+        assert_eq!(allowed.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            allow_origin_header(&allowed).as_deref(),
+            Some("https://ops.example.com")
+        );
+    }
+
+    // ── Router / INV-NET-5: body, message and concurrency ────
+
+    fn limited_state(max_body: usize, max_concurrent: usize) -> GatewayState {
+        mock_state(GatewayAuth::configured("tok")).with_limits(limits::GatewayLimits {
+            max_body_bytes: max_body,
+            max_concurrent_requests: max_concurrent,
+            ..limits::GatewayLimits::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn oversized_body_is_rejected_on_an_authenticated_route() {
+        let app = router_with_cors(limited_state(256, 8), limits::CorsPolicy::Disabled);
+        let body = format!(r#"{{"description":"{}"}}"#, "x".repeat(4096));
+        assert_eq!(
+            send(app, "POST", "/v1/goal", Some("tok"), &body).await,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+    }
+
+    #[tokio::test]
+    async fn a_body_within_the_limit_is_still_served() {
+        // The bound must not be so eager that it breaks ordinary requests.
+        let app = router_with_cors(limited_state(4096, 8), limits::CorsPolicy::Disabled);
+        assert_eq!(
+            send(
+                app,
+                "POST",
+                "/v1/goal",
+                Some("tok"),
+                r#"{"description":"ship it"}"#
+            )
+            .await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn oversized_body_is_rejected_before_the_webhook_handler_runs() {
+        // This is the unauthenticated surface, so it is the one that matters:
+        // the extractor's bound is reached before any handler logic, which is
+        // why the answer is 413 and not the handler's own 503.
+        assert!(std::env::var("SLACK_SIGNING_SECRET").is_err());
+        let app = router_with_cors(limited_state(256, 8), limits::CorsPolicy::Disabled);
+        let status = send(
+            app,
+            "POST",
+            "/providers/slack/webhook",
+            None,
+            &"x".repeat(4096),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    /// An entity whose `ask` parks inside the handler until the test releases
+    /// it, so "how many requests are in flight" is directly observable.
+    struct GateEntity {
+        entered: Arc<AtomicUsize>,
+        gate: Arc<tokio::sync::Semaphore>,
+    }
+
+    #[async_trait]
+    impl EntityHandle for GateEntity {
+        async fn ask(&self, _prompt: &str) -> Result<String, String> {
+            self.entered.fetch_add(1, Ordering::SeqCst);
+            let permit = self.gate.acquire().await.map_err(|e| e.to_string())?;
+            permit.forget();
+            Ok("released".into())
+        }
+        async fn status(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn create_goal(&self, _desc: &str) -> Result<String, String> {
+            Ok("g".into())
+        }
+        async fn plan(&self, _goal_id: &str) -> Result<Vec<String>, String> {
+            Ok(vec![])
+        }
+        async fn execute_plan(&self, _goal_id: &str) -> Result<String, String> {
+            Ok(String::new())
+        }
+        async fn execute_shell(&self, _cmd: &str) -> Result<String, String> {
+            Ok(String::new())
+        }
+        async fn run_cycle(&self) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({}))
+        }
+        async fn list_goals(&self) -> Vec<serde_json::Value> {
+            vec![]
+        }
+        async fn replay_events(&self, _n: usize) -> Vec<EntityEvent> {
+            vec![]
+        }
+        async fn alert(&self, _level: &str, _msg: &str) -> Result<(), String> {
+            Ok(())
+        }
+        async fn spawn_subagent(&self, _description: &str) -> Result<String, String> {
+            Ok("s".into())
+        }
+        async fn list_subagents(&self) -> Vec<serde_json::Value> {
+            vec![]
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrency_limit_bounds_requests_in_flight() {
+        use std::time::Duration;
+
+        let entered = Arc::new(AtomicUsize::new(0));
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let entity = Arc::new(GateEntity {
+            entered: Arc::clone(&entered),
+            gate: Arc::clone(&gate),
+        });
+        let state = GatewayState::with_auth(entity, GatewayAuth::configured("tok")).with_limits(
+            limits::GatewayLimits {
+                max_concurrent_requests: 1,
+                ..limits::GatewayLimits::default()
+            },
+        );
+        let app = router_with_cors(state, limits::CorsPolicy::Disabled);
+
+        let ask = |app: Router| async move {
+            send(app, "POST", "/v1/ask", Some("tok"), r#"{"prompt":"hi"}"#).await
+        };
+
+        let first = tokio::spawn(ask(app.clone()));
+        for _ in 0..200 {
+            if entered.load(Ordering::SeqCst) == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(
+            entered.load(Ordering::SeqCst),
+            1,
+            "the first request should have reached the handler"
+        );
+
+        let second = tokio::spawn(ask(app.clone()));
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(
+            entered.load(Ordering::SeqCst),
+            1,
+            "the second request must wait for a permit, not run concurrently"
+        );
+
+        // Releasing the first frees its permit, so the second proceeds — the
+        // limit throttles, it does not drop.
+        gate.add_permits(2);
+        assert_eq!(first.await.unwrap(), StatusCode::OK);
+        assert_eq!(second.await.unwrap(), StatusCode::OK);
+        assert_eq!(entered.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn the_concurrency_budget_is_shared_across_routes() {
+        // `ConcurrencyLimitLayer` would hand each route its own semaphore under
+        // `Router::layer`, making the real ceiling N × routes. Two different
+        // routes must therefore contend for the same single permit.
+        use std::time::Duration;
+
+        let entered = Arc::new(AtomicUsize::new(0));
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let entity = Arc::new(GateEntity {
+            entered: Arc::clone(&entered),
+            gate: Arc::clone(&gate),
+        });
+        let state = GatewayState::with_auth(entity, GatewayAuth::configured("tok")).with_limits(
+            limits::GatewayLimits {
+                max_concurrent_requests: 1,
+                ..limits::GatewayLimits::default()
+            },
+        );
+        let app = router_with_cors(state, limits::CorsPolicy::Disabled);
+
+        let blocking = tokio::spawn({
+            let app = app.clone();
+            async move { send(app, "POST", "/v1/ask", Some("tok"), r#"{"prompt":"hi"}"#).await }
+        });
+        for _ in 0..200 {
+            if entered.load(Ordering::SeqCst) == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(entered.load(Ordering::SeqCst), 1);
+
+        // A *different* route, which would be instant if it had its own budget.
+        let other = tokio::spawn({
+            let app = app.clone();
+            async move { send(app, "GET", "/health", None, "").await }
+        });
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(
+            !other.is_finished(),
+            "a second route shares the same permit"
+        );
+
+        gate.add_permits(2);
+        assert_eq!(blocking.await.unwrap(), StatusCode::OK);
+        assert_eq!(other.await.unwrap(), StatusCode::OK);
+    }
+
+    #[test]
+    fn state_carries_the_websocket_message_bound() {
+        // `handle_ws` reads the bound off the state at upgrade time; this
+        // guards the plumbing that makes that possible.
+        let st = mock_state(GatewayAuth::configured("tok"))
+            .with_limits(limits::GatewayLimits::default());
+        assert_eq!(
+            st.limits.max_ws_message_bytes,
+            limits::DEFAULT_MAX_WS_MESSAGE_BYTES
+        );
+        assert!(st.limits.max_ws_message_bytes > 0);
     }
 }

@@ -19,7 +19,7 @@ use axum::{
         ws::{Message, WebSocket},
         Query, State, WebSocketUpgrade,
     },
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderValue, Method, StatusCode},
     response::{Html, IntoResponse, Json},
     routing::get,
     Router,
@@ -30,6 +30,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
 
 // ── Data Model ──────────────────────────────────────────────────────────
@@ -438,7 +439,51 @@ fn escape_html(s: &str) -> String {
 
 // ── Server ──────────────────────────────────────────────────────────────
 
+/// Environment variable holding a comma-separated CORS origin allowlist.
+pub const CORS_ALLOWLIST_VAR: &str = "SOULSYSTEM_DASHBOARD_CORS_ORIGINS";
+
+/// Build the dashboard's cross-origin layer from the environment (INV-NET-4).
+///
+/// The dashboard used to apply [`tower_http::cors::CorsLayer::permissive`],
+/// which sends `Access-Control-Allow-Origin: *`. Binding to `127.0.0.1` does
+/// not make that safe: any page the operator's browser loads can issue
+/// cross-origin requests to `http://127.0.0.1:<port>/api/*` and — because of
+/// that header — *read* the responses. [`run_server`] is also called with
+/// `auth_token: None` from the main binary, so those responses are served
+/// without a credential.
+///
+/// The dashboard serves its own UI from its own origin, so it needs no
+/// cross-origin access at all. Unset, blank, or a bare `*` therefore yields an
+/// empty allowlist, which emits no `Access-Control-Allow-Origin` header and
+/// makes a browser refuse the cross-origin response.
+pub fn cors_layer_from_env() -> CorsLayer {
+    cors_layer(&std::env::var(CORS_ALLOWLIST_VAR).unwrap_or_default())
+}
+
+/// [`cors_layer_from_env`], with the raw allowlist supplied directly.
+pub fn cors_layer(raw: &str) -> CorsLayer {
+    let origins: Vec<HeaderValue> = raw
+        .split(',')
+        .map(str::trim)
+        // `*` is filtered rather than honoured: re-creating the permissive
+        // behaviour must be a deliberate enumeration, not one config character.
+        .filter(|s| !s.is_empty() && *s != "*")
+        .filter_map(|s| HeaderValue::from_str(s).ok())
+        .collect();
+
+    CorsLayer::new()
+        .allow_methods([Method::GET])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+        .allow_origin(AllowOrigin::list(origins))
+}
+
 pub fn app(state: AppState) -> Router {
+    app_with_cors(state, cors_layer_from_env())
+}
+
+/// [`app`], with the cross-origin layer injected rather than read from the
+/// environment.
+pub fn app_with_cors(state: AppState, cors: CorsLayer) -> Router {
     let csp_value = HeaderValue::from_static(
         "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     );
@@ -452,7 +497,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/costs", get(costs_handler))
         .route("/ws", get(ws_handler))
         .with_state(state)
-        .layer(tower_http::cors::CorsLayer::permissive())
+        .layer(cors)
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CONTENT_SECURITY_POLICY,
             csp_value,
@@ -556,5 +601,67 @@ mod tests {
         assert!(check_auth(Some("abc"), Some("abc"))); // Correct token
         assert!(!check_auth(Some("wrong"), Some("abc"))); // Wrong token
         assert!(!check_auth(None, Some("abc"))); // Missing token
+    }
+
+    // ── INV-NET-4: cross-origin access is an allowlist ──────────────────
+
+    async fn allow_origin_header(cors: CorsLayer, origin: &str) -> Option<String> {
+        use tower::ServiceExt;
+        let app = app_with_cors(test_state(), cors);
+        let req = axum::http::Request::builder()
+            .method("GET")
+            .uri("/api/health")
+            .header(header::ORIGIN, origin)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        resp.headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned)
+    }
+
+    #[tokio::test]
+    async fn dashboard_grants_no_cross_origin_access_by_default() {
+        // The regression this closes: `CorsLayer::permissive()` answered every
+        // origin with `*`, so a page in the operator's browser could read
+        // `http://127.0.0.1:<port>/api/*` — which `run_server` serves with
+        // `auth_token: None` from the main binary.
+        assert_eq!(
+            allow_origin_header(cors_layer(""), "https://evil.example.com").await,
+            None
+        );
+        assert_eq!(
+            allow_origin_header(cors_layer("   "), "https://evil.example.com").await,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn dashboard_rejects_a_bare_wildcard_allowlist() {
+        assert_eq!(
+            allow_origin_header(cors_layer("*"), "https://evil.example.com").await,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn dashboard_echoes_only_allowlisted_origins() {
+        let listed = "https://ops.example.com";
+        assert_eq!(
+            allow_origin_header(cors_layer(listed), listed)
+                .await
+                .as_deref(),
+            Some(listed)
+        );
+        assert_eq!(
+            allow_origin_header(cors_layer(listed), "https://evil.example.com").await,
+            None
+        );
+        // Matching is exact — scheme and port are part of the origin.
+        assert_eq!(
+            allow_origin_header(cors_layer(listed), "http://ops.example.com").await,
+            None
+        );
     }
 }

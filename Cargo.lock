@@ -9647,6 +9647,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite 0.26.2",
+ "tower 0.5.3",
  "tower-http 0.6.11",
  "tracing",
 ]

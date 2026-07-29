@@ -16,3 +16,6 @@ tower-http = { workspace = true, features = ["cors", "set-header"] }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+
+[dev-dependencies]
+tower = { workspace = true }
