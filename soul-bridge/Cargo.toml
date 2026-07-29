@@ -6,6 +6,7 @@ license.workspace = true
 description = "Unified bridge to all external subsystems — replaces 9 individual bridge crates"
 
 [dependencies]
+soul_sandbox = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -470,25 +470,29 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   arbitrary-execution sites has not removed them. The invariant holds when they
   are gone, not when they are inventoried.
 
-### P1-8-B Route the remaining 8 sites through the sandbox, and decide about the non-member trees
+### P1-8-B Route the remaining 5 sites through the sandbox, and decide about the non-member trees
 
-- **Findings / invariants:** CRIT-001 (residual), INV-EXEC-1, MED-013, MED-014
-- **Done so far:** the request-reachable spawn route (round 1), and the whole
-  `sh -c` group (round 2). `UNSANDBOXED_ARBITRARY_BUDGET` is now **8**.
-- **What is left, and it is not homogeneous.**
-  - `soul-kernel`'s `OptimizeSystem` runs three *fixed* `sh -c` strings
-    (`sync && echo 3 > /proc/sys/vm/drop_caches`, a `journalctl --vacuum-time`,
-    a `find /tmp -delete`). No caller input reaches them, so there is nothing to
-    inject — but the sandbox would refuse all three, since they are shell
-    composition and destructive-pattern matches. They want rewriting as direct
-    operations, not wrapping.
-  - `soul-bridge`'s two child spawns and `soul-kernel/parallel` are
-    structured-argv spawns, so they want `spawn_supervised`.
+- **Findings / invariants:** CRIT-001 (residual), INV-EXEC-1
+- **Done:** round 1 the request-reachable spawn route; round 2 the `sh -c`
+  group; round 3 soul-bridge's two MCP child spawns.
+  `UNSANDBOXED_ARBITRARY_BUDGET` is **5**.
+- **What is left, still not homogeneous.**
+  - `soul-kernel`'s `OptimizeSystem` runs three *fixed* privileged `sh -c`
+    strings (`sync && echo 3 > /proc/sys/vm/drop_caches`, `journalctl
+    --vacuum-time`, `find /tmp -delete`). The sandbox would refuse all three —
+    they are shell composition and destructive-pattern matches. No caller input
+    reaches them, so there is nothing to inject; they want **rewriting as direct
+    operations**, not wrapping. Doing that is a behaviour question about what
+    those operations should be, not a mechanical migration.
   - `soul-kernel/perception` is mostly fixed argv (`df --output=pcent /`,
-    `systemctl is-active`) plus one fixed `journalctl | grep` pipeline.
-  - `soul_gateway`'s `osascript` iMessage provider is macOS-only while the
-    isolation hook is Linux-specific. That one needs a decision, not a
-    mechanical fix.
+    `systemctl is-active`) plus one fixed `journalctl | grep` pipeline — the
+    pipeline is the only part the sandbox cannot take as-is.
+  - `soul_automation` and `soullink-orchestrator`'s `main` need reading before
+    they can be classified.
+  - `soul_gateway`'s `osascript` iMessage provider is **macOS-only** while the
+    isolation hook is Linux-specific. Sandboxing it on Linux would confine code
+    that never runs there and do nothing on the platform where it does. Needs a
+    decision, not a migration.
 - **Decide what to do about the non-member trees.** `intel-integrations/`,
   `openevolve/`, `backlog/`, `os-agents/`, `openclaw-evolution/`, `soul-rsi/`,
   `jit-agentic-engine/`, `soullink-node/`, `turboquant/` and
@@ -497,6 +501,35 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   guard says nothing about them. Either they are shipped code — in which case
   they belong in the workspace and under the guard — or they are dead weight
   that should be deleted. A product question about what this repository ships.
+
+### ~~P1-8-B(3) The structured-argv group~~ — CLOSED
+
+- **Findings / invariants:** CRIT-001 (residual), INV-EXEC-1
+- **soul-bridge's two MCP child spawns** (`ccos.rs`, `octasoma.rs`) now build
+  their command through `Sandbox::supervised_command`. Config-supplied values
+  (`workspace`, `store`, `ollama_url`, `ollama_model`) go through
+  `SpawnSpec::value`, so a config entry shaped like `--something` is refused
+  rather than becoming a flag to the spawned binary.
+- **A recategorisation, stated as such.** `soul-kernel/parallel` was labelled
+  `unsandboxed-arbitrary-command`, but `run_action` matches its argument against
+  exactly two string literals and spawns `sync` or a fixed `systemctl
+  list-units`. No caller input reaches argv. `host-control-fixed-argv` is what
+  the rest of the allowlist already calls this shape. **The budget drops by one
+  for that entry because the label was wrong, not because anything was fixed** —
+  worth saying plainly, since a falling number otherwise reads as progress.
+- **Two more gaps in `spawn_supervised`, both found by real callers.**
+  - `SpawnSpec::piped_stdio`. The API assumed a fire-and-forget daemon and
+    nulled stdio. These children *are* their pipes — MCP servers exchanging
+    JSON-RPC on stdin/stdout. Null stdio would not have failed at spawn: the
+    child starts, reads EOF, and the parent waits forever for a reply on a pipe
+    that was never created. A hang, not an error, which is the worse failure.
+  - `Sandbox::supervised_command`. Both callers do async I/O on those pipes, so
+    a `std::process::Child` would have put blocking reads on a tokio task and
+    stalled a runtime worker for the length of every call. Returning the built
+    but unspawned `Command` lets the caller do
+    `tokio::process::Command::from(cmd)` and keep async pipes, while validation
+    and the `pre_exec` hook still happen in one place. `soul_sandbox` keeps no
+    `tokio` dependency.
 
 ### ~~P1-8-B(2) The `sh -c` group~~ — CLOSED
 

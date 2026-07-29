@@ -220,25 +220,21 @@ const ALLOWED: &[(&str, Category, &str)] = &[
         "Automation steps run `sh` outside the sandbox.",
     ),
     (
-        "soul-bridge/src/ccos.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "Spawns a configured child binary with caller-influenced argv.",
-    ),
-    (
-        "soul-bridge/src/octasoma.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "Spawns a configured child binary with caller-influenced argv.",
-    ),
-    (
         "soullink-brain/soullink-orchestrator/src/main.rs",
         Category::UnsandboxedArbitraryCommand,
         "Runs `python3` against an orchestrator-supplied script.",
     ),
     (
         "soul-kernel/src/parallel/mod.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "`sync` and `systemctl` invoked from the parallel executor without \
-         going through the kernel's own sandbox module.",
+        Category::HostControlFixedArgv,
+        "RECATEGORISED by P1-8-B round 3, not fixed. `run_action` matches its \
+         argument against exactly two string literals and spawns `sync` (no \
+         args) or `systemctl list-units --state=failed --no-pager \
+         --no-legend`. No caller input reaches argv, so there is no arbitrary \
+         command here and the previous `unsandboxed-arbitrary-command` label \
+         overstated it. `host-control-fixed-argv` is what the rest of the \
+         allowlist already calls this shape. The budget drops by one as a \
+         result; that reflects a corrected label, not work done.",
     ),
     (
         "soul_gateway/src/providers/imessage.rs",
@@ -262,7 +258,7 @@ const ALLOWED: &[(&str, Category, &str)] = &[
 /// Pinned so the category cannot grow quietly. Lowering it as sites are fixed
 /// is the intended direction; raising it should require saying so out loud in a
 /// review.
-const UNSANDBOXED_ARBITRARY_BUDGET: usize = 8;
+const UNSANDBOXED_ARBITRARY_BUDGET: usize = 5;
 
 /// Patterns that indicate a process spawn.
 const SPAWN_PATTERNS: &[&str] = &[
@@ -578,7 +574,7 @@ fn the_scan_reaches_crates_across_the_workspace() {
         "bound-system/src/lib.rs",
         "soul_sandbox/src/lib.rs",
         "soul-kernel/src/action/mod.rs",
-        "soul-bridge/src/ccos.rs",
+        "soul-kernel/src/perception/mod.rs",
         "src/self_healer.rs",
     ] {
         assert!(

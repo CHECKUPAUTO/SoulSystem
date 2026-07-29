@@ -1392,6 +1392,7 @@ mod proptests {
 pub struct SpawnSpec {
     program: String,
     args: Vec<String>,
+    piped: bool,
 }
 
 impl SpawnSpec {
@@ -1401,7 +1402,25 @@ impl SpawnSpec {
         Self {
             program: program.into(),
             args: Vec::new(),
+            piped: false,
         }
+    }
+
+    /// Give the child piped stdin/stdout instead of `/dev/null`.
+    ///
+    /// The default is null stdio, which suits a daemon that logs elsewhere and
+    /// is spoken to over a socket. It does not suit a child that *is* spoken to
+    /// over its pipes — an MCP server exchanging JSON-RPC on stdin/stdout, for
+    /// instance. Handing that child `/dev/null` does not fail at spawn: it
+    /// starts, reads EOF immediately, and the parent waits forever for a reply
+    /// on a pipe that was never created. A hang, not an error.
+    ///
+    /// stderr stays inherited either way so the child's diagnostics reach the
+    /// parent's log rather than a pipe nobody drains — a full stderr pipe with
+    /// no reader is another way to hang a child.
+    pub fn piped_stdio(mut self) -> Self {
+        self.piped = true;
+        self
     }
 
     /// Append an argument the program itself chose: a literal flag, a
@@ -1486,6 +1505,19 @@ impl SupervisedChild {
         self.pid
     }
 
+    /// Take the child's stdin, if it was spawned with [`SpawnSpec::piped_stdio`].
+    ///
+    /// Returns `None` on the second call and when stdio was not piped, matching
+    /// `std::process::Child`.
+    pub fn take_stdin(&mut self) -> Option<std::process::ChildStdin> {
+        self.child.stdin.take()
+    }
+
+    /// Take the child's stdout, if it was spawned with [`SpawnSpec::piped_stdio`].
+    pub fn take_stdout(&mut self) -> Option<std::process::ChildStdout> {
+        self.child.stdout.take()
+    }
+
     /// Has it exited yet?
     pub fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
         self.child.try_wait()
@@ -1541,6 +1573,38 @@ impl Sandbox {
     /// the default policy lands in an empty network namespace and binds a port
     /// nobody can reach, which fails loudly rather than silently.
     pub fn spawn_supervised(&self, spec: &SpawnSpec) -> Result<SupervisedChild, SandboxError> {
+        let mut command = self.supervised_command(spec)?;
+        let child = command.spawn()?;
+        let pid = child.id() as i32;
+        Ok(SupervisedChild { child, pid })
+    }
+
+    /// Build the isolated `Command` for `spec` **without spawning it**.
+    ///
+    /// Exists for callers that need a `tokio::process::Child` rather than a
+    /// `std::process::Child`: `tokio::process::Command` converts from the std
+    /// type, so such a caller does
+    ///
+    /// ```ignore
+    /// let cmd = sandbox.supervised_command(&spec)?;
+    /// let child = tokio::process::Command::from(cmd).spawn()?;
+    /// ```
+    ///
+    /// and keeps async pipes. The alternative — handing those callers the std
+    /// `Child` from [`Self::spawn_supervised`] — would put blocking reads and
+    /// writes on an async task, stalling a runtime worker for as long as the
+    /// child takes to answer.
+    ///
+    /// This crate deliberately has no `tokio` dependency, which is why the
+    /// conversion happens at the call site rather than here. What does *not*
+    /// move to the call site is the isolation: validation and the `pre_exec`
+    /// hook are applied to the returned `Command`, so a caller that converts it
+    /// gets exactly the confinement `spawn_supervised` would have given it.
+    /// There is still one place isolation is configured.
+    pub fn supervised_command(
+        &self,
+        spec: &SpawnSpec,
+    ) -> Result<std::process::Command, SandboxError> {
         let (program, args) = spec.resolve()?;
 
         if BANNED_BINARIES.contains(&program.as_str()) {
@@ -1560,11 +1624,18 @@ impl Sandbox {
         // ordinary byte that `exec` passes through untouched. Rejecting it
         // would block legitimate arguments while preventing nothing.
         let mut command = Command::new(&program);
-        command
-            .args(&args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        command.args(&args);
+        if spec.piped {
+            command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit());
+        } else {
+            command
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+        }
         if let Some(ref dir) = self.policy.working_dir {
             command.current_dir(dir);
         }
@@ -1572,9 +1643,7 @@ impl Sandbox {
         #[cfg(unix)]
         self.apply_sandbox_pre_exec(&mut command);
 
-        let child = command.spawn()?;
-        let pid = child.id() as i32;
-        Ok(SupervisedChild { child, pid })
+        Ok(command)
     }
 }
 
@@ -1795,5 +1864,99 @@ mod timeout_reporting_tests {
     #[test]
     fn working_dir_defaults_to_none_so_existing_callers_are_unaffected() {
         assert!(SandboxPolicy::default().working_dir.is_none());
+    }
+}
+
+#[cfg(test)]
+mod piped_stdio_tests {
+    use super::*;
+    use std::io::Read;
+
+    fn permissive() -> SandboxPolicy {
+        SandboxPolicy {
+            seccomp_profile: None,
+            network_isolated: false,
+            ..Default::default()
+        }
+    }
+
+    /// The default must stay null stdio: an existing caller that relied on a
+    /// daemon's output going nowhere should not suddenly get pipes nobody
+    /// drains, which fills and blocks the child.
+    #[test]
+    fn stdio_is_null_unless_asked_for() {
+        let spec = SpawnSpec::new("echo").value("hi");
+        assert!(!spec.piped, "default must be null stdio");
+        assert!(SpawnSpec::new("echo").piped_stdio().piped);
+    }
+
+    /// The reason `piped_stdio` exists: with null stdio a child that talks over
+    /// its pipes gets nothing and the parent waits forever. Reading real bytes
+    /// back proves the pipe is actually wired, not merely requested.
+    #[cfg(unix)]
+    #[test]
+    fn a_piped_child_can_be_read_from() {
+        let sandbox = Sandbox::new(permissive());
+        let spec = SpawnSpec::new("echo").value("mcp-ready").piped_stdio();
+        let mut child = match sandbox.spawn_supervised(&spec) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("skipping: could not spawn echo ({e})");
+                return;
+            }
+        };
+        let mut out = String::new();
+        child
+            .take_stdout()
+            .expect("piped_stdio must yield a stdout handle")
+            .read_to_string(&mut out)
+            .expect("read child stdout");
+        assert_eq!(out.trim(), "mcp-ready");
+        assert!(
+            child.take_stdout().is_none(),
+            "a taken handle must not be handed out twice"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_null_stdio_child_yields_no_handles() {
+        let sandbox = Sandbox::new(permissive());
+        match sandbox.spawn_supervised(&SpawnSpec::new("true")) {
+            Ok(mut child) => {
+                assert!(child.take_stdout().is_none());
+                assert!(child.take_stdin().is_none());
+            }
+            Err(e) => eprintln!("skipping: could not spawn true ({e})"),
+        }
+    }
+
+    /// `supervised_command` must apply the same validation as
+    /// `spawn_supervised`, or a caller that converts it to a tokio `Command`
+    /// would bypass the argument-injection check entirely.
+    #[test]
+    fn supervised_command_enforces_the_same_checks() {
+        let sandbox = Sandbox::new(SandboxPolicy::default());
+        assert!(matches!(
+            sandbox.supervised_command(&SpawnSpec::new("echo").value("--oops")),
+            Err(SandboxError::Forbidden(_))
+        ));
+        assert!(matches!(
+            sandbox.supervised_command(&SpawnSpec::new(BANNED_BINARIES[0])),
+            Err(SandboxError::ShellEscape(_))
+        ));
+    }
+
+    /// It must hand back an *unspawned* command — the whole point is that the
+    /// caller decides how to launch it.
+    #[test]
+    fn supervised_command_returns_without_spawning() {
+        let sandbox = Sandbox::new(permissive());
+        let cmd = sandbox
+            .supervised_command(&SpawnSpec::new("echo").value("hi"))
+            .expect("should build");
+        assert_eq!(cmd.get_program(), "echo");
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(args, vec!["hi"]);
     }
 }

@@ -9623,6 +9623,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "soul_sandbox",
  "tokio",
  "tracing",
  "uuid",
