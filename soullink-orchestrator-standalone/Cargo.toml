@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 soul-cors = { workspace = true }
+soul_sandbox = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 axum = { workspace = true }

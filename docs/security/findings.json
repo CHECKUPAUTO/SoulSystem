@@ -16,14 +16,14 @@
     "REQUIRES_RUNTIME_VERIFICATION": "Static inspection cannot decide; the required dynamic test is stated.",
     "DEFERRED_PRODUCT_DECISION": "Remaining work needs an explicit product/governance decision; carries decision_required."
   },
-  "count": 36,
+  "count": 37,
   "status_summary": {
     "CONFIRMED_CURRENT": 6,
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
     "FIXED_AND_VERIFIED": 16,
     "NOT_REACHABLE": 5,
-    "PARTIALLY_FIXED": 5
+    "PARTIALLY_FIXED": 6
   },
   "severity_status_summary": {
     "critical": {
@@ -41,7 +41,7 @@
       "FALSE_POSITIVE": 2,
       "CONFIRMED_CURRENT": 1,
       "NOT_REACHABLE": 3,
-      "PARTIALLY_FIXED": 1
+      "PARTIALLY_FIXED": 2
     },
     "low": {
       "DEFERRED_PRODUCT_DECISION": 1,
@@ -53,7 +53,7 @@
   "severity_summary": {
     "critical": 6,
     "high": 10,
-    "medium": 12,
+    "medium": 13,
     "low": 8
   },
   "previous_status_summary_for_comparison": {
@@ -89,7 +89,7 @@
         "AutonomousAgent::run_react -> async_dispatch_tool -> dispatch_tool -> execute_shell -> bare std::process::Command"
       ],
       "current_state": "The original vector is closed: soul_tools::execute_shell constructs a soul_sandbox::Sandbox and no bare Command remains on the agent tool-dispatch path. Re-examined more precisely at this commit, correcting an overstatement in the previous re-verification: of the three process-execution sites in src/self_healer.rs, only ONE was ever live. `read_system_stats` ran `df --output=pcent` on every tick of the 30-second run() loop spawned from src/main.rs. The KillNonEssential and RestartService arms exec `kill` and `systemctl`, but no producer in the workspace constructs either DefenseAction variant - Preservation emits only Throttle, MemoryDump, EmergencySave, LocalFallback, DistressSignal and GracefulShutdown - so those two arms were latent, not attacker-reachable as previously described. Both classes are now addressed: the df exec is replaced by a statvfs(3) call (SelfHealer::root_disk_used_percent), removing the spawn entirely rather than sandboxing it; `kill(1)` is replaced by a direct libc::kill signal; and both privileged arms are gated behind ProcessControl::Enabled, which defaults to Disabled, so adding a producer cannot by itself turn bus traffic into host process control. The systemctl unit name is additionally validated by is_safe_service_name. tests/architecture_process_execution.rs now pins the permitted set of process-spawning files in the soulsystem binary crate and fails CI on any new one. P1-8 widens the architecture guard from the binary crate to EVERY workspace member, with each of the 30 production spawn files classified into one of five categories: sandbox-implementation (the crate IS the isolation boundary - bound-system, soul_sandbox, avid-sandbox, soul-kernel/sandbox), host-control-fixed-argv (systemctl/nvidia-smi/ss/df/tmux/docker with no caller-controlled argv), dev-tooling (cargo/git in self-modification and workflow paths), unsandboxed-arbitrary-command (12 files - KNOWN PROBLEMS recorded so they cannot grow, not approvals), and no-reachable-caller. Member directories are parsed from the root Cargo.toml rather than hardcoded, so a new workspace crate is scanned automatically. A false positive is explicitly exempted: soul_sandbox/src/seccomp.rs matches on `execve` only because it names SYS_execve as the syscall it BLOCKS, and a test asserts the exemption stays sound. Verified negatively three ways: an introduced Command in a non-allowlisted crate is caught; breaking the member parsing fails two vacuity guards; a stale allowlist entry is caught.",
-      "remaining_exposure": "12 workspace files still perform unsandboxed arbitrary command execution and are recorded in the guard's allowlist rather than fixed: the soullink-workflow node/condition `sh -c` sites, soullink-actions' shell action, soul-kernel's action and perception `sh -c` paths, soul_automation, both soul-bridge child spawns, the two python3 orchestrator spawns (one of which is reachable from an HTTP route, making it the highest priority), soul-kernel/parallel, and the gateway's osascript iMessage provider. A count budget pins the category so it cannot grow silently, and the ratchet also fails if the budget is left high after sites are fixed - but a pinned count is not a fix. Separately, 112 spawn sites in non-workspace-member directories (ironclaw, openevolve, backlog, os-agents, soullink-node and others) are outside the guard entirely: they are not built by cargo build --workspace, so the guard says nothing about them and the register does not claim otherwise.",
+      "remaining_exposure": "11 workspace files still perform unsandboxed arbitrary command execution and are recorded in the guard's allowlist rather than fixed: the soullink-workflow node/condition `sh -c` sites, soullink-actions' shell action, soul-kernel's action and perception `sh -c` paths, soul_automation, both soul-bridge child spawns, the remaining python3 orchestrator spawn (the request-reachable one, `soullink-orchestrator-standalone/src/routes/spawn.rs`, was fixed by P1-8-B and removed from the allowlist, making it the highest priority), soul-kernel/parallel, and the gateway's osascript iMessage provider. A count budget pins the category so it cannot grow silently, and the ratchet also fails if the budget is left high after sites are fixed - but a pinned count is not a fix. Separately, 112 spawn sites in non-workspace-member directories (ironclaw, openevolve, backlog, os-agents, soullink-node and others) are outside the guard entirely: they are not built by cargo build --workspace, so the guard says nothing about them and the register does not claim otherwise.",
       "required_invariant": "No production-reachable code path invokes process execution outside the approved soul_sandbox executor (INV-EXEC-1).",
       "fixing_prs": [
         {
@@ -1725,6 +1725,63 @@
       ],
       "residual_risk": "The architecture guard covers workspace members only. `os-agents/soul_gateway` is outside the workspace and still calls `CorsLayer::permissive()` (LOW-003). The guard is also syntactic: an allowlist assembled at runtime from an attacker-influenced source would not be visible to it. synergie itself remains unauthenticated by default (`auth_token: None`); this finding closed the cross-origin exposure, not the missing authentication.",
       "follow_up": "P1-10-B: fold soul_gateway's and soul-dashboard's P1-2 policies into soul-cors so one implementation remains; separately, decide whether synergie's API should require a token by default."
+    },
+    {
+      "id": "MED-013",
+      "title": "POST /api/mesh/spawn turns an unauthenticated request body into a process, with argument injection into the spawned interpreter and no ceiling on how many",
+      "status": "PARTIALLY_FIXED",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "audit_category": "Missing Authentication / Argument Injection / Resource Exhaustion",
+      "discovered_by": "P1-8-B. The site was already recorded in the INV-EXEC-1 allowlist as the one entry reachable from an HTTP route; reading it closely for the fix turned up three distinct defects, only one of which was the one the roadmap named.",
+      "original_audit_baseline": "5e3b0c3b0d18f6d0022c1c762821d9aad340b011",
+      "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
+      "current_files": [
+        "soullink-orchestrator-standalone/src/routes/spawn.rs",
+        "soullink-orchestrator-standalone/src/main.rs",
+        "soul_sandbox/src/lib.rs"
+      ],
+      "current_symbols": [
+        "route_spawn",
+        "valid_domain",
+        "brain_policy",
+        "SpawnSpec",
+        "Sandbox::spawn_supervised"
+      ],
+      "original_reachable_path": [
+        "POST /api/mesh/spawn -> route_spawn -> body[\"domain\"] -> tokio::process::Command::new(\"python3\").arg(script).arg(\"--brain\").arg(domain).spawn()"
+      ],
+      "current_state": "Partially fixed. Three defects were real and are fixed; a fourth is a deployment decision and is not. What was NOT wrong: this was never shell injection. argv was built from discrete `.arg()` calls and no shell was involved, so `;` and `$(...)` in `domain` were inert. Routing the joined string through `Sandbox::execute` - which is what 'route it through soul_sandbox' would literally mean - would have made this worse, because `build_command` splits on whitespace, so a domain containing a space would have become two argv elements where it had been one. (1) ARGUMENT INJECTION, fixed: `domain` was the value of `--brain`, so a domain of `--config=/etc/shadow` reaches brain_v12.py's argument parser as a flag, not a value. Now rejected twice independently - by `valid_domain`'s allowlist charset at the route, and by `SpawnSpec::value`, which refuses any caller-supplied argument beginning with `-`. (2) UNBOUNDED SPAWNING, fixed: every request forked an interpreter that nothing reaped or counted against a ceiling; `increment_spawn_count` fed a metrics endpoint and bounded nothing. Now capped at MAX_LIVE_BRAINS=16, and a brain that fails its health check has its process group killed rather than being left running. (3) NO ISOLATION, fixed: the child inherited privileges, fds, rlimits and network in full. Now spawned via the new `Sandbox::spawn_supervised`, which applies the same setpgid + setrlimit + seccomp pre_exec hook as every other sandboxed path. `network_isolated` is explicitly false and documented, because a brain exists to bind a port and answer on it - that is a real and deliberate reduction relative to the default policy, not an oversight. (4) NO AUTHENTICATION, NOT fixed: the route has no auth layer. soul_cors (P1-10) makes a browser's cross-origin call fail, but CORS is not authentication and stops nothing that is not a browser - curl reaches this route regardless. Whether this service should require a token is a deployment decision about how it is meant to be exposed, so it is recorded rather than answered. Also fixed in passing: the port search was `while used.contains(&port) { port += 1 }` on a u16 with no bound, which overflows past 65535 - a debug panic, or a release wrap to port 0, which means 'any free port' and would leave the health check polling the wrong one. And a `.unwrap()` on the reqwest client builder would have killed the supervising task, and with it the only handle to the child.",
+      "verification_tests": [
+        {
+          "name": "a_domain_that_looks_like_a_flag_is_rejected",
+          "command": "cargo test -p soullink-orchestrator-v3 a_domain_that_looks_like_a_flag_is_rejected"
+        },
+        {
+          "name": "a_caller_supplied_value_that_looks_like_a_flag_is_refused",
+          "command": "cargo test -p soul_sandbox a_caller_supplied_value_that_looks_like_a_flag_is_refused"
+        },
+        {
+          "name": "a_value_containing_spaces_stays_a_single_argument",
+          "command": "cargo test -p soul_sandbox a_value_containing_spaces_stays_a_single_argument"
+        },
+        {
+          "name": "spawn_supervised_returns_without_waiting_and_kill_group_reaps",
+          "command": "cargo test -p soul_sandbox spawn_supervised_returns_without_waiting_and_kill_group_reaps"
+        },
+        {
+          "name": "brain_policy_keeps_networking_but_not_the_other_protections",
+          "command": "cargo test -p soullink-orchestrator-v3 brain_policy_keeps_networking_but_not_the_other_protections"
+        },
+        {
+          "name": "every_allowlist_entry_is_still_justified",
+          "command": "cargo test -p soulsystem --test architecture_process_execution every_allowlist_entry_is_still_justified"
+        }
+      ],
+      "residual_risk": "The route remains unauthenticated, so any client that can reach the listener can spawn up to MAX_LIVE_BRAINS processes. The cap turns an unbounded host-level denial of service into a bounded one; it does not make the route safe to expose. The spawned brain keeps host networking by necessity.",
+      "follow_up": "MED-013-B: decide whether this service requires authentication, and if so route it through the same auth used for CRIT-007. Product decision, not a code fix.",
+      "required_invariant": "A request-reachable route must not spawn a process outside soul_sandbox, must not let caller-supplied text be parsed as an argument by the spawned program, and must bound how many processes a caller can create (INV-EXEC-1).",
+      "remaining_exposure": "The route has no authentication. `soul_cors` blocks a browser's cross-origin call but stops nothing that is not a browser, so any client with network access to the listener can spawn up to MAX_LIVE_BRAINS=16 python3 processes. That is a bounded denial of service rather than an unbounded one, and the spawned children are now seccomp-confined and rlimit-bounded, but the route is still an unauthenticated way to make this host run code it was configured to run. The brain also keeps host networking, necessarily: it exists to bind a port and answer on it."
     },
     {
       "id": "LOW-001",
