@@ -39,23 +39,23 @@ impl SecretVerifier {
     /// Verify a finding against live APIs.
     /// Returns None if not verifiable, Some(result) if checked.
     pub async fn verify(&mut self, finding: &Finding) -> Option<VerificationResult> {
-        if !finding.verifiable || self.checked.contains(&finding.secret) {
+        if !finding.verifiable || self.checked.contains(finding.secret.expose()) {
             return None;
         }
 
-        self.checked.insert(finding.secret.clone());
+        self.checked.insert(finding.secret.expose().to_owned());
 
         match finding.rule_name.as_str() {
             "GitHub Personal Access Token" | "GitHub OAuth Access Token" => {
-                self.verify_github(&finding.secret).await
+                self.verify_github(finding.secret.expose()).await
             }
-            "Slack Bot Token" => self.verify_slack(&finding.secret).await,
-            "Stripe Secret Key" => self.verify_stripe(&finding.secret).await,
-            "Telegram Bot Token" => self.verify_telegram(&finding.secret).await,
-            "Google API Key" => self.verify_google(&finding.secret).await,
-            "AWS Access Key ID" => self.verify_aws(&finding.secret).await,
-            "GitLab Personal Access Token" => self.verify_gitlab(&finding.secret).await,
-            "Binance API Key" => self.verify_binance(&finding.secret).await,
+            "Slack Bot Token" => self.verify_slack(finding.secret.expose()).await,
+            "Stripe Secret Key" => self.verify_stripe(finding.secret.expose()).await,
+            "Telegram Bot Token" => self.verify_telegram(finding.secret.expose()).await,
+            "Google API Key" => self.verify_google(finding.secret.expose()).await,
+            "AWS Access Key ID" => self.verify_aws(finding.secret.expose()).await,
+            "GitLab Personal Access Token" => self.verify_gitlab(finding.secret.expose()).await,
+            "Binance API Key" => self.verify_binance(finding.secret.expose()).await,
             _ => None,
         }
     }

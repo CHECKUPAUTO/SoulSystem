@@ -150,7 +150,9 @@ pub struct LlmConfig {
     pub max_tokens: usize,
     pub http_timeout: Duration,
     pub connect_timeout: Duration,
-    pub auth_token: Option<String>,
+    /// Redacted in `Debug` so the derive on this struct cannot print it
+    /// (INV-SEC-2). Read it with `SecretString::expose`.
+    pub auth_token: Option<SecretString>,
     pub goal_token_budget: usize,
     pub tokens_per_minute_budget: usize,
     pub pool_max_idle: usize,
@@ -194,6 +196,8 @@ impl Default for LlmConfig {
 }
 
 use std::time::Duration;
+
+use soulsystem_common::secrets::SecretString;
 
 #[cfg(test)]
 mod tests {

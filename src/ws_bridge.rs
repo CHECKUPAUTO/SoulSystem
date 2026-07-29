@@ -21,6 +21,7 @@ use crate::bus::{Bus, Message};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use soul_gateway::limits::ConnectionLimiter;
+use soulsystem_common::secrets::SecretString;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -42,7 +43,9 @@ pub async fn run_ws_bridge(config: WsBridgeConfig, bus: Arc<Bus>) {
 #[derive(Clone, Debug)]
 pub struct WsBridgeConfig {
     pub listen: String,
-    pub shared_secret: Option<String>,
+    /// Redacted in `Debug` so the derive on this struct cannot print it
+    /// (INV-SEC-2). Read it with `SecretString::expose`.
+    pub shared_secret: Option<SecretString>,
     /// Simultaneously accepted connections. Beyond this, a connection is
     /// refused rather than accepted and parked (INV-NET-5).
     pub max_connections: usize,
@@ -107,7 +110,8 @@ impl WsBridgeConfig {
     /// must not become a valid credential.
     pub fn effective_secret(&self) -> Option<&str> {
         self.shared_secret
-            .as_deref()
+            .as_ref()
+            .map(SecretString::expose)
             .map(str::trim)
             .filter(|s| !s.is_empty())
     }
@@ -469,7 +473,7 @@ mod tests {
     fn blank_secret_is_treated_as_unset() {
         for blank in ["", "   ", "\t", "\n"] {
             let config = WsBridgeConfig {
-                shared_secret: Some(blank.to_string()),
+                shared_secret: Some(SecretString::new(blank)),
                 ..Default::default()
             };
             assert_eq!(
@@ -484,7 +488,7 @@ mod tests {
     #[test]
     fn a_real_secret_authenticates_and_is_trimmed() {
         let config = WsBridgeConfig {
-            shared_secret: Some("  s3cret  ".to_string()),
+            shared_secret: Some(SecretString::new("  s3cret  ")),
             ..Default::default()
         };
         assert_eq!(config.effective_secret(), Some("s3cret"));
@@ -498,7 +502,7 @@ mod tests {
     fn reported_posture_tracks_the_real_configuration() {
         assert!(!WsBridgeConfig::default().is_authenticated());
         assert!(WsBridgeConfig {
-            shared_secret: Some("token".into()),
+            shared_secret: Some(SecretString::new("token")),
             ..Default::default()
         }
         .is_authenticated());

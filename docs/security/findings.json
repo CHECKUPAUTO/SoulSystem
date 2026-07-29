@@ -570,18 +570,21 @@
       "original_audit_baseline": "5e3b0c3b0d18f6d0022c1c762821d9aad340b011",
       "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
       "current_files": [
-        "soullink-brain/soullink-secrets/src/crypto.rs"
+        "crates/soulsystem-common/src/secrets.rs",
+        "soullink-brain/soullink-secrets/src/crypto.rs",
+        "tests/architecture_secret_types.rs"
       ],
       "current_symbols": [
         "SecretsCrypto",
-        "derive_key",
         "Zeroizing",
-        "secrecy::Secret"
+        "derive_key",
+        "secrecy::Secret",
+        "soulsystem_common::secrets::SecretString"
       ],
       "original_reachable_path": [
         "SecretsCrypto::master_key held as a plain Vec<u8>, never zeroized on drop"
       ],
-      "current_state": "master_key is a secrecy::Secret (zeroized on drop) and derive_key returns Zeroizing<Vec<u8>>, so derived key material is wiped as well.",
+      "current_state": "master_key is a secrecy::Secret (zeroized on drop) and derive_key returns Zeroizing<Vec<u8>>, so derived key material is wiped as well. P1-5 adds soulsystem_common::secrets::SecretString, whose Debug, Display AND Serialize all render a fixed redaction, so an enclosing #[derive(Debug)] is safe without its author having to think about it - the accidental path, which is the one that actually happens, is removed rather than discouraged. The redaction is a fixed string, not a length-derived mask, because `***` versus `****************` discloses the length. Serialize deliberately writes the redaction too: a config struct is routinely serialized to a debug endpoint or a state dump, and round-tripping plaintext through those is the same leak in a different coat. Five structs are migrated: WsBridgeConfig::shared_secret, LlmConfig::auth_token, OpenclawConfig::auth_token, DiscordWebhookBody::token (an inbound webhook body is exactly what gets logged when parsing fails), and - most importantly - soullink-security's scanner Finding::secret, which derived Debug AND Serialize over the very credential it had just detected, beside a `masked` field that existed because someone already knew displaying it was unsafe. A workspace-wide guard (tests/architecture_secret_types.rs) fails on any new secret-named String field on a Debug-deriving struct.",
       "required_invariant": "Secrets use redacting/zeroizing types; Debug/Display never reveal them (INV-SEC-1).",
       "fixing_prs": [
         {
@@ -595,10 +598,61 @@
           "crate": "soullink-secrets",
           "name": "crypto",
           "command": "cargo test -p soullink-secrets crypto"
+        },
+        {
+          "crate": "soulsystem-common",
+          "name": "debug_never_renders_the_secret",
+          "command": "cargo test -p soulsystem-common debug_never_renders_the_secret"
+        },
+        {
+          "crate": "soulsystem-common",
+          "name": "an_enclosing_derived_debug_is_safe_without_its_author_thinking_about_it",
+          "command": "cargo test -p soulsystem-common an_enclosing_derived_debug_is_safe_without_its_author_thinking_about_it"
+        },
+        {
+          "crate": "soulsystem-common",
+          "name": "the_redaction_does_not_disclose_the_length",
+          "command": "cargo test -p soulsystem-common the_redaction_does_not_disclose_the_length"
+        },
+        {
+          "crate": "soulsystem-common",
+          "name": "serialization_writes_the_redaction_not_the_secret",
+          "command": "cargo test -p soulsystem-common serialization_writes_the_redaction_not_the_secret"
+        },
+        {
+          "crate": "soulsystem-common",
+          "name": "a_blank_value_is_treated_as_absent",
+          "command": "cargo test -p soulsystem-common a_blank_value_is_treated_as_absent"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "no_new_plaintext_secret_fields_on_debug_structs",
+          "command": "cargo test -p soulsystem no_new_plaintext_secret_fields_on_debug_structs"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "every_recorded_entry_is_still_real",
+          "command": "cargo test -p soulsystem every_recorded_entry_is_still_real"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "the_migrated_structs_use_the_secret_type",
+          "command": "cargo test -p soulsystem the_migrated_structs_use_the_secret_type"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "token_accounting_fields_are_not_treated_as_credentials",
+          "command": "cargo test -p soulsystem token_accounting_fields_are_not_treated_as_credentials"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "an_already_migrated_field_is_not_flagged",
+          "command": "cargo test -p soulsystem an_already_migrated_field_is_not_flagged"
         }
       ],
       "residual_risk": "Only soullink-secrets is converted. Gateway and LLM provider structs still hold tokens/secrets in ordinary String fields, so INV-SEC-1 remains PARTIAL workspace-wide; a full sweep is outstanding.",
-      "follow_up": null
+      "follow_up": "P1-5-B: migrate the 16 recorded structs, lowering NOT_YET_MIGRATED_BUDGET with each. Consider extending the guard to Clone-only structs once the Debug set is empty, and to a taint-style check that does not depend on field naming.",
+      "remaining_exposure": "16 structs across workspace members still hold credentials in plain String fields on Debug-deriving types, recorded in the guard's NOT_YET_MIGRATED list with a two-way count budget: AVID's four provider/config structs and its scout AuthMethod enum, the brain gateway's ProviderConfig/TokenInfo/HelloOk/AuthInfo, soullink-proxy's ProxyConfig, synergie's two config structs, souls' LlmPersistConfig, soulsystem-multiagent's SpecializedAgent, avid-intel's MonitorConfig and soul_api's TelegramBot. Two further limitations are stated rather than counted as clean: the guard keys on #[derive(Debug)], so a credential-holding struct deriving only Clone (clawd::Settings, soul-dashboard::AppState both do) is not reported - a smaller exposure, not an absent one, since it still leaks via a hand-written Display, via serde, or the moment somebody adds Debug; and the match is name-based, so a credential in a field called `value` or `blob` will not be found by any amount of this."
     },
     {
       "id": "HIGH-002",

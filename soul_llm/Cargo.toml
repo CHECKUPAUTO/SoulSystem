@@ -9,6 +9,7 @@ keywords = ["llm", "openai", "anthropic", "ollama", "streaming", "multi-provider
 categories = ["machine-learning", "api-client", "async", "network-programming"]
 
 [dependencies]
+soulsystem-common = { workspace = true }
 async-trait = { workspace = true }
 reqwest = { workspace = true, features = ["json", "stream"] }
 serde = { workspace = true, features = ["derive"] }

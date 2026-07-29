@@ -93,7 +93,7 @@ impl SecurityScanner {
                 .then_with(|| a.file.cmp(&b.file))
                 .then_with(|| a.line.cmp(&b.line))
         });
-        all_findings.dedup_by(|a, b| a.secret == b.secret && a.file == b.file);
+        all_findings.dedup_by(|a, b| a.secret.expose() == b.secret.expose() && a.file == b.file);
 
         // Verify findings
         let mut verifier = self.verifier.lock().await;
