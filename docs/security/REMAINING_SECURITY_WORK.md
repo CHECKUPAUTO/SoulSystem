@@ -423,21 +423,67 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   default into an explicit per-deployment acknowledgement. That is another
   product decision, so it is noted rather than assumed.
 
-### P1-8 Widen the process-execution guard beyond the binary crate
+### ~~P1-8 Widen the process-execution guard beyond the binary crate~~ — CLOSED (guard); 12 sites remain as P1-8-B
 
-- **Findings / invariants:** CRIT-001 (residual), HIGH-002, INV-EXEC-1
-- **Surface:** 110 process-execution matches across 25 workspace-member crates,
-  including 22 in the separate `soul-kernel` binary. Also `soul-automodify`
-  (invokes `cargo`) and the `soul_gateway` iMessage provider (invokes
-  `osascript`), both outside the sandbox.
-- **Why it is P1 and not P0:** the binary's only *live* unsandboxed spawn is
-  gone and new ones in `src/` now fail CI. The rest is unenforced surface, not a
-  demonstrated reachable path.
-- **Recommended PR scope:** classify each match (approved sandbox impl /
-  test-only / build tooling / supported production path / experimental /
-  unreachable), then extend the existing guard's allowlist model workspace-wide.
-- **Acceptance tests:** the guard runs over all workspace members with a
-  justified allowlist, and fails on an introduced violation in any crate.
+- **Findings / invariants:** CRIT-001 (residual), HIGH-002, INV-EXEC-1 (stays
+  `PARTIAL`)
+- **Status:** closed by `security/p1-8-widen-process-execution-guard`.
+- **Every workspace member is now scanned**, not just the binary. Member
+  directories are parsed from the root `Cargo.toml` rather than hardcoded, so
+  adding a crate to the workspace brings it under the guard automatically — a
+  new crate should not have to be *remembered* into a security scan.
+- **All 30 production spawn files are classified**, each with a category and a
+  written reason:
+
+  | Category | Files | What it means |
+  |---|---|---|
+  | `sandbox-implementation` | 5 | The crate *is* the isolation boundary. Forbidding its `Command` would forbid the sandbox. |
+  | `host-control-fixed-argv` | 8 | `systemctl`, `nvidia-smi`, `ss`, `df`, `tmux`, `docker`, `which`, `stty`. No caller-controlled argv. |
+  | `dev-tooling` | 4 | `cargo` and `git` in self-modification and workflow paths. Host-level by design. |
+  | `unsandboxed-arbitrary-command` | 12 | **Known problems, recorded — not approvals.** |
+  | `no-reachable-caller` | 1 | Present, no non-test caller (LOW-005). |
+
+- **The allowlist is a record, not an endorsement.** The 12
+  `unsandboxed-arbitrary-command` entries are the actual finding of this work:
+  `sh -c` from workflow nodes and conditions, the brain's shell action,
+  soul-kernel's action and perception paths, soul_automation, both soul-bridge
+  child spawns, two `python3` orchestrator spawns, soul-kernel/parallel, and the
+  gateway's `osascript` iMessage provider. They are listed so they are visible
+  and countable, not so they are blessed.
+- **A budget pins the category both ways.** It fails if the count grows, and it
+  *also* fails if sites are fixed without lowering the budget — otherwise the
+  ratchet would quietly stop constraining anything.
+- **One false positive is exempted, carefully.**
+  `soul_sandbox/src/seccomp.rs` matches `execve` only because it names
+  `SYS_execve` as the syscall it **blocks**. Forcing an allowlist entry there
+  would misrepresent the one file most clearly doing the right thing — so it is
+  exempted, and a test asserts the exemption stays sound by requiring the filter
+  to still name `SYS_execve`.
+- **Verified negatively three ways:** an introduced `Command` in a
+  non-allowlisted crate is caught; breaking the member parsing fails two
+  vacuity guards rather than passing silently; a stale allowlist entry is
+  caught.
+- **Why INV-EXEC-1 stays `PARTIAL`.** A guard that *records* 12 unsandboxed
+  arbitrary-execution sites has not removed them. The invariant holds when they
+  are gone, not when they are inventoried.
+
+### P1-8-B Route the 12 recorded sites through the sandbox, and decide about the non-member trees
+
+- **Findings / invariants:** CRIT-001 (residual), INV-EXEC-1
+- **Two separate pieces of work:**
+  1. **Fix the 12 sites**, lowering `UNSANDBOXED_ARBITRARY_BUDGET` with each.
+     Start with `soullink-orchestrator-standalone/src/routes/spawn.rs`: it is
+     reachable from an HTTP route, which makes it the only one in the list with
+     a demonstrated remote path to it.
+  2. **Decide what to do about the non-member trees.** `intel-integrations/`,
+     `openevolve/`, `backlog/`, `os-agents/`, `openclaw-evolution/`,
+     `soul-rsi/`, `jit-agentic-engine/`, `soullink-node/`, `turboquant/` and
+     `scirust-chronos-agent/` hold a further **112 spawn sites** and are not
+     workspace members, so `cargo build --workspace` never builds them and this
+     guard says nothing about them. Either they are shipped code — in which case
+     they belong in the workspace and under the guard — or they are dead weight
+     that should be deleted. That is a product question about what this
+     repository actually ships, so it is recorded rather than answered here.
 
 ### P1-5 Secret-type sweep beyond `soullink-secrets`
 
