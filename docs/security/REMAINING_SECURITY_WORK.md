@@ -732,27 +732,48 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   `backup_destroy_restore_recovers_verified_state` (save → back up → delete the
   live directory → restore → verify set *and* reloaded contents).
 
-### P1-7-B Actual multi-file transactionality, and backup beyond CCOS
+### ~~P1-7-B Repair from the previous generation~~ — CLOSED; two gaps become P1-7-C
+
+- **Findings / invariants:** INV-PERSIST-1 (`PARTIAL`), HIGH-005
+- **Acceptance test 1 met:** `a_torn_set_is_repaired_from_the_previous_generation`.
+  `save_state` snapshots the outgoing **verified** generation into
+  `state.prev` before overwriting anything, and `restore_runtime_repairing`
+  falls back to it when the live set is torn.
+- **It is recovery, not reconstruction, and the API says so.** The interrupted
+  generation is gone; *n-1* takes its place, so **a repair loses the most recent
+  save**. That is why it is a separate call rather than something
+  `restore_runtime` does silently — a caller who would rather investigate a tear
+  than lose a generation has to be able to choose, and `restore_runtime` still
+  refuses a torn set exactly as before.
+- **Only a verified set is snapshotted.** A save that finds the live set already
+  torn leaves the existing fallback alone: the older good generation is worth
+  more than the newer broken one. Pinned by
+  `saving_over_a_torn_set_does_not_destroy_the_good_fallback`.
+- **The snapshot is verified in its own right**, not merely copied from
+  something that verified at the time, and staged through a temp directory so an
+  interrupted snapshot cannot leave a half-copied fallback. A fallback that is
+  itself torn is worse than none — it looks available and fails when needed.
+- **A snapshot failure does not fail the save.** Refusing to persist new state
+  because the *backup of the old state* could not be written would trade a real
+  loss for a hypothetical one; it warns and continues.
+- **Cost, stated:** the state directory roughly doubles.
+
+### P1-7-C The two gaps P1-7-B did not close
 
 - **Findings / invariants:** INV-PERSIST-1 (`PARTIAL`)
-- **Current risk:** P1-7 buys **detection, not atomicity**. A torn set is
-  reported and refused — which is the right failure mode, and much better than
-  loading a state that never existed — but it is still a failure: the process
-  cannot start, and there is no rollback to the previous generation. Repair
-  needs either a single-file state format or a write-ahead log, plus retaining
-  generation *n-1* so a detected tear has somewhere to fall back to.
-- **Second gap:** a directory with no manifest is accepted as `Legacy` so that
-  upgrading does not strand existing state. A missing manifest and a *deleted*
-  one are indistinguishable, so anyone who can unlink a file in the state
-  directory can opt it out of verification. `restore_runtime_strict` refuses
-  that, but it is opt-in and no production caller uses it yet. Making strict the
-  default needs a migration window, which is a deployment decision.
-- **Third gap:** backup/restore covers the CCOS three-file state directory
-  only. There is no workspace-wide backup qualification for the other durable
-  stores.
-- **Acceptance tests:** a torn set is *repaired* from the previous generation
-  rather than only reported; strict restore is the default with a documented
-  migration path; a backup/restore test covering the other durable stores.
+- **Strict restore is still opt-in**, so a *deleted* manifest remains
+  indistinguishable from one that never existed, and anyone who can unlink a
+  file in the state directory can still opt it out of verification.
+  `restore_runtime_strict` refuses that, but no production caller uses it.
+  **Making it the default needs a migration window — a deployment decision, so
+  it is being asked rather than assumed.**
+- **Backup qualification still covers only the CCOS three-file state
+  directory.** The provenance index added by P1-6-B is now a second durable
+  store with no backup/restore test, and `soul-memory` / `soullink-memory` /
+  `soullink-memory-hierarchy` have their own persistence with none either.
+- **Acceptance tests:** strict restore is the default with a documented
+  migration path; a backup/restore qualification covering the provenance index
+  and at least one of the memory stores.
 
 ### ~~P1-10 Permissive CORS in the non-production HTTP services~~ — CLOSED
 
