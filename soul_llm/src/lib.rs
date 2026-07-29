@@ -26,9 +26,11 @@ pub mod budget;
 pub mod client;
 pub mod error;
 pub mod factory;
+mod http;
 pub mod legacy;
 pub mod provider;
 pub mod providers;
+pub mod retry;
 pub mod types;
 
 // Re-exports principaux
@@ -43,6 +45,7 @@ pub use legacy::{
     Role, ToolCall, ToolFunction, ToolSchema,
 };
 pub use provider::LlmProvider;
+pub use retry::{RetryDecision, RetryPolicy, StopReason};
 pub use types::{
     EmbeddingResult, GenerateRequest, GenerateResult, LlmConfig, ModelInfo, ProviderKind,
     StreamChunk, TokenUsage,

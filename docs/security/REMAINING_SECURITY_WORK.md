@@ -14,20 +14,25 @@ finding move to `FIXED_AND_VERIFIED`.
 **`NOT_READY` for untrusted-network production.**
 
 The verdict follows from the register, not from campaign progress: 2 of 6
-critical findings and 3 of 10 high findings remain `PARTIALLY_FIXED`, and one
-high finding is `CONFIRMED_CURRENT`. **Both P0 items are closed, and P1-1 and
-P1-2 are closed**, but the verdict does not move to `LIMITED_PRODUCTION` on that
-alone: the P1 set below still contains unauthenticated surface (`src/api.rs`),
-unbounded sandbox resources, unbounded connection counts and no per-client rate
-limiting.
+critical findings and 2 of 10 high findings remain `PARTIALLY_FIXED`, and one
+high finding is `CONFIRMED_CURRENT`. **Both P0 items are closed, and P1-1
+through P1-4 are closed**, but the verdict does not move to
+`LIMITED_PRODUCTION` on that alone: the P1 set below still contains
+unauthenticated surface (`src/api.rs`), an unbounded sandbox process count, no
+filesystem or PID isolation for sandboxed commands, unbounded connection counts
+and no per-client rate limiting.
 
 `LIMITED_PRODUCTION` is defensible for a **trusted, loopback-only, single-tenant**
 deployment where: the process bus cannot be reached by untrusted input, the
 gateway is bound to loopback or fronted by an authenticating reverse proxy that
 supplies connection limits and rate limiting, and `--entity` is not used. Those
-are operational compensating controls, not proven invariants. Note that CORS and
-request-body limits no longer belong on that list — the gateway now enforces
-both itself.
+are operational compensating controls, not proven invariants.
+
+Three things have moved off that compensating-controls list and are now enforced
+in-tree: CORS and request-body limits (P1-2), sandboxed CPU/memory/fd/file-size
+ceilings (P1-3), and provider retry with backoff (P1-4). Process-count limiting
+for sandboxed commands has **not** — `RLIMIT_NPROC` is per-UID, so it is off by
+default and a dedicated UID or a cgroup remains an operational prerequisite.
 
 `PRODUCTION_READY` requires at minimum P0 and P1 closed and INV-PERSIST-2
 (backup/restore) qualified by an executable test.
@@ -259,20 +264,78 @@ both itself.
   killer; the sandboxed process sees only the paths its policy grants; a tool
   without egress cannot reach the network while one with it can.
 
-### P1-4 Provider retry, backoff and a coherent cross-layer retry policy
+### ~~P1-4 Provider retry and backoff~~ — CLOSED for the provider layer
 
-- **Findings / invariants:** MED-001 (`CONFIRMED_CURRENT`), MED-009
-  (`PARTIALLY_FIXED`)
-- **Surface:** `soul_llm/src/client.rs` and the three providers. A
-  `LlmError::RateLimited { retry_after }` variant exists but nothing acts on
-  it; the only `tokio::time::sleep` in `client.rs` is inside a `#[cfg(test)]`
-  mock provider.
-- **Current risk:** one transient upstream failure or 429 aborts an autonomous
-  run. Retry behaviour differs by layer with no shared budget, and no layer
-  honours `Retry-After`.
-- **Acceptance tests:** a failure-injecting mock provider proves bounded
-  exponential backoff with jitter, a respected `Retry-After`, and a bounded
-  total attempt count shared with the agent loop.
+- **Findings / invariants:** MED-001 (now `FIXED_AND_VERIFIED`), MED-009 (still
+  `PARTIALLY_FIXED`), INV-PROVIDER-2 (`HELD`), INV-PROVIDER-3 (`PARTIAL`)
+- **Status:** closed by `security/p1-4-provider-retry-backoff` **for the
+  provider layer**. The cross-layer half is mechanism-only and is split out as
+  P1-13 below.
+- **Correction to the register's own text.** MED-001 said "a `RateLimited`
+  error variant exists but nothing acts on it". Nothing ever *constructed* it
+  either. None of the three providers inspected the HTTP status — every call
+  was `.send().await?.json().await?`, so a 429 or a 503 reached `serde_json` as
+  an HTML error page and surfaced as `LlmError::Serialization`. Retrying on
+  that classification would have retried on the wrong signal, so the status
+  check had to land in the same change.
+- **What changed — classification:** all 16 provider request sites go through
+  `http::SendChecked::send_checked`. An extension trait rather than a free
+  function, so the call sites stay ordinary builder chains and a newly added
+  request cannot skip the check by being written the old way. Status maps in
+  one place: 429 → `RateLimited` (with `Retry-After`), 5xx →
+  `ServiceUnavailable`, 401/403 → `Auth`, other 4xx → `Provider`. `Retry-After`
+  is parsed in both RFC 9110 forms; a date in the past means "retry now", and
+  an unparseable value is ignored rather than treated as an instruction.
+- **What changed — retry:** `RetryPolicy` (3 attempts, 500 ms initial, 30 s
+  ceiling, ×2, equal jitter) applied by `LlmClient::with_retry`. Equal jitter
+  rather than full jitter: full jitter can return a near-zero wait and hammer a
+  provider that just asked for room. The concurrency permit is held across
+  attempts — retries are one logical request, so they occupy one in-flight slot
+  rather than re-queuing mid-sequence — and the token budget is charged once,
+  for the attempt that actually consumed tokens.
+- **One decision worth recording.** When a server asks for a longer backoff
+  than `max_backoff`, this **stops** rather than clamping. Waiting it out would
+  park an autonomous run for the interval the server named; retrying sooner
+  would earn another 429 and burn an attempt. The error is returned with the
+  server's own interval intact, so a layer that can decide to wait that long
+  gets to make that call.
+- **Behaviour change worth flagging:** `health_check` now requires a 2xx rather
+  than merely a completed request, so a provider answering 401 no longer
+  reports itself alive.
+- **Residual (a) — only stream *establishment* is retried.** Once a chunk may
+  have reached the caller, re-running the request would duplicate output rather
+  than recover from it, so a mid-stream failure stays the caller's to handle.
+- **Residual (b) — the budget is per-call.** A caller in a loop still issues
+  many bounded sequences; there is no rate limiter above the retry loop.
+- **Residual (c) — no circuit breaker.** A hard-down provider is re-probed, with
+  a full backoff sequence, on every call. That is a separate finding.
+- **Acceptance evidence:** 26 tests. The three status-classification ones run
+  against a local socket serving raw HTTP 429/503/401, so the wiring is
+  exercised rather than a hand-built `reqwest::Response` that would bypass the
+  step that was missing. Verified negatively: forcing the policy to
+  `disabled()` makes 5 of the client tests fail.
+
+### P1-13 Make the agent loop consume the provider layer's retry outcome
+
+- **Findings / invariants:** MED-009 (`PARTIALLY_FIXED`), INV-PROVIDER-3
+  (`PARTIAL`)
+- **Surface:** `soul-agent-core/src/lib.rs` — the strategy-level
+  retry/replan/abort decision.
+- **What already exists after P1-4:** `LlmError::is_retryable` is a single
+  classification both layers can consult instead of maintaining divergent
+  opinions, and `LlmError::RetriesExhausted { attempts, last }` distinguishes
+  "failed once, transiently" from "the provider layer already backed off and
+  retried N times".
+- **Current risk:** `soul-agent-core` does not branch on either yet, and there
+  is no attempt budget spanning both layers. A hard-down provider therefore
+  still draws immediate strategy-level replanning on top of an already-exhausted
+  provider budget — redundant work rather than a hot loop, since the provider
+  layer now backs off, but still uncoordinated.
+- **Acceptance tests:** a mock provider that always fails causes exactly one
+  bounded provider sequence and then an abort rather than a replan; a mock that
+  fails transiently is recovered by the provider layer without the agent loop
+  observing a failure at all; the two layers' attempt counts sum to a
+  configured ceiling rather than multiplying.
 
 ### P1-9 Authenticate `src/api.rs` and add per-scope authorization
 

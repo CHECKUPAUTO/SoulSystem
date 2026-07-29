@@ -1,4 +1,5 @@
 use crate::error::{LlmError, Result};
+use crate::http::SendChecked;
 use crate::provider::LlmProvider;
 use crate::types::{
     EmbeddingResult, GenerateRequest, GenerateResult, ModelInfo, StreamChunk, TokenUsage,
@@ -153,7 +154,7 @@ impl LlmProvider for AnthropicProvider {
         // Anthropic n'a pas d'endpoint health dédié, on tente un model list
         self.http
             .get(format!("{}/v1/models", self.base_url))
-            .send()
+            .send_checked()
             .await
             .is_ok()
     }
@@ -188,7 +189,7 @@ impl LlmProvider for AnthropicProvider {
             .http
             .post(format!("{}/v1/messages", self.base_url))
             .json(&anthropic_req)
-            .send()
+            .send_checked()
             .await?
             .json()
             .await?;
@@ -233,7 +234,7 @@ impl LlmProvider for AnthropicProvider {
             .http
             .post(format!("{}/v1/messages", self.base_url))
             .json(&anthropic_req)
-            .send()
+            .send_checked()
             .await?;
 
         let byte_stream = response.bytes_stream();
