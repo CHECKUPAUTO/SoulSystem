@@ -1,4 +1,5 @@
 use crate::error::{LlmError, Result};
+use crate::http::SendChecked;
 use crate::provider::{
     ChatMessage, ChatResponse, ChatResponseMessage, ChatRole, LlmProvider, ToolCall,
     ToolCallFunction, ToolSchema,
@@ -135,7 +136,7 @@ impl LlmProvider for OllamaProvider {
     async fn health_check(&self) -> bool {
         self.http
             .get(format!("{}/api/tags", self.base_url))
-            .send()
+            .send_checked()
             .await
             .is_ok()
     }
@@ -144,7 +145,7 @@ impl LlmProvider for OllamaProvider {
         let resp: OllamaTagsResponse = self
             .http
             .get(format!("{}/api/tags", self.base_url))
-            .send()
+            .send_checked()
             .await?
             .json()
             .await?;
@@ -177,7 +178,7 @@ impl LlmProvider for OllamaProvider {
             .http
             .post(format!("{}/api/generate", self.base_url))
             .json(&ollama_req)
-            .send()
+            .send_checked()
             .await?
             .json()
             .await?;
@@ -213,7 +214,7 @@ impl LlmProvider for OllamaProvider {
             .http
             .post(format!("{}/api/generate", self.base_url))
             .json(&ollama_req)
-            .send()
+            .send_checked()
             .await?;
 
         let byte_stream = response.bytes_stream();
@@ -376,9 +377,12 @@ impl LlmProvider for OllamaProvider {
             .http
             .post(format!("{}/api/chat", self.base_url))
             .json(&body)
-            .send()
-            .await
-            .map_err(|e| LlmError::Provider(format!("ollama chat: {e}")))?
+            // Propagated as-is rather than re-wrapped in `LlmError::Provider`:
+            // `send_checked` already classified the status, and flattening a
+            // 429 or 503 into the catch-all variant would make it look
+            // permanent to the retry policy.
+            .send_checked()
+            .await?
             .json()
             .await
             .map_err(|e| LlmError::Provider(format!("ollama chat deserialize: {e}")))?;
@@ -417,7 +421,7 @@ impl LlmProvider for OllamaProvider {
             .http
             .post(format!("{}/api/embed", self.base_url))
             .json(&req)
-            .send()
+            .send_checked()
             .await?
             .json()
             .await?;
@@ -450,7 +454,7 @@ impl LlmProvider for OllamaProvider {
             .http
             .post(format!("{}/api/embed", self.base_url))
             .json(&req)
-            .send()
+            .send_checked()
             .await?
             .json()
             .await?;

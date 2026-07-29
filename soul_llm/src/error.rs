@@ -25,6 +25,26 @@ pub enum LlmError {
     Unsupported(String),
     /// Timeout
     Timeout(String),
+    /// The provider answered 5xx — overloaded, or a transient upstream fault.
+    ///
+    /// Distinct from [`Self::Provider`], which is the catch-all for errors a
+    /// repeat of the identical request cannot fix (unknown model, malformed
+    /// request). Retry classification needs the two separated, and before
+    /// MED-001 the providers never inspected the status at all, so a 503 became
+    /// a [`Self::Serialization`] error when the HTML error page failed to parse
+    /// as JSON.
+    ServiceUnavailable {
+        status: u16,
+        retry_after: Option<u64>,
+    },
+    /// A retryable error survived the whole retry budget.
+    ///
+    /// Carried as a distinct variant so an outer layer can tell "this failed
+    /// once, transiently" from "the provider layer already backed off and
+    /// retried `attempts` times and it is still failing". The latter should not
+    /// be met with an immediate strategy-level replan-and-retry, which is the
+    /// uncoordinated behaviour MED-009 describes.
+    RetriesExhausted { attempts: u32, last: Box<LlmError> },
 }
 
 impl fmt::Display for LlmError {
@@ -51,6 +71,83 @@ impl fmt::Display for LlmError {
             Self::Serialization(e) => write!(f, "serialization error: {e}"),
             Self::Unsupported(e) => write!(f, "unsupported: {e}"),
             Self::Timeout(e) => write!(f, "timeout: {e}"),
+            Self::ServiceUnavailable {
+                status,
+                retry_after,
+            } => {
+                write!(f, "service unavailable (HTTP {status})")?;
+                if let Some(s) = retry_after {
+                    write!(f, " (retry after {s}s)")?;
+                }
+                Ok(())
+            }
+            Self::RetriesExhausted { attempts, last } => {
+                write!(f, "giving up after {attempts} attempts: {last}")
+            }
+        }
+    }
+}
+
+impl LlmError {
+    /// Whether repeating the *identical* request could plausibly succeed.
+    ///
+    /// This is the single classification both the provider retry loop
+    /// ([`crate::retry::RetryPolicy`]) and any outer replan/abort decision
+    /// should consult, so the two layers cannot disagree about the same error
+    /// (MED-009).
+    ///
+    /// `Serialization` is deliberately **not** retryable: now that providers
+    /// check the HTTP status first, a deserialisation failure means the body
+    /// really was malformed, and a deterministic parse bug does not fix itself
+    /// on the second try. `RetriesExhausted` is not retryable either — that is
+    /// the whole point of the variant.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::Network(_)
+            | Self::Timeout(_)
+            | Self::RateLimited { .. }
+            | Self::ServiceUnavailable { .. } => true,
+
+            Self::Auth(_)
+            | Self::BudgetExceeded { .. }
+            | Self::UnknownProvider(_)
+            | Self::Provider(_)
+            | Self::Serialization(_)
+            | Self::Unsupported(_)
+            | Self::RetriesExhausted { .. } => false,
+        }
+    }
+
+    /// The server's own instruction on when to retry, if it sent one.
+    pub fn retry_after(&self) -> Option<std::time::Duration> {
+        match self {
+            Self::RateLimited {
+                retry_after: Some(s),
+            }
+            | Self::ServiceUnavailable {
+                retry_after: Some(s),
+                ..
+            } => Some(std::time::Duration::from_secs(*s)),
+            _ => None,
+        }
+    }
+
+    /// Map an HTTP status the provider considered unsuccessful onto an error.
+    ///
+    /// One place rather than three, so the three providers cannot drift on
+    /// which status is transient.
+    pub fn from_http_status(status: u16, retry_after: Option<u64>, body: &str) -> Self {
+        // Bodies can carry an upstream request id or an echoed prompt; keep
+        // enough to debug without letting a whole response into the log line.
+        let detail: String = body.chars().take(512).collect();
+        match status {
+            401 | 403 => Self::Auth(format!("HTTP {status}: {detail}")),
+            429 => Self::RateLimited { retry_after },
+            s if (500..600).contains(&s) => Self::ServiceUnavailable {
+                status: s,
+                retry_after,
+            },
+            s => Self::Provider(format!("HTTP {s}: {detail}")),
         }
     }
 }

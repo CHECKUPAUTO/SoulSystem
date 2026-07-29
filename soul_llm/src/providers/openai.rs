@@ -1,4 +1,5 @@
 use crate::error::{LlmError, Result};
+use crate::http::SendChecked;
 use crate::provider::LlmProvider;
 use crate::types::{
     EmbeddingResult, GenerateRequest, GenerateResult, ModelInfo, StreamChunk, TokenUsage,
@@ -181,7 +182,7 @@ impl LlmProvider for OpenAIProvider {
     async fn health_check(&self) -> bool {
         self.http
             .get(format!("{}/v1/models", self.base_url))
-            .send()
+            .send_checked()
             .await
             .is_ok()
     }
@@ -190,7 +191,7 @@ impl LlmProvider for OpenAIProvider {
         let resp: OpenAIModelsResponse = self
             .http
             .get(format!("{}/v1/models", self.base_url))
-            .send()
+            .send_checked()
             .await?
             .json()
             .await?;
@@ -233,7 +234,7 @@ impl LlmProvider for OpenAIProvider {
             .http
             .post(format!("{}/v1/chat/completions", self.base_url))
             .json(&openai_req)
-            .send()
+            .send_checked()
             .await?
             .json()
             .await?;
@@ -288,7 +289,7 @@ impl LlmProvider for OpenAIProvider {
             .http
             .post(format!("{}/v1/chat/completions", self.base_url))
             .json(&openai_req)
-            .send()
+            .send_checked()
             .await?;
 
         let byte_stream = response.bytes_stream();
@@ -352,7 +353,7 @@ impl LlmProvider for OpenAIProvider {
             .http
             .post(format!("{}/v1/embeddings", self.base_url))
             .json(&req)
-            .send()
+            .send_checked()
             .await?
             .json()
             .await?;
@@ -389,7 +390,7 @@ impl LlmProvider for OpenAIProvider {
             .http
             .post(format!("{}/v1/embeddings", self.base_url))
             .json(&req)
-            .send()
+            .send_checked()
             .await?
             .json()
             .await?;

@@ -165,6 +165,11 @@ pub struct LlmConfig {
     /// disabled-when-zero convention of `goal_token_budget` /
     /// `tokens_per_minute_budget`.
     pub max_concurrent_requests: usize,
+    /// Bounded exponential backoff applied to provider calls (MED-001).
+    ///
+    /// Use [`crate::retry::RetryPolicy::disabled`] for a caller that does its
+    /// own retrying and would otherwise multiply the two budgets together.
+    pub retry: crate::retry::RetryPolicy,
 }
 
 impl Default for LlmConfig {
@@ -183,6 +188,7 @@ impl Default for LlmConfig {
             pool_max_idle: 10,
             pool_idle_timeout: Duration::from_secs(30),
             max_concurrent_requests: 8,
+            retry: crate::retry::RetryPolicy::default(),
         }
     }
 }
