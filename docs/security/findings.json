@@ -19,8 +19,8 @@
   "count": 34,
   "status_summary": {
     "CONFIRMED_CURRENT": 7,
-    "PARTIALLY_FIXED": 6,
-    "FIXED_AND_VERIFIED": 12,
+    "PARTIALLY_FIXED": 5,
+    "FIXED_AND_VERIFIED": 13,
     "NOT_REACHABLE": 5,
     "FALSE_POSITIVE": 2,
     "REQUIRES_RUNTIME_VERIFICATION": 0,
@@ -32,23 +32,23 @@
       "FIXED_AND_VERIFIED": 4
     },
     "high": {
+      "FIXED_AND_VERIFIED": 6,
+      "PARTIALLY_FIXED": 2,
       "CONFIRMED_CURRENT": 1,
-      "PARTIALLY_FIXED": 3,
-      "FIXED_AND_VERIFIED": 5,
       "DEFERRED_PRODUCT_DECISION": 1
     },
     "medium": {
       "CONFIRMED_CURRENT": 2,
-      "PARTIALLY_FIXED": 1,
       "FIXED_AND_VERIFIED": 2,
+      "FALSE_POSITIVE": 2,
       "NOT_REACHABLE": 3,
-      "FALSE_POSITIVE": 2
+      "PARTIALLY_FIXED": 1
     },
     "low": {
+      "DEFERRED_PRODUCT_DECISION": 1,
       "CONFIRMED_CURRENT": 4,
       "FIXED_AND_VERIFIED": 1,
-      "NOT_REACHABLE": 2,
-      "DEFERRED_PRODUCT_DECISION": 1
+      "NOT_REACHABLE": 2
     }
   },
   "severity_summary": {
@@ -689,7 +689,7 @@
     {
       "id": "HIGH-007",
       "title": "Webhook Verifications Lenient When Secrets Unset",
-      "status": "PARTIALLY_FIXED",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "high",
       "confidence": "confirmed",
       "audit_category": "Security — Weak Webhook Verification",
@@ -697,48 +697,83 @@
       "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
       "current_files": [
         "soul_gateway/src/lib.rs",
-        "soul_gateway/src/channels/discord.rs",
-        "soul_gateway/src/channels/whatsapp.rs"
+        "soul_gateway/src/webhook_auth.rs"
       ],
       "current_symbols": [
-        "webhook_secret_configured",
+        "webhook_auth::verify_discord",
+        "webhook_auth::verify_slack",
+        "webhook_auth::verify_meta",
+        "webhook_auth::ReplayCache",
         "handle_discord_webhook",
         "handle_slack_webhook",
-        "handle_whatsapp_webhook",
-        "decode_hex"
+        "handle_whatsapp_webhook"
       ],
       "original_reachable_path": [
         "POST /providers/*/webhook accepted unsigned payloads when the provider secret was unset"
       ],
-      "current_state": "All three webhook handlers now fail closed when their provider secret is unset. Cryptographic verification is still absent: soul_gateway/src/lib.rs carries an explicit in-code note that HMAC-SHA256, timestamp freshness and replay protection are a follow-up PR. The decode_hex helpers exist to parse signature headers but no HMAC comparison consumes them on the webhook path; constant_time_eq is used for the operator bearer token, not for webhook signatures.",
-      "remaining_exposure": "With a secret configured, a caller who can reach the endpoint can still submit a forged or replayed payload: the signature is not verified, there is no timestamp window, and no nonce/replay cache.",
+      "current_state": "Both halves are now closed. The handlers still fail closed when a provider secret is unset (PR F), and a configured deployment now cryptographically verifies the request. The handlers previously used axum's Json(payload) extractor, which consumes the body - signature verification requires the raw bytes, so they now take HeaderMap + Bytes, verify, and only then deserialize via parse_verified_body. Per provider, verified against the actual scheme rather than the roadmap's shorthand: Discord uses Ed25519 (NOT HMAC) over `timestamp || body` with DISCORD_PUBLIC_KEY as a hex public key; Slack uses HMAC-SHA256 over the base string `v0:{timestamp}:{body}`; Meta/WhatsApp uses HMAC-SHA256 over the raw body via X-Hub-Signature-256. HMAC comparisons use subtle::ConstantTimeEq; Ed25519 verification is constant-time by construction. Timestamp freshness is enforced within MAX_SKEW (5 minutes, both directions) for Discord and Slack; Meta sends no timestamp, so replay protection carries that weight alone for WhatsApp. A ReplayCache on GatewayState rejects any signature already accepted, evicting entries older than MAX_SKEW so it stays bounded. Every rejection reason returns one opaque 401 and is logged server-side only, so a caller cannot distinguish a bad signature from a stale timestamp and probe the difference.",
       "required_invariant": "Webhooks fail closed when a secret is unset and reject invalid/replayed signatures (INV-NET-3).",
       "fixing_prs": [
         {
-          "number": 78,
-          "merge_commit": "38fc75e119c12988885a86d258e97ac6295223e4",
-          "title": "security(PR F): mandatory gateway authentication + webhook fail-closed (CRIT-007)"
+          "number": 98,
+          "merge_commit": "eb983c5f2925f473f8953eca0c68589da4522324",
+          "title": "security(P1-1): verify webhook signatures, freshness and replay (commit SHA; merge SHA differs)"
         }
       ],
       "verification_tests": [
         {
           "crate": "soul_gateway",
-          "name": "discord_webhook_fails_closed_when_secret_unset",
+          "name": "webhook_auth::tests::slack_accepts_a_valid_signature",
+          "command": "cargo test -p soul_gateway --lib webhook_auth::tests::slack_accepts_a_valid_signature"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "webhook_auth::tests::slack_rejects_a_forged_signature",
+          "command": "cargo test -p soul_gateway --lib webhook_auth::tests::slack_rejects_a_forged_signature"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "webhook_auth::tests::slack_rejects_a_tampered_body",
+          "command": "cargo test -p soul_gateway --lib webhook_auth::tests::slack_rejects_a_tampered_body"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "webhook_auth::tests::slack_rejects_a_stale_timestamp",
+          "command": "cargo test -p soul_gateway --lib webhook_auth::tests::slack_rejects_a_stale_timestamp"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "webhook_auth::tests::discord_accepts_a_valid_ed25519_signature_and_rejects_a_forged_one",
+          "command": "cargo test -p soul_gateway --lib webhook_auth::tests::discord_accepts_a_valid_ed25519_signature_and_rejects_a_forged_one"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "webhook_auth::tests::discord_rejects_a_stale_timestamp_even_with_a_valid_signature",
+          "command": "cargo test -p soul_gateway --lib webhook_auth::tests::discord_rejects_a_stale_timestamp_even_with_a_valid_signature"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "webhook_auth::tests::meta_accepts_a_valid_signature_and_rejects_forgery_and_tampering",
+          "command": "cargo test -p soul_gateway --lib webhook_auth::tests::meta_accepts_a_valid_signature_and_rejects_forgery_and_tampering"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "webhook_auth::tests::replay_cache_accepts_once_then_refuses",
+          "command": "cargo test -p soul_gateway --lib webhook_auth::tests::replay_cache_accepts_once_then_refuses"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "webhook_auth::tests::replay_cache_evicts_entries_older_than_the_freshness_window",
+          "command": "cargo test -p soul_gateway --lib webhook_auth::tests::replay_cache_evicts_entries_older_than_the_freshness_window"
+        },
+        {
+          "crate": "soul_gateway",
+          "name": "tests::discord_webhook_fails_closed_when_secret_unset",
           "command": "cargo test -p soul_gateway --lib discord_webhook_fails_closed_when_secret_unset"
-        },
-        {
-          "crate": "soul_gateway",
-          "name": "slack_webhook_fails_closed_when_secret_unset",
-          "command": "cargo test -p soul_gateway --lib slack_webhook_fails_closed_when_secret_unset"
-        },
-        {
-          "crate": "soul_gateway",
-          "name": "whatsapp_webhook_fails_closed_when_secret_unset",
-          "command": "cargo test -p soul_gateway --lib whatsapp_webhook_fails_closed_when_secret_unset"
         }
       ],
-      "residual_risk": "Fail-closed-on-unset is only half the invariant; the signature half is the half that defends a configured deployment.",
-      "follow_up": "Implement per-provider HMAC-SHA256 signature verification with constant-time comparison, a timestamp freshness window, and replay protection."
+      "residual_risk": "Verification is unit-tested against signatures generated with the real algorithms, including genuine Ed25519 signing, rather than mocks. It has not been exercised against live traffic from the three providers, so a header-name or encoding mismatch would only surface in a real integration. The replay cache is per-process and in-memory: a multi-instance deployment behind a load balancer would not share it, so a captured request could be replayed once per instance within the freshness window.",
+      "follow_up": null
     },
     {
       "id": "HIGH-008",

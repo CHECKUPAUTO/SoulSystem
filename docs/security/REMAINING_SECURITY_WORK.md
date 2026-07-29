@@ -75,18 +75,29 @@ operational compensating controls, not proven invariants.
 
 ## Priority 1 — Major hardening
 
-### P1-1 Webhook signature verification and replay protection
+### ~~P1-1 Webhook signature verification and replay protection~~ — CLOSED
 
-- **Findings / invariants:** HIGH-007 (`PARTIALLY_FIXED`), INV-NET-3
-- **Surface:** `soul_gateway/src/lib.rs` webhook handlers; the `decode_hex`
-  helpers in `channels/discord.rs` and `channels/whatsapp.rs` already parse
-  signature headers but nothing consumes them.
-- **Current risk:** handlers fail closed when a secret is unset, but with a
-  secret configured a reachable caller can still submit a forged or replayed
-  payload — no HMAC comparison, no timestamp window, no nonce cache.
-- **Acceptance tests:** per provider, a valid-signature accept, an
-  invalid-signature reject, a stale-timestamp reject, and a replayed-nonce
-  reject.
+- **Findings / invariants:** HIGH-007 (now `FIXED_AND_VERIFIED`), INV-NET-3
+- **Status:** closed by `security/p1-1-webhook-signature-verification`.
+- **Correction to this roadmap's own text:** it said "per-provider HMAC-SHA256".
+  That is wrong for Discord, which uses **Ed25519** over `timestamp ‖ body`,
+  with `DISCORD_PUBLIC_KEY` being a hex *public key* rather than a shared
+  secret. Slack (HMAC-SHA256 over `v0:{ts}:{body}`) and Meta/WhatsApp
+  (HMAC-SHA256 over the raw body) do use HMAC.
+- **What changed:** the handlers used axum's `Json(payload)` extractor, which
+  consumes the body — signature verification needs the raw bytes, so they now
+  take `HeaderMap` + `Bytes`, verify, and only then deserialize. HMAC
+  comparisons use `subtle::ConstantTimeEq`; Ed25519 is constant-time by
+  construction. Timestamp freshness is enforced within `MAX_SKEW` (5 min, both
+  directions) where the provider sends one. A `ReplayCache` on `GatewayState`
+  rejects any already-accepted signature and evicts entries past `MAX_SKEW` so
+  it stays bounded. Every rejection returns one opaque 401, logged server-side
+  only, so a caller cannot distinguish a bad signature from a stale timestamp.
+- **Residual:** the replay cache is per-process and in-memory, so a
+  multi-instance deployment would not share it — a captured request could be
+  replayed once per instance inside the freshness window. Verification is
+  unit-tested against real algorithm output (including genuine Ed25519
+  signing), not against live provider traffic.
 
 ### P1-2 CORS allowlist and request/message/concurrency limits
 

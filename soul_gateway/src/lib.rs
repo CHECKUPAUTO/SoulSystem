@@ -17,12 +17,14 @@
 //! complet.
 
 pub mod providers;
+pub mod webhook_auth;
 
 use async_trait::async_trait;
 use axum::{
+    body::Bytes,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     extract::{Request, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json},
     routing::{get, post},
@@ -334,6 +336,9 @@ pub struct GatewayState {
     pub entity: Arc<dyn EntityHandle>,
     pub events: EventHub,
     pub auth: GatewayAuth,
+    /// Signatures already accepted, so a captured webhook cannot be replayed
+    /// while its timestamp is still fresh (HIGH-007 / INV-NET-3).
+    pub webhook_replay: Arc<webhook_auth::ReplayCache>,
 }
 
 impl GatewayState {
@@ -345,6 +350,7 @@ impl GatewayState {
             entity,
             events: EventHub::new(500),
             auth: GatewayAuth::from_env(),
+            webhook_replay: Arc::new(webhook_auth::ReplayCache::new()),
         }
     }
 
@@ -354,6 +360,7 @@ impl GatewayState {
             entity,
             events: EventHub::new(500),
             auth,
+            webhook_replay: Arc::new(webhook_auth::ReplayCache::new()),
         }
     }
 }
@@ -620,37 +627,154 @@ fn webhook_secret_configured(var: &str) -> bool {
     std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false)
 }
 
+/// Read a header as UTF-8, or `MalformedHeader`.
+fn header_str<'a>(
+    headers: &'a HeaderMap,
+    name: &str,
+) -> Result<&'a str, webhook_auth::WebhookRejection> {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .ok_or(webhook_auth::WebhookRejection::MalformedHeader)
+}
+
+/// One opaque response for every rejection reason.
+///
+/// The precise cause is logged server-side but never returned: telling a caller
+/// "stale timestamp" rather than "bad signature" would let them probe the
+/// difference and learn our clock or confirm a guessed secret's shape.
+fn webhook_rejected(
+    provider: &str,
+    reason: webhook_auth::WebhookRejection,
+) -> (StatusCode, Json<ErrorResponse>) {
+    tracing::warn!(
+        provider,
+        reason = reason.as_str(),
+        "rejected webhook: signature verification failed"
+    );
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(ErrorResponse {
+            error: format!("{provider} webhook signature verification failed"),
+        }),
+    )
+}
+
+/// Reject a signature that has already been accepted.
+fn check_replay(
+    st: &GatewayState,
+    provider: &str,
+    signature: &[u8],
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if st
+        .webhook_replay
+        .check_and_insert(signature, std::time::SystemTime::now())
+    {
+        Ok(())
+    } else {
+        Err(webhook_rejected(
+            provider,
+            webhook_auth::WebhookRejection::Replayed,
+        ))
+    }
+}
+
+/// Deserialize a body that has already been cryptographically verified.
+fn parse_verified_body<T: serde::de::DeserializeOwned>(
+    provider: &str,
+    body: &[u8],
+) -> Result<T, (StatusCode, Json<ErrorResponse>)> {
+    serde_json::from_slice(body).map_err(|e| {
+        tracing::warn!(provider, error = %e, "verified webhook body failed to parse");
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("{provider} webhook body is not valid JSON"),
+            }),
+        )
+    })
+}
+
+/// Discord signs `timestamp ‖ body` with **Ed25519** (not HMAC);
+/// `DISCORD_PUBLIC_KEY` is a hex public key.
 async fn handle_discord_webhook(
     State(st): State<GatewayState>,
-    Json(payload): Json<providers::discord::DiscordWebhookBody>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    if !webhook_secret_configured("DISCORD_PUBLIC_KEY") {
+    let Ok(public_key) = std::env::var("DISCORD_PUBLIC_KEY") else {
+        return Err(webhook_not_configured("discord"));
+    };
+    if public_key.is_empty() {
         return Err(webhook_not_configured("discord"));
     }
+
+    let signature = (|| {
+        let ts = header_str(&headers, "x-signature-timestamp")?;
+        let sig = header_str(&headers, "x-signature-ed25519")?;
+        webhook_auth::verify_discord(&public_key, ts, sig, &body, std::time::SystemTime::now())
+    })()
+    .map_err(|reason| webhook_rejected("discord", reason))?;
+
+    check_replay(&st, "discord", &signature)?;
+
+    let payload: providers::discord::DiscordWebhookBody = parse_verified_body("discord", &body)?;
     let response =
         providers::discord::handle_webhook(&st.entity, &Some(st.events.clone()), payload).await;
     Ok(Json(response))
 }
 
+/// Slack signs the base string `v0:{timestamp}:{body}` with HMAC-SHA256.
 async fn handle_slack_webhook(
     State(st): State<GatewayState>,
-    Json(payload): Json<providers::slack::SlackWebhookBody>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    if !webhook_secret_configured("SLACK_SIGNING_SECRET") {
+    let Ok(secret) = std::env::var("SLACK_SIGNING_SECRET") else {
+        return Err(webhook_not_configured("slack"));
+    };
+    if secret.is_empty() {
         return Err(webhook_not_configured("slack"));
     }
+
+    let signature = (|| {
+        let ts = header_str(&headers, "x-slack-request-timestamp")?;
+        let sig = header_str(&headers, "x-slack-signature")?;
+        webhook_auth::verify_slack(&secret, ts, sig, &body, std::time::SystemTime::now())
+    })()
+    .map_err(|reason| webhook_rejected("slack", reason))?;
+
+    check_replay(&st, "slack", &signature)?;
+
+    let payload: providers::slack::SlackWebhookBody = parse_verified_body("slack", &body)?;
     let response =
         providers::slack::handle_webhook(&st.entity, &Some(st.events.clone()), payload).await;
     Ok(Json(response))
 }
 
+/// Meta signs the raw body with HMAC-SHA256 and sends no timestamp, so replay
+/// protection is the only freshness control available for this provider.
 async fn handle_whatsapp_webhook(
     State(st): State<GatewayState>,
-    Json(payload): Json<providers::whatsapp::WhatsAppWebhookBody>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    if !webhook_secret_configured("WHATSAPP_WEBHOOK_SECRET") {
+    let Ok(secret) = std::env::var("WHATSAPP_WEBHOOK_SECRET") else {
+        return Err(webhook_not_configured("whatsapp"));
+    };
+    if secret.is_empty() {
         return Err(webhook_not_configured("whatsapp"));
     }
+
+    let signature = (|| {
+        let sig = header_str(&headers, "x-hub-signature-256")?;
+        webhook_auth::verify_meta(&secret, sig, &body)
+    })()
+    .map_err(|reason| webhook_rejected("whatsapp", reason))?;
+
+    check_replay(&st, "whatsapp", &signature)?;
+
+    let payload: providers::whatsapp::WhatsAppWebhookBody = parse_verified_body("whatsapp", &body)?;
     let response =
         providers::whatsapp::handle_webhook(&st.entity, &Some(st.events.clone()), payload).await;
     Ok(Json(response))
