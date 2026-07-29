@@ -39,6 +39,30 @@ pub async fn run_ws_bridge(config: WsBridgeConfig, bus: Arc<Bus>) {
 pub struct WsBridgeConfig {
     pub listen: String,
     pub shared_secret: Option<String>,
+    /// Whether to serve clients when no shared secret is configured.
+    ///
+    /// Default [`UnauthenticatedAccess::Deny`]. See [`UnauthenticatedAccess`].
+    pub unauthenticated_access: UnauthenticatedAccess,
+}
+
+/// What the bridge does when `shared_secret` is unset or empty.
+///
+/// The bridge relays the internal [`Bus`] — a subscriber sees every message the
+/// process publishes, and a publisher can inject onto any topic. Before this was
+/// introduced the handshake initialised `authenticated` to `true` whenever no
+/// secret was configured, i.e. it failed **open**, and an unset secret is the
+/// default. The loopback default bind was the only thing standing between an
+/// unconfigured deployment and an unauthenticated bus tap
+/// (CRIT-007 / INV-NET-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UnauthenticatedAccess {
+    /// Refuse every connection while no secret is configured. The listener still
+    /// binds, so a misconfiguration is visible rather than silent.
+    #[default]
+    Deny,
+    /// Serve clients with no authentication at all. Only for local development;
+    /// the production startup guard rejects this posture.
+    Allow,
 }
 
 impl Default for WsBridgeConfig {
@@ -46,8 +70,40 @@ impl Default for WsBridgeConfig {
         Self {
             listen: "127.0.0.1:9022".to_string(),
             shared_secret: None,
+            unauthenticated_access: UnauthenticatedAccess::Deny,
         }
     }
+}
+
+impl WsBridgeConfig {
+    /// The secret to authenticate against, if one is usable.
+    ///
+    /// An empty string counts as unset: a blank value in config or environment
+    /// must not become a valid credential.
+    pub fn effective_secret(&self) -> Option<&str> {
+        self.shared_secret
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Whether this configuration authenticates its clients.
+    ///
+    /// Reported to the production startup guard as the listener's posture, so
+    /// the guard's view is derived from the real configuration rather than
+    /// hardcoded.
+    pub fn is_authenticated(&self) -> bool {
+        self.effective_secret().is_some()
+    }
+}
+
+/// Constant-time byte comparison, so a wrong token cannot be recovered by
+/// timing the reply. Mirrors `soul_gateway`'s bearer-token comparison.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Messages JSON echanges sur le WebSocket.
@@ -137,6 +193,20 @@ pub async fn run_server(state: Arc<WsBridgeState>) {
 
 /// Gere une connexion WebSocket entrante.
 async fn handle_connection(stream: TcpStream, addr: SocketAddr, state: Arc<WsBridgeState>) {
+    // Fail closed before doing any work: with no usable secret the only way to
+    // serve this connection would be without authentication, which must be an
+    // explicit opt-in rather than the default (CRIT-007 / INV-NET-1).
+    let secret = state.config.effective_secret().map(str::to_owned);
+    if secret.is_none() && state.config.unauthenticated_access == UnauthenticatedAccess::Deny {
+        warn!(
+            "WS bridge: refusing connection from {} — no shared secret is configured. \
+             Set one, or opt in explicitly with UnauthenticatedAccess::Allow for local \
+             development.",
+            addr
+        );
+        return;
+    }
+
     // Pour un serveur simple, on accepte tout puis on verifie au premier message
     let ws_stream = match accept_async(stream).await {
         Ok(ws) => ws,
@@ -166,13 +236,10 @@ async fn handle_connection(stream: TcpStream, addr: SocketAddr, state: Arc<WsBri
 
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
     let mut bus_rx = state.bus.subscribe();
-    let mut authenticated = state.config.shared_secret.is_none()
-        || state
-            .config
-            .shared_secret
-            .as_ref()
-            .map(|s| s.is_empty())
-            .unwrap_or(true);
+    // Authenticated up-front only on the explicit opt-in path (no secret AND
+    // UnauthenticatedAccess::Allow); the deny case already returned above. When
+    // a secret exists the client must present it in its first message.
+    let mut authenticated = secret.is_none();
 
     loop {
         tokio::select! {
@@ -205,8 +272,8 @@ async fn handle_connection(stream: TcpStream, addr: SocketAddr, state: Arc<WsBri
                             // Premier message = auth
                             if let Ok(auth) = serde_json::from_str::<serde_json::Value>(&text) {
                                 if let Some(token) = auth.get("token").and_then(|v| v.as_str()) {
-                                    if let Some(secret) = &state.config.shared_secret {
-                                        if token == secret {
+                                    if let Some(secret) = &secret {
+                                        if constant_time_eq(token.as_bytes(), secret.as_bytes()) {
                                             authenticated = true;
                                             let ack = serde_json::json!({"type":"auth_ok"});
                                             let _ = ws_tx.send(WsMessage::Text(ack.to_string().into())).await;
@@ -326,3 +393,84 @@ fn extract_topic_payload(msg: &Message) -> Option<(String, serde_json::Value)> {
 
 // Re-export pour utilisation externe
 pub use tokio_tungstenite::tungstenite::protocol::Message as WsRawMessage;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bridge relays the internal bus, so an unconfigured deployment must
+    /// not serve anyone. Before this it initialised `authenticated = true`
+    /// whenever no secret was set — i.e. it failed open, by default.
+    #[test]
+    fn default_config_denies_unauthenticated_access() {
+        let config = WsBridgeConfig::default();
+        assert_eq!(
+            config.unauthenticated_access,
+            UnauthenticatedAccess::Deny,
+            "an unset secret must refuse connections, not serve them"
+        );
+        assert!(
+            !config.is_authenticated(),
+            "no secret configured means the listener is not authenticated"
+        );
+    }
+
+    /// A blank value in config or environment is a misconfiguration, not a
+    /// credential: it must never authenticate a client.
+    #[test]
+    fn blank_secret_is_treated_as_unset() {
+        for blank in ["", "   ", "\t", "\n"] {
+            let config = WsBridgeConfig {
+                shared_secret: Some(blank.to_string()),
+                ..Default::default()
+            };
+            assert_eq!(
+                config.effective_secret(),
+                None,
+                "blank secret {blank:?} must not count as configured"
+            );
+            assert!(!config.is_authenticated());
+        }
+    }
+
+    #[test]
+    fn a_real_secret_authenticates_and_is_trimmed() {
+        let config = WsBridgeConfig {
+            shared_secret: Some("  s3cret  ".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(config.effective_secret(), Some("s3cret"));
+        assert!(config.is_authenticated());
+    }
+
+    /// The posture reported to the production startup guard must be derived
+    /// from the configuration actually served, so the guard cannot claim
+    /// authentication the bridge does not perform.
+    #[test]
+    fn reported_posture_tracks_the_real_configuration() {
+        assert!(!WsBridgeConfig::default().is_authenticated());
+        assert!(WsBridgeConfig {
+            shared_secret: Some("token".into()),
+            ..Default::default()
+        }
+        .is_authenticated());
+        // Opting in to unauthenticated access does NOT make it authenticated:
+        // the guard must still see an unauthenticated listener.
+        assert!(!WsBridgeConfig {
+            shared_secret: None,
+            unauthenticated_access: UnauthenticatedAccess::Allow,
+            ..Default::default()
+        }
+        .is_authenticated());
+    }
+
+    #[test]
+    fn constant_time_eq_matches_only_identical_tokens() {
+        assert!(constant_time_eq(b"token", b"token"));
+        assert!(constant_time_eq(b"", b""));
+        assert!(!constant_time_eq(b"token", b"tokeN"));
+        assert!(!constant_time_eq(b"token", b"token "));
+        assert!(!constant_time_eq(b"token", b""));
+        assert!(!constant_time_eq(b"", b"token"));
+    }
+}

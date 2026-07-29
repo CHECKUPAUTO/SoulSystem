@@ -15,9 +15,12 @@ async fn test_ws_connect_no_auth() {
     use tokio_tungstenite::connect_async;
 
     let bus = Arc::new(Bus::new(256));
+    // Exercising the relay itself, not authentication: opt in explicitly to the
+    // unauthenticated path, which is no longer the default (CRIT-007).
     let config = soulsystem::ws_bridge::WsBridgeConfig {
         listen: "127.0.0.1:19023".to_string(),
         shared_secret: None,
+        unauthenticated_access: soulsystem::ws_bridge::UnauthenticatedAccess::Allow,
     };
     tokio::spawn(async move {
         soulsystem::ws_bridge::run_ws_bridge(config, bus).await;
@@ -52,6 +55,7 @@ async fn test_ws_publish_subscribe() {
     let config = soulsystem::ws_bridge::WsBridgeConfig {
         listen: "127.0.0.1:19020".to_string(),
         shared_secret: None,
+        unauthenticated_access: soulsystem::ws_bridge::UnauthenticatedAccess::Allow,
     };
     tokio::spawn(async move {
         soulsystem::ws_bridge::run_ws_bridge(config, bus).await;
@@ -99,6 +103,7 @@ async fn test_ws_auth_valid() {
     let config = soulsystem::ws_bridge::WsBridgeConfig {
         listen: "127.0.0.1:19021".to_string(),
         shared_secret: Some("secret123".to_string()),
+        ..Default::default()
     };
     tokio::spawn(async move {
         soulsystem::ws_bridge::run_ws_bridge(config, bus).await;
@@ -137,6 +142,7 @@ async fn test_ws_auth_invalid() {
     let config = soulsystem::ws_bridge::WsBridgeConfig {
         listen: "127.0.0.1:19024".to_string(),
         shared_secret: Some("secret123".to_string()),
+        ..Default::default()
     };
     tokio::spawn(async move {
         soulsystem::ws_bridge::run_ws_bridge(config, bus).await;
@@ -183,4 +189,56 @@ async fn test_clawd_status_command() {
         avid_endpoint: "http://localhost:7878".to_string(),
     };
     // Si on arrive ici, la struct compile
+}
+
+/// The default posture — no shared secret configured — must refuse to serve.
+///
+/// This is the regression CRIT-007 turned on: the handshake used to initialise
+/// `authenticated = true` whenever no secret was set, so an unconfigured
+/// deployment relayed the whole internal bus to anyone who connected.
+#[tokio::test]
+async fn test_ws_default_refuses_when_no_secret_configured() {
+    use soulsystem::bus::Bus;
+    use tokio_tungstenite::connect_async;
+
+    let bus = Arc::new(Bus::new(256));
+    let config = soulsystem::ws_bridge::WsBridgeConfig {
+        listen: "127.0.0.1:19025".to_string(),
+        ..Default::default()
+    };
+    assert_eq!(
+        config.unauthenticated_access,
+        soulsystem::ws_bridge::UnauthenticatedAccess::Deny,
+        "the default must be Deny"
+    );
+    tokio::spawn(async move {
+        soulsystem::ws_bridge::run_ws_bridge(config, bus).await;
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // The listener still binds (so the misconfiguration is visible), but the
+    // connection must not become a usable WebSocket session.
+    match timeout(
+        Duration::from_secs(2),
+        connect_async("ws://127.0.0.1:19025"),
+    )
+    .await
+    {
+        // Refused before/at the handshake: the expected outcome.
+        Ok(Err(_)) => {}
+        // If the handshake somehow completed, the stream must be dead
+        // immediately — no message may be exchanged.
+        Ok(Ok((mut ws, _))) => {
+            let next = timeout(Duration::from_secs(2), ws.next()).await;
+            match next {
+                Ok(None) | Ok(Some(Err(_))) => {}
+                Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_)))) => {}
+                other => panic!(
+                    "unconfigured bridge must not serve a live session, got {:?}",
+                    other
+                ),
+            }
+        }
+        Err(_) => panic!("connect attempt hung; expected a prompt refusal"),
+    }
 }

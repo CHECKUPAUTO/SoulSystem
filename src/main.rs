@@ -22,7 +22,7 @@ use soul_openclaw::{Skill, SkillVersion};
 use soul_sandbox::SandboxPolicy;
 use soulsystem::bound_system::BoundSystem;
 use soulsystem::bus::Bus;
-use soulsystem::ws_bridge::{run_ws_bridge, WsBridgeConfig};
+use soulsystem::ws_bridge::{run_ws_bridge, UnauthenticatedAccess, WsBridgeConfig};
 use std::io::{self, Write};
 use std::time::Duration;
 // Unified bridge aliases (replaces 9 individual bridge crates).
@@ -269,11 +269,29 @@ async fn main() -> Result<()> {
         (None, None) => None,
         _ => unreachable!("clap requires --tls-cert and --tls-key together"),
     };
+    // Build the exact WS bridge configuration the bridge will serve with, before
+    // the guard runs, so the guard evaluates the real posture rather than an
+    // assumption. With no secret configured the bridge refuses connections
+    // (fail closed) and reports itself unauthenticated to the guard, which in
+    // production turns that into a startup violation (CRIT-007 / INV-NET-1).
+    let ws_bridge_config = WsBridgeConfig {
+        listen: "127.0.0.1:9022".to_string(),
+        shared_secret: std::env::var("SOULSYSTEM_WS_BRIDGE_SECRET").ok(),
+        unauthenticated_access: if std::env::var("SOULSYSTEM_WS_BRIDGE_ALLOW_UNAUTHENTICATED")
+            .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        {
+            UnauthenticatedAccess::Allow
+        } else {
+            UnauthenticatedAccess::Deny
+        },
+    };
+
     prod_guard::enforce_startup_security(
         &cli.gateway_addr,
         &settings,
         &gateway_auth,
         gateway_tls.is_some(),
+        &ws_bridge_config,
     )?;
 
     // ── Bus central (file d'attente 256 messages) ──────────────────────────
@@ -282,14 +300,21 @@ async fn main() -> Result<()> {
 
     // ── WebSocket Bridge (plateforme unifiee Telegram) ───────────────────
     let bus_ws = bus.clone();
+    let ws_bridge_listen = ws_bridge_config.listen.clone();
+    let ws_bridge_authenticated = ws_bridge_config.is_authenticated();
     tokio::spawn(async move {
-        let config = WsBridgeConfig {
-            listen: "127.0.0.1:9022".to_string(),
-            shared_secret: None, // pas d'auth en local
-        };
-        run_ws_bridge(config, bus_ws).await;
+        run_ws_bridge(ws_bridge_config, bus_ws).await;
     });
-    info!("WS Bridge demarre sur 127.0.0.1:9022");
+    if ws_bridge_authenticated {
+        info!("WS Bridge demarre sur {} (authentifie)", ws_bridge_listen);
+    } else {
+        warn!(
+            "WS Bridge demarre sur {} sans secret partage — les connexions sont \
+             refusees. Definir SOULSYSTEM_WS_BRIDGE_SECRET, ou \
+             SOULSYSTEM_WS_BRIDGE_ALLOW_UNAUTHENTICATED=1 pour le developpement local.",
+            ws_bridge_listen
+        );
+    }
 
     // MemoryHub (vectoriel + graph conceptuel + RAG)
     let mut memory_hub_raw = soulsystem::memory_hub::MemoryHub::new(&settings.paths.data_dir).await;

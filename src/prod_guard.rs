@@ -120,6 +120,7 @@ fn assemble_posture(
     settings: &Settings,
     gateway_authenticated: bool,
     gateway_tls_enabled: bool,
+    ws_bridge: &soulsystem::ws_bridge::WsBridgeConfig,
 ) -> SecurityPosture {
     let tokens = gateway_tokens();
     let auth_material_present =
@@ -133,8 +134,11 @@ fn assemble_posture(
     }
 
     // The gateway's operator routes are protected by the GatewayAuth bearer
-    // middleware. The API and local WS bridge below do not use that middleware
-    // and must remain reported as unauthenticated.
+    // middleware. `api` does not use that middleware and must remain reported as
+    // unauthenticated. `ws_bridge` reports its *real* posture, derived from the
+    // configuration it will actually serve with, rather than a hardcoded value:
+    // it authenticates exactly when a usable shared secret is configured
+    // (CRIT-007 / INV-NET-1).
     let listeners = vec![
         ListenerPosture::new(
             "gateway",
@@ -143,7 +147,12 @@ fn assemble_posture(
             gateway_authenticated,
         ),
         ListenerPosture::new("api", "127.0.0.1:9023", false, false),
-        ListenerPosture::new("ws_bridge", "127.0.0.1:9022", false, false),
+        ListenerPosture::new(
+            "ws_bridge",
+            &ws_bridge.listen,
+            false,
+            ws_bridge.is_authenticated(),
+        ),
     ];
 
     let workspace_root_canonical = std::fs::canonicalize(&settings.paths.data_dir).is_ok();
@@ -186,6 +195,7 @@ pub fn enforce_startup_security(
     settings: &Settings,
     gateway_auth: &GatewayAuth,
     gateway_tls_enabled: bool,
+    ws_bridge: &soulsystem::ws_bridge::WsBridgeConfig,
 ) -> anyhow::Result<GuardReport> {
     let mode = resolve_mode()?;
     let posture = assemble_posture(
@@ -193,6 +203,7 @@ pub fn enforce_startup_security(
         settings,
         gateway_auth.is_configured(),
         gateway_tls_enabled,
+        ws_bridge,
     );
 
     match evaluate(mode, &posture) {
@@ -247,7 +258,13 @@ mod tests {
         let settings = Settings::default();
         let auth = GatewayAuth::configured("a-real-operator-token");
 
-        let posture = assemble_posture("127.0.0.1:7878", &settings, auth.is_configured(), false);
+        let posture = assemble_posture(
+            "127.0.0.1:7878",
+            &settings,
+            auth.is_configured(),
+            false,
+            &soulsystem::ws_bridge::WsBridgeConfig::default(),
+        );
 
         assert!(listener(&posture, "gateway").authenticated);
         assert!(!listener(&posture, "api").authenticated);
@@ -259,10 +276,91 @@ mod tests {
         let settings = Settings::default();
         let auth = GatewayAuth::unconfigured();
 
-        let posture = assemble_posture("127.0.0.1:7878", &settings, auth.is_configured(), false);
+        let posture = assemble_posture(
+            "127.0.0.1:7878",
+            &settings,
+            auth.is_configured(),
+            false,
+            &soulsystem::ws_bridge::WsBridgeConfig::default(),
+        );
 
         assert!(!listener(&posture, "gateway").authenticated);
         assert!(!listener(&posture, "api").authenticated);
         assert!(!listener(&posture, "ws_bridge").authenticated);
+    }
+
+    /// The guard must read the bridge's real configuration, not a hardcoded
+    /// value: a configured secret means the listener genuinely authenticates.
+    #[test]
+    fn ws_bridge_posture_is_derived_from_its_real_configuration() {
+        let settings = Settings::default();
+        let auth = GatewayAuth::unconfigured();
+
+        let configured = soulsystem::ws_bridge::WsBridgeConfig {
+            shared_secret: Some("a-real-bridge-secret".into()),
+            ..Default::default()
+        };
+        let posture = assemble_posture(
+            "127.0.0.1:7878",
+            &settings,
+            auth.is_configured(),
+            false,
+            &configured,
+        );
+        assert!(
+            listener(&posture, "ws_bridge").authenticated,
+            "a configured shared secret must be reported as authenticated"
+        );
+
+        // Opting in to unauthenticated access must NOT be reported as
+        // authenticated — otherwise production could start on a bridge that
+        // serves anyone.
+        let opted_in = soulsystem::ws_bridge::WsBridgeConfig {
+            shared_secret: None,
+            unauthenticated_access: soulsystem::ws_bridge::UnauthenticatedAccess::Allow,
+            ..Default::default()
+        };
+        let posture = assemble_posture(
+            "127.0.0.1:7878",
+            &settings,
+            auth.is_configured(),
+            false,
+            &opted_in,
+        );
+        assert!(
+            !listener(&posture, "ws_bridge").authenticated,
+            "opting in to unauthenticated access is not authentication"
+        );
+    }
+
+    /// Production must refuse to start while the bridge is unauthenticated.
+    #[test]
+    fn production_rejects_an_unauthenticated_ws_bridge() {
+        let settings = Settings::default();
+        let auth = GatewayAuth::configured("a-real-operator-token");
+
+        let posture = assemble_posture(
+            "127.0.0.1:7878",
+            &settings,
+            auth.is_configured(),
+            true,
+            &soulsystem::ws_bridge::WsBridgeConfig::default(),
+        );
+
+        let rejected = evaluate(RuntimeMode::Production, &posture)
+            .expect_err("production must refuse to start with an unauthenticated ws_bridge");
+        assert!(
+            rejected.violations.iter().any(|v| matches!(
+                v,
+                soul_prod_guard::GuardViolation::UnauthenticatedListener { listener, .. }
+                    if listener == "ws_bridge"
+            )),
+            "expected an UnauthenticatedListener violation naming ws_bridge; got {:?}",
+            rejected.violations
+        );
+        assert!(
+            !rejected.details.contains("a-real-operator-token"),
+            "the rejection summary must stay secret-free"
+        );
     }
 }
