@@ -37,7 +37,9 @@ pub struct WhatsAppChannel {
     /// Phone number ID the messages are sent from.
     pub phone_number_id: Option<String>,
     /// Bearer access token (system-user or temporary token).
-    pub access_token: Option<String>,
+    /// Held in `SecretString` so the credential cannot reach a log line or a
+    /// `{:?}` render of the enclosing config (INV-SEC-2).
+    pub access_token: Option<soulsystem_common::secrets::SecretString>,
     /// Token echoed back during webhook subscription (GET handshake).
     pub verify_token: Option<String>,
     /// App secret used to verify the `X-Hub-Signature-256` HMAC.
@@ -70,7 +72,7 @@ impl WhatsAppChannel {
         Self {
             enabled: true,
             phone_number_id: Some(phone_number_id.into()),
-            access_token: Some(access_token.into()),
+            access_token: Some(soulsystem_common::secrets::SecretString::new(access_token)),
             ..Self::new()
         }
     }
@@ -102,7 +104,7 @@ impl WhatsAppChannel {
         let client = soullink_core::http::shared_client();
         let resp = client
             .post(&url)
-            .bearer_auth(token)
+            .bearer_auth(token.expose())
             .json(&serde_json::json!({
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",

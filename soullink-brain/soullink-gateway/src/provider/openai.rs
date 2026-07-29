@@ -42,7 +42,7 @@ impl OpenAIProvider {
         self.config
             .api_key
             .as_ref()
-            .map(|k| ("Authorization", format!("Bearer {k}")))
+            .map(|k| ("Authorization", format!("Bearer {}", k.expose())))
     }
 }
 

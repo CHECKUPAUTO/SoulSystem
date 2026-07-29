@@ -32,7 +32,9 @@ pub struct SlackChannel {
     /// Web API base, e.g. `https://slack.com/api`.
     pub api_base: String,
     /// Bot user OAuth token (`xoxb-...`).
-    pub bot_token: Option<String>,
+    /// Held in `SecretString` so the credential cannot reach a log line or a
+    /// `{:?}` render of the enclosing config (INV-SEC-2).
+    pub bot_token: Option<soulsystem_common::secrets::SecretString>,
     /// App signing secret, used to verify the `X-Slack-Signature` header.
     pub signing_secret: Option<String>,
 }
@@ -58,7 +60,7 @@ impl SlackChannel {
     pub fn configured(bot_token: impl Into<String>) -> Self {
         Self {
             enabled: true,
-            bot_token: Some(bot_token.into()),
+            bot_token: Some(soulsystem_common::secrets::SecretString::new(bot_token)),
             ..Self::new()
         }
     }
@@ -77,7 +79,7 @@ impl SlackChannel {
         let client = soullink_core::http::shared_client();
         let resp = client
             .post(&url)
-            .bearer_auth(token)
+            .bearer_auth(token.expose())
             .json(&serde_json::json!({ "channel": channel, "text": text }))
             .timeout(std::time::Duration::from_secs(15))
             .send()

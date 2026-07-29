@@ -808,7 +808,7 @@ fn authorization_header_sites() -> Vec<AuthSite> {
 /// It is recorded rather than fixed in one change because migrating them means
 /// changing signatures across a dozen crates, and a flag day there would be
 /// churn rather than hardening.
-const PLAINTEXT_AUTH_SITE_BUDGET: usize = 19;
+const PLAINTEXT_AUTH_SITE_BUDGET: usize = 12;
 
 /// Acceptance test 2 for P1-5-C: a check that does not depend on field naming.
 #[test]
