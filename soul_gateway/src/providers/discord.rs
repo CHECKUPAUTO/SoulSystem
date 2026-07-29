@@ -19,7 +19,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub struct DiscordProvider {
-    token: Option<String>,
+    /// Held in `SecretString` so the credential cannot reach a log line,
+    /// a panic message or a `{:?}` render through any enclosing derive
+    /// (INV-SEC-2). Unwrapped only at the header, below.
+    token: Option<soulsystem_common::secrets::SecretString>,
     #[allow(dead_code)]
     public_key: Option<String>,
 }
@@ -27,7 +30,9 @@ pub struct DiscordProvider {
 impl DiscordProvider {
     pub fn from_env() -> Self {
         Self {
-            token: std::env::var("DISCORD_BOT_TOKEN").ok(),
+            token: std::env::var("DISCORD_BOT_TOKEN")
+                .ok()
+                .map(soulsystem_common::secrets::SecretString::new),
             public_key: std::env::var("DISCORD_PUBLIC_KEY").ok(),
         }
     }
@@ -72,7 +77,7 @@ impl ChannelProvider for DiscordProvider {
         let client = self.client()?;
         let resp = client
             .post(&url)
-            .header("Authorization", format!("Bot {token}"))
+            .header("Authorization", format!("Bot {}", token.expose()))
             .header("Content-Type", "application/json")
             .json(&body)
             .send()

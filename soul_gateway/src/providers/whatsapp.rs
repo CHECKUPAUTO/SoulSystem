@@ -15,7 +15,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub struct WhatsAppProvider {
-    token: Option<String>,
+    /// Held in `SecretString` so the credential cannot reach a log line,
+    /// a panic message or a `{:?}` render through any enclosing derive
+    /// (INV-SEC-2). Unwrapped only at the header, below.
+    token: Option<soulsystem_common::secrets::SecretString>,
     phone_number_id: Option<String>,
     #[allow(dead_code)]
     webhook_secret: Option<String>,
@@ -24,7 +27,9 @@ pub struct WhatsAppProvider {
 impl WhatsAppProvider {
     pub fn from_env() -> Self {
         Self {
-            token: std::env::var("WHATSAPP_ACCESS_TOKEN").ok(),
+            token: std::env::var("WHATSAPP_ACCESS_TOKEN")
+                .ok()
+                .map(soulsystem_common::secrets::SecretString::new),
             phone_number_id: std::env::var("WHATSAPP_PHONE_NUMBER_ID").ok(),
             webhook_secret: std::env::var("WHATSAPP_WEBHOOK_SECRET").ok(),
         }
@@ -80,7 +85,7 @@ impl ChannelProvider for WhatsAppProvider {
         let client = self.client()?;
         let resp = client
             .post(&url)
-            .header("Authorization", format!("Bearer {token}"))
+            .header("Authorization", format!("Bearer {}", token.expose()))
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
@@ -198,7 +203,7 @@ mod tests {
     #[test]
     fn whatsapp_provider_missing_config_start_fails() {
         let p = WhatsAppProvider {
-            token: Some("token".to_string()),
+            token: Some(soulsystem_common::secrets::SecretString::new("token")),
             phone_number_id: None,
             webhook_secret: None,
         };

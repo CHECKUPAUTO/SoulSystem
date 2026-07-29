@@ -15,7 +15,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub struct SlackProvider {
-    token: Option<String>,
+    /// Held in `SecretString` so the credential cannot reach a log line,
+    /// a panic message or a `{:?}` render through any enclosing derive
+    /// (INV-SEC-2). Unwrapped only at the header, below.
+    token: Option<soulsystem_common::secrets::SecretString>,
     #[allow(dead_code)]
     signing_secret: Option<String>,
 }
@@ -23,7 +26,9 @@ pub struct SlackProvider {
 impl SlackProvider {
     pub fn from_env() -> Self {
         Self {
-            token: std::env::var("SLACK_BOT_TOKEN").ok(),
+            token: std::env::var("SLACK_BOT_TOKEN")
+                .ok()
+                .map(soulsystem_common::secrets::SecretString::new),
             signing_secret: std::env::var("SLACK_SIGNING_SECRET").ok(),
         }
     }
@@ -67,7 +72,7 @@ impl ChannelProvider for SlackProvider {
         let client = self.client()?;
         let resp = client
             .post(url)
-            .header("Authorization", format!("Bearer {token}"))
+            .header("Authorization", format!("Bearer {}", token.expose()))
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
