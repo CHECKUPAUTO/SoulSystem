@@ -19,7 +19,8 @@ mod seccomp;
 mod types;
 
 pub use policy::{
-    SandboxPolicy, BANNED_BINARIES, FORBIDDEN_PATTERNS, SENSITIVE_PATHS, SHELL_BYPASS_TOKENS,
+    ResourceLimits, SandboxPolicy, BANNED_BINARIES, FORBIDDEN_PATTERNS, SENSITIVE_PATHS,
+    SHELL_BYPASS_TOKENS,
 };
 pub use types::*;
 
@@ -247,9 +248,12 @@ impl Sandbox {
     fn apply_sandbox_pre_exec(&self, command: &mut Command) {
         let profile = self.policy.seccomp_profile.clone();
         let network_isolated = self.policy.network_isolated;
+        let limits = self.policy.resource_limits;
         unsafe {
             command.pre_exec(move || {
                 libc::setpgid(0, 0);
+
+                apply_resource_limits(&limits)?;
 
                 if network_isolated {
                     // CLONE_NEWUSER alongside CLONE_NEWNET so this works
@@ -295,11 +299,13 @@ impl Sandbox {
     /// the complete child tree; command and path policy checks remain active.
     #[cfg(all(unix, not(target_os = "linux")))]
     fn apply_sandbox_pre_exec(&self, command: &mut Command) {
+        let limits = self.policy.resource_limits;
         unsafe {
-            command.pre_exec(|| {
+            command.pre_exec(move || {
                 if libc::setpgid(0, 0) != 0 {
                     return Err(std::io::Error::last_os_error());
                 }
+                apply_resource_limits(&limits)?;
                 Ok(())
             });
         }
@@ -667,6 +673,94 @@ impl Sandbox {
     }
 }
 
+/// Lower one `setrlimit(2)` resource to `desired`, clamped to the inherited
+/// hard limit.
+///
+/// Both the soft *and* hard limits are set. Lowering the hard limit is
+/// permitted for an unprivileged process and is irreversible for that process,
+/// which is the point: leaving the hard limit where it was would let the
+/// sandboxed program raise its own soft limit straight back to it.
+///
+/// The desired value is clamped rather than used directly because raising a
+/// soft limit above the inherited hard limit fails with `EPERM` for an
+/// unprivileged caller. Clamping means a host that already runs us under a
+/// *tighter* ceiling keeps that tighter ceiling instead of the call failing.
+///
+/// # Safety
+///
+/// Called from `pre_exec`, i.e. between `fork` and `exec` in a process that may
+/// have only one thread but arbitrary locks held by the parent. `getrlimit` and
+/// `setrlimit` are plain syscalls with no allocation and no locking, so they
+/// are safe here; nothing else in this function allocates.
+#[cfg(unix)]
+fn set_one_rlimit(resource: RlimitResource, desired: u64) -> std::io::Result<()> {
+    let mut current = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: `current` is a valid, fully-initialised `rlimit` we own.
+    if unsafe { libc::getrlimit(resource, &mut current) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    // RLIM_INFINITY compares as the maximum value, so an inherited "unlimited"
+    // hard limit never clamps `desired` downwards.
+    let hard = current.rlim_max;
+    let value = if hard == libc::RLIM_INFINITY {
+        desired as libc::rlim_t
+    } else {
+        (desired as libc::rlim_t).min(hard)
+    };
+
+    let next = libc::rlimit {
+        rlim_cur: value,
+        rlim_max: value,
+    };
+    // SAFETY: `next` is a valid `rlimit` whose values are <= the inherited
+    // hard limit, so this is a lowering, which requires no privilege.
+    if unsafe { libc::setrlimit(resource, &next) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// The integer type `setrlimit`'s first argument takes, which differs by
+/// platform (`__rlimit_resource_t` on glibc, `c_int` elsewhere).
+#[cfg(all(unix, target_env = "gnu"))]
+type RlimitResource = libc::__rlimit_resource_t;
+#[cfg(all(unix, not(target_env = "gnu")))]
+type RlimitResource = libc::c_int;
+
+/// Apply every configured ceiling to the calling process (INV-EXEC-4).
+///
+/// **Fail-closed.** Unlike network-namespace setup, lowering an rlimit needs no
+/// privilege and has no host-policy dependency, so a failure here is a bug
+/// rather than an environment we have to tolerate. Returning `Err` from
+/// `pre_exec` aborts the fork before `exec`, so the command never runs with
+/// weaker bounds than the policy asked for.
+#[cfg(unix)]
+fn apply_resource_limits(limits: &ResourceLimits) -> std::io::Result<()> {
+    if let Some(bytes) = limits.max_address_space_bytes {
+        set_one_rlimit(libc::RLIMIT_AS, bytes)?;
+    }
+    if let Some(n) = limits.max_processes {
+        set_one_rlimit(libc::RLIMIT_NPROC, n)?;
+    }
+    if let Some(n) = limits.max_open_files {
+        set_one_rlimit(libc::RLIMIT_NOFILE, n)?;
+    }
+    if let Some(secs) = limits.max_cpu_seconds {
+        set_one_rlimit(libc::RLIMIT_CPU, secs)?;
+    }
+    if let Some(bytes) = limits.max_file_size_bytes {
+        set_one_rlimit(libc::RLIMIT_FSIZE, bytes)?;
+    }
+    if let Some(bytes) = limits.max_core_bytes {
+        set_one_rlimit(libc::RLIMIT_CORE, bytes)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1013,6 +1107,163 @@ mod tests {
             .execute_with_stdin("readlink /proc/self/ns/net", "")
             .unwrap();
         let _ = sandboxed_process_got_isolated_netns(policy, &verdict);
+    }
+
+    // ── INV-EXEC-4: CPU / memory / fd / file-size ceilings ───────
+
+    #[test]
+    fn default_resource_limits_are_bounded_and_nproc_is_deliberately_off() {
+        let limits = ResourceLimits::default();
+        assert_eq!(limits.max_address_space_bytes, Some(4 * 1024 * 1024 * 1024));
+        assert_eq!(limits.max_open_files, Some(256));
+        assert_eq!(limits.max_cpu_seconds, Some(60));
+        assert_eq!(limits.max_file_size_bytes, Some(256 * 1024 * 1024));
+        assert_eq!(limits.max_core_bytes, Some(0));
+        assert_eq!(
+            limits.max_processes, None,
+            "RLIMIT_NPROC counts per real UID, not per process tree, so a \
+             default would break the first fork of an ordinary command on any \
+             shared-UID host — see ResourceLimits::max_processes"
+        );
+        assert!(!limits.is_unlimited());
+        assert!(ResourceLimits::unlimited().is_unlimited());
+        assert_eq!(SandboxPolicy::default().resource_limits, limits);
+    }
+
+    /// Read one row of a `/proc/<pid>/limits` table as `(soft, hard)`.
+    ///
+    /// Returns the raw strings, so `"unlimited"` stays distinguishable from a
+    /// number rather than collapsing into one sentinel value.
+    #[cfg(target_os = "linux")]
+    fn limit_row(table: &str, label: &str) -> Option<(String, String)> {
+        let line = table.lines().find(|l| l.starts_with(label))?;
+        let mut cols = line[label.len()..].split_whitespace();
+        Some((cols.next()?.to_owned(), cols.next()?.to_owned()))
+    }
+
+    /// What the child's limit should be, given what this test process
+    /// inherited: the desired value, or the inherited hard limit if that is
+    /// already tighter (`set_one_rlimit` clamps rather than failing).
+    #[cfg(target_os = "linux")]
+    fn expected_child_limit(parent: &str, label: &str, desired: u64) -> String {
+        let (_, hard) = limit_row(parent, label).expect("label present in parent limits");
+        match hard.parse::<u64>() {
+            Ok(parent_hard) => desired.min(parent_hard).to_string(),
+            // "unlimited" never clamps downwards.
+            Err(_) => desired.to_string(),
+        }
+    }
+
+    /// Run `cat /proc/self/limits` under `limits` and return the child's table.
+    ///
+    /// `/proc/` is normally a blocked sensitive path; disabled here only so the
+    /// probe can read its own limits — orthogonal to the property under test.
+    #[cfg(target_os = "linux")]
+    fn child_limits_table(limits: ResourceLimits) -> String {
+        let sb = Sandbox::new(SandboxPolicy {
+            block_sensitive_paths: false,
+            resource_limits: limits,
+            ..Default::default()
+        });
+        let verdict = sb.execute("cat /proc/self/limits").unwrap();
+        assert_eq!(
+            verdict.exit_code,
+            Some(0),
+            "probe failed: stderr={}",
+            verdict.stderr
+        );
+        verdict.stdout
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn default_policy_bounds_the_child_and_it_cannot_raise_them_back() {
+        let parent = std::fs::read_to_string("/proc/self/limits").unwrap();
+        let child = child_limits_table(ResourceLimits::default());
+
+        for (label, desired) in [
+            ("Max address space", 4 * 1024 * 1024 * 1024_u64),
+            ("Max open files", 256),
+            ("Max cpu time", 60),
+            ("Max file size", 256 * 1024 * 1024),
+            ("Max core file size", 0),
+        ] {
+            let (soft, hard) = limit_row(&child, label).expect("label present in child limits");
+            let expected = expected_child_limit(&parent, label, desired);
+            assert_eq!(soft, expected, "{label}: soft limit not applied");
+            assert_eq!(
+                hard, expected,
+                "{label}: hard limit must be lowered too, or the sandboxed \
+                 process can raise its own soft limit straight back"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn unlimited_resource_limits_leave_the_inherited_ceilings_untouched() {
+        // The escape hatch for callers that bound the process another way
+        // (a cgroup, a container runtime) must genuinely change nothing.
+        let parent = std::fs::read_to_string("/proc/self/limits").unwrap();
+        let child = child_limits_table(ResourceLimits::unlimited());
+
+        for label in [
+            "Max address space",
+            "Max open files",
+            "Max cpu time",
+            "Max file size",
+            "Max processes",
+        ] {
+            assert_eq!(
+                limit_row(&child, label),
+                limit_row(&parent, label),
+                "{label} should have been inherited unchanged"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn the_default_leaves_nproc_inherited_but_an_explicit_one_is_applied() {
+        let parent = std::fs::read_to_string("/proc/self/limits").unwrap();
+
+        let inherited = child_limits_table(ResourceLimits::default());
+        assert_eq!(
+            limit_row(&inherited, "Max processes"),
+            limit_row(&parent, "Max processes"),
+            "the default must not touch RLIMIT_NPROC"
+        );
+
+        let explicit = child_limits_table(ResourceLimits {
+            max_processes: Some(16),
+            ..ResourceLimits::default()
+        });
+        let expected = expected_child_limit(&parent, "Max processes", 16);
+        assert_eq!(
+            limit_row(&explicit, "Max processes"),
+            Some((expected.clone(), expected)),
+            "an explicitly configured process ceiling must reach the child"
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn execute_with_stdin_gets_the_same_resource_limits() {
+        // Same class of bug as the network-isolation one above: a second spawn
+        // path must not end up with weaker bounds than `execute`.
+        let parent = std::fs::read_to_string("/proc/self/limits").unwrap();
+        let sb = Sandbox::new(SandboxPolicy {
+            block_sensitive_paths: false,
+            ..Default::default()
+        });
+        let verdict = sb.execute_with_stdin("cat /proc/self/limits", "").unwrap();
+        assert_eq!(verdict.exit_code, Some(0));
+
+        let expected = expected_child_limit(&parent, "Max open files", 256);
+        assert_eq!(
+            limit_row(&verdict.stdout, "Max open files"),
+            Some((expected.clone(), expected))
+        );
     }
 }
 
