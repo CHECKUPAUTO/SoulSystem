@@ -18,13 +18,12 @@
   },
   "count": 34,
   "status_summary": {
-    "CONFIRMED_CURRENT": 7,
-    "PARTIALLY_FIXED": 5,
-    "FIXED_AND_VERIFIED": 13,
-    "NOT_REACHABLE": 5,
+    "CONFIRMED_CURRENT": 6,
+    "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
-    "REQUIRES_RUNTIME_VERIFICATION": 0,
-    "DEFERRED_PRODUCT_DECISION": 2
+    "FIXED_AND_VERIFIED": 14,
+    "NOT_REACHABLE": 5,
+    "PARTIALLY_FIXED": 5
   },
   "severity_status_summary": {
     "critical": {
@@ -934,7 +933,7 @@
     {
       "id": "MED-001",
       "title": "soul_llm makes a single HTTP attempt with no retry/backoff on transient LLM provider failures",
-      "status": "CONFIRMED_CURRENT",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "medium",
       "confidence": "confirmed",
       "audit_category": "Reliability — Error Handling",
@@ -945,25 +944,105 @@
         "soul_llm/src/error.rs",
         "soul_llm/src/providers/openai.rs",
         "soul_llm/src/providers/anthropic.rs",
-        "soul_llm/src/providers/ollama.rs"
+        "soul_llm/src/providers/ollama.rs",
+        "soul_llm/src/retry.rs",
+        "soul_llm/src/http.rs"
       ],
       "current_symbols": [
-        "LlmClient::generate_with_goal",
-        "LlmError::RateLimited"
+        "LlmClient::with_retry",
+        "RetryPolicy",
+        "RetryPolicy::decide",
+        "LlmError::is_retryable",
+        "LlmError::retry_after",
+        "LlmError::from_http_status",
+        "http::SendChecked::send_checked",
+        "http::ensure_success"
       ],
       "original_reachable_path": [
         "run_react -> guarded_llm_chat -> LlmClient -> single provider HTTP attempt; any transient failure aborts the turn"
       ],
-      "current_state": "A RateLimited { retry_after } error variant exists in soul_llm/src/error.rs, but nothing acts on it. There is no retry loop, no exponential backoff, no jitter and no Retry-After honouring anywhere in soul_llm/src/client.rs or the three provider implementations. The only tokio::time::sleep in client.rs is inside a #[cfg(test)] mock provider used to measure concurrency, not production code.",
+      "current_state": "CORRECTION to this register's own earlier text, which said only that nothing acted on RateLimited: nothing ever CONSTRUCTED it either. No provider inspected the HTTP status at all - every call was .send().await?.json().await?, so a 429 or 503 reached serde_json as an error page and surfaced as LlmError::Serialization. Retry classification would have been reading the wrong signal, so both halves land together. All 16 provider request sites now go through http::SendChecked::send_checked, which maps status onto a classified error in one place (429 -> RateLimited with Retry-After, 5xx -> ServiceUnavailable, 401/403 -> Auth, other 4xx -> Provider) and parses Retry-After in both RFC 9110 forms (seconds and HTTP-date). LlmClient::with_retry then applies a bounded RetryPolicy - 3 attempts, 500ms initial, 30s ceiling, x2, equal jitter - to generate, chat and stream establishment. A server-supplied Retry-After overrides the curve; one longer than max_backoff stops rather than parking the run or retrying early. The concurrency permit is held across attempts (retries are one logical request) and the token budget is charged once.",
       "reachable_from": [
         "soul-agent-core run_react -> guarded_llm_chat -> LlmClient::generate_with_goal -> provider generate (single attempt)"
       ],
       "reproducer": "Inspect soul_llm/src/client.rs and soul_llm/src/providers/*.rs for a retry construct: the only sleep is within the test module. A provider returning 429 or a transient 5xx surfaces directly to the caller and ends the agent turn.",
       "required_invariant": "Transient provider failures are retried with bounded exponential backoff and jitter, honouring Retry-After.",
-      "fixing_prs": [],
-      "verification_tests": [],
-      "residual_risk": "A single transient upstream failure or rate-limit response aborts an autonomous run; combined with the absent circuit-breaker partitioning this makes provider degradation user-visible and non-self-healing.",
-      "follow_up": "Implement bounded retry with exponential backoff + jitter and Retry-After support in LlmClient, with tests using a failure-injecting mock provider."
+      "fixing_prs": [
+        {
+          "number": 101,
+          "merge_commit": "402017d37813fcbb1364f1e0c23c687e7f45e46d",
+          "title": "security(P1-4): retry provider calls with bounded backoff, and classify HTTP status first (implementation commit; the merge commit will differ)"
+        }
+      ],
+      "verification_tests": [
+        {
+          "crate": "soul_llm",
+          "name": "a_transient_failure_is_retried_and_the_call_succeeds",
+          "command": "cargo test -p soul_llm a_transient_failure_is_retried_and_the_call_succeeds"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "a_permanent_failure_is_not_retried_at_all",
+          "command": "cargo test -p soul_llm a_permanent_failure_is_not_retried_at_all"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "exhausting_the_budget_reports_retries_exhausted_not_the_bare_error",
+          "command": "cargo test -p soul_llm exhausting_the_budget_reports_retries_exhausted_not_the_bare_error"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "a_server_backoff_longer_than_the_ceiling_returns_the_rate_limit_intact",
+          "command": "cargo test -p soul_llm a_server_backoff_longer_than_the_ceiling_returns_the_rate_limit_intact"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "the_retry_loop_actually_waits_between_attempts",
+          "command": "cargo test -p soul_llm the_retry_loop_actually_waits_between_attempts"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "a_retried_request_is_charged_to_the_budget_once",
+          "command": "cargo test -p soul_llm a_retried_request_is_charged_to_the_budget_once"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "stream_establishment_is_retried",
+          "command": "cargo test -p soul_llm stream_establishment_is_retried"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "a_real_429_response_becomes_a_retryable_rate_limit_with_its_retry_after",
+          "command": "cargo test -p soul_llm a_real_429_response_becomes_a_retryable_rate_limit_with_its_retry_after"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "a_real_503_response_becomes_a_retryable_service_error",
+          "command": "cargo test -p soul_llm a_real_503_response_becomes_a_retryable_service_error"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "a_real_401_response_is_permanent_and_never_retried",
+          "command": "cargo test -p soul_llm a_real_401_response_is_permanent_and_never_retried"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "a_server_backoff_beyond_the_ceiling_stops_rather_than_waiting_or_ignoring",
+          "command": "cargo test -p soul_llm a_server_backoff_beyond_the_ceiling_stops_rather_than_waiting_or_ignoring"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "jitter_stays_within_the_equal_jitter_window",
+          "command": "cargo test -p soul_llm jitter_stays_within_the_equal_jitter_window"
+        },
+        {
+          "crate": "soul_llm",
+          "name": "backoff_grows_exponentially_and_is_clamped",
+          "command": "cargo test -p soul_llm backoff_grows_exponentially_and_is_clamped"
+        }
+      ],
+      "residual_risk": "The provider layer now absorbs transient failures. Three bounded gaps remain and are not claimed as closed: only stream ESTABLISHMENT is retried, because once a chunk may have reached the caller a re-run would duplicate output rather than recover; the retry budget is per-call, so a caller in a loop can still issue many bounded sequences; and no circuit breaker trips after repeated exhaustion, so a hard-down provider is re-probed on every call. Verification is against a failure-injecting mock provider and a local socket serving raw 429/503/401 responses, not against live provider traffic.",
+      "follow_up": "Circuit-breaker partitioning per provider (separate finding); agent-loop consumption of RetriesExhausted is roadmap P1-13."
     },
     {
       "id": "MED-002",
@@ -1208,18 +1287,23 @@
       "original_audit_baseline": "5e3b0c3b0d18f6d0022c1c762821d9aad340b011",
       "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
       "current_files": [
-        "soul-agent-core/src/lib.rs"
+        "soul-agent-core/src/lib.rs",
+        "soul_llm/src/retry.rs",
+        "soul_llm/src/error.rs"
       ],
       "current_symbols": [
         "ActionHistory::success_rate",
         "StrategySelector::record_outcome",
-        "StrategyOutcome"
+        "StrategyOutcome",
+        "LlmError::is_retryable",
+        "LlmError::RetriesExhausted",
+        "RetryPolicy"
       ],
       "original_reachable_path": [
         "strategy selection consumed a fabricated success rate (always 1.0) and auto_retry had no strategy-level policy"
       ],
-      "current_state": "The fabricated-success-rate half is fixed by PR #80: success_rate() is computed from really-recorded outcomes and strategy_selector.record_outcome receives a real StrategyOutcome. The retry-policy half is unchanged: there is still no single coherent retry policy - soul_llm performs no provider retry at all (MED-001), while the agent loop retries at the strategy level, so retry behaviour differs by layer with no shared budget or backoff.",
-      "remaining_exposure": "Retries are uncoordinated across layers: a failing provider produces immediate strategy-level replanning rather than a bounded backoff, and no layer honours Retry-After.",
+      "current_state": "The fabricated-success-rate half is fixed by PR #80: success_rate() is computed from really-recorded outcomes and strategy_selector.record_outcome receives a real StrategyOutcome. The retry-policy half is unchanged: there is still no single coherent retry policy - soul_llm performs no provider retry at all (MED-001), while the agent loop retries at the strategy level, so retry behaviour differs by layer with no shared budget or backoff. P1-4 supplies the mechanism for the coordination half: LlmError::is_retryable is one classification both layers can consult instead of maintaining divergent opinions, and LlmError::RetriesExhausted { attempts, last } lets an outer layer distinguish 'failed once, transiently' from 'the provider layer already backed off and retried N times'. soul_llm now performs real bounded retry, so MED-001's half of the gap is closed.",
+      "remaining_exposure": "The mechanism exists but soul-agent-core does not consume it yet: the strategy loop still does not branch on LlmError::RetriesExhausted, so a provider that is hard-down still produces immediate strategy-level replanning on top of the provider layer's own exhausted budget. There is still no single shared attempt budget spanning both layers - the provider budget is per-call.",
       "required_invariant": "Retry policy is coherent across layers and driven by real outcome data.",
       "fixing_prs": [
         {
@@ -1235,8 +1319,8 @@
           "command": "cargo test -p soul_agent_core --lib planner_history_records_actual_outcome_not_hardcoded_success"
         }
       ],
-      "residual_risk": "Outcome data is now truthful, so decisions are at least based on real signals; the coordination gap remains a resilience rather than a correctness problem.",
-      "follow_up": "Define one retry/backoff policy shared by the provider layer and the agent loop; land it with MED-001."
+      "residual_risk": "Outcome data is truthful and the provider layer now backs off, so the worst case is redundant replanning rather than a hot retry loop. The coordination gap remains a resilience rather than a correctness problem.",
+      "follow_up": "Roadmap P1-13: branch soul-agent-core's strategy loop on LlmError::RetriesExhausted and share one attempt budget across the two layers."
     },
     {
       "id": "MED-010",
