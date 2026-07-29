@@ -180,3 +180,104 @@ fn the_matcher_finds_real_call_shapes_and_ignores_prose() {
         );
     }
 }
+
+/// Lines that build a CORS layer by hand rather than through `soul_cors`.
+///
+/// `.allow_origin(` is the marker: it is the call that decides *who* may read a
+/// response, and it is the one `soul_cors::CorsPolicy::layer` exists to own.
+fn hand_rolled_allow_origin_sites() -> Vec<(String, usize, String)> {
+    let root = repo_root();
+    let mut hits = Vec::new();
+
+    for member in workspace_member_dirs() {
+        // The shared crate is the one place this call belongs.
+        if member == "crates/soul-cors" {
+            continue;
+        }
+        let dir = root.join(&member);
+        if !dir.is_dir() {
+            continue;
+        }
+        let mut files = Vec::new();
+        rust_files(&dir, &mut files);
+
+        for file in files {
+            let Ok(text) = std::fs::read_to_string(&file) else {
+                continue;
+            };
+            for (i, line) in text.lines().enumerate() {
+                let trimmed = line.trim_start();
+                // Prose about the call is not the call.
+                if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                    continue;
+                }
+                if line.contains(".allow_origin(") {
+                    let rel = file
+                        .strip_prefix(&root)
+                        .unwrap_or(&file)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    hits.push((rel, i + 1, line.trim().to_string()));
+                }
+            }
+        }
+    }
+    hits
+}
+
+/// One implementation of the origin rule, not several.
+///
+/// P1-2 hardened `soul_gateway` and `soul-dashboard` with their own copies;
+/// P1-10 later extracted `soul-cors` with the same rule for seven other
+/// services. Three correct copies are still three places a future fix has to
+/// land, and the one that gets missed fails open — an allowlist that keeps
+/// admitting an origin that was supposed to be revoked looks exactly like one
+/// that is working.
+///
+/// P1-10-B folded both copies in. This keeps a fourth from appearing.
+#[test]
+fn only_soul_cors_decides_which_origins_are_allowed() {
+    let hits = hand_rolled_allow_origin_sites();
+    assert!(
+        hits.is_empty(),
+        "these workspace members call .allow_origin() directly instead of going \
+         through soul_cors::CorsPolicy: {hits:#?}. Use `read_only_layer()` for a \
+         listener that only serves reads, or `read_write_layer()` for one that \
+         accepts submissions — picking the wrong one silently widens the policy, \
+         which is why there is no single default."
+    );
+}
+
+/// Anti-vacuous-pass: the matcher must still recognise the call it forbids, or
+/// the test above passes because it stopped looking rather than because nothing
+/// is there.
+#[test]
+fn the_allow_origin_matcher_still_recognises_the_real_call() {
+    let samples = [
+        (".allow_origin(AllowOrigin::list(origins))", true),
+        ("        base.allow_origin(AllowOrigin::any())", true),
+        ("/// then .allow_origin(...) is applied", false),
+        ("// .allow_origin(Any) was removed here", false),
+        ("let x = 1;", false),
+    ];
+    for (line, expected) in samples {
+        let trimmed = line.trim_start();
+        let is_comment = trimmed.starts_with("//") || trimmed.starts_with("///");
+        let hit = !is_comment && line.contains(".allow_origin(");
+        assert_eq!(hit, expected, "matcher disagreed on {line:?}");
+    }
+}
+
+/// The two folded crates must actually be reached by the scan, or the test
+/// above proves nothing about them specifically.
+#[test]
+fn the_scan_reaches_the_two_folded_crates() {
+    let members = workspace_member_dirs();
+    for expected in ["soul_gateway", "crates/soul-dashboard"] {
+        assert!(
+            members.iter().any(|m| m == expected),
+            "{expected} must be among the scanned members, got {} members",
+            members.len()
+        );
+    }
+}

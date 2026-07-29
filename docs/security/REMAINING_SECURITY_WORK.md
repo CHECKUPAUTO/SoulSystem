@@ -759,11 +759,39 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
 - **Remaining residual:** the guard covers workspace members only. The
   non-member `os-agents/soul_gateway` still calls `permissive()` (LOW-003), and
   an allowlist assembled at runtime from an attacker-influenced source is not
-  visible to source scanning. `soul_gateway` and `soul-dashboard` keep their own
-  P1-2 policies rather than being migrated — both are already fail-closed and
-  tested, and rewriting hardened, production-reachable code to remove
-  duplication is a refactor, not a security fix. Folding them into `soul-cors`
-  is P1-10-B.
+  visible to source scanning. `soul_gateway` and `soul-dashboard` kept their own
+  P1-2 policies at the time — both were already fail-closed and tested, and
+  rewriting hardened, production-reachable code to remove duplication is a
+  refactor, not a security fix. **P1-10-B has since folded them in** (below), so
+  one implementation now decides which origins are allowed.
+
+### ~~P1-10-B Fold the two P1-2 CORS policies into `soul-cors`~~ — CLOSED
+
+- **Findings / invariants:** INV-NET-4
+- **Not a vulnerability fix, and not recorded as one.** Both copies were
+  fail-closed and tested. What they were was *two* implementations of one rule
+  — and a rule that fails open when it drifts. An allowlist still admitting an
+  origin that was supposed to be revoked looks exactly like an allowlist that is
+  working, so the copy a future fix misses is the copy nobody notices.
+- **`soul_gateway`'s `CorsPolicy` was byte-identical** to `soul_cors`'s — same
+  `Disabled`/`Allowlist` shape, same parse, same `allows`, same layer. Replaced
+  with `pub use soul_cors::CorsPolicy`, which keeps `limits::CorsPolicy` naming
+  at all ~20 call sites, so no API break. 74 lines removed.
+- **The dashboard's copy was *not* identical, and that was the risk.** It
+  advertised `GET` alone; `soul_cors` offers both `read_only_layer` (`GET`) and
+  `read_write_layer` (`GET`/`POST`/`OPTIONS`). Folding a read-only listener onto
+  the read-write layer would have widened its policy while reading as pure
+  deduplication — which is the failure mode this kind of refactor actually has.
+  It uses `read_only_layer`, and a doc comment says why.
+- **One behaviour does change.** The dashboard's preflight responses now carry
+  `Access-Control-Max-Age: 600`, which its hand-rolled layer omitted. It does
+  not widen *which* origins are allowed, but a browser may cache a preflight
+  decision for ten minutes, so revoking an origin can take that long to be
+  observed by a browser that already asked.
+- **A guard so a fourth copy cannot appear.**
+  `only_soul_cors_decides_which_origins_are_allowed` fails on any `.allow_origin(`
+  outside `crates/soul-cors`. Verified negatively: re-introducing a hand-rolled
+  layer in the dashboard fails the test naming the file.
 
 ### ~~P1-11 Connection bounds, rate limiting, and limits on the other listeners~~ — CLOSED
 

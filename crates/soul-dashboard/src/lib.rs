@@ -19,7 +19,7 @@ use axum::{
         ws::{Message, WebSocket},
         Query, State, WebSocketUpgrade,
     },
-    http::{header, HeaderValue, Method, StatusCode},
+    http::{header, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Json},
     routing::get,
     Router,
@@ -30,7 +30,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 
 // ── Data Model ──────────────────────────────────────────────────────────
@@ -461,20 +461,25 @@ pub fn cors_layer_from_env() -> CorsLayer {
 }
 
 /// [`cors_layer_from_env`], with the raw allowlist supplied directly.
+///
+/// Delegates to [`soul_cors::CorsPolicy`] rather than parsing the list here.
+/// This crate had its own copy from P1-2 and `soul-cors` (P1-10) was extracted
+/// later with the same rule; keeping both meant a future fix to one would
+/// silently not reach the other.
+///
+/// **`read_only_layer` matters.** It advertises `GET` alone, which is what this
+/// function already did. The shared crate also offers `read_write_layer`
+/// (`GET`/`POST`/`OPTIONS`), and folding a read-only listener onto that would
+/// have widened the dashboard's policy while looking like pure deduplication —
+/// the failure mode a refactor like this actually has.
+///
+/// One behaviour does change: preflight responses now carry
+/// `Access-Control-Max-Age: 600`, which this function omitted. It does not
+/// widen *which* origins are allowed; it means a browser may cache a preflight
+/// decision for up to ten minutes, so removing an origin from the allowlist can
+/// take that long to be observed by a browser that already asked.
 pub fn cors_layer(raw: &str) -> CorsLayer {
-    let origins: Vec<HeaderValue> = raw
-        .split(',')
-        .map(str::trim)
-        // `*` is filtered rather than honoured: re-creating the permissive
-        // behaviour must be a deliberate enumeration, not one config character.
-        .filter(|s| !s.is_empty() && *s != "*")
-        .filter_map(|s| HeaderValue::from_str(s).ok())
-        .collect();
-
-    CorsLayer::new()
-        .allow_methods([Method::GET])
-        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
-        .allow_origin(AllowOrigin::list(origins))
+    soul_cors::CorsPolicy::parse(raw).read_only_layer()
 }
 
 pub fn app(state: AppState) -> Router {
