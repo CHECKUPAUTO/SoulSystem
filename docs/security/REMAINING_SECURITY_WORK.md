@@ -681,22 +681,43 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
 - **Both acceptance tests met**, with the scope limits recorded in the
   invariant register rather than counted as clean.
 
-### P1-6-B Durable, store-side memory provenance
+### ~~P1-6-B Durable memory provenance~~ — CLOSED for durability; record shapes remain
 
-- **Findings / invariants:** INV-MEM-3 (`PARTIAL`)
-- **Surface:** `ProvenanceLog`; CCOS causal graph, planner ring, OctaSoma.
-- **Current risk:** provenance is in-process and bounded at 512 entries, so a
-  persisted record outlives the metadata describing it. After a restart, or
-  once the ring wraps, every record looks equally trusted — which is precisely
-  the state INV-MEM-3 exists to prevent, just deferred rather than avoided. The
-  stores themselves have no field to carry a trust level, so fixing this means
-  changing their record shapes, not adding another side table.
-- **Also out of scope so far:** `soul-memory`, `soullink-memory` and
-  `soullink-memory-hierarchy` have their own write paths and are not covered by
-  the P1-6 guard.
-- **Acceptance tests:** a trust level survives a process restart; a record
-  whose provenance was evicted is distinguishable from one that was never
-  screened.
+- **Findings / invariants:** INV-MEM-3 (still `PARTIAL`), MED-015 (new)
+- **Both acceptance tests met.** `a_trust_level_survives_a_restart` and
+  `an_evicted_record_is_distinguishable_from_an_unscreened_one`, the second
+  driven through the real eviction path rather than by reaching into the struct.
+- **Two defects found in P1-6's own code (MED-015).**
+  1. **The documented bound bounded nothing.** `ProvenanceLog` said its ring was
+     bounded "so a long autonomous run cannot grow it without limit" — and the
+     ring was. The `latest` index beside it was not: `record` inserted and
+     nothing ever removed. Now capped at `INDEX_CAPACITY`, oldest first.
+  2. **`Option` conflated two opposite answers.** `latest_for` returned `None`
+     both for "screened, and the note aged out" and for "never screened". Those
+     call for opposite decisions, and treating the first as the second is
+     INV-MEM-3's own failure mode in miniature. `lookup` now returns
+     `Known` / `TrustOnly` / `Unknown`; an evicted record keeps its
+     `TrustLevel`, which is the field a caller actually acts on.
+- **A corrupt index is an error, not an empty start.** Starting empty would turn
+  "the provenance store is broken" into "nothing was ever screened" — arriving
+  at exactly the state the invariant exists to prevent, by way of a failure
+  nobody saw. Same for a version mismatch.
+- **What is honestly still open**, and why this does not close INV-MEM-3:
+  - The **record shapes are unchanged.** The roadmap asked for the stores to
+    carry a trust field; this makes provenance durable *alongside* the records,
+    not part of them. A write that never calls `record_provenance` is still
+    invisible.
+  - **Nothing calls `load_memory_provenance` at startup yet.** The API exists
+    and is tested; wiring it into each binary entry point is follow-on.
+  - `persist` is caller-driven, not per-record: a write per observation would
+    put an fsync-shaped cost on an autonomous loop's hot path. Records since the
+    last call are lost on a crash and return to `Unknown`.
+  - Past a second cap a record is genuinely forgotten and `Unknown` goes
+    inconclusive again. `forgotten_count()` makes that visible rather than
+    hiding it, but a caller that ignores it can still be misled.
+  - `soul-memory`, `soullink-memory` and `soullink-memory-hierarchy` have their
+    own write paths and remain outside the P1-6 guard entirely.
+- **Tracked as MED-015-B.**
 
 ### P1-7 Transactional multi-file persistence and backup/restore qualification — DONE (INV-PERSIST-2 held; INV-PERSIST-1 partial)
 

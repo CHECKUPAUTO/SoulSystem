@@ -626,6 +626,59 @@ impl AutonomousAgent {
         self.memory_provenance.latest_for(store, uri)
     }
 
+    /// What is known about the record at `uri` in `store`, distinguishing a
+    /// record whose detail was evicted from one that was never screened
+    /// (INV-MEM-3).
+    ///
+    /// Prefer this to [`Self::memory_provenance_for`] anywhere a decision
+    /// depends on the answer. That method returns `None` for both cases, and
+    /// treating a record whose trust level is known as if it were unscreened is
+    /// exactly the "everything looks equally trusted" state the invariant
+    /// exists to prevent.
+    pub fn memory_provenance_lookup(
+        &self,
+        store: provenance::MemoryStore,
+        uri: &str,
+    ) -> provenance::ProvenanceLookup<'_> {
+        self.memory_provenance.lookup(store, uri)
+    }
+
+    /// Load the durable provenance index from `path`, replacing the in-process
+    /// log (INV-MEM-3).
+    ///
+    /// Call this at startup, before any recall path consults provenance.
+    /// Without it a restarted process answers `Unknown` for every record it
+    /// persisted in a previous life.
+    ///
+    /// A corrupt or version-mismatched index is an error rather than a silent
+    /// empty start — see [`provenance::ProvenanceLog::open`].
+    pub fn load_memory_provenance(
+        &mut self,
+        path: impl Into<std::path::PathBuf>,
+    ) -> std::io::Result<()> {
+        self.memory_provenance =
+            provenance::ProvenanceLog::open(path, provenance::DEFAULT_PROVENANCE_CAPACITY)?;
+        Ok(())
+    }
+
+    /// Write the durable provenance index back to the path it was loaded from.
+    ///
+    /// Not called automatically on every record: a write per observation would
+    /// put an fsync-shaped cost on the hot path of an autonomous loop. The
+    /// caller decides the cadence, and the tradeoff is real — anything recorded
+    /// since the last call is lost on a crash, and those records come back
+    /// `Unknown` rather than wrong.
+    pub fn persist_memory_provenance(&self) -> std::io::Result<()> {
+        self.memory_provenance.persist()
+    }
+
+    /// How many provenance records have been forgotten entirely.
+    ///
+    /// Non-zero means an `Unknown` lookup is no longer conclusive.
+    pub fn forgotten_memory_provenance(&self) -> usize {
+        self.memory_provenance.forgotten_count()
+    }
+
     /// Recent memory-persistence decisions, oldest first.
     pub fn memory_provenance_log(&self) -> impl Iterator<Item = &provenance::MemoryProvenance> {
         self.memory_provenance.recent()

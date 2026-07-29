@@ -16,9 +16,9 @@
     "REQUIRES_RUNTIME_VERIFICATION": "Static inspection cannot decide; the required dynamic test is stated.",
     "DEFERRED_PRODUCT_DECISION": "Remaining work needs an explicit product/governance decision; carries decision_required."
   },
-  "count": 38,
+  "count": 39,
   "status_summary": {
-    "PARTIALLY_FIXED": 6,
+    "PARTIALLY_FIXED": 7,
     "FIXED_AND_VERIFIED": 17,
     "CONFIRMED_CURRENT": 6,
     "DEFERRED_PRODUCT_DECISION": 2,
@@ -41,7 +41,7 @@
       "FALSE_POSITIVE": 2,
       "CONFIRMED_CURRENT": 1,
       "NOT_REACHABLE": 3,
-      "PARTIALLY_FIXED": 2
+      "PARTIALLY_FIXED": 3
     },
     "low": {
       "DEFERRED_PRODUCT_DECISION": 1,
@@ -53,7 +53,7 @@
   "severity_summary": {
     "critical": 6,
     "high": 10,
-    "medium": 14,
+    "medium": 15,
     "low": 8
   },
   "previous_status_summary_for_comparison": {
@@ -1835,6 +1835,58 @@
           "title": "security(P1-8-B round 2): route the sh -c group through the sandbox, and close a live bypass in the filter that was guarding it"
         }
       ]
+    },
+    {
+      "id": "MED-015",
+      "title": "ProvenanceLog's latest-per-record index was unbounded despite the ring's documented bound, and a lookup could not tell an evicted record from one never screened",
+      "status": "PARTIALLY_FIXED",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "audit_category": "Unbounded Growth / Security-Relevant Ambiguity",
+      "discovered_by": "P1-6-B, while making provenance durable. Both defects are in code P1-6 added; neither is in the original audit.",
+      "original_audit_baseline": "5e3b0c3b0d18f6d0022c1c762821d9aad340b011",
+      "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
+      "current_files": [
+        "soul-agent-core/src/provenance.rs",
+        "soul-agent-core/src/lib.rs"
+      ],
+      "current_symbols": [
+        "ProvenanceLog",
+        "ProvenanceLookup",
+        "ProvenanceLog::open",
+        "ProvenanceLog::persist",
+        "INDEX_CAPACITY"
+      ],
+      "original_reachable_path": [
+        "AutonomousAgent::observe_untrusted -> record_provenance -> ProvenanceLog::record -> latest.insert (never evicted)"
+      ],
+      "required_invariant": "A persisted memory record must remain distinguishable by trust level for as long as it exists, and the structures tracking that must be bounded (INV-MEM-3).",
+      "current_state": "Two distinct defects, both fixed. (1) UNBOUNDED INDEX. `ProvenanceLog` documented its ring as bounded 'so a long autonomous run cannot grow it without limit', and the ring was. The `latest` HashMap beside it was not: `record` inserted into it and nothing ever removed. A run re-ingesting distinct URIs grew it without limit, so the stated bound bounded nothing. Now capped at INDEX_CAPACITY (65536) with oldest-first eviction. (2) AMBIGUOUS LOOKUP. `latest_for` returned `Option`, and `None` meant both 'this content was screened and the note aged out' and 'this content was never screened' - which call for opposite decisions. Replaced at decision sites by `lookup`, returning Known/TrustOnly/Unknown. An evicted record keeps its TrustLevel, which is the field a caller acts on; the rest of a MemoryProvenance is explanatory. Durability: `ProvenanceLog::open`/`persist` write the index via temp-file-plus-rename, so a trust level survives a restart. A corrupt or version-mismatched index is an ERROR, not a silent empty start - starting empty would convert 'the provenance store is broken' into 'nothing was ever screened', which is the state INV-MEM-3 exists to prevent, reached by way of a failure nobody saw.",
+      "follow_up": "MED-015-B: call load_memory_provenance/persist_memory_provenance from the binary entry points, and carry a trust field in the store record shapes so an unrecorded write cannot look clean.",
+      "verification_tests": [
+        {
+          "name": "a_trust_level_survives_a_restart",
+          "command": "cargo test -p soul_agent_core a_trust_level_survives_a_restart"
+        },
+        {
+          "name": "an_evicted_record_is_distinguishable_from_an_unscreened_one",
+          "command": "cargo test -p soul_agent_core an_evicted_record_is_distinguishable_from_an_unscreened_one"
+        },
+        {
+          "name": "the_index_is_bounded_not_just_the_ring",
+          "command": "cargo test -p soul_agent_core the_index_is_bounded_not_just_the_ring"
+        },
+        {
+          "name": "a_corrupt_index_is_an_error_not_an_empty_log",
+          "command": "cargo test -p soul_agent_core a_corrupt_index_is_an_error_not_an_empty_log"
+        },
+        {
+          "name": "a_refusal_survives_a_restart",
+          "command": "cargo test -p soul_agent_core a_refusal_survives_a_restart"
+        }
+      ],
+      "residual_risk": "`demoted` is bounded too, so past a second cap a record is genuinely forgotten and `Unknown` becomes inconclusive again. That is surfaced by `forgotten_count()` rather than hidden, but a caller that does not check it can still mistake a forgotten record for an unscreened one. `persist` is not called automatically per record - a write per observation would put an fsync-shaped cost on the hot path of an autonomous loop - so anything recorded since the last call is lost on a crash and returns to `Unknown`.",
+      "remaining_exposure": "The stores themselves still carry no trust field: this makes provenance durable ALONGSIDE the records, not part of them, so a record written through a path that does not call `record_provenance` is still invisible to it. P1-6-B's roadmap entry asked for the record shapes to change; that part is not done. `soul-memory`, `soullink-memory` and `soullink-memory-hierarchy` have their own write paths and remain outside the P1-6 guard entirely. Nothing yet calls `load_memory_provenance` at startup in the binaries - the API exists and is tested, but wiring it into each entry point is follow-on work."
     },
     {
       "id": "LOW-001",
