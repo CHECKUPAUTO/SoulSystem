@@ -2,6 +2,7 @@
 //!
 //! Expose les capacités de SoulSystem via HTTP, y compris les endpoints mémoire.
 
+use axum::extract::DefaultBodyLimit;
 use axum::{
     extract::{Path, Request, State},
     http::{header, StatusCode},
@@ -19,6 +20,7 @@ use crate::bound_system::BoundSystem;
 use crate::memory_hub::MemoryHub;
 use crate::pty_terminal::PtyTerminal;
 
+use soul_gateway::limits::{ConnectionLimiter, DEFAULT_MAX_BODY_BYTES};
 use soul_gateway::scope::{Scope, ScopeSet};
 
 /// Environment variable holding this listener's bearer token.
@@ -45,6 +47,11 @@ pub struct ApiState {
     /// INV-NET-1). Fails closed: with no usable token configured, every
     /// request is rejected — there is no implicit "open" state.
     pub auth: ApiAuth,
+    /// Largest accepted request body, in bytes (INV-NET-5).
+    ///
+    /// This listener had no body limit at all: an unauthenticated caller could
+    /// make the process buffer an arbitrary amount before authentication ran.
+    pub max_body_bytes: usize,
 }
 
 /// Fail-closed bearer authenticator for the `api` listener.
@@ -363,10 +370,72 @@ pub fn router(state: Arc<ApiState>) -> Router {
         .merge(exec_routes)
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
+    // Applied to the merged router below rather than to the authenticated
+    // group, so it also covers `/health` — the one route with no credential in
+    // front of it, and therefore the one an anonymous caller can actually
+    // reach with a body.
+    //
+    // Note what the ordering does and does not give: the authentication layer
+    // rejects an anonymous request *before* the body is read, so an
+    // unauthenticated oversized request costs 401 and no buffering at all.
+    // This limit is what bounds an *authenticated* caller, who has already got
+    // past that gate.
+
     Router::new()
         .route("/health", get(health_handler))
         .merge(authenticated)
+        .layer(DefaultBodyLimit::max(state.max_body_bytes))
         .with_state(state)
+}
+
+/// Serve the api listener with a hard cap on accepted connections.
+///
+/// This listener exposes shell execution and interactive PTYs, so an
+/// unbounded accept loop is worse here than on a read-mostly surface: every
+/// parked connection is a socket held against a process that can spawn
+/// children.
+pub async fn serve_bounded(
+    listener: tokio::net::TcpListener,
+    app: Router,
+    max_connections: usize,
+) -> std::io::Result<()> {
+    use hyper_util::rt::{TokioExecutor, TokioIo};
+    use hyper_util::server::conn::auto::Builder;
+    use tower::Service;
+
+    let limiter = ConnectionLimiter::new(max_connections);
+    loop {
+        let (stream, peer) = match listener.accept().await {
+            Ok(accepted) => accepted,
+            Err(error) => {
+                tracing::warn!(%error, "api accept failed; continuing");
+                continue;
+            }
+        };
+        // Refused, not parked.
+        let Some(permit) = limiter.try_acquire() else {
+            tracing::warn!(
+                %peer,
+                in_flight = limiter.in_flight(),
+                capacity = limiter.capacity(),
+                "refused connection: at the connection cap"
+            );
+            drop(stream);
+            continue;
+        };
+        let app = app.clone();
+        tokio::spawn(async move {
+            let _permit = permit;
+            let io = TokioIo::new(stream);
+            let service = hyper::service::service_fn(move |req| app.clone().call(req));
+            if let Err(error) = Builder::new(TokioExecutor::new())
+                .serve_connection_with_upgrades(io, service)
+                .await
+            {
+                tracing::debug!(%peer, %error, "api connection ended");
+            }
+        });
+    }
 }
 
 // ── Handlers existants ─────────────────────────────────────────────────
@@ -845,6 +914,7 @@ mod tests {
             metrics: crate::metrics::MetricsRegistry::default(),
             bridge_store: None,
             auth,
+            max_body_bytes: DEFAULT_MAX_BODY_BYTES,
         })
     }
 
@@ -1134,6 +1204,110 @@ mod tests {
             SCOPED_ROUTES.len(),
             "the router and SCOPED_ROUTES disagree on how many authenticated \
              routes exist"
+        );
+    }
+
+    // ── Request and connection bounds (INV-NET-5, P1-11) ─────────────────
+
+    fn state_with_body_limit(limit: usize) -> Arc<ApiState> {
+        let mut st = ApiState {
+            bound_system: Arc::new(BoundSystem::new(BoundSystem::default_whitelist())),
+            pty_sessions: Arc::new(Mutex::new(HashMap::new())),
+            memory: None,
+            metrics: crate::metrics::MetricsRegistry::default(),
+            bridge_store: None,
+            auth: ApiAuth::new(Some("tok".into())),
+            max_body_bytes: DEFAULT_MAX_BODY_BYTES,
+        };
+        st.max_body_bytes = limit;
+        Arc::new(st)
+    }
+
+    async fn send_body(app: Router, uri: &str, bearer: Option<&str>, body: Vec<u8>) -> StatusCode {
+        use tower::ServiceExt;
+        let mut builder = axum::http::Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(token) = bearer {
+            builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        let req = builder.body(axum::body::Body::from(body)).unwrap();
+        app.oneshot(req).await.unwrap().status()
+    }
+
+    #[tokio::test]
+    async fn an_oversized_body_is_rejected() {
+        // This listener previously had no body limit at all.
+        let app = router(state_with_body_limit(1024));
+        let huge = vec![b'x'; 4096];
+        assert_eq!(
+            send_body(app, "/api/exec", Some("tok"), huge).await,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+    }
+
+    #[tokio::test]
+    async fn a_body_within_the_limit_is_still_served() {
+        let app = router(state_with_body_limit(4096));
+        let status = send_body(
+            app,
+            "/api/memory/search",
+            Some("tok"),
+            br#"{"query":"hello","limit":1}"#.to_vec(),
+        )
+        .await;
+        assert_ne!(
+            status,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "a normal request must not be caught by the limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_anonymous_oversized_request_is_refused_without_being_read() {
+        // Ordering check, stated as it actually behaves: authentication runs
+        // before the body is read, so an anonymous oversized request costs a
+        // 401 and no buffering — it does not reach the body limit at all.
+        // The body limit is what bounds a caller who *has* authenticated.
+        let app = router(state_with_body_limit(1024));
+        assert_eq!(
+            send_body(app, "/api/exec", None, vec![b'x'; 4096]).await,
+            StatusCode::UNAUTHORIZED,
+            "rejected at the credential, before any body is consumed"
+        );
+        assert_eq!(
+            send_body(
+                router(state_with_body_limit(1024)),
+                "/api/exec",
+                Some("tok"),
+                vec![b'x'; 4096]
+            )
+            .await,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "an authenticated caller is bounded by the limit"
+        );
+    }
+
+    #[test]
+    fn the_listener_is_served_through_the_bounded_accept_loop() {
+        // A guard, not a behaviour test: `axum::serve` accepts every
+        // connection the OS offers, so reverting to it would silently remove
+        // the connection cap on a listener that can run shell commands.
+        let main_rs = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/main.rs"))
+            .expect("own source is readable");
+        let block = main_rs
+            .split("let api_router = soulsystem::api::router(api_state);")
+            .nth(1)
+            .expect("the api listener is started in main");
+        let block = &block[..block.find("// ──").unwrap_or(block.len())];
+        assert!(
+            block.contains("serve_bounded"),
+            "the api listener must be served through the bounded accept loop"
+        );
+        assert!(
+            !block.contains("axum::serve("),
+            "axum::serve accepts every connection offered; the cap would be lost"
         );
     }
 }

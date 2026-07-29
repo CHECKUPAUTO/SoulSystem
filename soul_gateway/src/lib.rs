@@ -26,7 +26,7 @@ use axum::{
     body::Bytes,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     extract::{DefaultBodyLimit, Request, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json},
     routing::{get, post},
@@ -434,6 +434,49 @@ async fn require_scope(
     ))
 }
 
+/// Charge one request against the caller's budget, refusing when it is spent.
+///
+/// Applied *inside* the authenticated group so the key is the principal, not
+/// the source address: a token must not be able to escape its limit by
+/// reconnecting from a new port. The cost is that an unauthenticated flood is
+/// bounded by the connection cap rather than by this limiter, which is the
+/// right split — rejecting an unauthenticated request is already cheap.
+async fn require_rate_budget(
+    State(state): State<GatewayState>,
+    req: Request,
+    next: Next,
+) -> Result<axum::response::Response, (StatusCode, HeaderMap, Json<ErrorResponse>)> {
+    let principal = req
+        .extensions()
+        .get::<GatewayPrincipal>()
+        .map(|p| p.name().to_owned());
+    let key = limits::rate_key(principal.as_deref(), None);
+
+    match state.rate_limiter.check(&key) {
+        limits::RateDecision::Allowed => Ok(next.run(req).await),
+        limits::RateDecision::Throttled { retry_after_secs } => {
+            tracing::warn!(
+                key = %key,
+                retry_after_secs,
+                "rejected: client exceeded its request budget"
+            );
+            let mut headers = HeaderMap::new();
+            if let Ok(value) = HeaderValue::from_str(&retry_after_secs.to_string()) {
+                headers.insert(header::RETRY_AFTER, value);
+            }
+            Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                headers,
+                Json(ErrorResponse {
+                    error: "request budget exceeded; retry after the interval \
+                            in the Retry-After header"
+                        .into(),
+                }),
+            ))
+        }
+    }
+}
+
 /// État partagé entre les handlers.
 #[derive(Clone)]
 pub struct GatewayState {
@@ -448,6 +491,12 @@ pub struct GatewayState {
     /// Carried on the state rather than captured by [`router`] alone because
     /// [`handle_ws`] needs the WebSocket bound at upgrade time.
     pub limits: limits::GatewayLimits,
+    /// Per-client request budget (INV-NET-5).
+    ///
+    /// Shared across clones so every worker charges the same buckets — a
+    /// per-clone limiter would multiply the effective rate by the number of
+    /// clones, which is the classic way this control silently does nothing.
+    pub rate_limiter: limits::RateLimiter,
 }
 
 impl GatewayState {
@@ -461,6 +510,10 @@ impl GatewayState {
             auth: GatewayAuth::from_env(),
             webhook_replay: Arc::new(webhook_auth::ReplayCache::new()),
             limits: limits::GatewayLimits::from_env(),
+            rate_limiter: {
+                let limits = limits::GatewayLimits::from_env();
+                limits::RateLimiter::new(limits.rate_per_second, limits.rate_burst)
+            },
         }
     }
 
@@ -472,11 +525,19 @@ impl GatewayState {
             auth,
             webhook_replay: Arc::new(webhook_auth::ReplayCache::new()),
             limits: limits::GatewayLimits::default(),
+            rate_limiter: limits::RateLimiter::new(
+                limits::DEFAULT_RATE_PER_SECOND,
+                limits::DEFAULT_RATE_BURST,
+            ),
         }
     }
 
     /// Override the request limits (tests, embedders).
+    ///
+    /// Rebuilds the rate limiter, so a test that lowers the rate actually gets
+    /// the lower rate rather than the default one built at construction.
     pub fn with_limits(mut self, limits: limits::GatewayLimits) -> Self {
+        self.rate_limiter = limits::RateLimiter::new(limits.rate_per_second, limits.rate_burst);
         self.limits = limits;
         self
     }
@@ -989,6 +1050,15 @@ pub fn router_with_cors(state: GatewayState, cors: limits::CorsPolicy) -> Router
     let operator_routes = read_routes
         .merge(write_routes)
         .merge(exec_routes)
+        // Ordering matters: authentication outermost, then the per-principal
+        // budget, then the per-route scope. Charging the budget before
+        // authenticating would let an anonymous flood exhaust a real
+        // principal's allowance; charging it after the scope check would let a
+        // caller spend budget on routes they cannot reach anyway.
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_rate_budget,
+        ))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     let webhook_routes = Router::new()
@@ -1039,6 +1109,7 @@ pub async fn serve_with_tls(
     })
     .await;
 
+    let connection_limit = limits::ConnectionLimiter::new(state.limits.max_connections);
     let app = router(state);
     if let Some(tls) = tls {
         tracing::info!("soul_gateway listening with TLS on {}", addr);
@@ -1047,8 +1118,70 @@ pub async fn serve_with_tls(
             .await
     } else {
         let listener = tokio::net::TcpListener::bind(addr).await?;
-        tracing::info!("soul_gateway listening on {}", addr);
-        axum::serve(listener, app).await
+        tracing::info!(
+            max_connections = connection_limit.capacity(),
+            "soul_gateway listening on {}",
+            addr
+        );
+        serve_bounded(listener, app, connection_limit).await
+    }
+}
+
+/// Serve with a hard cap on simultaneously accepted connections.
+///
+/// `axum::serve` accepts every connection the OS hands it, so a slow-loris
+/// style flood is bounded only by the file-descriptor limit — the existing
+/// concurrency semaphore never sees a connection that never completes a
+/// request. This loop refuses past the cap instead.
+///
+/// **Refused, not parked.** The socket is accepted and immediately dropped,
+/// which sends a reset. Waiting for a slot would give the attacker exactly what
+/// they want: their one socket costs us a socket *and* a queue entry.
+async fn serve_bounded(
+    listener: tokio::net::TcpListener,
+    app: Router,
+    limiter: limits::ConnectionLimiter,
+) -> std::io::Result<()> {
+    use hyper_util::rt::{TokioExecutor, TokioIo};
+    use hyper_util::server::conn::auto::Builder;
+    use tower::Service;
+
+    loop {
+        let (stream, peer) = match listener.accept().await {
+            Ok(accepted) => accepted,
+            Err(error) => {
+                // A per-connection accept error (EMFILE, a client vanishing
+                // between the SYN and the accept) must not kill the listener.
+                tracing::warn!(%error, "gateway accept failed; continuing");
+                continue;
+            }
+        };
+
+        let Some(permit) = limiter.try_acquire() else {
+            tracing::warn!(
+                %peer,
+                in_flight = limiter.in_flight(),
+                capacity = limiter.capacity(),
+                "refused connection: at the connection cap"
+            );
+            drop(stream);
+            continue;
+        };
+
+        let app = app.clone();
+        tokio::spawn(async move {
+            // The permit lives as long as the connection task, so the slot is
+            // returned when the connection ends — however it ends.
+            let _permit = permit;
+            let io = TokioIo::new(stream);
+            let service = hyper::service::service_fn(move |req| app.clone().call(req));
+            if let Err(error) = Builder::new(TokioExecutor::new())
+                .serve_connection_with_upgrades(io, service)
+                .await
+            {
+                tracing::debug!(%peer, %error, "gateway connection ended");
+            }
+        });
     }
 }
 
@@ -1999,6 +2132,141 @@ mod tests {
             !declared.is_empty(),
             "the scan found no routes at all — the extraction is broken, not \
              the router"
+        );
+    }
+
+    // ── Per-client rate limiting on the router (P1-11, INV-NET-5) ────────
+
+    #[tokio::test]
+    async fn a_client_exceeding_its_budget_is_throttled_with_429() {
+        let limits = limits::GatewayLimits {
+            rate_per_second: 1,
+            rate_burst: 2,
+            ..Default::default()
+        };
+        let state = mock_state(GatewayAuth::configured("tok")).with_limits(limits);
+        let app = router_with_cors(state, limits::CorsPolicy::Disabled);
+
+        assert_eq!(
+            send(app.clone(), "GET", "/v1/status", Some("tok"), "").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            send(app.clone(), "GET", "/v1/status", Some("tok"), "").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            send(app, "GET", "/v1/status", Some("tok"), "").await,
+            StatusCode::TOO_MANY_REQUESTS,
+            "the burst is spent"
+        );
+    }
+
+    #[tokio::test]
+    async fn throttling_one_principal_does_not_throttle_another() {
+        // The P1-11 acceptance test: one operator token saturating its budget
+        // must not starve everyone else.
+        let limits = limits::GatewayLimits {
+            rate_per_second: 1,
+            rate_burst: 1,
+            ..Default::default()
+        };
+        let state = mock_state(GatewayAuth::configured_users([
+            ("noisy", "tok-noisy"),
+            ("quiet", "tok-quiet"),
+        ]))
+        .with_limits(limits);
+        let app = router_with_cors(state, limits::CorsPolicy::Disabled);
+
+        assert_eq!(
+            send(app.clone(), "GET", "/v1/status", Some("tok-noisy"), "").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            send(app.clone(), "GET", "/v1/status", Some("tok-noisy"), "").await,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(
+            send(app, "GET", "/v1/status", Some("tok-quiet"), "").await,
+            StatusCode::OK,
+            "a different principal has its own budget"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_budget_is_charged_after_authentication_not_before() {
+        // Charging before authenticating would let an anonymous flood exhaust
+        // a real principal's allowance — the limiter would become the attack.
+        let limits = limits::GatewayLimits {
+            rate_per_second: 1,
+            rate_burst: 1,
+            ..Default::default()
+        };
+        let state = mock_state(GatewayAuth::configured("tok")).with_limits(limits);
+        let app = router_with_cors(state, limits::CorsPolicy::Disabled);
+
+        for _ in 0..20 {
+            assert_eq!(
+                send(app.clone(), "GET", "/v1/status", None, "").await,
+                StatusCode::UNAUTHORIZED,
+                "anonymous requests are rejected and cost no budget"
+            );
+        }
+        assert_eq!(
+            send(app, "GET", "/v1/status", Some("tok"), "").await,
+            StatusCode::OK,
+            "the real principal's allowance survived the anonymous flood"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_throttled_response_carries_retry_after() {
+        let limits = limits::GatewayLimits {
+            rate_per_second: 1,
+            rate_burst: 1,
+            ..Default::default()
+        };
+        let state = mock_state(GatewayAuth::configured("tok")).with_limits(limits);
+        let app = router_with_cors(state, limits::CorsPolicy::Disabled);
+
+        let request = |token: &str| {
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/v1/status")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(axum::body::Body::empty())
+                .unwrap()
+        };
+        use tower::ServiceExt;
+        let _ = app.clone().oneshot(request("tok")).await.unwrap();
+        let throttled = app.oneshot(request("tok")).await.unwrap();
+        assert_eq!(throttled.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(
+            throttled.headers().contains_key(header::RETRY_AFTER),
+            "a client that is told to back off needs to know for how long"
+        );
+    }
+
+    #[test]
+    fn the_gateway_is_served_through_the_bounded_accept_loop() {
+        // `axum::serve` accepts every connection the OS offers, so reverting
+        // to it would silently remove the connection cap.
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
+            .expect("own source is readable");
+        let serve_fn = source
+            .split("pub async fn serve_with_tls(")
+            .nth(1)
+            .expect("serve_with_tls is present");
+        let serve_fn = &serve_fn[..serve_fn
+            .find("\n/// Serve with a hard cap")
+            .unwrap_or(serve_fn.len())];
+        assert!(
+            serve_fn.contains("serve_bounded"),
+            "the plain-HTTP path must use the bounded accept loop"
+        );
+        assert!(
+            !serve_fn.contains("axum::serve("),
+            "axum::serve accepts every connection offered; the cap would be lost"
         );
     }
 }

@@ -117,8 +117,9 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
 
 ### ~~P1-2 CORS allowlist and request/message/concurrency limits~~ — CLOSED
 
-- **Findings / invariants:** INV-NET-4, INV-NET-5 (both now `PARTIAL`, not
-  `HELD` — see the residuals below and the two follow-up items P1-10 / P1-11)
+- **Findings / invariants:** INV-NET-4 (`PARTIAL`, see P1-10),
+  INV-NET-5 (**now `HELD`** — the three residuals recorded below were closed by
+  P1-11)
 - **Status:** closed by `security/p1-2-cors-and-request-limits`.
 - **What changed — CORS:** `soul_gateway::limits::CorsPolicy` replaces
   `CorsLayer::permissive()`. The allowlist comes from
@@ -167,15 +168,18 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   `soul_gateway` would invert the layering, and hoisting the type into
   `soulsystem-common` would pull `tower-http` into a crate that does not
   otherwise need HTTP.
-- **Residual (a) — no connection bound.** The concurrency layer limits work in
-  flight, not accepted connections or queued requests. A slow-loris style
-  connection flood is not addressed. Tracked as P1-11.
+- **Residual (a) — no connection bound.** ~~The concurrency layer limits work in
+  flight, not accepted connections or queued requests, so a slow-loris style
+  connection flood is not addressed.~~ **Closed by P1-11:** connections are
+  refused past a cap rather than parked, on both the gateway and
+  `src/ws_bridge.rs`.
 - **Residual (b) — no per-client rate limiting** on `soul_gateway`.
-  `soul-dashboard` has a `SimpleRateLimiter`; the gateway has none. Tracked as
-  P1-11.
-- **Residual (c) — the other listeners are untouched.** `src/api.rs` and
-  `src/ws_bridge.rs` carry no body, message or concurrency limits at all.
-  Tracked as P1-11.
+  ~~`soul-dashboard` has a `SimpleRateLimiter`; the gateway has none.~~
+  **Closed by P1-11:** a per-principal token bucket, charged after
+  authentication.
+- **Residual (c) — the other listeners are untouched.** ~~`src/api.rs` and
+  `src/ws_bridge.rs` carry no body, message or concurrency limits at all.~~
+  **Closed by P1-11.**
 - **Residual (d) — four other crates still call `CorsLayer::permissive()`:**
   `soullink-gateway` (`src/cli/run.rs`), `soullink-inference`
   (`src/bin/turboquant-proxy.rs`), `soullink-orchestrator-v3` (`src/main.rs`)
@@ -486,21 +490,43 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   `Access-Control-Allow-Origin`, and a bare `*` in config does not re-enable
   permissive behaviour.
 
-### P1-11 Connection bounds, rate limiting, and limits on the other listeners
+### ~~P1-11 Connection bounds, rate limiting, and limits on the other listeners~~ — CLOSED
 
-- **Findings / invariants:** INV-NET-5 (`PARTIAL`)
-- **Surface:** `soul_gateway` (connection count, per-client rate), `src/api.rs`
-  and `src/ws_bridge.rs` (no limits of any kind).
-- **Current risk:** P1-2 bounds request *bodies*, *messages* and *work in
-  flight* on the gateway. It does not bound accepted connections, so a
-  slow-loris style flood still ties up sockets and grows the wait queue behind
-  the concurrency semaphore; and there is no per-client rate limit, so one
-  authenticated operator token can saturate the whole budget. `src/api.rs` and
-  `src/ws_bridge.rs` were not touched at all.
-- **Acceptance tests:** connections beyond the cap are refused rather than
-  accepted-and-parked; a single client exceeding its rate is throttled without
-  affecting others; `src/api.rs` and `src/ws_bridge.rs` reject an oversized
-  body and an oversized WebSocket frame.
+- **Findings / invariants:** INV-NET-5 (now `HELD`, with one stated residual)
+- **Status:** closed by `security/p1-11-connection-bounds-rate-limiting`.
+- **Connections are refused, not parked.** `ConnectionLimiter::try_acquire`
+  returns `None` immediately at the cap and the socket is dropped. Waiting for a
+  slot is exactly what a slow-loris flood wants — their one socket would cost us
+  a socket *and* a queue entry. Refusing costs them a reconnect.
+- **This required dropping `axum::serve`** on the plain-HTTP path, because it
+  accepts every connection the OS offers and there is no layer that can refuse
+  one — a tower layer sees requests, and a connection that never completes a
+  request never becomes one. Both listeners now run a bounded accept loop, and
+  both carry a guard test that fails if anyone reverts to `axum::serve`.
+- **Rate limiting is keyed by principal, charged after authentication.** Keyed
+  by principal so a token cannot escape its limit by reconnecting from a new
+  port. Charged *after* authentication so an anonymous flood cannot exhaust a
+  real principal's allowance — otherwise the limiter becomes the attack. That
+  ordering is tested directly, not just asserted in a comment.
+- **Idle buckets are evicted.** Without that, an IP-keyed limiter on a public
+  listener grows once per distinct key seen forever: a memory-growth bug wearing
+  a rate limiter's clothes.
+- **The other two listeners** gain what they had none of: `src/api.rs` gets
+  `DefaultBodyLimit` and a bounded accept loop; `src/ws_bridge.rs` gets a
+  connection cap and `max_message_size`/`max_frame_size` applied *at handshake
+  time*, so an oversized frame is refused by the protocol layer rather than
+  buffered and then checked.
+- **Corrected while writing this.** Two claims I had to fix rather than ship:
+  a burst smaller than the sustained rate does **not** make that rate
+  unreachable (it only stops the allowance being spent instantaneously), so the
+  clamp that raised it was removed; and the api listener's body limit does
+  **not** apply before authentication — the auth layer rejects first, without
+  reading the body, which is a better outcome than the one the original comment
+  described.
+- **Remaining residual:** the gateway's rate limit is per *principal* only. An
+  unauthenticated flood is bounded by the connection cap rather than by a
+  per-IP budget; adding one needs `ConnectInfo` wired through the router, which
+  is not done here.
 
 ## Priority 2 — Product decisions
 

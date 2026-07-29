@@ -277,6 +277,8 @@ async fn main() -> Result<()> {
     let ws_bridge_config = WsBridgeConfig {
         listen: "127.0.0.1:9022".to_string(),
         shared_secret: std::env::var("SOULSYSTEM_WS_BRIDGE_SECRET").ok(),
+        max_connections: soulsystem::ws_bridge::DEFAULT_WS_MAX_CONNECTIONS,
+        max_message_bytes: soulsystem::ws_bridge::DEFAULT_WS_MAX_MESSAGE_BYTES,
         unauthenticated_access: if std::env::var("SOULSYSTEM_WS_BRIDGE_ALLOW_UNAUTHENTICATED")
             .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         {
@@ -668,13 +670,26 @@ async fn main() -> Result<()> {
         metrics: metrics_registry,
         bridge_store,
         auth: api_auth.clone(),
+        max_body_bytes: soul_gateway::limits::DEFAULT_MAX_BODY_BYTES,
     });
     let api_router = soulsystem::api::router(api_state);
     tokio::spawn(async move {
         match tokio::net::TcpListener::bind("127.0.0.1:9023").await {
             Ok(listener) => {
-                info!("API HTTP demarre sur 127.0.0.1:9023");
-                if let Err(e) = axum::serve(listener, api_router).await {
+                info!(
+                    "API HTTP demarre sur 127.0.0.1:9023 (max {} connexions)",
+                    soul_gateway::limits::DEFAULT_MAX_CONNECTIONS
+                );
+                // Bounded accept loop, not `axum::serve`: this listener exposes
+                // shell execution and PTYs, so an unbounded one holds sockets
+                // against a process that can spawn children (INV-NET-5).
+                if let Err(e) = soulsystem::api::serve_bounded(
+                    listener,
+                    api_router,
+                    soul_gateway::limits::DEFAULT_MAX_CONNECTIONS,
+                )
+                .await
+                {
                     tracing::error!("API HTTP server error: {}", e);
                 }
             }
