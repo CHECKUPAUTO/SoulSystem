@@ -918,10 +918,26 @@
           "crate": "ccos",
           "name": "write_durable_writes_and_replaces_atomically",
           "command": "cargo test -p ccos write_durable_writes_and_replaces_atomically"
+        },
+        {
+          "name": "a_torn_multi_file_write_is_detected",
+          "command": "cargo test -p ccos a_torn_multi_file_write_is_detected"
+        },
+        {
+          "name": "backup_destroy_restore_recovers_verified_state",
+          "command": "cargo test -p ccos backup_destroy_restore_recovers_verified_state"
+        },
+        {
+          "name": "a_corrupt_backup_does_not_overwrite_live_state",
+          "command": "cargo test -p ccos a_corrupt_backup_does_not_overwrite_live_state"
+        },
+        {
+          "name": "a_future_format_version_is_refused_rather_than_guessed_at",
+          "command": "cargo test -p ccos a_future_format_version_is_refused_rather_than_guessed_at"
         }
       ],
-      "residual_risk": "Each file is individually atomic, but multi-file consistency is not transactional: a crash between two related writes can still leave the three CCOS files mutually inconsistent. Corruption detection on load and state versioning are absent (INV-PERSIST-1 remains PARTIAL for that reason).",
-      "follow_up": null
+      "residual_risk": "Each file is individually atomic, and P1-7 added set-level detection on top: a manifest written last records a SHA-256 digest per member file, so a crash between the three renames leaves digests that no longer match and the tear is detected on load rather than silently accepted. State versioning is present (`format_version`, refused if newer than this build understands). What remains is that detection is not repair: a torn set is refused, with no rollback to the previous generation, so the process cannot start until an operator restores a backup. A directory with no manifest is also accepted as legacy so upgrades are not stranded, which means anyone able to unlink the manifest can downgrade a directory to unverified; `restore_runtime_strict` refuses that but is opt-in and has no production caller yet.",
+      "follow_up": "P1-7-B: repair a detected tear from the previous generation (single-file format or WAL), make strict restore the default with a migration window, and extend backup qualification beyond the CCOS state directory."
     },
     {
       "id": "HIGH-006",
