@@ -8,6 +8,7 @@ license.workspace = true
 description = "Messaging gateway for SoulLink — routes Telegram/WhatsApp messages to/from the orchestrator"
 
 [dependencies]
+soul-cors = { workspace = true }
 soullink-core = { path = "../soullink-core" }
 # Learned cost-aware routing (no default features → no heavy avid-core tree).
 avid-model-router = { path = "../../avid/crates/avid-model-router", default-features = false }

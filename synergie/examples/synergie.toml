@@ -71,7 +71,8 @@ max_history  = 50
 bind            = "127.0.0.1"
 port            = 7460
 ws_path         = "/ws"
-cors_allow_any  = true
+cors_origins    = []   # INV-NET-4: empty permits no cross-origin access
+# cors_allow_any is deprecated and no longer honoured; use cors_origins.
 # Token Bearer requis sur tous les endpoints si défini.
 # auth_token    = "change-me"
 

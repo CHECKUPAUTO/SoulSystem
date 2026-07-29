@@ -18,6 +18,13 @@ use axum::Router;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Environment variable holding a comma-separated CORS origin allowlist.
+///
+/// Unset or blank permits no cross-origin browser access at all
+/// (INV-NET-4). Each service names its own variable: they deploy
+/// separately and have no reason to share an origin list.
+const CORS_ALLOWLIST_VAR: &str = "BRAIN_SYSTEM_CORS_ORIGINS";
+
 pub struct BrainState {
     pub neurons: Vec<neuron::Neuron>,
     pub synapses: Vec<neuron::Synapse>,
@@ -49,7 +56,9 @@ async fn main() {
 
     let app = Router::new()
         .nest("/api", api::routes(brain.clone()))
-        .layer(tower_http::cors::CorsLayer::permissive());
+        // INV-NET-4: fail closed. `/api/stimulus` and `/api/reset` are POST
+        // routes that mutate the running brain.
+        .layer(soul_cors::CorsPolicy::from_env(CORS_ALLOWLIST_VAR).read_write_layer());
 
     let addr = "0.0.0.0:8084";
     tracing::info!("🧠 SoulLink Brain v8.5 (Rust) — listening on {}", addr);

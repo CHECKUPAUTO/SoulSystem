@@ -126,7 +126,18 @@ pub struct ApiCfg {
     pub port: u16,
     #[serde(default = "default_ws_path")]
     pub ws_path: String,
-    #[serde(default = "default_true")]
+    /// Comma-free list of exact origins permitted to make cross-origin
+    /// browser requests. Empty (the default) permits none — INV-NET-4.
+    #[serde(default)]
+    pub cors_origins: Vec<String>,
+    /// Deprecated. This used to default to `true`, so an operator who simply
+    /// omitted the field got `Access-Control-Allow-Origin: *` on an API whose
+    /// `auth_token` also defaults to `None`.
+    ///
+    /// It is still parsed so an existing config is not silently reinterpreted:
+    /// setting it now logs a warning and is **not** honoured. Use
+    /// `cors_origins` to name the origins you actually want.
+    #[serde(default)]
     pub cors_allow_any: bool,
     #[serde(default)]
     pub auth_token: Option<String>,
@@ -254,7 +265,8 @@ impl Default for Config {
                 bind: "127.0.0.1".into(),
                 port: 7460,
                 ws_path: "/ws".into(),
-                cors_allow_any: true,
+                cors_origins: Vec::new(),
+                cors_allow_any: false,
                 auth_token: None,
             },
             action: ActionCfg {

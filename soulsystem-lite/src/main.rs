@@ -7,6 +7,13 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Environment variable holding a comma-separated CORS origin allowlist.
+///
+/// Unset or blank permits no cross-origin browser access at all
+/// (INV-NET-4). Each service names its own variable: they deploy
+/// separately and have no reason to share an origin list.
+const CORS_ALLOWLIST_VAR: &str = "SOULSYSTEM_LITE_CORS_ORIGINS";
+
 #[derive(Clone)]
 struct AppState {
     cervo: Arc<RwLock<Option<soul_bridge::cervo::CervoBridge>>>,
@@ -752,7 +759,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/octa/stats", get(octa_stats))
         .route("/octa/feedback", post(octa_feedback))
         .route("/octa/ping", get(octa_ping))
-        .layer(tower_http::cors::CorsLayer::permissive())
+        // INV-NET-4: fail closed. The `/octa/*` and `/ccos/*` routes read
+        // and write memory state.
+        .layer(soul_cors::CorsPolicy::from_env(CORS_ALLOWLIST_VAR).read_write_layer())
         .with_state(state.clone());
 
     // WS endpoint on :9022

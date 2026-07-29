@@ -15,7 +15,13 @@
 
 use soullink_inference::turboquant::proxy::router::{build_router, AppState};
 use soullink_inference::turboquant::proxy::server::{ProxyConfig, TurboQuantProxy};
-use tower_http::cors::CorsLayer;
+
+/// Environment variable holding a comma-separated CORS origin allowlist.
+///
+/// Unset or blank permits no cross-origin browser access at all
+/// (INV-NET-4). Each service names its own variable: they deploy
+/// separately and have no reason to share an origin list.
+const CORS_ALLOWLIST_VAR: &str = "TURBOQUANT_PROXY_CORS_ORIGINS";
 
 #[tokio::main]
 async fn main() {
@@ -59,7 +65,11 @@ async fn main() {
     }
 
     let state = AppState { proxy };
-    let app = build_router(state).layer(CorsLayer::permissive());
+    // INV-NET-4: fail closed. This proxy forwards `/v1/chat/completions`
+    // to a local llama-server; `permissive()` let any page the operator had
+    // open drive it and read the replies.
+    let app = build_router(state)
+        .layer(soul_cors::CorsPolicy::from_env(CORS_ALLOWLIST_VAR).read_write_layer());
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", listen_port))
         .await

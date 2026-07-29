@@ -6,6 +6,7 @@ license.workspace = true
 description = "NUMA-aware inference engine for SoulLink V13.5"
 
 [dependencies]
+soul-cors = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }

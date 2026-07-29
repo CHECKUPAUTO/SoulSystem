@@ -29,7 +29,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+
 use tracing::{info, warn};
 
 #[derive(Clone)]
@@ -60,14 +60,23 @@ pub async fn serve(cfg: Arc<Config>, agent: Arc<Agent>) -> Result<()> {
         .route("/status", get(status))
         .with_state(state);
 
+    // INV-NET-4: fail closed. `cors_allow_any` defaulted to `true`, so an
+    // operator who omitted the field served `Access-Control-Allow-Origin: *`
+    // from an API whose `auth_token` also defaults to `None`.
     if cfg.api.cors_allow_any {
-        router = router.layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
+        tracing::warn!(
+            target: "api",
+            "`api.cors_allow_any` is deprecated and is NOT honoured: it allowed every \
+             origin to read this API's responses. Set `api.cors_origins` to the origins \
+             you actually need."
         );
     }
+    let policy = if cfg.api.cors_origins.is_empty() {
+        soul_cors::CorsPolicy::Disabled
+    } else {
+        soul_cors::CorsPolicy::parse(&cfg.api.cors_origins.join(","))
+    };
+    router = router.layer(policy.read_write_layer());
 
     info!(target: "api", bind = %bind, "HTTP/WS API démarrée");
     let listener = tokio::net::TcpListener::bind(&bind).await?;

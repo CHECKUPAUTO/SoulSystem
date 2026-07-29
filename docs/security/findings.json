@@ -16,12 +16,12 @@
     "REQUIRES_RUNTIME_VERIFICATION": "Static inspection cannot decide; the required dynamic test is stated.",
     "DEFERRED_PRODUCT_DECISION": "Remaining work needs an explicit product/governance decision; carries decision_required."
   },
-  "count": 35,
+  "count": 36,
   "status_summary": {
     "CONFIRMED_CURRENT": 6,
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
-    "FIXED_AND_VERIFIED": 15,
+    "FIXED_AND_VERIFIED": 16,
     "NOT_REACHABLE": 5,
     "PARTIALLY_FIXED": 5
   },
@@ -37,7 +37,7 @@
       "DEFERRED_PRODUCT_DECISION": 1
     },
     "medium": {
-      "FIXED_AND_VERIFIED": 4,
+      "FIXED_AND_VERIFIED": 5,
       "FALSE_POSITIVE": 2,
       "CONFIRMED_CURRENT": 1,
       "NOT_REACHABLE": 3,
@@ -53,7 +53,7 @@
   "severity_summary": {
     "critical": 6,
     "high": 10,
-    "medium": 11,
+    "medium": 12,
     "low": 8
   },
   "previous_status_summary_for_comparison": {
@@ -1657,6 +1657,58 @@
       ],
       "residual_risk": "The refusal protects the causal graph's content. It does not give the operator a durable record of which paths were attacked: the provenance log is in-process and bounded (512 entries), so across a restart or a long run the fact that a given file produced quarantined output is lost. The SafetyWarning event is emitted at the time but is not persisted anywhere by this crate.",
       "follow_up": "P1-6-B: durable, store-side provenance so a trust level survives restart and eviction."
+    },
+    {
+      "id": "MED-012",
+      "title": "synergie's HTTP API allowed every cross-origin caller by default, on a surface whose auth token also defaults to None",
+      "status": "FIXED_AND_VERIFIED",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "audit_category": "Insecure Default",
+      "discovered_by": "P1-10 CORS sweep; not in the original audit, and not among the four services the roadmap listed for P1-10.",
+      "original_audit_baseline": "5e3b0c3b0d18f6d0022c1c762821d9aad340b011",
+      "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
+      "current_files": [
+        "synergie/src/config.rs",
+        "synergie/src/api/mod.rs",
+        "synergie/examples/synergie.toml"
+      ],
+      "current_symbols": [
+        "ApiCfg::cors_allow_any",
+        "ApiCfg::cors_origins"
+      ],
+      "original_reachable_path": [
+        "synergie serve -> api::serve -> ApiCfg::cors_allow_any defaulted true -> CorsLayer::new().allow_origin(Any) applied to /status and the WS API"
+      ],
+      "current_state": "Fixed. `ApiCfg::cors_allow_any` carried `#[serde(default = \"default_true\")]` AND was `true` in the `Default` impl, so a config that omitted the field - or no config file at all - served `Access-Control-Allow-Origin: *`. `ApiCfg::auth_token` defaults to `None` on the same struct, so the permissive header sat in front of an unauthenticated API. The defect was spelled `.allow_origin(Any)` rather than `CorsLayer::permissive()`, which is why a search for the latter did not find it and why the roadmap's list of four affected services was short by three. Replaced with `cors_origins: Vec<String>` defaulting to empty, evaluated through the shared `soul_cors::CorsPolicy`, which fails closed. `cors_allow_any` is still parsed so an existing config is not silently reinterpreted, but it is not honoured and logs a warning naming the replacement.",
+      "required_invariant": "A listener that has not been configured must not be the most permissive one on the network; an insecure setting must not be reachable by omission.",
+      "fixing_prs": [
+        {
+          "number": 109,
+          "merge_commit": "5490eecf1f1739735157eee7bc50d2daa975e8b7",
+          "title": "security(P1-10): one fail-closed CORS policy, and a guard that found three more services (implementation commit; the merge commit will differ)"
+        }
+      ],
+      "verification_tests": [
+        {
+          "name": "no_workspace_member_allows_every_cors_origin",
+          "command": "cargo test -p soulsystem --test architecture_cors_policy no_workspace_member_allows_every_cors_origin"
+        },
+        {
+          "name": "the_matcher_finds_real_call_shapes_and_ignores_prose",
+          "command": "cargo test -p soulsystem --test architecture_cors_policy the_matcher_finds_real_call_shapes_and_ignores_prose"
+        },
+        {
+          "name": "an_unset_or_blank_allowlist_permits_no_origin",
+          "command": "cargo test -p soul-cors an_unset_or_blank_allowlist_permits_no_origin"
+        },
+        {
+          "name": "a_bare_wildcard_does_not_re_enable_permissive_behaviour",
+          "command": "cargo test -p soul-cors a_bare_wildcard_does_not_re_enable_permissive_behaviour"
+        }
+      ],
+      "residual_risk": "The architecture guard covers workspace members only. `os-agents/soul_gateway` is outside the workspace and still calls `CorsLayer::permissive()` (LOW-003). The guard is also syntactic: an allowlist assembled at runtime from an attacker-influenced source would not be visible to it. synergie itself remains unauthenticated by default (`auth_token: None`); this finding closed the cross-origin exposure, not the missing authentication.",
+      "follow_up": "P1-10-B: fold soul_gateway's and soul-dashboard's P1-2 policies into soul-cors so one implementation remains; separately, decide whether synergie's API should require a token by default."
     },
     {
       "id": "LOW-001",
