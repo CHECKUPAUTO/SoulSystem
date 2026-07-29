@@ -1342,3 +1342,339 @@ mod proptests {
         }
     }
 }
+
+// ── Long-lived spawns with structured argv ─────────────────────
+
+/// A process to launch under sandbox isolation, described as **structured
+/// argv** rather than as a command string.
+///
+/// [`Sandbox::execute`] and its siblings take a `&str` and split it on
+/// whitespace inside [`Sandbox::build_command`]. That is fine for a command
+/// the operator typed, but it is the wrong shape for a command assembled from
+/// caller-supplied values: re-splitting a joined string means a value
+/// containing a space silently becomes two argv elements. A caller that
+/// already has discrete values — which is the safe form, and what
+/// [`SandboxError::ShellEscape`]'s own message tells people to use — would
+/// have to join them just for the sandbox to split them apart again, and the
+/// round-trip is where the injection gets introduced.
+///
+/// `SpawnSpec` keeps the values discrete from the start. Nothing here is ever
+/// concatenated into a string that is later re-parsed.
+///
+/// # Flags versus values
+///
+/// The distinction this type enforces is between an argument the *program*
+/// chose ([`SpawnSpec::flag`]) and an argument that came from *outside*
+/// ([`SpawnSpec::value`]). A value that begins with `-` is rejected, because
+/// at the point of `exec` there is no way to tell `--brain` supplied by the
+/// code from `--brain` supplied by an HTTP client: argv is a flat list, and
+/// every argument parser downstream — `argparse`, `clap`, `getopt` — resolves
+/// the ambiguity in favour of "it's a flag". That is argument injection, and
+/// it is not hypothetical for any program that takes a caller-named entity on
+/// its command line. Separating the two at construction makes the dangerous
+/// case unrepresentable rather than merely discouraged.
+///
+/// A `--` end-of-options separator would also work for programs that honour
+/// one, but not every program does, and a spec that silently depends on the
+/// callee's argument parser being well-behaved is not a guarantee. Rejecting
+/// the value outright does not depend on the callee at all.
+#[derive(Debug, Clone)]
+pub struct SpawnSpec {
+    program: String,
+    args: Vec<String>,
+}
+
+impl SpawnSpec {
+    /// Start a spec for `program`. The program name itself is trusted input —
+    /// it is chosen by the code, never by a caller.
+    pub fn new(program: impl Into<String>) -> Self {
+        Self {
+            program: program.into(),
+            args: Vec::new(),
+        }
+    }
+
+    /// Append an argument the program itself chose: a literal flag, a
+    /// subcommand, a path built from configuration.
+    ///
+    /// Use this only for values that do not originate from a request. It
+    /// accepts leading `-`, which is exactly why it must not be used for
+    /// untrusted input.
+    pub fn flag(mut self, arg: impl Into<String>) -> Self {
+        self.args.push(arg.into());
+        self
+    }
+
+    /// Append an argument that came from outside the program — a request body,
+    /// a config file written by someone else, a filename from a directory
+    /// listing.
+    ///
+    /// Rejected at [`Sandbox::spawn_supervised`] if it begins with `-` (it
+    /// would be parsed as a flag) or contains a NUL byte (it would be
+    /// truncated at the NUL by `exec`, so what the checks saw and what the
+    /// kernel runs would differ).
+    pub fn value(mut self, arg: impl Into<String>) -> Self {
+        self.args.push(Self::VALUE_SENTINEL.to_string());
+        self.args.push(arg.into());
+        self
+    }
+
+    /// Marks the following element as caller-supplied. Stripped before `exec`;
+    /// chosen to be a string no real argument can be, since it contains a NUL.
+    const VALUE_SENTINEL: &'static str = "\u{0}soul_sandbox:value\u{0}";
+
+    /// Resolve to `(program, argv)`, validating every caller-supplied value.
+    fn resolve(&self) -> Result<(String, Vec<String>), SandboxError> {
+        if self.program.trim().is_empty() {
+            return Err(SandboxError::Empty);
+        }
+        let mut argv = Vec::with_capacity(self.args.len());
+        let mut expecting_value = false;
+        for arg in &self.args {
+            if arg == Self::VALUE_SENTINEL {
+                expecting_value = true;
+                continue;
+            }
+            if expecting_value {
+                expecting_value = false;
+                if arg.starts_with('-') {
+                    return Err(SandboxError::Forbidden(format!(
+                        "argument injection: caller-supplied value {arg:?} begins with '-' \
+                         and would be parsed as a flag by the spawned program"
+                    )));
+                }
+                if arg.contains('\u{0}') {
+                    return Err(SandboxError::Forbidden(
+                        "caller-supplied value contains a NUL byte".into(),
+                    ));
+                }
+            }
+            argv.push(arg.clone());
+        }
+        Ok((self.program.clone(), argv))
+    }
+
+    /// The argv this spec would execute, for logging and tests.
+    pub fn preview(&self) -> Result<Vec<String>, SandboxError> {
+        let (program, args) = self.resolve()?;
+        let mut v = vec![program];
+        v.extend(args);
+        Ok(v)
+    }
+}
+
+/// A sandboxed process that outlives the call that started it.
+#[derive(Debug)]
+pub struct SupervisedChild {
+    child: std::process::Child,
+    pid: i32,
+}
+
+impl SupervisedChild {
+    /// OS process id.
+    pub fn pid(&self) -> i32 {
+        self.pid
+    }
+
+    /// Has it exited yet?
+    pub fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.child.try_wait()
+    }
+
+    /// Kill the whole process group, not just the direct child.
+    ///
+    /// The spawn hook calls `setpgid(0, 0)`, so the child leads its own group
+    /// and anything it forked is in that group too. Killing only the child
+    /// would leave grandchildren running with no supervisor and no way to
+    /// find them — which is the leak this method exists to avoid.
+    pub fn kill_group(&mut self) -> std::io::Result<()> {
+        #[cfg(unix)]
+        unsafe {
+            if libc::killpg(self.pid as libc::pid_t, libc::SIGKILL) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        #[cfg(not(unix))]
+        self.child.kill()?;
+        let _ = self.child.wait();
+        Ok(())
+    }
+}
+
+impl Sandbox {
+    /// Spawn a **long-lived** process under the sandbox's isolation and return
+    /// without waiting for it.
+    ///
+    /// [`Sandbox::execute`] is run-to-completion: it waits, captures output and
+    /// kills the process group at `policy.timeout`. For a service that is
+    /// supposed to keep running, that timeout is not a safety net, it is a
+    /// guaranteed kill — so a daemon cannot be launched through `execute`
+    /// without either breaking the daemon or setting a timeout so large it
+    /// stops bounding anything.
+    ///
+    /// This applies the same `pre_exec` isolation as every other spawn path —
+    /// `setpgid`, `setrlimit`, seccomp — and skips only the waiting.
+    ///
+    /// # `policy.timeout` does not apply
+    ///
+    /// Nothing here enforces a deadline; that is the point. Bounding how many
+    /// of these may exist, and reaping them, is the caller's responsibility,
+    /// because only the caller knows what the process is for. A caller that
+    /// spawns these per request without a cap has an unbounded process leak —
+    /// see `SupervisedChild::kill_group`.
+    ///
+    /// # `policy.network_isolated` is honoured
+    ///
+    /// If the spawned service is supposed to be reachable — the usual reason
+    /// to run a daemon — the caller must set `network_isolated: false`
+    /// deliberately. This does not quietly relax it: a service spawned under
+    /// the default policy lands in an empty network namespace and binds a port
+    /// nobody can reach, which fails loudly rather than silently.
+    pub fn spawn_supervised(&self, spec: &SpawnSpec) -> Result<SupervisedChild, SandboxError> {
+        let (program, args) = spec.resolve()?;
+
+        if BANNED_BINARIES.contains(&program.as_str()) {
+            return Err(SandboxError::ShellEscape(format!(
+                "binaire banni: {program}"
+            )));
+        }
+        if let Some(ref wl) = self.policy.whitelist {
+            if !wl.contains(&program) {
+                return Err(SandboxError::NotWhitelisted(program));
+            }
+        }
+
+        // Deliberately *not* run over argv: FORBIDDEN_PATTERNS and
+        // SHELL_BYPASS_TOKENS describe shell metacharacters, and there is no
+        // shell on this path. A `;` or `$(` inside an argv element is an
+        // ordinary byte that `exec` passes through untouched. Rejecting it
+        // would block legitimate arguments while preventing nothing.
+        let mut command = Command::new(&program);
+        command
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+
+        #[cfg(unix)]
+        self.apply_sandbox_pre_exec(&mut command);
+
+        let child = command.spawn()?;
+        let pid = child.id() as i32;
+        Ok(SupervisedChild { child, pid })
+    }
+}
+
+#[cfg(test)]
+mod spawn_spec_tests {
+    use super::*;
+
+    #[test]
+    fn a_caller_supplied_value_that_looks_like_a_flag_is_refused() {
+        let spec = SpawnSpec::new("echo").flag("--brain").value("--oops");
+        match spec.resolve() {
+            Err(SandboxError::Forbidden(m)) => assert!(m.contains("argument injection"), "{m}"),
+            other => panic!("expected Forbidden, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_program_chosen_flag_may_begin_with_a_dash() {
+        let spec = SpawnSpec::new("echo").flag("--brain").value("science");
+        assert_eq!(
+            spec.preview().unwrap(),
+            vec!["echo", "--brain", "science"],
+            "flags are the program's own; only values are constrained"
+        );
+    }
+
+    /// The whole reason this type exists: a value with a space stays one argv
+    /// element. `Sandbox::execute` would have split it into two.
+    #[test]
+    fn a_value_containing_spaces_stays_a_single_argument() {
+        let spec = SpawnSpec::new("echo").value("two words");
+        assert_eq!(spec.preview().unwrap(), vec!["echo", "two words"]);
+    }
+
+    #[test]
+    fn a_value_containing_nul_is_refused() {
+        let spec = SpawnSpec::new("echo").value("a\u{0}b");
+        assert!(matches!(
+            spec.resolve(),
+            Err(SandboxError::Forbidden(_)) | Err(SandboxError::Empty)
+        ));
+    }
+
+    #[test]
+    fn an_empty_program_is_refused() {
+        assert!(matches!(
+            SpawnSpec::new("   ").resolve(),
+            Err(SandboxError::Empty)
+        ));
+    }
+
+    #[test]
+    fn shell_metacharacters_in_a_value_are_allowed_because_there_is_no_shell() {
+        // `execute` rejects these because it re-splits a string; here the byte
+        // reaches `exec` as data. Blocking it would break legitimate arguments
+        // (a commit message, a JSON blob) while preventing nothing.
+        let spec = SpawnSpec::new("echo").value("a;b|c$(d)");
+        assert_eq!(spec.preview().unwrap(), vec!["echo", "a;b|c$(d)"]);
+    }
+
+    #[test]
+    fn a_banned_binary_is_refused_before_spawning() {
+        let sandbox = Sandbox::new(SandboxPolicy::default());
+        let spec = SpawnSpec::new(BANNED_BINARIES[0]).value("x");
+        assert!(matches!(
+            sandbox.spawn_supervised(&spec),
+            Err(SandboxError::ShellEscape(_))
+        ));
+    }
+
+    #[test]
+    fn a_non_whitelisted_program_is_refused() {
+        let sandbox = Sandbox::new(SandboxPolicy {
+            whitelist: Some(["echo".to_string()].into_iter().collect()),
+            ..Default::default()
+        });
+        assert!(matches!(
+            sandbox.spawn_supervised(&SpawnSpec::new("cat")),
+            Err(SandboxError::NotWhitelisted(_))
+        ));
+    }
+
+    /// A real spawn, and it must come back before the process exits — that is
+    /// the difference from `execute`, which would have waited.
+    #[cfg(unix)]
+    #[test]
+    fn spawn_supervised_returns_without_waiting_and_kill_group_reaps() {
+        // Seccomp and netns setup vary by host; this test is about the
+        // wait/no-wait semantics, not about isolation.
+        let sandbox = Sandbox::new(SandboxPolicy {
+            seccomp_profile: None,
+            network_isolated: false,
+            ..Default::default()
+        });
+
+        let spec = SpawnSpec::new("sleep").value("30");
+        let started = Instant::now();
+        let mut child = match sandbox.spawn_supervised(&spec) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("skipping: could not spawn sleep ({e})");
+                return;
+            }
+        };
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "spawn_supervised must not wait for the process to exit"
+        );
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "the process should still be running"
+        );
+        child.kill_group().expect("kill_group");
+        assert!(child.try_wait().unwrap().is_some(), "should be reaped");
+    }
+}

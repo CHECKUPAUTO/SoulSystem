@@ -470,23 +470,61 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   arbitrary-execution sites has not removed them. The invariant holds when they
   are gone, not when they are inventoried.
 
-### P1-8-B Route the 12 recorded sites through the sandbox, and decide about the non-member trees
+### P1-8-B Route the remaining 11 sites through the sandbox, and decide about the non-member trees
 
-- **Findings / invariants:** CRIT-001 (residual), INV-EXEC-1
-- **Two separate pieces of work:**
-  1. **Fix the 12 sites**, lowering `UNSANDBOXED_ARBITRARY_BUDGET` with each.
-     Start with `soullink-orchestrator-standalone/src/routes/spawn.rs`: it is
-     reachable from an HTTP route, which makes it the only one in the list with
-     a demonstrated remote path to it.
-  2. **Decide what to do about the non-member trees.** `intel-integrations/`,
-     `openevolve/`, `backlog/`, `os-agents/`, `openclaw-evolution/`,
-     `soul-rsi/`, `jit-agentic-engine/`, `soullink-node/`, `turboquant/` and
-     `scirust-chronos-agent/` hold a further **112 spawn sites** and are not
-     workspace members, so `cargo build --workspace` never builds them and this
-     guard says nothing about them. Either they are shipped code — in which case
-     they belong in the workspace and under the guard — or they are dead weight
-     that should be deleted. That is a product question about what this
-     repository actually ships, so it is recorded rather than answered here.
+- **Findings / invariants:** CRIT-001 (residual), INV-EXEC-1, MED-013
+- **Status of the first site:** `soullink-orchestrator-standalone/src/routes/spawn.rs`
+  is **done** — see below. `UNSANDBOXED_ARBITRARY_BUDGET` is now **11**.
+- **What the remaining 11 need.** Most are `sh -c` sites (soullink-workflow
+  node/conditions, soullink-actions' shell action, soul-kernel action and
+  perception), which is a genuinely different problem from the spawn route: they
+  pass a *shell string*, so `Sandbox::execute` is the right API for them and the
+  work is threading a policy through, not designing a new one. `soul-bridge`'s
+  two child spawns and `soul-kernel/parallel` are structured-argv spawns like
+  the route was, so they want `spawn_supervised`. The gateway's `osascript`
+  iMessage provider is macOS-only and the sandbox's isolation hook is
+  Linux-specific — that one needs a decision, not a mechanical fix.
+- **Decide what to do about the non-member trees.** `intel-integrations/`,
+  `openevolve/`, `backlog/`, `os-agents/`, `openclaw-evolution/`, `soul-rsi/`,
+  `jit-agentic-engine/`, `soullink-node/`, `turboquant/` and
+  `scirust-chronos-agent/` hold a further **112 spawn sites** and are not
+  workspace members, so `cargo build --workspace` never builds them and this
+  guard says nothing about them. Either they are shipped code — in which case
+  they belong in the workspace and under the guard — or they are dead weight
+  that should be deleted. A product question about what this repository ships,
+  so it is recorded rather than answered.
+
+### ~~P1-8-B(1) The request-reachable spawn route~~ — CLOSED
+
+- **Findings / invariants:** MED-013 (new), CRIT-001 (residual), INV-EXEC-1
+- **The roadmap's own instruction was wrong for this site, and following it
+  would have made things worse.** "Route it through soul_sandbox" means
+  `Sandbox::execute`, which (a) waits for the process to exit and kills its
+  group at `policy.timeout` — fatal for a daemon that is supposed to stay up —
+  and (b) takes a `&str` and splits it on whitespace. The route already built
+  argv from discrete `.arg()` calls with no shell, so converting to a string
+  command would have *introduced* a splitting surface that did not exist: a
+  domain containing a space becomes two arguments. The checkbox would have been
+  ticked and the code would have been less safe.
+- **So the sandbox gained the API it was missing.** `SpawnSpec` +
+  `Sandbox::spawn_supervised`: structured argv that is never joined-then-split,
+  the same `setpgid`/`setrlimit`/seccomp `pre_exec` hook as every other spawn
+  path, and no waiting. `SpawnSpec` distinguishes `flag()` (the program's own)
+  from `value()` (came from outside) and refuses a value beginning with `-`,
+  which makes argument injection unrepresentable rather than merely discouraged.
+- **The real defect was argument injection, not command injection.** `domain`
+  was the value of `--brain`; a domain of `--config=/etc/shadow` is a flag to
+  `brain_v12.py`'s parser, not a value. Also fixed: unbounded spawning (no cap,
+  nothing reaped — now 16 max, with failed health checks killing the process
+  group), a `u16` port-search overflow, and an `.unwrap()` that would have
+  killed the supervising task and orphaned the child.
+- **`network_isolated` is false here, deliberately and visibly.** A brain binds
+  a port and must be reachable; in the default empty netns it would bind a port
+  nothing can reach. Pinned by a test so a later defaults change confronts it.
+- **What is NOT fixed: the route has no authentication.** CORS is not auth and
+  stops nothing that is not a browser. Recorded as MED-013 with the cap
+  described as turning an unbounded denial of service into a bounded one — not
+  as making the route safe to expose.
 
 ### ~~P1-5 Secret-type sweep beyond `soullink-secrets`~~ — CLOSED (type + guard); 16 structs remain as P1-5-B
 

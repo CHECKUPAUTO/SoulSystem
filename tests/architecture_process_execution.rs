@@ -247,12 +247,6 @@ const ALLOWED: &[(&str, Category, &str)] = &[
         "Runs `python3` against an orchestrator-supplied script.",
     ),
     (
-        "soullink-orchestrator-standalone/src/routes/spawn.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "An HTTP route spawns `python3`. Reachable from a request, which makes \
-         this the highest-priority entry in this category.",
-    ),
-    (
         "soul-kernel/src/parallel/mod.rs",
         Category::UnsandboxedArbitraryCommand,
         "`sync` and `systemctl` invoked from the parallel executor without \
@@ -280,7 +274,7 @@ const ALLOWED: &[(&str, Category, &str)] = &[
 /// Pinned so the category cannot grow quietly. Lowering it as sites are fixed
 /// is the intended direction; raising it should require saying so out loud in a
 /// review.
-const UNSANDBOXED_ARBITRARY_BUDGET: usize = 12;
+const UNSANDBOXED_ARBITRARY_BUDGET: usize = 11;
 
 /// Patterns that indicate a process spawn.
 const SPAWN_PATTERNS: &[&str] = &[

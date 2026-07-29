@@ -320,6 +320,7 @@ spinner = { path = "spinner" }
 terminal-stream = { path = "terminal-stream" }
 soulsystem-common = { path = "crates/soulsystem-common" }
 soul-cors = { path = "crates/soul-cors" }
+soul_sandbox = { path = "soul_sandbox" }
 soul-prod-guard = { path = "crates/soul-prod-guard" }
 ccos = { path = "ccos" }
 octasoma = { path = "octasoma" }
