@@ -19,12 +19,20 @@ use crate::bound_system::BoundSystem;
 use crate::memory_hub::MemoryHub;
 use crate::pty_terminal::PtyTerminal;
 
+use soul_gateway::scope::{Scope, ScopeSet};
+
 /// Environment variable holding this listener's bearer token.
 ///
 /// Separate from `SOULSYSTEM_GATEWAY_TOKEN` on purpose: these are different
 /// listeners with different audiences, and a single shared value would mean
 /// that rotating one forces rotating the other.
 pub const API_TOKEN_VAR: &str = "SOULSYSTEM_API_TOKEN";
+
+/// Environment variable narrowing this listener's token to a scope list.
+///
+/// Unset means every scope — see [`soul_gateway::scope`] for why the default is
+/// opt-in rather than fail-closed, and what that does not buy.
+pub const API_SCOPES_VAR: &str = "SOULSYSTEM_API_SCOPES";
 
 /// État partagé de l'API.
 pub struct ApiState {
@@ -49,6 +57,7 @@ pub struct ApiState {
 #[derive(Clone, Default)]
 pub struct ApiAuth {
     token: Option<Arc<str>>,
+    scopes: ScopeSet,
 }
 
 impl std::fmt::Debug for ApiAuth {
@@ -56,6 +65,7 @@ impl std::fmt::Debug for ApiAuth {
         // Never the token itself (INV-ENV-3).
         f.debug_struct("ApiAuth")
             .field("configured", &self.is_configured())
+            .field("scopes", &self.scopes.to_string())
             .finish()
     }
 }
@@ -65,17 +75,53 @@ impl ApiAuth {
     ///
     /// A blank or whitespace-only value is treated as unset, so an empty
     /// config entry cannot become a credential.
+    /// `SOULSYSTEM_API_TOKEN` alone grants every scope — scopes are opt-in, so
+    /// upgrading does not start returning 403 to automation that worked
+    /// yesterday. `SOULSYSTEM_API_SCOPES` (e.g. `read+write`) narrows it.
     pub fn from_env() -> Self {
-        Self::new(std::env::var(API_TOKEN_VAR).ok())
+        let token = std::env::var(API_TOKEN_VAR).ok();
+        match std::env::var(API_SCOPES_VAR) {
+            Ok(raw) if !raw.trim().is_empty() => {
+                let (scopes, unknown) = ScopeSet::parse(&raw);
+                if !unknown.is_empty() {
+                    tracing::warn!(
+                        unknown = %unknown.join(","),
+                        "ignoring unrecognised scope name(s) in {API_SCOPES_VAR}; \
+                         the credential holds only the scopes that parsed"
+                    );
+                }
+                Self::scoped(token, scopes)
+            }
+            _ => Self::new(token),
+        }
     }
 
     /// Build with an explicit token (tests, embedders).
+    ///
+    /// Granted every scope — the unscoped form. Use
+    /// [`ApiAuth::with_scopes`] to narrow it.
     pub fn new(token: Option<String>) -> Self {
+        Self::scoped(token, ScopeSet::all())
+    }
+
+    /// Build with an explicit token and scope set.
+    pub fn scoped(token: Option<String>, scopes: ScopeSet) -> Self {
         let token = token
             .map(|t| t.trim().to_owned())
             .filter(|t| !t.is_empty())
             .map(Arc::from);
-        Self { token }
+        Self { token, scopes }
+    }
+
+    /// Narrow an existing authenticator's scopes.
+    pub fn with_scopes(mut self, scopes: ScopeSet) -> Self {
+        self.scopes = scopes;
+        self
+    }
+
+    /// The scopes the configured credential holds.
+    pub fn scopes(&self) -> &ScopeSet {
+        &self.scopes
     }
 
     /// Whether a usable token is configured.
@@ -106,6 +152,35 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         diff |= x ^ y;
     }
     diff == 0
+}
+
+/// Reject an authenticated request whose credential lacks `required`.
+///
+/// Applied as a `route_layer` on a group of routes, so the requirement is
+/// declared alongside the route rather than checked inside each handler.
+/// Runs after [`require_auth`], which is what proves the caller is who they
+/// say; this layer only decides what they may do.
+async fn require_scope(
+    State(state): State<Arc<ApiState>>,
+    required: Scope,
+    req: Request,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    if state.auth.scopes().allows(required) {
+        return Ok(next.run(req).await);
+    }
+    // 403, not 401: the caller authenticated fine, they just cannot do this.
+    tracing::warn!(
+        held = %state.auth.scopes(),
+        required = %required,
+        "rejected: credential lacks the required scope"
+    );
+    Err((
+        StatusCode::FORBIDDEN,
+        Json(ErrorResponse {
+            error: format!("this credential lacks the '{required}' scope"),
+        }),
+    ))
 }
 
 /// Reject any request without the configured bearer token.
@@ -244,24 +319,48 @@ pub struct MemoryContextResponse {
 /// same reasoning that put the gateway's `/v1/status` behind auth applies.
 /// A scraper therefore needs the token.
 pub fn router(state: Arc<ApiState>) -> Router {
-    let authenticated = Router::new()
+    // Grouped by required scope, using the same model as the gateway
+    // (`soul_gateway::scope`) so the two listeners cannot drift on what
+    // "write" means.
+    let read_routes = Router::new()
+        .route("/api/memory/search", post(memory_search_handler))
+        .route("/api/memory/context", post(memory_context_handler))
+        .route("/api/zerobot/health", get(zerobot_health_handler))
+        .route("/api/bridges/status", get(bridges_status_handler))
+        .route("/api/bridges/organs", get(organs_status_handler))
+        .route("/api/bridges/mesh", get(mesh_status_handler))
+        .route("/api/bridges/services", get(services_status_handler))
+        .route("/metrics", get(metrics_handler))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            |s, req, next| require_scope(s, Scope::Read, req, next),
+        ));
+
+    let write_routes = Router::new()
+        .route("/api/memory/store", post(memory_store_handler))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            |s, req, next| require_scope(s, Scope::Write, req, next),
+        ));
+
+    // `/api/bridges/probe` is Exec: it makes the host reach out to other
+    // components rather than reporting what it already knows.
+    let exec_routes = Router::new()
         .route("/api/exec", post(exec_handler))
         .route("/api/pty/create", post(pty_create_handler))
         .route("/api/pty/write", post(pty_write_handler))
         .route("/api/pty/read/{session_id}", get(pty_read_handler))
         .route("/api/pty/destroy", post(pty_destroy_handler))
-        .route("/api/memory/store", post(memory_store_handler))
-        .route("/api/memory/search", post(memory_search_handler))
-        .route("/api/memory/context", post(memory_context_handler))
         .route("/api/zerobot/chat", post(zerobot_chat_handler))
-        .route("/api/zerobot/health", get(zerobot_health_handler))
-        // Bridges inter-composants : statut aller-retour
-        .route("/api/bridges/status", get(bridges_status_handler))
         .route("/api/bridges/probe", post(bridges_probe_handler))
-        .route("/api/bridges/organs", get(organs_status_handler))
-        .route("/api/bridges/mesh", get(mesh_status_handler))
-        .route("/api/bridges/services", get(services_status_handler))
-        .route("/metrics", get(metrics_handler))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            |s, req, next| require_scope(s, Scope::Exec, req, next),
+        ));
+
+    let authenticated = read_routes
+        .merge(write_routes)
+        .merge(exec_routes)
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     Router::new()
@@ -904,6 +1003,137 @@ mod tests {
             StatusCode::OK,
             "the liveness probe stays reachable so an unconfigured deployment \
              is still diagnosable"
+        );
+    }
+
+    // ── Router / CRIT-007 residual: per-scope authorization ──────────────
+
+    fn scoped_state(token: &str, scopes: ScopeSet) -> Arc<ApiState> {
+        state(ApiAuth::new(Some(token.into())).with_scopes(scopes))
+    }
+
+    /// Every authenticated route, with the scope it is expected to require.
+    const SCOPED_ROUTES: &[(&str, &str, Scope)] = &[
+        ("POST", "/api/memory/search", Scope::Read),
+        ("POST", "/api/memory/context", Scope::Read),
+        ("GET", "/api/zerobot/health", Scope::Read),
+        ("GET", "/api/bridges/status", Scope::Read),
+        ("GET", "/api/bridges/organs", Scope::Read),
+        ("GET", "/api/bridges/mesh", Scope::Read),
+        ("GET", "/api/bridges/services", Scope::Read),
+        ("GET", "/metrics", Scope::Read),
+        ("POST", "/api/memory/store", Scope::Write),
+        ("POST", "/api/exec", Scope::Exec),
+        ("POST", "/api/pty/create", Scope::Exec),
+        ("POST", "/api/pty/write", Scope::Exec),
+        ("GET", "/api/pty/read/abc", Scope::Exec),
+        ("POST", "/api/pty/destroy", Scope::Exec),
+        ("POST", "/api/zerobot/chat", Scope::Exec),
+        ("POST", "/api/bridges/probe", Scope::Exec),
+    ];
+
+    #[tokio::test]
+    async fn a_read_only_credential_cannot_execute_shell_or_pty() {
+        let app = router(scoped_state("tok", ScopeSet::from_scopes([Scope::Read])));
+        for (method, uri, required) in SCOPED_ROUTES {
+            let status = send(app.clone(), method, uri, Some("tok")).await;
+            if *required == Scope::Read {
+                assert_ne!(status, StatusCode::FORBIDDEN, "{method} {uri}");
+            } else {
+                assert_eq!(status, StatusCode::FORBIDDEN, "{method} {uri}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_write_credential_cannot_reach_the_exec_routes() {
+        let app = router(scoped_state("tok", ScopeSet::from_scopes([Scope::Write])));
+        assert_ne!(
+            send(app.clone(), "POST", "/api/memory/store", Some("tok")).await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            send(app.clone(), "POST", "/api/exec", Some("tok")).await,
+            StatusCode::FORBIDDEN,
+            "storing a memory does not imply running a command"
+        );
+        assert_eq!(
+            send(app, "GET", "/metrics", Some("tok")).await,
+            StatusCode::FORBIDDEN,
+            "scopes do not imply one another in either direction"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unscoped_credential_still_reaches_everything() {
+        // The recorded product decision: scopes are opt-in.
+        let app = router(state(ApiAuth::new(Some("tok".into()))));
+        for (method, uri, _) in SCOPED_ROUTES {
+            assert_ne!(
+                send(app.clone(), method, uri, Some("tok")).await,
+                StatusCode::FORBIDDEN,
+                "{method} {uri} must stay reachable for an unscoped credential"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn authentication_is_checked_before_authorization() {
+        // A caller with no token gets 401, not 403 — the scope layer must not
+        // shadow the authentication failure, or an anonymous caller would learn
+        // which scope a route needs.
+        let app = router(scoped_state("tok", ScopeSet::from_scopes([Scope::Read])));
+        assert_eq!(
+            send(app, "POST", "/api/exec", None).await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    /// A route added outside every scoped group would have no authorization
+    /// requirement. This reads the source rather than trusting anyone to keep
+    /// `SCOPED_ROUTES` in step.
+    #[test]
+    fn every_authenticated_route_declares_a_scope() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/api.rs"))
+            .expect("own source is readable");
+        let router_body = {
+            let start = source
+                .find("pub fn router(state: Arc<ApiState>) -> Router {")
+                .expect("router fn present");
+            let end = source[start..]
+                .find("\n// ── Handlers")
+                .map(|offset| start + offset)
+                .unwrap_or(source.len());
+            &source[start..end]
+        };
+
+        let prefix =
+            |path: &str| -> String { path.split('/').take(4).collect::<Vec<_>>().join("/") };
+        let covered: std::collections::BTreeSet<String> = SCOPED_ROUTES
+            .iter()
+            .map(|(_, uri, _)| prefix(uri))
+            .collect();
+
+        let mut declared = 0usize;
+        for (index, _) in router_body.match_indices(".route(\"") {
+            let rest = &router_body[index + ".route(\"".len()..];
+            let end = rest.find('"').expect("route literal is terminated");
+            let route = &rest[..end];
+            if route == "/health" {
+                continue; // the deliberate unauthenticated liveness probe
+            }
+            declared += 1;
+            assert!(
+                covered.contains(&prefix(route)),
+                "route {route} is declared in router() but is not in \
+                 SCOPED_ROUTES, so nothing proves it requires a scope"
+            );
+        }
+        assert_eq!(
+            declared,
+            SCOPED_ROUTES.len(),
+            "the router and SCOPED_ROUTES disagree on how many authenticated \
+             routes exist"
         );
     }
 }
