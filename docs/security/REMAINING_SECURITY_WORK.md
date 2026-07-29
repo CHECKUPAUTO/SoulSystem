@@ -537,16 +537,38 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   set is empty, consider extending the guard to `Clone`-only structs, and to a
   check that does not depend on field naming.
 
-### P1-6 Memory provenance and trust metadata
+### P1-6 Memory provenance and trust metadata — DONE (INV-MEM-4 held; INV-MEM-3 partial)
 
-- **Findings / invariants:** INV-MEM-2 (`PARTIAL`), INV-MEM-3 (`TARGET`)
-- **Surface:** CCOS causal memory, planner history, vector stores.
-- **Current risk:** screening before persistence is enforced by type at the
-  `soul-agent-core` call sites (CRIT-005), but persisted records carry no
-  provenance or trust level, and crates writing to the same stores directly are
-  not type-constrained.
-- **Acceptance tests:** every persisted record carries provenance and a trust
-  level; a direct-write path cannot bypass screening.
+- **Findings / invariants:** INV-MEM-2 (`PARTIAL`), INV-MEM-3 (`PARTIAL`),
+  INV-MEM-4 (`HELD`), MED-011 (`FIXED_AND_VERIFIED`)
+- **What landed:** `soul-agent-core::provenance` (`TrustLevel`, `MemorySource`,
+  `MemoryStore`, `MemoryProvenance`, `ProvenanceLog`); the trust level moved
+  *onto* `ScreenedContent` so a persist call site cannot hold the content
+  without it; `ccos`/`semantic` made private and `observe_untrusted` made the
+  only public write path; quarantined content refused rather than written.
+- **What P1-6 uncovered:** ingesting the quarantine placeholder into the causal
+  graph did not store a redaction — it erased the file's record, because
+  `ingest_source` replaces a node's contents and the placeholder parses to zero
+  symbols. Recorded as MED-011 and fixed here.
+- **Both acceptance tests met**, with the scope limits recorded in the
+  invariant register rather than counted as clean.
+
+### P1-6-B Durable, store-side memory provenance
+
+- **Findings / invariants:** INV-MEM-3 (`PARTIAL`)
+- **Surface:** `ProvenanceLog`; CCOS causal graph, planner ring, OctaSoma.
+- **Current risk:** provenance is in-process and bounded at 512 entries, so a
+  persisted record outlives the metadata describing it. After a restart, or
+  once the ring wraps, every record looks equally trusted — which is precisely
+  the state INV-MEM-3 exists to prevent, just deferred rather than avoided. The
+  stores themselves have no field to carry a trust level, so fixing this means
+  changing their record shapes, not adding another side table.
+- **Also out of scope so far:** `soul-memory`, `soullink-memory` and
+  `soullink-memory-hierarchy` have their own write paths and are not covered by
+  the P1-6 guard.
+- **Acceptance tests:** a trust level survives a process restart; a record
+  whose provenance was evicted is distinguishable from one that was never
+  screened.
 
 ### P1-7 Transactional multi-file persistence and backup/restore qualification
 

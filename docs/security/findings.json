@@ -16,12 +16,12 @@
     "REQUIRES_RUNTIME_VERIFICATION": "Static inspection cannot decide; the required dynamic test is stated.",
     "DEFERRED_PRODUCT_DECISION": "Remaining work needs an explicit product/governance decision; carries decision_required."
   },
-  "count": 34,
+  "count": 35,
   "status_summary": {
     "CONFIRMED_CURRENT": 6,
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
-    "FIXED_AND_VERIFIED": 14,
+    "FIXED_AND_VERIFIED": 15,
     "NOT_REACHABLE": 5,
     "PARTIALLY_FIXED": 5
   },
@@ -37,9 +37,9 @@
       "DEFERRED_PRODUCT_DECISION": 1
     },
     "medium": {
-      "CONFIRMED_CURRENT": 2,
-      "FIXED_AND_VERIFIED": 2,
+      "FIXED_AND_VERIFIED": 4,
       "FALSE_POSITIVE": 2,
+      "CONFIRMED_CURRENT": 1,
       "NOT_REACHABLE": 3,
       "PARTIALLY_FIXED": 1
     },
@@ -53,7 +53,7 @@
   "severity_summary": {
     "critical": 6,
     "high": 10,
-    "medium": 10,
+    "medium": 11,
     "low": 8
   },
   "previous_status_summary_for_comparison": {
@@ -1588,6 +1588,59 @@
       "verification_tests": [],
       "residual_risk": "If wired later, plugins silently no-op all I/O while reporting success, and fd_write's unbounded handling of an unvalidated iovs pointer would need bounds checking against linear memory before use.",
       "follow_up": "Gate the execution API behind an experimental feature flag until the host functions are implemented and bounds-checked."
+    },
+    {
+      "id": "MED-011",
+      "title": "Quarantined tool output was ingested into the CCOS causal graph, erasing the file's existing record",
+      "status": "FIXED_AND_VERIFIED",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "audit_category": "Memory Integrity",
+      "discovered_by": "P1-6 provenance work, not the original audit; found while establishing what a persisted record carries.",
+      "original_audit_baseline": "5e3b0c3b0d18f6d0022c1c762821d9aad340b011",
+      "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
+      "current_files": [
+        "soul-agent-core/src/lib.rs",
+        "soul-agent-core/src/screening.rs",
+        "soul-agent-core/src/provenance.rs"
+      ],
+      "current_symbols": [
+        "AutonomousAgent::ccos_observe_tool",
+        "screening::screen",
+        "provenance::TrustLevel::is_persistable"
+      ],
+      "original_reachable_path": [
+        "run_react -> tool dispatch -> screen_tool_output (Malicious -> quarantine placeholder) -> record_tool_outcome -> ccos_observe_tool -> CcosMemory::ingest_source(uri, placeholder)"
+      ],
+      "current_state": "Fixed. CRIT-005's fix routed tool output through the injection scanner before persistence, and malicious output was replaced with a quarantine placeholder. That placeholder was then passed to `CcosMemory::ingest_source` for the file's uri. `ingest_source` REPLACES a file node's parsed contents, and the placeholder parses to zero symbols, so the write did not store a redaction over the previous record - it removed the file from the causal graph altogether (measured: a file recalled as 2 items before the quarantined read recalls as 0 after). The `IngestReport` was discarded with `let _ =`, so nothing surfaced. An attacker able to append an injection payload to a file the agent had already ingested therefore had a silent primitive for deleting that file from the agent's causal memory on the next read, degrading recall for the code under attack. `ccos_observe_tool` now checks `TrustLevel::is_persistable()` and refuses the write, leaving the existing record intact and emitting a SafetyWarning; the refusal is recorded in the provenance log rather than being silent.",
+      "required_invariant": "Screened-but-refused content must never be written to a content store in place of the record it would displace; a refusal must be observable.",
+      "fixing_prs": [
+        {
+          "number": 107,
+          "merge_commit": "9057538e104cd4284336f604e13cf078b8dcce67",
+          "title": "security(P1-6): carry provenance and trust on persisted memory, and stop quarantine from erasing the causal graph (implementation commit; the merge commit will differ)"
+        }
+      ],
+      "verification_tests": [
+        {
+          "name": "quarantined_read_does_not_erase_the_existing_causal_record",
+          "command": "cargo test -p soul_agent_core quarantined_read_does_not_erase_the_existing_causal_record"
+        },
+        {
+          "name": "the_quarantine_placeholder_never_reaches_the_causal_graph",
+          "command": "cargo test -p soul_agent_core the_quarantine_placeholder_never_reaches_the_causal_graph"
+        },
+        {
+          "name": "a_quarantined_causal_write_is_recorded_as_refused",
+          "command": "cargo test -p soul_agent_core a_quarantined_causal_write_is_recorded_as_refused"
+        },
+        {
+          "name": "ccos_never_ingests_unscreened_malicious_payload",
+          "command": "cargo test -p soul_agent_core ccos_never_ingests_unscreened_malicious_payload"
+        }
+      ],
+      "residual_risk": "The refusal protects the causal graph's content. It does not give the operator a durable record of which paths were attacked: the provenance log is in-process and bounded (512 entries), so across a restart or a long run the fact that a given file produced quarantined output is lost. The SafetyWarning event is emitted at the time but is not persisted anywhere by this crate.",
+      "follow_up": "P1-6-B: durable, store-side provenance so a trust level survives restart and eviction."
     },
     {
       "id": "LOW-001",
