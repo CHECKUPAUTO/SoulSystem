@@ -111,20 +111,94 @@ operational compensating controls, not proven invariants.
   rejected with 413; an oversized WebSocket message is rejected; concurrent
   requests beyond the cap are shed rather than queued unboundedly.
 
-### P1-3 Sandbox resource limits (cgroups) and filesystem/PID namespaces
+### ~~P1-3 Sandbox resource limits~~ — CLOSED for CPU/memory/fd/file-size
 
-- **Findings / invariants:** HIGH-003 (`PARTIALLY_FIXED`), INV-EXEC-3,
-  INV-EXEC-4
-- **Surface:** `soul_sandbox/src/lib.rs`, `policy.rs`.
-- **Current risk:** seccomp is mandatory and fail-closed, output is bounded and
-  the process group is killed on timeout, but CPU, memory, pids and file
-  descriptors are unbounded, and mount/PID namespaces are not applied. Network
-  isolation is best-effort by design and silently degrades on hosts where
-  unprivileged `CLONE_NEWUSER` is restricted, so egress cannot be relied on as
-  a control.
-- **Acceptance tests:** a fork bomb is contained by the pids limit; a memory hog
-  is OOM-killed inside its cgroup rather than on the host; per-tool egress
-  allowlisting is honoured where namespaces are available.
+- **Findings / invariants:** HIGH-003 (still `PARTIALLY_FIXED`), INV-EXEC-4
+  (still `PARTIAL`)
+- **Status:** closed by `security/p1-3-sandbox-resource-limits` **for the
+  resource-ceiling half only**. The namespace half is not done and is split out
+  as P1-12 below, with the reasons. This item's title said "(cgroups) and
+  filesystem/PID namespaces"; both of those words turned out to be wrong for
+  this codebase and the correction is recorded here rather than quietly.
+- **Correction — `setrlimit`, not cgroups.** cgroup v2 can only bound a process
+  the caller can place in a cgroup it controls, which needs root or an
+  explicitly delegated subtree (`Delegate=yes`, or a rootless systemd user
+  slice). SoulSystem is routinely run as an unprivileged user with no
+  delegation — the same class of host that already defeats `CLONE_NEWUSER` for
+  network isolation. `setrlimit(2)` needs no privilege to *lower* a limit and is
+  inherited across `exec`, so it is the bound that actually applies where we
+  run. cgroups remain the better mechanism where available; this does not
+  implement them.
+- **What changed:** `SandboxPolicy::resource_limits` (`ResourceLimits`) is
+  applied in `pre_exec` on every spawn path. Defaults: `RLIMIT_AS` 4 GiB,
+  `RLIMIT_NOFILE` 256, `RLIMIT_CPU` 60 s, `RLIMIT_FSIZE` 256 MiB, `RLIMIT_CORE`
+  0. Both the soft *and* the hard limit are lowered, or the sandboxed process
+  could raise its own soft limit straight back to the inherited hard one. The
+  desired value is clamped to the inherited hard limit rather than used
+  directly, so a host that already runs us under a tighter ceiling keeps that
+  ceiling instead of the call failing `EPERM`.
+- **Fail-closed, unlike network isolation.** Lowering an rlimit needs no
+  privilege and has no host-policy dependency, so a failure is a bug rather than
+  an environment to tolerate: `pre_exec` returns `Err`, which aborts the fork
+  before `exec`.
+- **Residual (a) — pids are still unbounded by default.** `RLIMIT_NPROC` is
+  counted per real UID, not per process tree. A non-`None` default would make
+  the first `fork` of an ordinary command fail with `EAGAIN` on any shared-UID
+  host (workstation, CI runner) while doing nothing to bound a determined
+  caller, because the ambient process count already exceeds any useful ceiling.
+  It is available as `ResourceLimits::max_processes` and proven to reach the
+  child, but it is only safe under a dedicated UID. For a shared UID the correct
+  control is a cgroup `pids.max`. Tracked as P1-12.
+- **Residual (b) — `RLIMIT_AS` bounds virtual address space, not resident
+  memory.** A process that reserves large sparse mappings is refused even if it
+  would never fault them in; conversely nothing here reacts to actual RSS. A
+  cgroup `memory.max` is the mechanism that measures the thing we care about.
+- **Residual (c) — `RLIMIT_CPU` is CPU time, not wall time**, so it does not
+  replace `policy.timeout`; a process that sleeps forever burns no CPU. The
+  default (60 s) is deliberately looser than the default 30 s wall timeout so an
+  ordinary overrun is terminated by the timeout path, which produces a proper
+  verdict, rather than by `SIGXCPU`.
+- **Acceptance evidence:** five tests, four of which read the child's real
+  `/proc/self/limits` rather than asserting on the policy struct. The whole
+  suite was additionally re-run under `setpriv --reuid nobody` (41 passed),
+  because the unprivileged path is the one that matters and the last sandbox
+  change shipped a bug that only appeared there.
+
+### P1-12 Sandbox PID/mount namespaces, cgroup pids/memory, per-tool egress
+
+- **Findings / invariants:** HIGH-003 (`PARTIALLY_FIXED`), INV-EXEC-3
+  (`PARTIAL`), INV-EXEC-4 (`PARTIAL`)
+- **Surface:** `soul_sandbox/src/lib.rs` — `apply_sandbox_pre_exec` and the
+  `Command`-based spawn model itself.
+- **Why the PID namespace is not a flag.** `unshare(CLONE_NEWPID)` does **not**
+  move the calling process into the new namespace; it only affects children
+  created *afterwards*. In `pre_exec` the next thing that happens is `execve`,
+  not `fork`, so the exec'd program would stay in the parent's PID namespace and
+  the new one would have no members at all. Making it real requires the child to
+  fork again after unsharing, with the grandchild as PID 1 and the intermediate
+  process reaping it — which `std::process::Command` does not model: the
+  returned `Child` would refer to the intermediate, changing exit-status
+  reporting and the `killpg` timeout path. That is a restructure of the spawn
+  model, not an added syscall. It also needs `CAP_SYS_ADMIN` or a user
+  namespace, i.e. the same host dependency that already makes network isolation
+  best-effort.
+- **Why the mount namespace is not a flag.** `unshare(CLONE_NEWNS)` alone
+  changes nothing observable — restricting what the process can see also needs a
+  prepared root (`pivot_root`/`chroot`) with the binary and its shared libraries
+  bound in. Deciding what a sandboxed program may see is a filesystem-policy
+  question, and `SandboxPolicy` currently expresses path policy as string
+  matching over the command line, not as a filesystem view. The policy model has
+  to exist before the namespace is useful.
+- **Recommended PR scope:** (1) a cgroup v2 backend used when a delegated
+  subtree is available, supplying `pids.max` and `memory.max` and falling back
+  to the rlimits from P1-3 otherwise — with the availability check reported, not
+  silent; (2) the double-fork spawn restructure for `CLONE_NEWPID`; (3) a
+  filesystem-view policy, then `CLONE_NEWNS` on top of it; (4) per-tool egress
+  allowlisting to replace the current all-or-nothing network namespace.
+- **Acceptance tests:** a fork bomb is contained without relying on a dedicated
+  UID; a memory hog is killed by its own cgroup rather than by the host OOM
+  killer; the sandboxed process sees only the paths its policy grants; a tool
+  without egress cannot reach the network while one with it can.
 
 ### P1-4 Provider retry, backoff and a coherent cross-layer retry policy
 

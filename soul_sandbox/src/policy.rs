@@ -84,6 +84,109 @@ pub const SENSITIVE_PATHS: &[&str] = &[
     "/root/.ssh/",
 ];
 
+/// Per-execution resource ceilings, applied with `setrlimit(2)` in the child
+/// between `fork` and `exec` (INV-EXEC-4).
+///
+/// # Why rlimits and not cgroups
+///
+/// The roadmap named cgroups. cgroup v2 can only bound a process the caller can
+/// place in a cgroup it controls, which needs either root or an explicitly
+/// delegated subtree (`Delegate=yes` on the unit, or a rootless systemd user
+/// slice). SoulSystem is routinely run as an unprivileged user in environments
+/// with no delegation — the same class of host that already defeats
+/// `CLONE_NEWUSER` for network isolation. `setrlimit` needs no privilege at all
+/// to *lower* a limit and is inherited across `exec`, so it is the bound that
+/// actually applies on the hosts we run on. cgroups remain the better mechanism
+/// where they are available; this does not implement them.
+///
+/// # What each limit does and does not do
+///
+/// Every field is `Option`: `None` leaves the inherited limit untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceLimits {
+    /// `RLIMIT_AS` — maximum virtual address space, in bytes.
+    ///
+    /// Bounds `mmap`/`brk` rather than resident memory, so a process that
+    /// reserves large sparse mappings without touching them is still refused.
+    /// That is the conservative direction for a sandbox, but it is why the
+    /// default is generous: runtimes that reserve big virtual arenas up front
+    /// (Go, the JVM, sanitiser builds) can need far more address space than
+    /// they ever fault in.
+    pub max_address_space_bytes: Option<u64>,
+
+    /// `RLIMIT_NPROC` — maximum processes, **counted per real UID**.
+    ///
+    /// Deliberately `None` by default. `RLIMIT_NPROC` is not per-process-tree:
+    /// the kernel compares it against every process owned by the same real UID
+    /// on the host. On any shared-UID host — a developer workstation, a CI
+    /// runner — the ambient count already exceeds a fork-bomb-useful ceiling,
+    /// so a non-`None` default would make the first `fork` of an ordinary
+    /// command fail with `EAGAIN` while doing nothing to bound a determined
+    /// caller. Enable it only when the sandbox runs under a dedicated UID; for
+    /// shared-UID hosts the correct control is a cgroup `pids.max`, which this
+    /// does not implement.
+    pub max_processes: Option<u64>,
+
+    /// `RLIMIT_NOFILE` — maximum open file descriptors.
+    pub max_open_files: Option<u64>,
+
+    /// `RLIMIT_CPU` — maximum CPU seconds, summed across the process's threads.
+    ///
+    /// This is CPU time, not wall time, and is therefore not a substitute for
+    /// [`SandboxPolicy::timeout`]: a process that sleeps forever burns no CPU.
+    /// The default is deliberately looser than the default 30 s wall timeout so
+    /// that an ordinary single-threaded overrun is terminated by the timeout
+    /// path — which produces a proper verdict — rather than by `SIGXCPU`, while
+    /// a thread-parallel CPU burner is still bounded.
+    pub max_cpu_seconds: Option<u64>,
+
+    /// `RLIMIT_FSIZE` — maximum size of any single file the process writes.
+    ///
+    /// Bounds a disk-fill via one large file. It does not bound many small
+    /// files; nothing here does.
+    pub max_file_size_bytes: Option<u64>,
+
+    /// `RLIMIT_CORE` — maximum core dump size. Zero by default: a core dump of
+    /// a sandboxed process would write process memory to disk outside the
+    /// sandbox's control.
+    pub max_core_bytes: Option<u64>,
+}
+
+impl Default for ResourceLimits {
+    fn default() -> Self {
+        Self {
+            max_address_space_bytes: Some(4 * 1024 * 1024 * 1024),
+            max_processes: None,
+            max_open_files: Some(256),
+            max_cpu_seconds: Some(60),
+            max_file_size_bytes: Some(256 * 1024 * 1024),
+            max_core_bytes: Some(0),
+        }
+    }
+}
+
+impl ResourceLimits {
+    /// Leave every inherited limit untouched.
+    ///
+    /// For callers that manage bounds themselves (a cgroup, a container
+    /// runtime) and would otherwise apply two conflicting ceilings.
+    pub fn unlimited() -> Self {
+        Self {
+            max_address_space_bytes: None,
+            max_processes: None,
+            max_open_files: None,
+            max_cpu_seconds: None,
+            max_file_size_bytes: None,
+            max_core_bytes: None,
+        }
+    }
+
+    /// Whether any ceiling is set.
+    pub fn is_unlimited(&self) -> bool {
+        *self == Self::unlimited()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SandboxPolicy {
     /// Si Some, SEULES ces binaires sont autorisées.
@@ -117,6 +220,11 @@ pub struct SandboxPolicy {
     /// accumulated, bounding worst-case memory use regardless of how much
     /// a sandboxed command writes.
     pub max_output_bytes: usize,
+    /// CPU, memory, file-descriptor and file-size ceilings applied to the
+    /// child with `setrlimit(2)` before `exec` (INV-EXEC-4). See
+    /// [`ResourceLimits`] for what each bound does, and for why this is
+    /// `setrlimit` rather than cgroups.
+    pub resource_limits: ResourceLimits,
 }
 
 impl Default for SandboxPolicy {
@@ -130,6 +238,7 @@ impl Default for SandboxPolicy {
             seccomp_profile: Some("default".to_string()),
             network_isolated: true,
             max_output_bytes: 2 * 1024 * 1024,
+            resource_limits: ResourceLimits::default(),
         }
     }
 }

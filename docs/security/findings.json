@@ -522,13 +522,17 @@
         "seccomp::install_filter",
         "SandboxPolicy::network_isolated",
         "SandboxPolicy::max_output_bytes",
-        "read_capped"
+        "read_capped",
+        "SandboxPolicy::resource_limits",
+        "ResourceLimits",
+        "apply_resource_limits",
+        "set_one_rlimit"
       ],
       "original_reachable_path": [
         "soul_sandbox applied string filtering and an optional seccomp profile only; no OS-level isolation"
       ],
-      "current_state": "Real OS-level controls now exist. seccomp is on by default (SandboxPolicy::default().seccomp_profile is Some(\"default\")) and fails closed: install_filter errors propagate out of pre_exec and abort the fork before exec. PR_SET_NO_NEW_PRIVS is set unconditionally first, so the filter installs for unprivileged callers, not only root. Output is bounded by max_output_bytes (2 MiB default) via read_capped, and the process group is killed on timeout. Network isolation via unshare(CLONE_NEWUSER|CLONE_NEWNET) is deliberately best-effort: on hosts where AppArmor restricts unprivileged user namespaces (Ubuntu 23.10+, GitHub Actions runners) it logs and continues rather than blocking all execution.",
-      "remaining_exposure": "No cgroup limits: CPU, memory, pids and file-descriptor counts are unbounded, so a sandboxed process can still exhaust host resources. Mount and PID namespaces are not applied, so the filesystem view and process table are shared. Network isolation is not guaranteed - on a restricted host the command runs with full host network access.",
+      "current_state": "Real OS-level controls now exist. seccomp is on by default (SandboxPolicy::default().seccomp_profile is Some(\"default\")) and fails closed: install_filter errors propagate out of pre_exec and abort the fork before exec. PR_SET_NO_NEW_PRIVS is set unconditionally first, so the filter installs for unprivileged callers, not only root. Output is bounded by max_output_bytes (2 MiB default) via read_capped, and the process group is killed on timeout. Network isolation via unshare(CLONE_NEWUSER|CLONE_NEWNET) is deliberately best-effort: on hosts where AppArmor restricts unprivileged user namespaces (Ubuntu 23.10+, GitHub Actions runners) it logs and continues rather than blocking all execution. P1-3 adds CPU, memory, file-descriptor, file-size and core bounds via setrlimit(2) in the same pre_exec seam (ResourceLimits; defaults RLIMIT_AS 4 GiB, RLIMIT_NOFILE 256, RLIMIT_CPU 60 s, RLIMIT_FSIZE 256 MiB, RLIMIT_CORE 0). Both the soft and the hard limit are lowered, so the child cannot raise its own soft limit back, and the desired value is clamped to the inherited hard limit so a tighter host ceiling is preserved rather than causing EPERM. This path is fail-closed: lowering an rlimit needs no privilege and has no host-policy dependency, so a failure aborts the fork before exec. setrlimit rather than cgroups because cgroup v2 requires root or a delegated subtree, which the unprivileged deployments this targets do not have.",
+      "remaining_exposure": "Pids remain unbounded by default: RLIMIT_NPROC is counted per real UID rather than per process tree, so enabling it by default would make the first fork of an ordinary command fail with EAGAIN on any shared-UID host while not bounding a determined caller. It is available as ResourceLimits::max_processes and proven to reach the child, but is only safe under a dedicated UID; a cgroup pids.max is the correct control otherwise, and is not implemented. RLIMIT_AS bounds virtual address space rather than resident memory. Mount and PID namespaces are still not applied, so the filesystem view and process table are shared - CLONE_NEWPID in particular cannot be added as a flag, because unshare(CLONE_NEWPID) affects only children created afterwards and pre_exec execs rather than forks, so it needs a double-fork restructure of the spawn model. Network isolation is still not guaranteed: on a restricted host the command runs with full host network access.",
       "required_invariant": "Process tools run under OS-level isolation with bounded resources and no network by default (INV-EXEC-2/3/4).",
       "fixing_prs": [
         {
@@ -557,10 +561,35 @@
           "crate": "soul_sandbox",
           "name": "execute_with_stdin_also_gets_network_isolation_when_the_host_permits_it",
           "command": "cargo test -p soul_sandbox execute_with_stdin_also_gets_network_isolation_when_the_host_permits_it"
+        },
+        {
+          "crate": "soul_sandbox",
+          "name": "default_policy_bounds_the_child_and_it_cannot_raise_them_back",
+          "command": "cargo test -p soul_sandbox default_policy_bounds_the_child_and_it_cannot_raise_them_back"
+        },
+        {
+          "crate": "soul_sandbox",
+          "name": "unlimited_resource_limits_leave_the_inherited_ceilings_untouched",
+          "command": "cargo test -p soul_sandbox unlimited_resource_limits_leave_the_inherited_ceilings_untouched"
+        },
+        {
+          "crate": "soul_sandbox",
+          "name": "the_default_leaves_nproc_inherited_but_an_explicit_one_is_applied",
+          "command": "cargo test -p soul_sandbox the_default_leaves_nproc_inherited_but_an_explicit_one_is_applied"
+        },
+        {
+          "crate": "soul_sandbox",
+          "name": "execute_with_stdin_gets_the_same_resource_limits",
+          "command": "cargo test -p soul_sandbox execute_with_stdin_gets_the_same_resource_limits"
+        },
+        {
+          "crate": "soul_sandbox",
+          "name": "default_resource_limits_are_bounded_and_nproc_is_deliberately_off",
+          "command": "cargo test -p soul_sandbox default_resource_limits_are_bounded_and_nproc_is_deliberately_off"
         }
       ],
-      "residual_risk": "Resource exhaustion is unmitigated. Network isolation silently degrades, which is the documented and intended trade-off but still means egress cannot be relied upon as a control.",
-      "follow_up": "Implement cgroup v2 CPU/memory/pids/fd limits and mount/PID namespaces; add per-tool egress allowlisting instead of all-or-nothing network isolation."
+      "residual_risk": "CPU, memory, fd and file-size exhaustion are now bounded on every Unix host; process-count exhaustion is not, unless the sandbox runs under a dedicated UID. Network isolation silently degrades, which is the documented and intended trade-off but still means egress cannot be relied upon as a control.",
+      "follow_up": "Roadmap P1-12: a cgroup v2 backend for pids.max/memory.max where a delegated subtree exists, the double-fork spawn restructure needed for CLONE_NEWPID, a filesystem-view policy before CLONE_NEWNS is useful, and per-tool egress allowlisting instead of all-or-nothing network isolation."
     },
     {
       "id": "HIGH-004",
