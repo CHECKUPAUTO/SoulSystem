@@ -570,16 +570,40 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   whose provenance was evicted is distinguishable from one that was never
   screened.
 
-### P1-7 Transactional multi-file persistence and backup/restore qualification
+### P1-7 Transactional multi-file persistence and backup/restore qualification — DONE (INV-PERSIST-2 held; INV-PERSIST-1 partial)
 
-- **Findings / invariants:** HIGH-005 (`FIXED_AND_VERIFIED` for single-file
-  atomicity), INV-PERSIST-1 (`PARTIAL`), INV-PERSIST-2 (`TARGET`)
-- **Current risk:** each CCOS file is written atomically, but a crash between
-  two related writes can leave the three files mutually inconsistent. There is
-  no corruption detection on load and no state versioning. No executable test
-  proves a backup can be taken, state destroyed, and the backup restored.
-- **Acceptance tests:** an integration test performing backup → destroy →
-  restore → integrity check; a torn-multi-file-write test proving detection.
+- **Findings / invariants:** HIGH-005 (`FIXED_AND_VERIFIED`), INV-PERSIST-1
+  (`PARTIAL`), INV-PERSIST-2 (`HELD` for the CCOS state directory)
+- **What landed:** a `state.manifest` written **last**, carrying a format
+  version, a generation counter and a SHA-256 digest per member file;
+  `verify_set_integrity`; `restore_runtime` checking the set before
+  deserializing; `restore_runtime_strict`; and `backup_to` / `restore_from`
+  that verify before acting.
+- **Both acceptance tests met**: `a_torn_multi_file_write_is_detected` and
+  `backup_destroy_restore_recovers_verified_state` (save → back up → delete the
+  live directory → restore → verify set *and* reloaded contents).
+
+### P1-7-B Actual multi-file transactionality, and backup beyond CCOS
+
+- **Findings / invariants:** INV-PERSIST-1 (`PARTIAL`)
+- **Current risk:** P1-7 buys **detection, not atomicity**. A torn set is
+  reported and refused — which is the right failure mode, and much better than
+  loading a state that never existed — but it is still a failure: the process
+  cannot start, and there is no rollback to the previous generation. Repair
+  needs either a single-file state format or a write-ahead log, plus retaining
+  generation *n-1* so a detected tear has somewhere to fall back to.
+- **Second gap:** a directory with no manifest is accepted as `Legacy` so that
+  upgrading does not strand existing state. A missing manifest and a *deleted*
+  one are indistinguishable, so anyone who can unlink a file in the state
+  directory can opt it out of verification. `restore_runtime_strict` refuses
+  that, but it is opt-in and no production caller uses it yet. Making strict the
+  default needs a migration window, which is a deployment decision.
+- **Third gap:** backup/restore covers the CCOS three-file state directory
+  only. There is no workspace-wide backup qualification for the other durable
+  stores.
+- **Acceptance tests:** a torn set is *repaired* from the previous generation
+  rather than only reported; strict restore is the default with a documented
+  migration path; a backup/restore test covering the other durable stores.
 
 ### P1-10 Permissive CORS in the four non-production HTTP services
 
