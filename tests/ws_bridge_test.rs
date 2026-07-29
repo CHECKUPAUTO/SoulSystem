@@ -20,6 +20,8 @@ async fn test_ws_connect_no_auth() {
     let config = soulsystem::ws_bridge::WsBridgeConfig {
         listen: "127.0.0.1:19023".to_string(),
         shared_secret: None,
+        max_connections: soulsystem::ws_bridge::DEFAULT_WS_MAX_CONNECTIONS,
+        max_message_bytes: soulsystem::ws_bridge::DEFAULT_WS_MAX_MESSAGE_BYTES,
         unauthenticated_access: soulsystem::ws_bridge::UnauthenticatedAccess::Allow,
     };
     tokio::spawn(async move {
@@ -55,6 +57,8 @@ async fn test_ws_publish_subscribe() {
     let config = soulsystem::ws_bridge::WsBridgeConfig {
         listen: "127.0.0.1:19020".to_string(),
         shared_secret: None,
+        max_connections: soulsystem::ws_bridge::DEFAULT_WS_MAX_CONNECTIONS,
+        max_message_bytes: soulsystem::ws_bridge::DEFAULT_WS_MAX_MESSAGE_BYTES,
         unauthenticated_access: soulsystem::ws_bridge::UnauthenticatedAccess::Allow,
     };
     tokio::spawn(async move {

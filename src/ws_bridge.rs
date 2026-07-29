@@ -20,12 +20,16 @@
 use crate::bus::{Bus, Message};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use soul_gateway::limits::ConnectionLimiter;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
-use tokio_tungstenite::{accept_async, tungstenite::protocol::Message as WsMessage};
+use tokio_tungstenite::{
+    accept_async_with_config,
+    tungstenite::protocol::{Message as WsMessage, WebSocketConfig},
+};
 use tracing::{debug, error, info, warn};
 
 /// Lance le serveur WebSocket avec le bus partage.
@@ -39,6 +43,15 @@ pub async fn run_ws_bridge(config: WsBridgeConfig, bus: Arc<Bus>) {
 pub struct WsBridgeConfig {
     pub listen: String,
     pub shared_secret: Option<String>,
+    /// Simultaneously accepted connections. Beyond this, a connection is
+    /// refused rather than accepted and parked (INV-NET-5).
+    pub max_connections: usize,
+    /// Largest accepted WebSocket message, in bytes.
+    ///
+    /// Without this, tungstenite's default is generous and a single client can
+    /// announce a frame large enough to make the process buffer it — before
+    /// the shared-secret check, which happens on the first message.
+    pub max_message_bytes: usize,
     /// Whether to serve clients when no shared secret is configured.
     ///
     /// Default [`UnauthenticatedAccess::Deny`]. See [`UnauthenticatedAccess`].
@@ -65,11 +78,23 @@ pub enum UnauthenticatedAccess {
     Allow,
 }
 
+/// Simultaneously accepted bridge connections.
+///
+/// Lower than the gateway's cap: this is an internal component-to-component
+/// bridge, not a public API, so a large number of live connections is itself a
+/// signal that something is wrong.
+pub const DEFAULT_WS_MAX_CONNECTIONS: usize = 64;
+
+/// Largest accepted bridge message, in bytes.
+pub const DEFAULT_WS_MAX_MESSAGE_BYTES: usize = 256 * 1024;
+
 impl Default for WsBridgeConfig {
     fn default() -> Self {
         Self {
             listen: "127.0.0.1:9022".to_string(),
             shared_secret: None,
+            max_connections: DEFAULT_WS_MAX_CONNECTIONS,
+            max_message_bytes: DEFAULT_WS_MAX_MESSAGE_BYTES,
             unauthenticated_access: UnauthenticatedAccess::Deny,
         }
     }
@@ -176,11 +201,28 @@ pub async fn run_server(state: Arc<WsBridgeState>) {
         state.config.listen
     );
 
+    let limiter = ConnectionLimiter::new(state.config.max_connections);
+
     loop {
         match listener.accept().await {
             Ok((stream, addr)) => {
+                // Refused, not parked: waiting for a slot would cost us a
+                // socket and a queue entry for the attacker's one socket.
+                let Some(permit) = limiter.try_acquire() else {
+                    warn!(
+                        "WS bridge: refus de {} — plafond de connexions atteint ({}/{})",
+                        addr,
+                        limiter.in_flight(),
+                        limiter.capacity()
+                    );
+                    drop(stream);
+                    continue;
+                };
                 let state = state.clone();
                 tokio::spawn(async move {
+                    // Held for the connection's lifetime, so the slot returns
+                    // however the connection ends.
+                    let _permit = permit;
                     handle_connection(stream, addr, state).await;
                 });
             }
@@ -208,7 +250,13 @@ async fn handle_connection(stream: TcpStream, addr: SocketAddr, state: Arc<WsBri
     }
 
     // Pour un serveur simple, on accepte tout puis on verifie au premier message
-    let ws_stream = match accept_async(stream).await {
+    // Bound the frame before the handshake completes, so an oversized message
+    // is rejected by the protocol layer rather than buffered and then checked.
+    let ws_config = WebSocketConfig::default()
+        .max_message_size(Some(state.config.max_message_bytes))
+        .max_frame_size(Some(state.config.max_message_bytes));
+
+    let ws_stream = match accept_async_with_config(stream, Some(ws_config)).await {
         Ok(ws) => ws,
         Err(e) => {
             warn!("WS bridge: handshake echoue depuis {}: {}", addr, e);
@@ -472,5 +520,62 @@ mod tests {
         assert!(!constant_time_eq(b"token", b"token "));
         assert!(!constant_time_eq(b"token", b""));
         assert!(!constant_time_eq(b"", b"token"));
+    }
+
+    // ── Connection and frame bounds (P1-11, INV-NET-5) ───────────────────
+
+    #[test]
+    fn the_bridge_bounds_connections_and_messages_by_default() {
+        // This listener had no limits of any kind: an unbounded accept loop
+        // and tungstenite's generous default frame size, both reachable
+        // before the shared-secret check (which happens on the first message).
+        let config = WsBridgeConfig::default();
+        assert_eq!(config.max_connections, DEFAULT_WS_MAX_CONNECTIONS);
+        assert_eq!(config.max_message_bytes, DEFAULT_WS_MAX_MESSAGE_BYTES);
+        assert!(
+            config.max_connections > 0 && config.max_message_bytes > 0,
+            "a zero default would read as an outage rather than a limit"
+        );
+    }
+
+    #[test]
+    fn the_accept_loop_refuses_past_the_cap_rather_than_parking() {
+        // Guard on the wiring: the value being present in the config does
+        // nothing unless the accept loop consults it, and "refused" rather
+        // than "queued" is the whole point — parking is what a slow-loris
+        // flood wants.
+        let source =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ws_bridge.rs"))
+                .expect("own source is readable");
+        let run_server = source
+            .split("pub async fn run_server(")
+            .nth(1)
+            .expect("run_server is present");
+        assert!(
+            run_server.contains("ConnectionLimiter::new(state.config.max_connections)"),
+            "the accept loop must build its limiter from the configured cap"
+        );
+        assert!(
+            run_server.contains("try_acquire()"),
+            "try_acquire refuses immediately; acquire() would park the \
+             connection, which is the failure mode this closes"
+        );
+    }
+
+    #[test]
+    fn the_handshake_bounds_the_frame_before_completing() {
+        let source =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ws_bridge.rs"))
+                .expect("own source is readable");
+        assert!(
+            source.contains("accept_async_with_config"),
+            "the bare accept_async takes tungstenite's default frame size"
+        );
+        assert!(
+            source.contains("max_message_size(Some(state.config.max_message_bytes))")
+                && source.contains("max_frame_size(Some(state.config.max_message_bytes))"),
+            "both bounds must come from the configured value — max_message_size \
+             alone still lets a single oversized frame be buffered"
+        );
     }
 }
