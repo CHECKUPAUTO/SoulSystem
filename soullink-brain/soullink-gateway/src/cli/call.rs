@@ -20,7 +20,9 @@ pub struct CallOpts {
     pub method: String,
     pub params: String,
     pub url: Option<String>,
-    pub token: Option<String>,
+    /// Held in `SecretString` so the credential cannot reach a log line or a
+    /// `{:?}` render of the enclosing config (INV-SEC-2).
+    pub token: Option<soulsystem_common::secrets::SecretString>,
     pub timeout: u64,
     pub json: bool,
 }
@@ -93,7 +95,7 @@ pub async fn call_cmd(opts: CallOpts) -> ExitCode {
         .json(&body);
 
     if let Some(t) = &opts.token {
-        req = req.header("Authorization", format!("Bearer {t}"));
+        req = req.header("Authorization", format!("Bearer {}", t.expose()));
     }
 
     match req.send().await {

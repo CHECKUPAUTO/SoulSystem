@@ -72,7 +72,9 @@ async fn async_main() -> std::process::ExitCode {
                 method,
                 params,
                 url,
-                token,
+                // Wrapped at the CLI boundary so the token is typed for the
+                // whole of its life inside the process (INV-SEC-2).
+                token: token.map(soulsystem_common::secrets::SecretString::new),
                 timeout,
                 json,
             })
