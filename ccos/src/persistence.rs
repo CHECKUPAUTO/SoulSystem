@@ -56,6 +56,17 @@ pub const STATE_FORMAT_VERSION: u32 = 1;
 /// File name of the manifest that describes the set.
 pub const MANIFEST_FILE: &str = "state.manifest";
 
+/// Subdirectory holding the previous verified generation.
+///
+/// P1-7 bought detection without recovery: a torn set was reported and refused,
+/// which is the right failure mode but is still a failure — the process could
+/// not start, and there was nowhere to fall back to. Retaining generation *n-1*
+/// is what turns "refuses to load" into "loses the last save".
+///
+/// The cost is disk: the state directory roughly doubles. That is the trade
+/// being made, and it is a cheap one against an unstartable process.
+pub const PREVIOUS_DIR: &str = "state.prev";
+
 /// What a manifest records about one saved generation of the state set.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateManifest {
@@ -167,6 +178,32 @@ impl PersistentRuntime {
     pub fn save_state(&self, state: &RuntimeState) -> Result<(), PersistenceError> {
         std::fs::create_dir_all(&self.dir)?;
 
+        // Snapshot the outgoing generation *before* overwriting anything, so a
+        // crash during the writes below has somewhere to fall back to.
+        //
+        // Only a **verified** set is snapshotted. Copying a set that is already
+        // torn would replace a good fallback with a bad one, so a save that
+        // finds the live set damaged leaves the existing snapshot alone — the
+        // older good generation is worth more than the newer broken one. A
+        // Legacy set is likewise not snapshotted: without a manifest there is
+        // nothing to verify it against later, so the copy could not be trusted
+        // to repair from.
+        if matches!(
+            self.verify_set_integrity(),
+            Ok(SetIntegrity::Verified { .. })
+        ) {
+            // A failure to snapshot must not fail the save. The snapshot is a
+            // recovery aid; refusing to persist new state because the *backup*
+            // of the old state could not be written would trade a real loss for
+            // a hypothetical one.
+            if let Err(e) = self.snapshot_previous_generation() {
+                eprintln!(
+                    "[ccos] warning: could not retain previous generation for repair: {e}; \
+                     continuing with the save"
+                );
+            }
+        }
+
         // Each write is individually atomic; the manifest that follows is what
         // makes the *set* verifiable. Digests are taken from the exact bytes
         // written, not by re-reading the files afterwards — re-reading would
@@ -198,6 +235,109 @@ impl PersistentRuntime {
             generation,
             files,
         })
+    }
+
+    /// Directory holding the previous verified generation.
+    pub fn previous_dir(&self) -> PathBuf {
+        self.dir.join(PREVIOUS_DIR)
+    }
+
+    /// A handle onto the retained previous generation.
+    pub fn previous_generation(&self) -> PersistentRuntime {
+        PersistentRuntime::new(self.previous_dir())
+    }
+
+    /// Copy the current verified set into [`PREVIOUS_DIR`].
+    ///
+    /// Staged through a temporary directory and swapped in by rename, so an
+    /// interrupted snapshot cannot leave a half-copied fallback. A fallback
+    /// that is itself torn is worse than no fallback: it looks available and
+    /// fails at the moment it is needed.
+    fn snapshot_previous_generation(&self) -> Result<(), PersistenceError> {
+        let staging = self.dir.join("state.prev.tmp");
+        if staging.exists() {
+            std::fs::remove_dir_all(&staging)?;
+        }
+        let staged = PersistentRuntime::new(staging.clone());
+        // `backup_to` verifies the source first and copies the manifest, which
+        // is exactly the semantics wanted here — reusing it keeps one copy
+        // routine rather than two that can drift.
+        self.backup_to(&staging)?;
+
+        // Re-verify the copy before it becomes the fallback. Reusing
+        // `backup_to`'s verdict would only tell us the *source* was good.
+        staged.verify_set_integrity()?;
+
+        let target = self.previous_dir();
+        if target.exists() {
+            std::fs::remove_dir_all(&target)?;
+        }
+        std::fs::rename(&staging, &target)?;
+        Ok(())
+    }
+
+    /// Restore the state set from the retained previous generation
+    /// (INV-PERSIST-1).
+    ///
+    /// Returns the generation that was restored. The snapshot is verified
+    /// before anything live is touched — repairing from a corrupt fallback
+    /// would turn one bad generation into two.
+    ///
+    /// **This loses the most recent save.** It is recovery, not repair in the
+    /// sense of reconstructing the torn generation: the interrupted write is
+    /// gone and generation *n-1* takes its place. That is the honest trade, and
+    /// it is why this is a separate call rather than something `restore_runtime`
+    /// does silently — a caller that would rather investigate a tear than lose
+    /// a generation must be able to choose that.
+    pub fn repair_from_previous_generation(&self) -> Result<u64, PersistenceError> {
+        let previous = self.previous_generation();
+        if !previous.exists() {
+            return Err(PersistenceError::Integrity(format!(
+                "no retained previous generation at {}; nothing to repair from",
+                previous.dir.display()
+            )));
+        }
+        match previous.verify_set_integrity()? {
+            SetIntegrity::Verified { generation } => {
+                self.restore_from(previous.dir.clone())?;
+                Ok(generation)
+            }
+            SetIntegrity::Legacy => Err(PersistenceError::Integrity(format!(
+                "retained previous generation at {} has no manifest, so it cannot be \
+                 verified before use; refusing to repair from an unverifiable set",
+                previous.dir.display()
+            ))),
+        }
+    }
+
+    /// [`PersistentRuntime::restore_runtime`], falling back to the retained
+    /// previous generation if the live set is torn (INV-PERSIST-1).
+    ///
+    /// This is the call that makes a tear survivable rather than fatal. It is
+    /// opt-in for the reason above: it silently discards the newest generation,
+    /// and a caller that wants to know a tear happened before losing anything
+    /// should use `restore_runtime` and decide.
+    ///
+    /// Returns the state and, when a repair happened, the generation restored.
+    pub fn restore_runtime_repairing(
+        &self,
+    ) -> Result<(RuntimeState, Option<u64>), PersistenceError> {
+        match self.restore_runtime() {
+            Ok(state) => Ok((state, None)),
+            Err(original) => {
+                let generation = self.repair_from_previous_generation().map_err(|repair| {
+                    // Report the *original* tear as the headline. The repair
+                    // failure is context: someone reading this needs to know
+                    // what broke first, not just that recovery also failed.
+                    PersistenceError::Integrity(format!(
+                        "state set is unusable ({original}), and repair from the retained \
+                         previous generation also failed ({repair})"
+                    ))
+                })?;
+                let state = self.restore_runtime()?;
+                Ok((state, Some(generation)))
+            }
+        }
     }
 
     /// Path of the manifest describing the saved set.
@@ -820,5 +960,182 @@ mod tests {
         assert!(runtime.read_manifest().is_err());
         assert!(runtime.verify_set_integrity().is_err());
         cleanup(&dir);
+    }
+
+    // ── P1-7-B: repair from the retained previous generation ────────────────
+
+    /// Tear the live graph file without updating the manifest — what a crash
+    /// after the first rename leaves on disk.
+    fn tear_the_live_set(runtime: &PersistentRuntime) {
+        let mut newer = sample_state();
+        newer.graph.upsert_node(
+            "torn".into(),
+            "Ltorn".into(),
+            "written after the manifest".into(),
+            NodeType::Module,
+        );
+        crate::util::write_durable(
+            &runtime.graph_path(),
+            &serde_json::to_vec(&newer.graph).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// P1-7-B acceptance test: a torn set is **repaired** from the previous
+    /// generation rather than only reported.
+    #[test]
+    fn a_torn_set_is_repaired_from_the_previous_generation() {
+        let dir = temp_dir("repair");
+        let runtime = PersistentRuntime::new(&dir);
+
+        runtime.save_state(&sample_state()).unwrap(); // generation 0
+        runtime.save_state(&sample_state()).unwrap(); // generation 1, snapshots 0
+
+        assert!(
+            runtime.previous_generation().exists(),
+            "the second save must retain the first generation"
+        );
+
+        tear_the_live_set(&runtime);
+        assert!(
+            runtime.restore_runtime().is_err(),
+            "the tear must still be detected — repair is a separate decision"
+        );
+
+        let (state, repaired) = runtime
+            .restore_runtime_repairing()
+            .expect("a torn set with a good fallback must be recoverable");
+        assert_eq!(
+            repaired,
+            Some(0),
+            "it must report which generation it fell back to, not repair silently"
+        );
+        state
+            .verify_integrity()
+            .expect("repaired state must verify");
+        assert!(matches!(
+            runtime.verify_set_integrity().unwrap(),
+            SetIntegrity::Verified { generation: 0 }
+        ));
+    }
+
+    /// A clean set must not be touched, and must not claim a repair happened.
+    #[test]
+    fn an_intact_set_is_not_repaired() {
+        let dir = temp_dir("repair_noop");
+        let runtime = PersistentRuntime::new(&dir);
+        runtime.save_state(&sample_state()).unwrap();
+        runtime.save_state(&sample_state()).unwrap();
+
+        let (_state, repaired) = runtime.restore_runtime_repairing().unwrap();
+        assert_eq!(repaired, None, "no tear means no repair");
+        assert!(matches!(
+            runtime.verify_set_integrity().unwrap(),
+            SetIntegrity::Verified { generation: 1 }
+        ));
+    }
+
+    /// The first save has no previous generation, so a tear then is genuinely
+    /// unrecoverable — and must say so rather than appear to succeed.
+    #[test]
+    fn a_tear_before_any_second_save_is_reported_as_unrecoverable() {
+        let dir = temp_dir("repair_none");
+        let runtime = PersistentRuntime::new(&dir);
+        runtime.save_state(&sample_state()).unwrap();
+        tear_the_live_set(&runtime);
+
+        let err = runtime.restore_runtime_repairing().unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("torn"), "leads with the original tear: {msg}");
+        assert!(
+            msg.contains("repair") || msg.contains("nothing to repair from"),
+            "and says recovery was attempted: {msg}"
+        );
+    }
+
+    /// Repairing from a fallback that is itself corrupt would turn one bad
+    /// generation into two. The snapshot is verified before anything live is
+    /// touched.
+    #[test]
+    fn a_corrupt_fallback_is_refused_and_the_live_set_is_left_alone() {
+        let dir = temp_dir("repair_badprev");
+        let runtime = PersistentRuntime::new(&dir);
+        runtime.save_state(&sample_state()).unwrap();
+        runtime.save_state(&sample_state()).unwrap();
+
+        // Corrupt the retained generation, then tear the live one.
+        let previous = runtime.previous_generation();
+        crate::util::write_durable(&previous.graph_path(), b"{}").unwrap();
+        tear_the_live_set(&runtime);
+
+        let err = runtime.restore_runtime_repairing().unwrap_err();
+        assert!(
+            err.to_string().contains("repair"),
+            "must report that recovery was tried and failed: {err}"
+        );
+        // The live set is still torn, not overwritten with the bad fallback.
+        assert!(runtime.verify_set_integrity().is_err());
+    }
+
+    /// A save that finds the live set already torn must not overwrite a good
+    /// fallback with a bad one: the older good generation is worth more than
+    /// the newer broken one.
+    #[test]
+    fn saving_over_a_torn_set_does_not_destroy_the_good_fallback() {
+        let dir = temp_dir("repair_keepgood");
+        let runtime = PersistentRuntime::new(&dir);
+        runtime.save_state(&sample_state()).unwrap(); // gen 0
+        runtime.save_state(&sample_state()).unwrap(); // gen 1, .prev = gen 0
+
+        tear_the_live_set(&runtime);
+        runtime.save_state(&sample_state()).unwrap(); // gen 2, must NOT snapshot the torn gen 1
+
+        let previous = runtime.previous_generation();
+        assert!(
+            matches!(
+                previous.verify_set_integrity().unwrap(),
+                SetIntegrity::Verified { generation: 0 }
+            ),
+            "the retained generation must still be the last verified one"
+        );
+    }
+
+    /// The snapshot must be verifiable in its own right, not merely a copy of
+    /// something that was verified at the time.
+    #[test]
+    fn the_retained_generation_verifies_independently() {
+        let dir = temp_dir("repair_verifies");
+        let runtime = PersistentRuntime::new(&dir);
+        runtime.save_state(&sample_state()).unwrap();
+        runtime.save_state(&sample_state()).unwrap();
+
+        let previous = runtime.previous_generation();
+        assert!(matches!(
+            previous.verify_set_integrity().unwrap(),
+            SetIntegrity::Verified { generation: 0 }
+        ));
+        previous
+            .restore_runtime()
+            .expect("the fallback must be loadable on its own");
+    }
+
+    /// Staging must not leave debris that a later snapshot trips over.
+    #[test]
+    fn a_leftover_staging_directory_does_not_block_the_next_snapshot() {
+        let dir = temp_dir("repair_staging");
+        let runtime = PersistentRuntime::new(&dir);
+        runtime.save_state(&sample_state()).unwrap();
+
+        // Simulate an interrupted snapshot.
+        let staging = dir.join("state.prev.tmp");
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join("junk"), b"debris").unwrap();
+
+        runtime.save_state(&sample_state()).unwrap();
+        assert!(
+            !staging.exists(),
+            "staging must be cleared, not accumulated"
+        );
+        assert!(runtime.previous_generation().exists());
     }
 }
