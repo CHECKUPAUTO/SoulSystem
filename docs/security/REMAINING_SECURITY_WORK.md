@@ -331,35 +331,39 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   step that was missing. Verified negatively: forcing the policy to
   `disabled()` makes 5 of the client tests fail.
 
-### ~~P1-13 Make the agent loop consume the provider layer's retry outcome~~ — CLOSED for the plumbing; consumption is P1-13-B
+### ~~P1-13 / P1-13-B Make the agent loop consume the provider layer's retry outcome~~ — CLOSED
 
 - **Findings / invariants:** MED-009 (`PARTIALLY_FIXED`), INV-PROVIDER-3
-- **The premise needed correcting.** P1-13 was written as "`soul-agent-core`
-  does not branch on either yet" — implying the branch was simply unwritten.
-  It could not be written: `soul_llm::OllamaClient` is the **legacy** client,
-  whose `chat` returns `Result<ChatResponse, String>`. The typed error was
-  stringified two layers below the agent loop, so P1-4's `is_retryable` and
-  `RetriesExhausted` were structurally unreachable from there. Adding the branch
-  first would have meant deciding against evidence already thrown away.
-- **What landed:** `OllamaClient::chat_typed` preserves `LlmError` alongside the
-  existing `chat`, and `AutonomousAgent::guarded_llm_chat_typed` classifies into
-  `ProviderOutcome::{Exhausted { attempts }, Retryable, Permanent, BreakerOpen}`.
-- **The classification happens *inside* the circuit-breaker callback**, carried
-  out in a side channel. The breaker erases the error type on the way out, so
-  classifying afterwards would mean re-parsing the string — the exact loss this
-  change exists to undo. `BreakerOpen` is the absence of a recorded
-  classification: the closure never ran, so the provider was never asked, which
-  is not a verdict about the provider.
-- **`attempts` is carried, not flattened to a bool**, because that number is
-  what lets the two layers' budgets *sum* against a ceiling rather than
-  multiply.
-- **What is honestly not done (P1-13-B):** the ReAct loop's retry/replan/abort
-  site does not consume `ProviderOutcome` yet, and there is still no attempt
-  budget spanning both layers. Two of the three acceptance tests — "one bounded
-  provider sequence then an abort rather than a replan", and "the two layers'
-  attempt counts sum to a configured ceiling" — are therefore **not met**. The
-  plumbing they need now exists and is tested; the decision site is the next
-  change.
+- **The premise needed correcting first.** P1-13 read as though the branch was
+  simply unwritten. It could not be written: `soul_llm::OllamaClient` is the
+  **legacy** client, whose `chat` returns `Result<_, String>`. P1-4's
+  `is_retryable` and `RetriesExhausted` were destroyed two layers below the
+  agent loop, so writing the branch first would have meant deciding against
+  evidence already thrown away. P1-13 added `chat_typed` and
+  `guarded_llm_chat_typed`; P1-13-B consumed them.
+- **All three acceptance tests now met.**
+  - The ReAct loop branches on `ProviderOutcome`. `Exhausted` and `Permanent`
+    **abort** rather than replan — self-repair cannot reach a provider that is
+    down, and replanning asks the same dead endpoint a different question.
+    `Retryable` and `BreakerOpen` keep the self-repair path, since the breaker's
+    own state handles the backoff.
+  - `AgentConfig::max_provider_attempts` (default 12) is **one ceiling across
+    both layers**, and the provider layer's *own* attempt count is charged
+    against it. That is what makes the budgets **sum rather than multiply**: N
+    strategy attempts each costing M provider attempts would otherwise be N×M
+    requests to a hard-down provider.
+  - A successful call is charged too, so a mostly-succeeding run cannot drift
+    past the ceiling.
+- **The mirror-drift risk from P1-13 was fixed, not left.** That PR's tests
+  mirrored the classification `match` rather than calling it, because reaching
+  the real one needed a live provider and breaker. `ProviderOutcome::classify`
+  is now an extracted function both use — a drifted mirror of a *retry
+  decision* passes while the decision is wrong.
+- **Residual (MED-009-B):** the second call site — the reflection step — still
+  uses the String-returning `guarded_llm_chat`, so a failure there is untyped
+  and uncharged. And the ceiling is per `run_task`, not shared across concurrent
+  runs, so K parallel agents can each spend the full budget against one
+  provider. Neither is a hot loop; both are uncoordinated spend.
 
 ### ~~P1-9 Authenticate `src/api.rs`~~ — CLOSED (authentication only)
 

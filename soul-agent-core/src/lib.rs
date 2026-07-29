@@ -99,6 +99,16 @@ pub struct AgentConfig {
     /// Hard wall-clock ceiling, in seconds, on one `run_task` run.
     /// INV-PLAN-2.
     pub max_wall_clock_secs: u64,
+    /// Ceiling on provider attempts across **both** layers for one `run_task`
+    /// run (INV-PROVIDER-3, P1-13-B).
+    ///
+    /// The provider layer backs off and retries internally, and the strategy
+    /// layer here may try again after that. Without one shared ceiling the two
+    /// budgets **multiply**: N strategy attempts each costing M provider
+    /// attempts is N×M requests to a provider that may be hard-down. Charging
+    /// the provider layer's own attempt count against this ceiling makes them
+    /// sum instead.
+    pub max_provider_attempts: u32,
 }
 
 impl Default for AgentConfig {
@@ -112,6 +122,7 @@ impl Default for AgentConfig {
             auto_distill: true,
             auto_repair: true,
             max_consecutive_failures: 3,
+            max_provider_attempts: 12,
             working_memory_capacity: 50,
             enable_sub_agents: true,
             max_sub_agents: 4,
@@ -183,6 +194,9 @@ pub struct AutonomousAgent {
     pub history: Vec<String>,
     pub turn: usize,
     pub consecutive_failures: usize,
+    /// Provider attempts already spent this run, counting the provider layer's
+    /// own retries (P1-13-B). See [`AgentConfig::max_provider_attempts`].
+    pub provider_attempts_spent: u32,
     pub repair_count: usize,
     pub running: Arc<RwLock<bool>>,
     pub memory: Arc<HierarchicalMemory>,
@@ -274,6 +288,34 @@ pub enum ProviderOutcome {
     BreakerOpen,
 }
 
+impl ProviderOutcome {
+    /// Classify a provider error.
+    ///
+    /// A free function rather than an inline `match` so the tests exercise the
+    /// *same* code the loop runs. P1-13's tests mirrored the match instead,
+    /// which was a deliberate trade at the time — standing up a live provider
+    /// and breaker to reach it was disproportionate — but a mirror can drift
+    /// from what it mirrors, and a drifted test of a retry decision passes
+    /// while the decision is wrong.
+    pub fn classify(error: &soul_llm::LlmError) -> Self {
+        match error {
+            soul_llm::LlmError::RetriesExhausted { attempts, .. } => Self::Exhausted {
+                attempts: *attempts,
+            },
+            other if other.is_retryable() => Self::Retryable,
+            _ => Self::Permanent,
+        }
+    }
+
+    /// Whether trying again — at either layer — could plausibly succeed.
+    ///
+    /// `Exhausted` is false: the provider layer already spent its budget, so a
+    /// strategy-level retry spends a second one on the same dead provider.
+    pub fn is_worth_retrying(self) -> bool {
+        matches!(self, Self::Retryable | Self::BreakerOpen)
+    }
+}
+
 impl AutonomousAgent {
     pub fn new(llm: OllamaClient, config: AgentConfig) -> Self {
         let system_prompt = build_system_prompt(&config.name);
@@ -323,6 +365,7 @@ impl AutonomousAgent {
             history: Vec::new(),
             turn: 0,
             consecutive_failures: 0,
+            provider_attempts_spent: 0,
             repair_count: 0,
             running: Arc::new(RwLock::new(false)),
             memory,
@@ -401,6 +444,7 @@ impl AutonomousAgent {
             history: Vec::new(),
             turn: 0,
             consecutive_failures: 0,
+            provider_attempts_spent: 0,
             repair_count: 0,
             running: Arc::new(RwLock::new(false)),
             memory,
@@ -479,15 +523,7 @@ impl AutonomousAgent {
                     match llm.chat_typed(&msgs, t).await {
                         Ok(resp) => Ok(resp),
                         Err(e) => {
-                            let outcome = match &e {
-                                soul_llm::LlmError::RetriesExhausted { attempts, .. } => {
-                                    ProviderOutcome::Exhausted {
-                                        attempts: *attempts,
-                                    }
-                                }
-                                other if other.is_retryable() => ProviderOutcome::Retryable,
-                                _ => ProviderOutcome::Permanent,
-                            };
+                            let outcome = ProviderOutcome::classify(&e);
                             if let Ok(mut slot) = sink.lock() {
                                 *slot = Some(outcome);
                             }
@@ -1172,20 +1208,73 @@ impl AutonomousAgent {
             });
 
             let response = match self
-                .guarded_llm_chat(&messages, Some(&self.tool_schemas))
+                .guarded_llm_chat_typed(&messages, Some(&self.tool_schemas))
                 .await
             {
-                Ok(resp) => resp,
-                Err(e) => {
+                Ok(resp) => {
+                    // A successful call still cost one attempt against the
+                    // shared ceiling; only failures were being counted before,
+                    // which would let a run that mostly succeeds drift past it.
+                    self.provider_attempts_spent = self.provider_attempts_spent.saturating_add(1);
+                    resp
+                }
+                Err((outcome, e)) => {
                     self.consecutive_failures += 1;
-                    // Circuit breaker handles its own state, but we also self-repair
-                    let repairs = self.auto_repair();
-                    for r in &repairs {
-                        self.emit_event(AgentEvent::SafetyWarning { message: r.clone() });
+
+                    // Charge what the provider layer actually spent, not one
+                    // per strategy attempt. This is what makes the two budgets
+                    // sum rather than multiply (INV-PROVIDER-3).
+                    let charged = match outcome {
+                        ProviderOutcome::Exhausted { attempts } => attempts.max(1),
+                        _ => 1,
+                    };
+                    self.provider_attempts_spent =
+                        self.provider_attempts_spent.saturating_add(charged);
+
+                    match outcome {
+                        // The provider layer already backed off and retried to
+                        // its own limit. Self-repair cannot reach a provider
+                        // that is down, and replanning asks the same dead
+                        // endpoint a different question — so abort, and say
+                        // what was spent rather than reporting a bare error.
+                        ProviderOutcome::Exhausted { attempts } => {
+                            return Err(format!(
+                                "LLM provider exhausted after {attempts} provider-level \
+                                 attempts ({} of {} charged this run): {e}",
+                                self.provider_attempts_spent, self.config.max_provider_attempts
+                            ));
+                        }
+                        // Bad credentials do not become good ones because the
+                        // plan changed. Neither layer should spend more here.
+                        ProviderOutcome::Permanent => {
+                            return Err(format!(
+                                "LLM provider rejected the request permanently: {e}"
+                            ));
+                        }
+                        // Transient, or the breaker refused before the provider
+                        // was reached. Self-repair is worth trying, and the
+                        // breaker's own state handles the backoff.
+                        ProviderOutcome::Retryable | ProviderOutcome::BreakerOpen => {
+                            let repairs = self.auto_repair();
+                            for r in &repairs {
+                                self.emit_event(AgentEvent::SafetyWarning { message: r.clone() });
+                            }
+                            return Err(format!("LLM error: {}", e));
+                        }
                     }
-                    return Err(format!("LLM error: {}", e));
                 }
             };
+
+            // One ceiling across both layers. Checked after charging so an
+            // attempt that pushed past it is reported rather than silently
+            // being the last one allowed.
+            if self.provider_attempts_spent >= self.config.max_provider_attempts {
+                return Err(format!(
+                    "provider attempt budget exhausted: {} of {} spent across the provider \
+                     and strategy layers (INV-PROVIDER-3)",
+                    self.provider_attempts_spent, self.config.max_provider_attempts
+                ));
+            }
 
             let msg = &response.message;
             let content = msg.content.clone().unwrap_or_default();
@@ -3794,16 +3883,9 @@ mod provider_outcome_tests {
     use super::ProviderOutcome;
     use soul_llm::LlmError;
 
-    /// Mirror of the classification inside `guarded_llm_chat_typed`, so the
-    /// mapping can be tested without standing up a provider and a breaker.
+    /// The real classifier the loop runs — no longer a mirror (P1-13-B).
     fn classify(e: &LlmError) -> ProviderOutcome {
-        match e {
-            LlmError::RetriesExhausted { attempts, .. } => ProviderOutcome::Exhausted {
-                attempts: *attempts,
-            },
-            other if other.is_retryable() => ProviderOutcome::Retryable,
-            _ => ProviderOutcome::Permanent,
-        }
+        ProviderOutcome::classify(e)
     }
 
     /// P1-13 acceptance test: a provider that has exhausted its budget is
@@ -3869,5 +3951,126 @@ mod provider_outcome_tests {
             };
             assert_eq!(classify(&e), ProviderOutcome::Exhausted { attempts: n });
         }
+    }
+}
+
+#[cfg(test)]
+mod shared_attempt_budget_tests {
+    use super::{AgentConfig, ProviderOutcome};
+    use soul_llm::LlmError;
+
+    fn exhausted(n: u32) -> LlmError {
+        LlmError::RetriesExhausted {
+            attempts: n,
+            last: Box::new(LlmError::from_http_status(503, None, "")),
+        }
+    }
+
+    /// P1-13-B acceptance test: the two layers' attempt counts **sum** against
+    /// one ceiling rather than multiplying.
+    ///
+    /// The failure this prevents: N strategy attempts each costing M provider
+    /// attempts is N×M requests to a provider that may be hard-down. Charging
+    /// the provider layer's own count is what turns × into +.
+    #[test]
+    fn provider_attempts_sum_rather_than_multiply() {
+        let ceiling = AgentConfig::default().max_provider_attempts;
+
+        // Three strategy attempts, each of which the provider layer spent 4 on.
+        let mut spent: u32 = 0;
+        let mut strategy_attempts = 0;
+        while spent < ceiling {
+            let charged = match ProviderOutcome::classify(&exhausted(4)) {
+                ProviderOutcome::Exhausted { attempts } => attempts.max(1),
+                _ => 1,
+            };
+            spent = spent.saturating_add(charged);
+            strategy_attempts += 1;
+        }
+
+        assert_eq!(
+            strategy_attempts, 3,
+            "12 provider attempts at 4 each is 3 strategy attempts, not 12"
+        );
+        assert_eq!(spent, 12);
+        assert!(
+            spent <= ceiling,
+            "if these multiplied, spend would reach {} before stopping",
+            ceiling * 4
+        );
+    }
+
+    /// P1-13-B acceptance test: an exhausted provider produces exactly one
+    /// bounded sequence and then an abort, not a replan.
+    #[test]
+    fn an_exhausted_provider_is_not_worth_retrying() {
+        assert!(
+            !ProviderOutcome::classify(&exhausted(4)).is_worth_retrying(),
+            "the provider layer already spent its budget; retrying spends a \
+             second one on the same dead provider"
+        );
+        assert!(
+            !ProviderOutcome::Permanent.is_worth_retrying(),
+            "bad credentials do not become good ones because the plan changed"
+        );
+    }
+
+    /// A transient failure and a refused breaker are both worth another go —
+    /// for different reasons, which is why they stay distinct variants.
+    #[test]
+    fn transient_and_breaker_open_remain_retryable() {
+        let transient = LlmError::from_http_status(503, None, "");
+        assert!(ProviderOutcome::classify(&transient).is_worth_retrying());
+        assert!(
+            ProviderOutcome::BreakerOpen.is_worth_retrying(),
+            "the provider was never asked, so nothing has been ruled out"
+        );
+    }
+
+    /// The classifier the tests call must be the one the loop runs. P1-13's
+    /// tests mirrored the match; a drifted mirror of a retry decision passes
+    /// while the decision is wrong.
+    #[test]
+    fn the_tests_and_the_loop_share_one_classifier() {
+        for (err, expected) in [
+            (exhausted(7), ProviderOutcome::Exhausted { attempts: 7 }),
+            (
+                LlmError::from_http_status(503, None, ""),
+                ProviderOutcome::Retryable,
+            ),
+            (
+                LlmError::from_http_status(401, None, ""),
+                ProviderOutcome::Permanent,
+            ),
+        ] {
+            assert_eq!(ProviderOutcome::classify(&err), expected);
+        }
+    }
+
+    /// A zero attempt count must still cost something, or an exhausted
+    /// provider reporting 0 would be free and the ceiling unreachable.
+    #[test]
+    fn an_exhausted_report_of_zero_still_costs_one() {
+        let charged = match ProviderOutcome::classify(&exhausted(0)) {
+            ProviderOutcome::Exhausted { attempts } => attempts.max(1),
+            _ => 1,
+        };
+        assert_eq!(
+            charged, 1,
+            "a free failure would make the ceiling unreachable"
+        );
+    }
+
+    /// The default ceiling must admit a useful number of strategy attempts.
+    /// Too low and one exhausted sequence ends the run; too high and it stops
+    /// bounding anything.
+    #[test]
+    fn the_default_ceiling_admits_more_than_one_sequence() {
+        let c = AgentConfig::default();
+        assert!(
+            c.max_provider_attempts >= 8,
+            "a ceiling below ~8 lets a single exhausted sequence end the run"
+        );
+        assert!(c.max_provider_attempts <= 64, "and it must still bound");
     }
 }
