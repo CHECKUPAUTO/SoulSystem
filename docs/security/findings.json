@@ -716,8 +716,8 @@
       "fixing_prs": [
         {
           "number": 98,
-          "merge_commit": "eb983c5f2925f473f8953eca0c68589da4522324",
-          "title": "security(P1-1): verify webhook signatures, freshness and replay (commit SHA; merge SHA differs)"
+          "merge_commit": "7d8be996d343c81277c82f1ddaf7cfb3fd5ee3cf",
+          "title": "security(P1-1): verify webhook signatures, freshness and replay (implementation commit; the merge commit will differ)"
         }
       ],
       "verification_tests": [
