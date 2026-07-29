@@ -15,8 +15,11 @@ finding move to `FIXED_AND_VERIFIED`.
 
 The verdict follows from the register, not from campaign progress: 2 of 6
 critical findings and 3 of 10 high findings remain `PARTIALLY_FIXED`, and one
-high finding is `CONFIRMED_CURRENT`. P0-1 is now closed; **P0-2 remains open and
-is reachable from the `soulsystem` binary without any feature gate**.
+high finding is `CONFIRMED_CURRENT`. **Both P0 items are now closed**, but the
+verdict does not move to `LIMITED_PRODUCTION` on that alone: the P1 set below
+still contains unauthenticated surface (`src/api.rs`), missing webhook
+signature verification, permissive CORS, absent request limits and unbounded
+sandbox resources.
 
 `LIMITED_PRODUCTION` is defensible for a **trusted, loopback-only, single-tenant**
 deployment where: the process bus cannot be reached by untrusted input, the
@@ -27,7 +30,7 @@ operational compensating controls, not proven invariants.
 `PRODUCTION_READY` requires at minimum P0 and P1 closed and INV-PERSIST-2
 (backup/restore) qualified by an executable test.
 
-## Priority 0 — Production blockers
+## Priority 0 — Production blockers *(all closed)*
 
 ### ~~P0-1 Unsandboxed host command execution in the binary~~ — CLOSED
 
@@ -50,28 +53,25 @@ operational compensating controls, not proven invariants.
   failure path was verified by introducing a deliberate violation.
 - **Remaining (moved to P1-8):** the guard covers `src/` only.
 
-### P0-2 `ws_bridge` fails open when no shared secret is configured
+### ~~P0-2 `ws_bridge` fails open when no shared secret is configured~~ — CLOSED
 
-- **Findings / invariants:** CRIT-007 (`PARTIALLY_FIXED`), INV-NET-1
-- **Surface:** `src/ws_bridge.rs` — a live module (`pub mod ws_bridge` in
-  `src/lib.rs`, used from `src/main.rs`). Its handshake initialises
-  `authenticated` to `true` when `shared_secret` is `None` or empty. Related:
-  `src/api.rs` builds a `Router` with no authentication layer.
-- **Current risk:** with no shared secret set — the default — the bridge accepts
-  unauthenticated WebSocket sessions subscribed to the internal bus. Both
-  listeners default to loopback (`127.0.0.1:9022`, `127.0.0.1:9023`), so
-  exposure requires local access, a rebind or a proxy, but neither fails closed
-  and neither is covered by the production startup guard.
-- **Recommended PR scope:** invert the default so an unset or empty shared
-  secret refuses connections; extend the production guard to treat an unset
-  `ws_bridge` secret as a startup violation; add authentication to `src/api.rs`
-  or move its routes behind the gateway.
-- **Dependencies:** none.
-- **Acceptance tests:** a test asserting a connection with no token is rejected
-  when `shared_secret` is `None`; a `soul-prod-guard` test asserting production
-  startup aborts when the bridge secret is unset.
-- **Production impact:** makes the second-largest authenticated surface
-  fail-closed, matching the gateway's posture.
+- **Findings / invariants:** CRIT-007, INV-NET-1
+- **Status:** closed by the `security/p0-2-ws-bridge-fail-closed` change.
+- **What changed:** `WsBridgeConfig` gained `UnauthenticatedAccess` (default
+  `Deny`), so with no usable secret `handle_connection` refuses before the
+  WebSocket handshake instead of initialising `authenticated = true`. A blank or
+  whitespace-only secret is treated as unset by `effective_secret()`, so an
+  empty config value cannot become a credential. The token comparison is now
+  constant-time — the previous `token == secret` was a timing side channel the
+  gateway had already closed for its own bearer token. Serving unauthenticated
+  requires an explicit `SOULSYSTEM_WS_BRIDGE_ALLOW_UNAUTHENTICATED` opt-in, and
+  that opt-in is deliberately **not** reported as authentication.
+- **Guard wiring:** `src/prod_guard.rs` no longer hardcodes the bridge posture —
+  `assemble_posture` receives the real `WsBridgeConfig`, so production startup
+  aborts with an `UnauthenticatedListener` violation while the bridge is
+  unauthenticated.
+- **Remaining (moved to P1-9):** `src/api.rs` still has no auth layer, and
+  per-scope authorization is unimplemented.
 
 ## Priority 1 — Major hardening
 
@@ -129,6 +129,18 @@ operational compensating controls, not proven invariants.
 - **Acceptance tests:** a failure-injecting mock provider proves bounded
   exponential backoff with jitter, a respected `Retry-After`, and a bounded
   total attempt count shared with the agent loop.
+
+### P1-9 Authenticate `src/api.rs` and add per-scope authorization
+
+- **Findings / invariants:** CRIT-007 (residual), INV-NET-1
+- **Surface:** `src/api.rs` builds a `Router` with no authentication layer,
+  served on `127.0.0.1:9023`. Separately, the gateway's bearer token is
+  all-or-nothing: every authenticated caller has full operator power.
+- **Current risk:** the API listener is reported to the guard as
+  unauthenticated (so production startup fails on it), but it has no auth of its
+  own and is mitigated only by the loopback bind.
+- **Acceptance tests:** an unauthenticated request to a state-changing `api`
+  route is rejected; a token scoped to read-only cannot reach a write route.
 
 ### P1-8 Widen the process-execution guard beyond the binary crate
 

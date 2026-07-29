@@ -351,8 +351,8 @@
       "original_reachable_path": [
         "axum router -> state-changing /v1 handlers with no authentication middleware"
       ],
-      "current_state": "soul_gateway::router now applies require_auth as a route_layer over every /v1/* operator route (ask, goal, plan, execute, run, cycle, status, goals, subagents, events, stream), comparing the bearer token with constant_time_eq and failing closed when unconfigured. /health is intentionally unauthenticated. Coverage is NOT complete across the process: src/ws_bridge.rs is a live module (declared in src/lib.rs, used by src/main.rs) whose handshake initialises `authenticated` to true when shared_secret is None or empty - it fails OPEN rather than closed, mitigated only by its 127.0.0.1:9022 default bind. src/api.rs builds a Router with no auth layer, served on 127.0.0.1:9023. The three /providers/*/webhook routes carry no bearer auth (by design - callers are providers) and rely solely on the fail-closed secret check tracked under HIGH-007.",
-      "remaining_exposure": "ws_bridge accepts unauthenticated bus-subscribed WebSocket sessions whenever no shared secret is configured, which is the default. src/api.rs exposes its routes with no authentication at all. Both are loopback-bound by default, so exposure requires local access, a rebind, or a proxy - but neither fails closed.",
+      "current_state": "soul_gateway::router applies require_auth as a route_layer over every /v1/* operator route, comparing the bearer token with constant_time_eq and failing closed when unconfigured. /health is intentionally unauthenticated. The ws_bridge half is now also fail-closed: WsBridgeConfig gained UnauthenticatedAccess (default Deny), so with no usable shared secret handle_connection refuses the connection before the WebSocket handshake instead of initialising `authenticated = true` as it previously did; a blank or whitespace-only secret is treated as unset by effective_secret() so a misconfigured empty value cannot become a credential; and the token comparison now uses a constant-time equality rather than `token == secret`, closing a timing side channel that the gateway had already closed for its bearer token. src/prod_guard.rs no longer hardcodes the bridge's posture: assemble_posture receives the real WsBridgeConfig and reports authenticated exactly when a usable secret is configured, so production startup aborts with an UnauthenticatedListener violation while the bridge is unauthenticated. Serving without authentication now requires the operator to set SOULSYSTEM_WS_BRIDGE_ALLOW_UNAUTHENTICATED, and that opt-in is deliberately NOT reported as authentication.",
+      "remaining_exposure": "src/api.rs still builds a Router with no authentication layer, served on 127.0.0.1:9023; it is reported to the guard as unauthenticated (so production startup fails on it too) but has no auth of its own and is mitigated only by the loopback bind. Distinct per-scope authorization is still not implemented anywhere: every authenticated caller has full operator power. The three /providers/*/webhook routes carry no bearer auth by design and rely on the fail-closed secret check tracked under HIGH-007, whose signature verification remains outstanding.",
       "required_invariant": "Every state-changing endpoint requires authentication and an authorization scope (INV-NET-1).",
       "fixing_prs": [
         {
@@ -368,23 +368,43 @@
       ],
       "verification_tests": [
         {
-          "crate": "soul_gateway",
-          "name": "operator_route_rejects_missing_token",
-          "command": "cargo test -p soul_gateway --lib operator_route"
+          "crate": "soulsystem",
+          "name": "ws_bridge::tests::default_config_denies_unauthenticated_access",
+          "command": "cargo test -p soulsystem --lib ws_bridge::tests::default_config_denies_unauthenticated_access"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "ws_bridge::tests::blank_secret_is_treated_as_unset",
+          "command": "cargo test -p soulsystem --lib ws_bridge::tests::blank_secret_is_treated_as_unset"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "ws_bridge::tests::constant_time_eq_matches_only_identical_tokens",
+          "command": "cargo test -p soulsystem --lib ws_bridge::tests::constant_time_eq_matches_only_identical_tokens"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "test_ws_default_refuses_when_no_secret_configured",
+          "command": "cargo test --test ws_bridge_test test_ws_default_refuses_when_no_secret_configured"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "prod_guard::tests::production_rejects_an_unauthenticated_ws_bridge",
+          "command": "cargo test -p soulsystem --bin soulsystem prod_guard::tests::production_rejects_an_unauthenticated_ws_bridge"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "prod_guard::tests::ws_bridge_posture_is_derived_from_its_real_configuration",
+          "command": "cargo test -p soulsystem --bin soulsystem prod_guard::tests::ws_bridge_posture_is_derived_from_its_real_configuration"
         },
         {
           "crate": "soul_gateway",
-          "name": "state_changing_operator_route_also_requires_auth",
+          "name": "tests::state_changing_operator_route_also_requires_auth",
           "command": "cargo test -p soul_gateway --lib state_changing_operator_route_also_requires_auth"
-        },
-        {
-          "crate": "soul_gateway",
-          "name": "constant_time_eq_rejects_length_mismatch",
-          "command": "cargo test -p soul_gateway --lib constant_time_eq_rejects_length_mismatch"
         }
       ],
-      "residual_risk": "Distinct per-scope authorization (as opposed to a single operator bearer token) is not implemented; every authenticated caller has full operator power.",
-      "follow_up": "Make ws_bridge fail closed when no shared secret is configured; add authentication to src/api.rs or bind it behind the gateway; introduce per-scope authorization."
+      "residual_risk": "The gateway and the ws bridge both fail closed and are covered by tests; src/api.rs and per-scope authorization are not. The bridge's loopback default bind remains a compensating control, not a proven one.",
+      "follow_up": "Add authentication to src/api.rs or move its routes behind the gateway; implement distinct per-scope authorization so an operator token is not all-or-nothing."
     },
     {
       "id": "HIGH-001",
