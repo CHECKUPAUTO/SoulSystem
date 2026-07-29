@@ -14,9 +14,13 @@ use axum::routing::get;
 use axum::Router;
 use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::info;
+
+/// Environment variable holding a comma-separated CORS origin allowlist.
+///
+/// Unset or blank permits no cross-origin browser access at all (INV-NET-4).
+const CORS_ALLOWLIST_VAR: &str = "SOULLINK_PROXY_CORS_ORIGINS";
 
 pub struct ProxyServer {
     config: ProxyConfig,
@@ -30,10 +34,11 @@ impl ProxyServer {
     fn build_router(&self) -> Router {
         let state = Arc::new(AppState::new(self.config.clone()));
 
-        let cors = CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods(Any)
-            .allow_headers(Any);
+        // INV-NET-4: fail closed. This is a reverse proxy in front of the
+        // orchestrator, RAG and autonomy APIs, so `allow_origin(Any)` — the
+        // same defect as `CorsLayer::permissive()`, spelled differently —
+        // exposed every one of them to any page the operator had open.
+        let cors = soul_cors::CorsPolicy::from_env(CORS_ALLOWLIST_VAR).read_write_layer();
 
         Router::new()
             .route("/health", get(health_check))

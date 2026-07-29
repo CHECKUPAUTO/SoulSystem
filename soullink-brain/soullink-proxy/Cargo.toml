@@ -6,6 +6,7 @@ license.workspace = true
 description = "Reverse proxy and TLS gateway for SoulLink V13.5 APIs"
 
 [dependencies]
+soul-cors = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 axum-server = { version = "0.7", features = ["tls-rustls"] }

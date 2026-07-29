@@ -1,0 +1,15 @@
+[package]
+name = "soul-cors"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+rust-version = "1.93"
+description = "SoulSystem — shared fail-closed cross-origin policy for every HTTP listener"
+
+[dependencies]
+# Deliberately no axum dependency: this crate is used by services on axum 0.7
+# and axum 0.8 alike. Both re-export http 1.x, and tower-http 0.6 builds on the
+# same http types, so depending on `http` directly is what lets one policy
+# serve both without forcing a version bump on anybody.
+http = "1"
+tower-http = { version = "0.6", default-features = false, features = ["cors"] }

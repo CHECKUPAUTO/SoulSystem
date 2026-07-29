@@ -117,7 +117,8 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
 
 ### ~~P1-2 CORS allowlist and request/message/concurrency limits~~ — CLOSED
 
-- **Findings / invariants:** INV-NET-4 (`PARTIAL`, see P1-10),
+- **Findings / invariants:** INV-NET-4 (**now `HELD`** for every workspace
+  member — the other listeners were closed by P1-10),
   INV-NET-5 (**now `HELD`** — the three residuals recorded below were closed by
   P1-11)
 - **Status:** closed by `security/p1-2-cors-and-request-limits`.
@@ -186,7 +187,9 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   and `soulsystem-lite` (`src/main.rs`). Each was checked against
   `cargo tree -p soulsystem --edges normal`; none is in the production binary's
   dependency graph, so none is reachable from `soulsystem`. They are still real
-  services if deployed on their own. Tracked as P1-10.
+  services if deployed on their own. Tracked as P1-10, **now closed** — which
+  also found three more the list above missed: `brain-system-rs`, and
+  `soullink-proxy` and `synergie` spelling it `.allow_origin(Any)`.
 
 ### ~~P1-3 Sandbox resource limits~~ — CLOSED for CPU/memory/fd/file-size
 
@@ -605,25 +608,37 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   rather than only reported; strict restore is the default with a documented
   migration path; a backup/restore test covering the other durable stores.
 
-### P1-10 Permissive CORS in the four non-production HTTP services
+### ~~P1-10 Permissive CORS in the non-production HTTP services~~ — CLOSED
 
-- **Findings / invariants:** INV-NET-4 (`PARTIAL`)
-- **Surface:** `soullink-gateway` (`src/cli/run.rs`), `soullink-inference`
-  (`src/bin/turboquant-proxy.rs`), `soullink-orchestrator-v3` (`src/main.rs`)
-  and `soulsystem-lite` (`src/main.rs`) all call
-  `tower_http::cors::CorsLayer::permissive()`.
-- **Why it is P1 and not P0:** each was checked against
-  `cargo tree -p soulsystem --edges normal` and none appears in the production
-  binary's dependency graph, so none is reachable from `soulsystem`. They are
-  independently deployable services, so the defect is real but not on the
-  production path.
-- **Recommended PR scope:** the same allowlist shape as P1-2. If a third copy
-  is needed, hoist the policy into a small shared crate rather than mirroring it
-  again — two copies is the point at which duplication is still cheaper than
-  the dependency edge, three is not.
-- **Acceptance tests:** per service, a disallowed `Origin` receives no
-  `Access-Control-Allow-Origin`, and a bare `*` in config does not re-enable
-  permissive behaviour.
+- **Findings / invariants:** INV-NET-4 (now `HELD` for every workspace member)
+- **Status:** closed by `security/p1-10-shared-cors-policy`.
+- **It was seven services, not four.** The roadmap listed four. `brain-system-rs`
+  was simply missed. `soullink-proxy` and `synergie` spelled the same defect as
+  `.allow_origin(Any)` rather than `CorsLayer::permissive()`, so a search for
+  the latter never saw them — which is why the guard matches all three
+  spellings and why the count is now enforced rather than remembered.
+- **`synergie` was the worst case.** `cors_allow_any` defaulted to `true` in
+  both its serde attribute and its `Default` impl, so an operator who omitted
+  the field served `Access-Control-Allow-Origin: *` from an API whose
+  `auth_token` also defaults to `None`. The field is still parsed — so an
+  existing config is not silently reinterpreted — but it is no longer honoured
+  and logs a warning pointing at `cors_origins`.
+- **One policy, not a seventh copy.** The roadmap's own instruction: two copies
+  is where duplication is still cheaper than a dependency edge, three is not.
+  `crates/soul-cors` deliberately does not depend on `axum`, so services on
+  axum 0.7 and 0.8 share it. Allowed methods stay a per-service parameter,
+  because a read-only listener has no business advertising `POST`.
+- **`Disabled` still installs a layer.** A layer emitting no
+  `Access-Control-Allow-Origin` is what makes a browser refuse the response;
+  removing the layer would not be equivalent.
+- **Remaining residual:** the guard covers workspace members only. The
+  non-member `os-agents/soul_gateway` still calls `permissive()` (LOW-003), and
+  an allowlist assembled at runtime from an attacker-influenced source is not
+  visible to source scanning. `soul_gateway` and `soul-dashboard` keep their own
+  P1-2 policies rather than being migrated — both are already fail-closed and
+  tested, and rewriting hardened, production-reachable code to remove
+  duplication is a refactor, not a security fix. Folding them into `soul-cors`
+  is P1-10-B.
 
 ### ~~P1-11 Connection bounds, rate limiting, and limits on the other listeners~~ — CLOSED
 

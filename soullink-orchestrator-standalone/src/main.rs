@@ -19,7 +19,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -30,6 +30,13 @@ mod utils;
 
 use state::AppState;
 use utils::helpers::parse_args;
+
+/// Environment variable holding a comma-separated CORS origin allowlist.
+///
+/// Unset or blank permits no cross-origin browser access at all
+/// (INV-NET-4). Each service names its own variable: they deploy
+/// separately and have no reason to share an origin list.
+const CORS_ALLOWLIST_VAR: &str = "SOULLINK_ORCHESTRATOR_CORS_ORIGINS";
 
 #[tokio::main]
 async fn main() {
@@ -83,7 +90,10 @@ async fn main() {
         .with_state(state)
         // Middlewares
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive());
+        // INV-NET-4: fail closed. `/api/mesh/spawn` is a POST route that
+        // starts work, so a permissive header here was a browser-reachable
+        // path to it.
+        .layer(soul_cors::CorsPolicy::from_env(CORS_ALLOWLIST_VAR).read_write_layer());
 
     // Démarrage du serveur
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))

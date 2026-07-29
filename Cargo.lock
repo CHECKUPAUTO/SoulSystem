@@ -1953,6 +1953,7 @@ dependencies = [
  "rand 0.8.6",
  "serde",
  "serde_json",
+ "soul-cors",
  "thiserror 2.0.18",
  "tokio",
  "tower-http 0.6.11",
@@ -9636,6 +9637,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul-cors"
+version = "0.1.0"
+dependencies = [
+ "http 1.4.2",
+ "tower-http 0.6.11",
+]
+
+[[package]]
 name = "soul-dashboard"
 version = "13.5.0"
 dependencies = [
@@ -10656,6 +10665,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "soul-cors",
  "soullink-core",
  "subtle",
  "tempfile",
@@ -10721,6 +10731,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slha-kernel",
+ "soul-cors",
  "soullink-nvml",
  "thiserror 2.0.18",
  "tokio",
@@ -10857,6 +10868,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "soul-cors",
  "thiserror 2.0.18",
  "tokio",
  "tower 0.5.3",
@@ -10913,6 +10925,7 @@ dependencies = [
  "rustls-pki-types",
  "serde",
  "serde_json",
+ "soul-cors",
  "tokio",
  "toml 0.8.23",
  "tower 0.5.3",
@@ -11361,6 +11374,7 @@ dependencies = [
  "serde",
  "serde_json",
  "soul-bridge",
+ "soul-cors",
  "tokio",
  "tokio-tungstenite 0.29.0",
  "tower 0.5.3",
@@ -11806,6 +11820,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sled",
+ "soul-cors",
  "syn 2.0.118",
  "tempfile",
  "tokio",

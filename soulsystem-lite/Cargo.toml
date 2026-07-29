@@ -6,6 +6,7 @@ description = "SoulSystem minimal gateway — REST:9023 + WS:9022"
 license.workspace = true
 
 [dependencies]
+soul-cors = { workspace = true }
 soul-bridge = { path = "../soul-bridge" }
 cervo = { path = "../cervo" }
 serde = { workspace = true }

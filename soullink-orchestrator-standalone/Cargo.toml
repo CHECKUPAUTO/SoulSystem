@@ -15,6 +15,7 @@ name = "soullink-orchestrator-v3"
 path = "src/main.rs"
 
 [dependencies]
+soul-cors = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 axum = { workspace = true }

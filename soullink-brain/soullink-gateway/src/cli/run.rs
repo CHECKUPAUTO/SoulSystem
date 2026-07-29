@@ -24,6 +24,13 @@ use crate::orchestrator_bridge;
 use crate::provider;
 use crate::telegram::{client::TelegramClient, long_poll::LongPollLoop};
 
+/// Environment variable holding a comma-separated CORS origin allowlist.
+///
+/// Unset or blank permits no cross-origin browser access at all
+/// (INV-NET-4). Each service names its own variable: they deploy
+/// separately and have no reason to share an origin list.
+const CORS_ALLOWLIST_VAR: &str = "SOULLINK_GATEWAY_CORS_ORIGINS";
+
 /// CLI fields from the `Run` subcommand.
 pub struct RunOpts {
     pub port: u16,
@@ -293,7 +300,10 @@ pub async fn run_cmd(opts: RunOpts) -> std::process::ExitCode {
                 }),
             )
             .merge(api_routes)
-            .layer(tower_http::cors::CorsLayer::permissive())
+            // INV-NET-4: fail closed. `permissive()` sent
+            // `Access-Control-Allow-Origin: *` across the merged router,
+            // including the `/api/*` chat, completion and tool-call routes.
+            .layer(soul_cors::CorsPolicy::from_env(CORS_ALLOWLIST_VAR).read_write_layer())
             .layer(tower_http::trace::TraceLayer::new_for_http());
 
         let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
