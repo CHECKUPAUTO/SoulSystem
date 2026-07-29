@@ -177,11 +177,38 @@ impl OllamaClient {
         self.client.config()
     }
 
+    /// Chat, discarding the typed error.
+    ///
+    /// Kept for existing callers. Prefer [`OllamaClient::chat_typed`] anywhere
+    /// the *kind* of failure matters: this returns a `String`, so a caller
+    /// cannot ask `is_retryable()` or recognise `RetriesExhausted`, and a
+    /// strategy layer above it has no way to tell "the provider already backed
+    /// off and retried N times" from "one transient blip".
     pub async fn chat(
         &self,
         messages: &[ChatMessage],
         tools: Option<&[ToolSchema]>,
     ) -> std::result::Result<ChatResponse, String> {
+        self.chat_typed(messages, tools)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// Chat, preserving [`crate::LlmError`].
+    ///
+    /// P1-4 gave `LlmError` an `is_retryable()` classification and a
+    /// `RetriesExhausted { attempts, last }` variant so the provider layer and
+    /// a strategy layer above it could stop holding divergent opinions about
+    /// what is worth retrying. None of that reached the agent loop, and the
+    /// reason was here: `chat` stringified the error two layers down, so the
+    /// information was destroyed before anything could branch on it. Adding the
+    /// branch without this would have been writing a decision against evidence
+    /// that had already been thrown away.
+    pub async fn chat_typed(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[ToolSchema]>,
+    ) -> crate::LlmResult<ChatResponse> {
         let provider_msgs: Vec<ProviderChatMessage> = messages
             .iter()
             .map(|m| {
@@ -243,7 +270,7 @@ impl OllamaClient {
                     },
                 })
             }
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(e),
         }
     }
 
@@ -333,5 +360,64 @@ impl LlmConfig {
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
         self
+    }
+}
+
+#[cfg(test)]
+mod typed_error_tests {
+    use crate::LlmError;
+
+    /// The classification the agent loop needs must be answerable from the
+    /// error alone. These are the three cases `ProviderOutcome` maps.
+    #[test]
+    fn retries_exhausted_is_distinguishable_from_a_single_transient_failure() {
+        let transient = LlmError::from_http_status(503, None, "");
+        assert!(
+            transient.is_retryable(),
+            "a 503 is the provider layer's business to retry"
+        );
+
+        let exhausted = LlmError::RetriesExhausted {
+            attempts: 4,
+            last: Box::new(LlmError::from_http_status(503, None, "")),
+        };
+        assert!(
+            !exhausted.is_retryable(),
+            "once the provider layer has spent its budget, an outer layer \
+             retrying spends a second one on the same dead provider"
+        );
+        match exhausted {
+            LlmError::RetriesExhausted { attempts, .. } => assert_eq!(attempts, 4),
+            other => panic!("expected RetriesExhausted, got {other}"),
+        }
+    }
+
+    #[test]
+    fn a_permanent_failure_is_neither_retryable_nor_exhausted() {
+        let permanent = LlmError::from_http_status(401, None, "");
+        assert!(!permanent.is_retryable());
+        assert!(!matches!(permanent, LlmError::RetriesExhausted { .. }));
+    }
+
+    /// The whole point of `chat_typed`: `chat` flattens all three of the above
+    /// into one `String`, so a caller of `chat` cannot tell them apart. This
+    /// pins that the stringifying path really does destroy the distinction, so
+    /// nobody "simplifies" `chat_typed` away later.
+    #[test]
+    fn the_string_returning_path_destroys_the_distinction() {
+        let exhausted = LlmError::RetriesExhausted {
+            attempts: 4,
+            last: Box::new(LlmError::from_http_status(503, None, "")),
+        };
+        let transient = LlmError::from_http_status(503, None, "");
+
+        // Both become plain text. Whatever the wording, neither string carries
+        // a machine-checkable `is_retryable`, which is what a branch needs.
+        let a = exhausted.to_string();
+        let b = transient.to_string();
+        assert!(!a.is_empty() && !b.is_empty());
+        // The classification is recoverable from the typed values...
+        assert!(!exhausted.is_retryable() && transient.is_retryable());
+        // ...and there is no equivalent call available on the strings.
     }
 }

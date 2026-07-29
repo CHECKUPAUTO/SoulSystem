@@ -253,6 +253,27 @@ pub struct AutonomousAgent {
     pub task_started_at: Option<std::time::Instant>,
 }
 
+/// What the provider layer did, as far as the strategy layer needs to know.
+///
+/// The agent loop's job is to decide between retrying, replanning and
+/// aborting. That decision needs to know whether the provider layer has
+/// *already spent* its attempts, and an error string cannot say so — which
+/// is why P1-4's `is_retryable` and `RetriesExhausted` never reached here
+/// (see `OllamaClient::chat_typed`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderOutcome {
+    /// The provider layer backed off and retried, and gave up. Retrying at
+    /// the strategy level spends a second budget on the same dead provider.
+    Exhausted { attempts: u32 },
+    /// A single failure the provider layer considers worth another attempt.
+    Retryable,
+    /// Permanent: bad credentials, a malformed request, an unknown model.
+    /// Neither layer should retry, and replanning will not help either.
+    Permanent,
+    /// The circuit breaker refused before the provider was reached.
+    BreakerOpen,
+}
+
 impl AutonomousAgent {
     pub fn new(llm: OllamaClient, config: AgentConfig) -> Self {
         let system_prompt = build_system_prompt(&config.name);
@@ -425,7 +446,79 @@ impl AutonomousAgent {
         self.router = Some(Arc::new(router));
     }
 
+    /// Call the LLM through the circuit breaker, preserving the typed outcome.
+    ///
+    /// Returns the outcome alongside the message so a caller can branch without
+    /// re-parsing a string.
+    async fn guarded_llm_chat_typed(
+        &self,
+        messages: &[soul_llm::ChatMessage],
+        tools: Option<&[ToolSchema]>,
+    ) -> Result<soul_llm::ChatResponse, (ProviderOutcome, String)> {
+        let llm = self.llm.clone();
+        let messages_owned: Vec<soul_llm::ChatMessage> = messages.to_vec();
+        let tools_owned: Option<Vec<ToolSchema>> = tools.map(|t| t.to_vec());
+
+        // The breaker's callback erases the error type, so the classification
+        // is made *inside* it and carried out in a side channel. Classifying
+        // afterwards would mean parsing the string again — the exact loss this
+        // change exists to undo.
+        let classified: Arc<std::sync::Mutex<Option<ProviderOutcome>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        let sink = Arc::clone(&classified);
+
+        let result = self
+            .llm_breaker
+            .call(|| {
+                let llm = llm.clone();
+                let msgs = messages_owned.clone();
+                let tools = tools_owned.clone();
+                let sink = Arc::clone(&sink);
+                async move {
+                    let t = tools.as_deref();
+                    match llm.chat_typed(&msgs, t).await {
+                        Ok(resp) => Ok(resp),
+                        Err(e) => {
+                            let outcome = match &e {
+                                soul_llm::LlmError::RetriesExhausted { attempts, .. } => {
+                                    ProviderOutcome::Exhausted {
+                                        attempts: *attempts,
+                                    }
+                                }
+                                other if other.is_retryable() => ProviderOutcome::Retryable,
+                                _ => ProviderOutcome::Permanent,
+                            };
+                            if let Ok(mut slot) = sink.lock() {
+                                *slot = Some(outcome);
+                            }
+                            Err(Box::new(std::io::Error::other(e.to_string()))
+                                as Box<dyn std::error::Error + Send + Sync>)
+                        }
+                    }
+                }
+            })
+            .await;
+
+        match result {
+            Ok(resp) => Ok(resp),
+            Err(e) => {
+                // No classification recorded means the breaker rejected before
+                // the closure ran — the provider was never asked.
+                let outcome = classified
+                    .lock()
+                    .ok()
+                    .and_then(|s| *s)
+                    .unwrap_or(ProviderOutcome::BreakerOpen);
+                Err((outcome, e.to_string()))
+            }
+        }
+    }
+
     /// Call the LLM through the circuit breaker. Rejects when breaker is open.
+    ///
+    /// Preserved for callers that only need a message. Prefer
+    /// [`Self::guarded_llm_chat_typed`] where the retry/replan/abort decision
+    /// is made.
     async fn guarded_llm_chat(
         &self,
         messages: &[soul_llm::ChatMessage],
@@ -3693,5 +3786,88 @@ mod tests {
                 .len(),
             2
         );
+    }
+}
+
+#[cfg(test)]
+mod provider_outcome_tests {
+    use super::ProviderOutcome;
+    use soul_llm::LlmError;
+
+    /// Mirror of the classification inside `guarded_llm_chat_typed`, so the
+    /// mapping can be tested without standing up a provider and a breaker.
+    fn classify(e: &LlmError) -> ProviderOutcome {
+        match e {
+            LlmError::RetriesExhausted { attempts, .. } => ProviderOutcome::Exhausted {
+                attempts: *attempts,
+            },
+            other if other.is_retryable() => ProviderOutcome::Retryable,
+            _ => ProviderOutcome::Permanent,
+        }
+    }
+
+    /// P1-13 acceptance test: a provider that has exhausted its budget is
+    /// distinguishable from one transient failure, so the strategy layer can
+    /// abort instead of spending a second budget on the same dead provider.
+    #[test]
+    fn an_exhausted_provider_is_not_mistaken_for_a_transient_failure() {
+        let exhausted = LlmError::RetriesExhausted {
+            attempts: 4,
+            last: Box::new(LlmError::from_http_status(503, None, "")),
+        };
+        assert_eq!(
+            classify(&exhausted),
+            ProviderOutcome::Exhausted { attempts: 4 },
+            "the attempt count must survive, or the two layers' budgets cannot \
+             be summed against a ceiling"
+        );
+
+        let transient = LlmError::from_http_status(503, None, "");
+        assert_eq!(classify(&transient), ProviderOutcome::Retryable);
+        assert_ne!(classify(&exhausted), classify(&transient));
+    }
+
+    /// A permanent failure must not be replanned around either: bad
+    /// credentials do not become good ones because the plan changed.
+    #[test]
+    fn a_permanent_failure_is_classified_apart_from_both() {
+        let permanent = LlmError::from_http_status(401, None, "");
+        assert_eq!(classify(&permanent), ProviderOutcome::Permanent);
+        assert_ne!(
+            classify(&permanent),
+            ProviderOutcome::Retryable,
+            "retrying a 401 spends attempts on something that cannot succeed"
+        );
+    }
+
+    /// `BreakerOpen` is reached by a different route — the closure never runs,
+    /// so no classification is recorded — and must stay distinct from a
+    /// provider that was asked and failed.
+    #[test]
+    fn breaker_open_is_distinct_from_every_provider_verdict() {
+        for other in [
+            ProviderOutcome::Exhausted { attempts: 1 },
+            ProviderOutcome::Retryable,
+            ProviderOutcome::Permanent,
+        ] {
+            assert_ne!(
+                ProviderOutcome::BreakerOpen,
+                other,
+                "the provider was never asked; that is not a verdict about it"
+            );
+        }
+    }
+
+    /// The attempt count is what lets the two layers' budgets sum rather than
+    /// multiply, so it must be carried, not flattened to a bool.
+    #[test]
+    fn the_attempt_count_is_carried_not_discarded() {
+        for n in [1u32, 3, 9] {
+            let e = LlmError::RetriesExhausted {
+                attempts: n,
+                last: Box::new(LlmError::from_http_status(500, None, "")),
+            };
+            assert_eq!(classify(&e), ProviderOutcome::Exhausted { attempts: n });
+        }
     }
 }
