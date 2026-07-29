@@ -140,3 +140,242 @@ mod tests {
         );
     }
 }
+
+// ── SecretString (INV-SEC-1 / INV-SEC-2, roadmap P1-5) ──────────────────
+
+/// A secret held in memory, which cannot be printed by accident.
+///
+/// # The problem this solves
+///
+/// Gateway and LLM provider configuration structs held tokens in ordinary
+/// `String` fields while deriving `Debug`. Every `tracing::debug!(?config)`,
+/// every `unwrap()` panic message that formats a config, and every
+/// `#[derive(Debug)]` on an enclosing struct then prints the credential. Nobody
+/// writes `println!("{}", token)` on purpose; it leaks through the derive.
+///
+/// [`SecretString`] makes that impossible rather than discouraged: its `Debug`
+/// and `Display` render a fixed redaction, so an enclosing `#[derive(Debug)]`
+/// stays safe without its author having to think about it. Reading the value
+/// requires calling [`SecretString::expose`], which is greppable in review.
+///
+/// # What it does not do
+///
+/// It is not a defence against an attacker who can read process memory, and it
+/// does not stop someone writing `expose()` into a log line. It removes the
+/// *accidental* path, which is the one that actually happens.
+#[derive(Clone, Default, PartialEq, Eq, zeroize::ZeroizeOnDrop)]
+pub struct SecretString(String);
+
+impl SecretString {
+    /// Wrap a value. Prefer reading straight from the environment or the
+    /// credential store into this type rather than through a `String` local.
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// Read the secret. Deliberately verbose: this is the call a reviewer
+    /// greps for.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether a usable secret is present.
+    ///
+    /// A whitespace-only value counts as absent — a blank entry in a config
+    /// file or an unset-but-exported environment variable must not become a
+    /// valid credential, which is the same rule the listeners apply.
+    pub fn is_present(&self) -> bool {
+        !self.0.trim().is_empty()
+    }
+
+    /// Length of the underlying secret, for diagnostics that need to say
+    /// "configured, 40 characters" without saying which 40.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Read from an environment variable, treating unset and blank alike.
+    pub fn from_env(var: &str) -> Option<Self> {
+        std::env::var(var)
+            .ok()
+            .map(Self::new)
+            .filter(Self::is_present)
+    }
+}
+
+/// The text rendered in place of a secret.
+///
+/// A fixed string, not a length-derived mask: `"***"` for a 4-character token
+/// and `"****************"` for a 16-character one would disclose the length,
+/// which narrows a brute-force search.
+pub const REDACTED: &str = "<redacted>";
+
+impl fmt::Debug for SecretString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Deliberately not `debug_tuple("SecretString").field(&self.0)`: that
+        // is exactly the mistake this type exists to prevent.
+        f.write_str(REDACTED)
+    }
+}
+
+impl fmt::Display for SecretString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(REDACTED)
+    }
+}
+
+impl From<String> for SecretString {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for SecretString {
+    fn from(value: &str) -> Self {
+        Self(value.to_owned())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SecretString {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Self)
+    }
+}
+
+/// Serialization is implemented but writes the **redaction**, not the secret.
+///
+/// A config struct is routinely serialized back out — to a debug endpoint, a
+/// state dump, a snapshot on disk. Round-tripping the plaintext through those
+/// paths is the same leak in a different coat. A caller that genuinely needs to
+/// persist a credential must reach for [`SecretString::expose`] and say so.
+impl serde::Serialize for SecretString {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(REDACTED)
+    }
+}
+
+#[cfg(test)]
+mod secret_string_tests {
+    use super::*;
+
+    const TOKEN: &str = "sk-live-4f9a2c7e1b8d6350";
+
+    #[test]
+    fn debug_never_renders_the_secret() {
+        let secret = SecretString::new(TOKEN);
+        let rendered = format!("{secret:?}");
+        assert!(!rendered.contains(TOKEN), "Debug leaked the secret");
+        assert!(
+            !rendered.contains("4f9a"),
+            "Debug leaked part of the secret"
+        );
+        assert_eq!(rendered, REDACTED);
+    }
+
+    #[test]
+    fn display_never_renders_the_secret() {
+        let secret = SecretString::new(TOKEN);
+        assert_eq!(format!("{secret}"), REDACTED);
+    }
+
+    #[test]
+    fn an_enclosing_derived_debug_is_safe_without_its_author_thinking_about_it() {
+        // The actual failure mode: nobody prints the token deliberately, they
+        // print the struct that holds it.
+        #[derive(Debug)]
+        struct ProviderConfig {
+            endpoint: String,
+            api_key: SecretString,
+        }
+
+        let config = ProviderConfig {
+            endpoint: "https://api.example.com".into(),
+            api_key: SecretString::new(TOKEN),
+        };
+        let rendered = format!("{config:?}");
+        assert!(!rendered.contains(TOKEN));
+        assert!(
+            rendered.contains("api.example.com"),
+            "only the secret is redacted; the rest stays useful for debugging"
+        );
+    }
+
+    #[test]
+    fn the_redaction_does_not_disclose_the_length() {
+        // `***` vs `****************` would narrow a brute-force search.
+        let short = SecretString::new("ab");
+        let long = SecretString::new("a".repeat(512));
+        assert_eq!(format!("{short:?}"), format!("{long:?}"));
+    }
+
+    #[test]
+    fn expose_returns_the_real_value() {
+        assert_eq!(SecretString::new(TOKEN).expose(), TOKEN);
+    }
+
+    #[test]
+    fn a_blank_value_is_treated_as_absent() {
+        // Same rule the listeners apply: a blank config entry or an
+        // exported-but-empty variable must not become a valid credential.
+        assert!(!SecretString::new("").is_present());
+        assert!(!SecretString::new("   \t\n").is_present());
+        assert!(SecretString::new("x").is_present());
+    }
+
+    #[test]
+    fn serialization_writes_the_redaction_not_the_secret() {
+        // A config struct gets serialized to debug endpoints and state dumps.
+        // Round-tripping plaintext through those is the same leak in a
+        // different coat.
+        let json = serde_json::to_string(&SecretString::new(TOKEN)).expect("serializes");
+        assert!(!json.contains(TOKEN));
+        assert!(json.contains(REDACTED));
+    }
+
+    #[test]
+    fn deserialization_accepts_a_plain_string() {
+        let secret: SecretString =
+            serde_json::from_str(&format!("\"{TOKEN}\"")).expect("deserializes");
+        assert_eq!(secret.expose(), TOKEN);
+    }
+
+    #[test]
+    fn a_struct_holding_one_does_not_leak_through_serde() {
+        #[derive(serde::Serialize)]
+        struct Config {
+            name: String,
+            token: SecretString,
+        }
+        let json = serde_json::to_string(&Config {
+            name: "prod".into(),
+            token: SecretString::new(TOKEN),
+        })
+        .expect("serializes");
+        assert!(!json.contains(TOKEN));
+        assert!(json.contains("prod"), "non-secret fields survive");
+    }
+
+    #[test]
+    fn from_env_treats_unset_and_blank_alike() {
+        let var = "SOULSYSTEM_TEST_SECRET_P1_5";
+        std::env::remove_var(var);
+        assert!(SecretString::from_env(var).is_none());
+
+        std::env::set_var(var, "   ");
+        assert!(
+            SecretString::from_env(var).is_none(),
+            "an exported-but-blank variable is not a credential"
+        );
+
+        std::env::set_var(var, TOKEN);
+        assert_eq!(
+            SecretString::from_env(var).map(|s| s.expose().to_owned()),
+            Some(TOKEN.to_owned())
+        );
+        std::env::remove_var(var);
+    }
+}

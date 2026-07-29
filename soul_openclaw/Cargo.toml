@@ -9,6 +9,7 @@ keywords = ["opencawl", "bridge", "agent-loop", "skills", "memory", "registry", 
 categories = ["machine-learning", "embedded", "api"]
 
 [dependencies]
+soulsystem-common = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }

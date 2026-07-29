@@ -98,7 +98,7 @@ impl AnthropicProvider {
             .pool_idle_timeout(config.pool_idle_timeout);
 
         let mut headers = reqwest::header::HeaderMap::new();
-        let api_key_value = reqwest::header::HeaderValue::from_str(&api_key)
+        let api_key_value = reqwest::header::HeaderValue::from_str(api_key.expose())
             .map_err(|e| LlmError::Auth(format!("Clé API invalide: {e}")))?;
         headers.insert("x-api-key", api_key_value);
         headers.insert(
@@ -117,7 +117,7 @@ impl AnthropicProvider {
         Ok(Self {
             http,
             base_url: config.base_url.trim_end_matches('/').to_string(),
-            api_key: Zeroizing::new(api_key),
+            api_key: Zeroizing::new(api_key.expose().to_owned()),
             default_model: config.model.clone(),
             temperature: config.temperature,
             max_tokens: config.max_tokens,

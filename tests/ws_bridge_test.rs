@@ -106,7 +106,7 @@ async fn test_ws_auth_valid() {
     let bus = Arc::new(soulsystem::bus::Bus::new(256));
     let config = soulsystem::ws_bridge::WsBridgeConfig {
         listen: "127.0.0.1:19021".to_string(),
-        shared_secret: Some("secret123".to_string()),
+        shared_secret: Some(soulsystem_common::secrets::SecretString::new("secret123")),
         ..Default::default()
     };
     tokio::spawn(async move {
@@ -145,7 +145,7 @@ async fn test_ws_auth_invalid() {
     let bus = Arc::new(soulsystem::bus::Bus::new(256));
     let config = soulsystem::ws_bridge::WsBridgeConfig {
         listen: "127.0.0.1:19024".to_string(),
-        shared_secret: Some("secret123".to_string()),
+        shared_secret: Some(soulsystem_common::secrets::SecretString::new("secret123")),
         ..Default::default()
     };
     tokio::spawn(async move {

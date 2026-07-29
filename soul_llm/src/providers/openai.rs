@@ -146,7 +146,7 @@ impl OpenAIProvider {
         Ok(Self {
             http,
             base_url: config.base_url.trim_end_matches('/').to_string(),
-            api_key: Zeroizing::new(api_key),
+            api_key: Zeroizing::new(api_key.expose().to_owned()),
             default_model: config.model.clone(),
             temperature: config.temperature,
             max_tokens: config.max_tokens,

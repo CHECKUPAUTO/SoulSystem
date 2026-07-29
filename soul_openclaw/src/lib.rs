@@ -21,6 +21,7 @@
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use soulsystem_common::secrets::SecretString;
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -366,7 +367,9 @@ pub enum OpenclawError {
 #[derive(Debug, Clone)]
 pub struct OpenclawConfig {
     pub base_url: String,
-    pub auth_token: Option<String>,
+    /// Redacted in `Debug` so the derive on this struct cannot print it
+    /// (INV-SEC-2). Read it with `SecretString::expose`.
+    pub auth_token: Option<SecretString>,
 }
 
 impl Default for OpenclawConfig {

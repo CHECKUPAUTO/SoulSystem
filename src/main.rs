@@ -276,7 +276,9 @@ async fn main() -> Result<()> {
     // production turns that into a startup violation (CRIT-007 / INV-NET-1).
     let ws_bridge_config = WsBridgeConfig {
         listen: "127.0.0.1:9022".to_string(),
-        shared_secret: std::env::var("SOULSYSTEM_WS_BRIDGE_SECRET").ok(),
+        shared_secret: soulsystem_common::secrets::SecretString::from_env(
+            "SOULSYSTEM_WS_BRIDGE_SECRET",
+        ),
         max_connections: soulsystem::ws_bridge::DEFAULT_WS_MAX_CONNECTIONS,
         max_message_bytes: soulsystem::ws_bridge::DEFAULT_WS_MAX_MESSAGE_BYTES,
         unauthenticated_access: if std::env::var("SOULSYSTEM_WS_BRIDGE_ALLOW_UNAUTHENTICATED")
@@ -1446,7 +1448,9 @@ async fn main() -> Result<()> {
                 temperature: 0.7,
                 http_timeout: Duration::from_secs(30),
                 connect_timeout: Duration::from_secs(5),
-                auth_token: resolved_api_key.clone(),
+                auth_token: resolved_api_key
+                    .clone()
+                    .map(soulsystem_common::secrets::SecretString::new),
                 max_tokens: 4096,
                 goal_token_budget: 50000,
                 tokens_per_minute_budget: 100000,

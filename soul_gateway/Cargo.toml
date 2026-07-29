@@ -9,6 +9,7 @@ keywords = ["gateway", "http", "websocket", "api", "opencawl", "tls", "cors", "a
 categories = ["web-programming", "async", "network-programming", "api"]
 
 [dependencies]
+soulsystem-common = { workspace = true }
 axum = { version = "0.7", features = ["ws", "json", "macros"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 tokio = { workspace = true, features = ["full"] }

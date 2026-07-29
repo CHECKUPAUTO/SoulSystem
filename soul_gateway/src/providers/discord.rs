@@ -92,7 +92,10 @@ pub struct DiscordWebhookBody {
     #[serde(rename = "type")]
     pub interaction_type: Option<u8>,
     pub id: Option<String>,
-    pub token: Option<String>,
+    /// Discord's per-interaction credential. `SecretString` so the `Debug`
+    /// derive on this struct cannot print it — an inbound webhook body is
+    /// exactly what gets logged when parsing goes wrong (INV-SEC-2).
+    pub token: Option<soulsystem_common::secrets::SecretString>,
     pub channel_id: Option<String>,
     pub member: Option<DiscordMember>,
     pub data: Option<DiscordInteractionData>,

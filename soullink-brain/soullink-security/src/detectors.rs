@@ -12,7 +12,14 @@ pub struct Finding {
     pub file: String,
     pub line: usize,
     pub column: usize,
-    pub secret: String,
+    /// The detected credential.
+    ///
+    /// `SecretString`, not `String`: this struct derives `Debug` and
+    /// `Serialize`, so a scanner *finding* would otherwise print the very
+    /// secret it found. The `masked` field below exists because someone
+    /// already knew displaying it was unsafe — the derive defeated that.
+    /// Verification reads it through `expose()` (INV-SEC-2).
+    pub secret: soulsystem_common::secrets::SecretString,
     pub verifiable: bool,
     /// Masked version of the secret for safe display.
     pub masked: String,
@@ -41,7 +48,7 @@ pub fn scan_line(line: &str, file: &str, line_num: usize) -> Vec<Finding> {
                 file: file.to_string(),
                 line: line_num,
                 column: mat.start(),
-                secret: mat.as_str().to_string(),
+                secret: mat.as_str().into(),
                 verifiable: pattern.verifiable,
                 masked: Finding::mask_secret(mat.as_str()),
             });
@@ -54,7 +61,7 @@ pub fn scan_line(line: &str, file: &str, line_num: usize) -> Vec<Finding> {
         if word.len() >= 20 && (is_base64_secret(word) || is_hex_secret(word)) {
             {
                 // Skip if already caught by pattern matching
-                let already_found = findings.iter().any(|f| f.secret == word);
+                let already_found = findings.iter().any(|f| f.secret.expose() == word);
                 if !already_found {
                     findings.push(Finding {
                         rule_name: "High-Entropy String".to_string(),
@@ -62,7 +69,7 @@ pub fn scan_line(line: &str, file: &str, line_num: usize) -> Vec<Finding> {
                         file: file.to_string(),
                         line: line_num,
                         column: line.find(word).unwrap_or(0),
-                        secret: word.to_string(),
+                        secret: word.into(),
                         verifiable: false,
                         masked: Finding::mask_secret(word),
                     });

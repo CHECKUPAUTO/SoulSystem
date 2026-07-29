@@ -485,14 +485,57 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
      that should be deleted. That is a product question about what this
      repository actually ships, so it is recorded rather than answered here.
 
-### P1-5 Secret-type sweep beyond `soullink-secrets`
+### ~~P1-5 Secret-type sweep beyond `soullink-secrets`~~ — CLOSED (type + guard); 16 structs remain as P1-5-B
 
-- **Findings / invariants:** HIGH-001 (`FIXED_AND_VERIFIED` for its own crate),
-  INV-SEC-1, INV-SEC-2 (both `PARTIAL`)
-- **Surface:** gateway and LLM provider configuration structs still hold tokens
-  and secrets in ordinary `String` fields.
-- **Acceptance tests:** a test asserting `Debug` output for each
-  secret-bearing config struct contains no secret material.
+- **Findings / invariants:** HIGH-001, INV-SEC-1, INV-SEC-2 (still `PARTIAL`)
+- **Status:** closed by `security/p1-5-secret-type-sweep`.
+- **The type.** `soulsystem_common::secrets::SecretString` — `Debug`, `Display`
+  **and** `Serialize` all render a fixed redaction. Nobody writes
+  `println!("{}", token)` on purpose; it leaks through the derive, through a
+  panic message that formats the enclosing struct, or through a debug endpoint
+  that serializes it. This removes the *accidental* path, which is the one that
+  actually happens.
+- **Two decisions worth stating.** The redaction is a **fixed string, not a
+  length-derived mask** — `***` versus `****************` discloses the length
+  and narrows a brute-force search. And `Serialize` writes the redaction too: a
+  config struct is routinely serialized to a debug endpoint or a state dump, and
+  round-tripping the plaintext through those is the same leak in a different
+  coat.
+- **Five structs migrated:** `WsBridgeConfig::shared_secret`,
+  `LlmConfig::auth_token`, `OpenclawConfig::auth_token`,
+  `DiscordWebhookBody::token` (an inbound webhook body is exactly what gets
+  logged when parsing fails), and — the one that matters most —
+  **soullink-security's scanner `Finding::secret`**, which derived `Debug` *and*
+  `Serialize` over the very credential it had just detected, next to a `masked`
+  field that existed precisely because someone already knew displaying it was
+  unsafe. The derive defeated their own mitigation.
+- **A workspace-wide guard** fails on any new secret-named `String` field on a
+  `Debug`-deriving struct, with the 16 unmigrated structs recorded and a
+  two-way count budget.
+- **A parser gap I found and fixed rather than shipped.** The first version of
+  the guard silently missed one-line structs
+  (`pub struct P { pub api_key: String, .. }`) and enum variants with inline
+  braces (`Basic { username: String, password: String }`) — three real
+  `Debug`-deriving structs among them. A guard that quietly skips a case is
+  worse than no guard: it reports success over something it never examined. The
+  scan now reads whole lines, and the shapes it used to miss are unit-tested.
+- **Two limitations stated, not counted as clean.** The guard keys on
+  `#[derive(Debug)]`, so a credential-holding struct deriving only `Clone` —
+  `clawd::Settings` and `soul-dashboard::AppState` both do — is not reported.
+  That is a smaller exposure, not an absent one: it still leaks via a
+  hand-written `Display`, via serde, or the moment somebody adds `Debug`. And
+  the match is **name-based**, so a credential in a field called `value` or
+  `blob` will not be found by any amount of this.
+- **Why INV-SEC-2 stays `PARTIAL`.** 16 structs still hold plaintext
+  credentials on `Debug`-deriving types. A budget that stops the set growing is
+  not the same as the set being empty.
+
+### P1-5-B Migrate the 16 recorded structs
+
+- **Findings / invariants:** HIGH-001 (residual), INV-SEC-2
+- Migrate each, lowering `NOT_YET_MIGRATED_BUDGET` with it. Once the `Debug`
+  set is empty, consider extending the guard to `Clone`-only structs, and to a
+  check that does not depend on field naming.
 
 ### P1-6 Memory provenance and trust metadata
 

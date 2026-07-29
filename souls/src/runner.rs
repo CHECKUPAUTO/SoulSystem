@@ -428,11 +428,18 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn resolve_api_key(explicit: Option<String>, provider: ProviderKind) -> Option<String> {
-    explicit.or_else(|| {
-        soulsystem_common::secrets::resolve_llm_secret(&provider.to_string())
-            .map(|secret| secret.to_string())
-    })
+/// Returns the credential as a [`SecretString`] so it cannot be printed by an
+/// enclosing `#[derive(Debug)]` on the way to the provider (INV-SEC-2).
+fn resolve_api_key(
+    explicit: Option<String>,
+    provider: ProviderKind,
+) -> Option<soulsystem_common::secrets::SecretString> {
+    explicit
+        .or_else(|| {
+            soulsystem_common::secrets::resolve_llm_secret(&provider.to_string())
+                .map(|secret| secret.to_string())
+        })
+        .map(soulsystem_common::secrets::SecretString::new)
 }
 
 #[allow(dead_code)]
