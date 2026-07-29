@@ -4,7 +4,6 @@
 
 use crate::tool::{AsyncTool, ToolError, ToolResult};
 use std::time::{Duration, Instant};
-use tokio::process::Command;
 
 /// Commands that are explicitly denied.
 const DENY_PATTERNS: &[&str] = &[
@@ -81,29 +80,62 @@ impl AsyncTool for ShellExecutor {
         Ok(())
     }
 
+    /// Run a command.
+    ///
+    /// `Self::is_dangerous` is a string denylist, and it stays as a cheap first
+    /// pass, but it was the *only* thing between this tool's input and `sh -c`.
+    /// Execution now goes through [`soul_sandbox::Sandbox`] (INV-EXEC-1), which
+    /// normalises encoding tricks before matching, refuses `sh` as a head
+    /// binary, and applies seccomp, `setrlimit` and a network namespace that no
+    /// amount of string matching can substitute for.
+    ///
+    /// **Pipelines and redirects no longer work here.** The sandbox neutralises
+    /// them; a shell is exactly what it exists to avoid. That is a behaviour
+    /// change for callers that passed `a | b`, and they now get an error rather
+    /// than a silently different command.
     async fn execute(&self, input: &str) -> Result<ToolResult, ToolError> {
         self.validate(input)?;
 
         let start = Instant::now();
-        let mut cmd = Command::new("sh");
-        cmd.arg("-c").arg(input);
+        let policy = soul_sandbox::SandboxPolicy {
+            timeout: Duration::from_secs(self.timeout_secs),
+            // Carried through rather than dropped: a command that used to run
+            // in `workdir` and now runs wherever the host process happens to
+            // be would not fail, it would quietly do the wrong thing.
+            working_dir: self.workdir.clone().map(Into::into),
+            ..Default::default()
+        };
+        let command = input.to_string();
 
-        if let Some(ref dir) = self.workdir {
-            cmd.current_dir(dir);
+        let verdict = tokio::task::spawn_blocking(move || {
+            soul_sandbox::Sandbox::new(policy).execute(&command)
+        })
+        .await
+        .map_err(|e| ToolError::ExecutionFailed(format!("join error: {e}")))?
+        .map_err(|e| match e {
+            // A refusal is a policy decision, not an execution failure, and
+            // the two must not be reported the same way: a caller retrying an
+            // "execution failed" makes sense, retrying a refusal does not.
+            soul_sandbox::SandboxError::Io(io) => ToolError::ExecutionFailed(io.to_string()),
+            other => ToolError::PermissionDenied(format!("sandbox refused command: {other}")),
+        })?;
+
+        // The sandbox enforces the deadline itself and reports it as a field,
+        // so the outer `tokio::time::timeout` is gone. Mapping it back to
+        // `ToolError::Timeout` keeps this tool's contract: callers that
+        // matched on `Timeout` still get it, rather than a success carrying a
+        // partial result and no exit code.
+        if verdict.timed_out {
+            return Err(ToolError::Timeout(self.timeout_secs));
         }
-
-        let output = tokio::time::timeout(Duration::from_secs(self.timeout_secs), cmd.output())
-            .await
-            .map_err(|_| ToolError::Timeout(self.timeout_secs))?
-            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
         Ok(ToolResult {
             tool: "shell".into(),
-            exit_code: output.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            exit_code: verdict.exit_code.unwrap_or(-1),
+            stdout: verdict.stdout,
+            stderr: verdict.stderr,
             duration_ms,
         })
     }

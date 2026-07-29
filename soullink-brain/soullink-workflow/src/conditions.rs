@@ -1,7 +1,6 @@
 //! Loop conditions for iterative workflow nodes.
 
 use serde::Deserialize;
-use std::process::Command;
 
 /// Loop configuration attached to a node.
 #[derive(Debug, Clone, Deserialize)]
@@ -63,14 +62,18 @@ impl LoopCondition {
                 false
             }
             LoopCondition::TestsPass(cmd) => {
-                // Run the bash command synchronously; exit 0 = pass.
-                let status = Command::new("sh")
-                    .arg("-c")
-                    .arg(cmd)
-                    .output()
+                // Run the command synchronously; exit 0 = pass.
+                //
+                // Through the sandbox rather than `sh -c` (INV-EXEC-1). Note
+                // the failure direction: a command the sandbox *refuses* is
+                // reported as "tests did not pass", not as "tests passed".
+                // A refusal must never let a loop exit as if its exit
+                // criterion had been met.
+                soul_sandbox::Sandbox::new(soul_sandbox::SandboxPolicy::default())
+                    .execute(cmd)
                     .ok()
-                    .and_then(|o| o.status.code());
-                status == Some(0)
+                    .and_then(|v| v.exit_code)
+                    == Some(0)
             }
             LoopCondition::Custom(_) => {
                 // Reserved; not yet evaluated.

@@ -216,6 +216,9 @@ impl Sandbox {
             .stdin(stdin_mode)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(ref dir) = self.policy.working_dir {
+            command.current_dir(dir);
+        }
         (command, parts[0].clone(), parts)
     }
 
@@ -332,7 +335,7 @@ impl Sandbox {
         &self,
         child: &mut std::process::Child,
         pid: i32,
-    ) -> (Option<i32>, String, String) {
+    ) -> (Option<i32>, String, String, bool) {
         #[cfg(not(unix))]
         let _ = pid;
 
@@ -341,6 +344,7 @@ impl Sandbox {
         let mut stdout = String::new();
         let mut stderr = String::new();
         let mut exit_code = None;
+        let mut timed_out = false;
 
         loop {
             match child.try_wait() {
@@ -365,6 +369,7 @@ impl Sandbox {
                         let _ = child.kill();
                         let _ = child.wait();
                         stderr.push_str("\n[sandbox] timeout killed process group");
+                        timed_out = true;
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(20));
@@ -376,7 +381,7 @@ impl Sandbox {
             }
         }
 
-        (exit_code, stdout, stderr)
+        (exit_code, stdout, stderr, timed_out)
     }
 
     /// Normalise une commande (utilitaire public).
@@ -484,7 +489,7 @@ impl Sandbox {
         let t0 = Instant::now();
 
         let (mut child, pid) = self.spawn_with_sandbox(&safe_cmd, Stdio::null())?;
-        let (exit_code, stdout, stderr) = self.wait_with_timeout(&mut child, pid);
+        let (exit_code, stdout, stderr, timed_out) = self.wait_with_timeout(&mut child, pid);
 
         let duration_ms = t0.elapsed().as_millis() as u64;
         let threats: Vec<String> = self
@@ -507,6 +512,7 @@ impl Sandbox {
             started_at,
             finished_at: Utc::now(),
             threats,
+            timed_out,
         };
 
         if self.policy.log_all {
@@ -568,7 +574,9 @@ impl Sandbox {
         }
         drop(tx);
 
-        let (exit_code, _, _) = self.wait_with_timeout(&mut child, pid);
+        // Output is discarded here (the caller consumes the stream), but the
+        // deadline still applies and must be reported.
+        let (exit_code, _, _, timed_out) = self.wait_with_timeout(&mut child, pid);
         std::thread::sleep(Duration::from_millis(20));
 
         let duration_ms = t0.elapsed().as_millis() as u64;
@@ -585,6 +593,7 @@ impl Sandbox {
             started_at,
             finished_at: Utc::now(),
             threats: vec![],
+            timed_out,
         };
         Ok((verdict, rx))
     }
@@ -629,7 +638,7 @@ impl Sandbox {
             let _ = sin.write_all(stdin_payload.as_bytes());
         }
 
-        let (exit_code, stdout, stderr) = self.wait_with_timeout(&mut child, pid);
+        let (exit_code, stdout, stderr, timed_out) = self.wait_with_timeout(&mut child, pid);
 
         let duration_ms = t0.elapsed().as_millis() as u64;
         let threats: Vec<String> = self
@@ -652,6 +661,7 @@ impl Sandbox {
             started_at,
             finished_at: Utc::now(),
             threats,
+            timed_out,
         };
 
         if self.policy.log_all {
@@ -1555,6 +1565,9 @@ impl Sandbox {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        if let Some(ref dir) = self.policy.working_dir {
+            command.current_dir(dir);
+        }
 
         #[cfg(unix)]
         self.apply_sandbox_pre_exec(&mut command);
@@ -1676,5 +1689,111 @@ mod spawn_spec_tests {
         );
         child.kill_group().expect("kill_group");
         assert!(child.try_wait().unwrap().is_some(), "should be reaped");
+    }
+}
+
+#[cfg(test)]
+mod timeout_reporting_tests {
+    use super::*;
+
+    /// `timed_out` must distinguish a deadline kill from a command that simply
+    /// exited without a code. Callers previously had to string-match the
+    /// sandbox's own stderr prose to tell them apart.
+    #[cfg(unix)]
+    #[test]
+    fn a_command_that_outruns_the_deadline_is_reported_as_timed_out() {
+        let sandbox = Sandbox::new(SandboxPolicy {
+            timeout: Duration::from_millis(300),
+            seccomp_profile: None,
+            network_isolated: false,
+            ..Default::default()
+        });
+        match sandbox.execute("sleep 20") {
+            Ok(v) => {
+                assert!(v.timed_out, "sleep 20 under a 300ms deadline must time out");
+                assert!(v.exit_code.is_none(), "a killed process has no exit code");
+            }
+            Err(e) => eprintln!("skipping: could not spawn sleep ({e})"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_command_that_finishes_in_time_is_not_reported_as_timed_out() {
+        let sandbox = Sandbox::new(SandboxPolicy {
+            timeout: Duration::from_secs(10),
+            seccomp_profile: None,
+            network_isolated: false,
+            ..Default::default()
+        });
+        match sandbox.execute("true") {
+            Ok(v) => {
+                assert!(!v.timed_out);
+                assert_eq!(v.exit_code, Some(0));
+            }
+            Err(e) => eprintln!("skipping: could not spawn true ({e})"),
+        }
+    }
+
+    /// A newline is a command separator to `sh`, so any denylist that blocks
+    /// `;` but not `\n` is bypassable. The sandbox is not vulnerable to it for
+    /// a structural reason rather than a listing one: it never invokes a shell,
+    /// so the second "command" is just more argv.
+    #[cfg(unix)]
+    #[test]
+    fn a_newline_separated_second_command_is_not_executed() {
+        let dir = std::env::temp_dir().join("soul_sandbox_newline_probe");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create probe dir");
+        let marker = dir.join("SHOULD_NOT_EXIST");
+
+        let sandbox = Sandbox::new(SandboxPolicy {
+            seccomp_profile: None,
+            network_isolated: false,
+            ..Default::default()
+        });
+        // Under `sh -c` this creates the marker. Through the sandbox the
+        // newline is whitespace between argv elements, so `echo` prints them.
+        let cmd = format!("echo hi\ntouch {}", marker.display());
+        let _ = sandbox.execute(&cmd);
+
+        assert!(
+            !marker.exists(),
+            "the text after the newline must not run as a second command"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The working directory must actually be applied, or callers that had one
+    /// before being sandboxed would silently start running somewhere else.
+    #[cfg(unix)]
+    #[test]
+    fn working_dir_is_applied_to_the_child() {
+        let dir = std::env::temp_dir().join("soul_sandbox_cwd_probe");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create probe dir");
+
+        let sandbox = Sandbox::new(SandboxPolicy {
+            seccomp_profile: None,
+            network_isolated: false,
+            working_dir: Some(dir.clone()),
+            ..Default::default()
+        });
+        match sandbox.execute("pwd") {
+            Ok(v) => {
+                let out = v.stdout.trim();
+                assert!(
+                    out.ends_with("soul_sandbox_cwd_probe"),
+                    "expected cwd to be the probe dir, got {out:?}"
+                );
+            }
+            Err(e) => eprintln!("skipping: could not spawn pwd ({e})"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn working_dir_defaults_to_none_so_existing_callers_are_unaffected() {
+        assert!(SandboxPolicy::default().working_dir.is_none());
     }
 }

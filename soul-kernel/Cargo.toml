@@ -8,6 +8,7 @@ authors = ["SoulSystem"]
 description = "Soul Kernel — Autonomous Agent Kernel"
 
 [dependencies]
+soul_sandbox = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "fs", "sync", "signal"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

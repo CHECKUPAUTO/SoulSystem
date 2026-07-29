@@ -3,7 +3,6 @@
 use crate::conditions::LoopConfig;
 use crate::context::WorkflowContext;
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use tokio::time::{timeout, Duration};
 use tracing::info;
 
@@ -208,6 +207,20 @@ impl Node {
         self.finish_with_llm(ctx, prompt).await
     }
 
+    /// Run a workflow's `bash` node.
+    ///
+    /// This used to be `sh -c <command>`, which handed a workflow definition a
+    /// full shell with this process's privileges. It now goes through
+    /// [`soul_sandbox::Sandbox`], which refuses `sh` as a head binary and runs
+    /// the command directly under seccomp, `setrlimit` and a network namespace
+    /// (INV-EXEC-1).
+    ///
+    /// **This changes what a bash node can express.** Pipelines, redirects and
+    /// `&&` chains no longer work: the sandbox neutralises them precisely
+    /// because a shell is what it exists to avoid. A workflow that relied on
+    /// `a | b` now fails rather than silently doing something else, which is
+    /// the failure direction to prefer, but it *is* a behaviour change for
+    /// existing workflow definitions rather than a transparent hardening.
     async fn execute_bash(bash: BashNode, _ctx: &WorkflowContext) -> NodeResult {
         let dur = bash
             .timeout
@@ -215,26 +228,31 @@ impl Node {
             .unwrap_or(Duration::from_secs(300));
         let command = bash.command.clone();
 
+        let policy = soul_sandbox::SandboxPolicy {
+            timeout: dur,
+            ..Default::default()
+        };
+
         let result = timeout(dur, async {
-            tokio::task::spawn_blocking(move || Command::new("sh").arg("-c").arg(&command).output())
-                .await
+            tokio::task::spawn_blocking(move || {
+                soul_sandbox::Sandbox::new(policy).execute(&command)
+            })
+            .await
         })
         .await;
 
         match result {
-            Ok(Ok(Ok(output))) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                if output.status.code() == Some(bash.expected_exit_code) {
-                    NodeResult::Success(stdout)
+            Ok(Ok(Ok(verdict))) => {
+                if verdict.exit_code == Some(bash.expected_exit_code) {
+                    NodeResult::Success(verdict.stdout)
                 } else {
                     NodeResult::Failed(format!(
-                        "exit {:?}: {stdout}\n{stderr}",
-                        output.status.code()
+                        "exit {:?}: {}\n{}",
+                        verdict.exit_code, verdict.stdout, verdict.stderr
                     ))
                 }
             }
-            Ok(Ok(Err(e))) => NodeResult::Failed(format!("spawn error: {e}")),
+            Ok(Ok(Err(e))) => NodeResult::Failed(format!("sandbox refused command: {e}")),
             Ok(Err(e)) => NodeResult::Failed(format!("join error: {e}")),
             Err(_) => NodeResult::Failed("command timed out".into()),
         }

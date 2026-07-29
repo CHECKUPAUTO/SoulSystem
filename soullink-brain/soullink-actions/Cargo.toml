@@ -8,6 +8,7 @@ license.workspace = true
 description = "SoulLink V13.5 — Async tool execution framework with validation"
 
 [dependencies]
+soul_sandbox = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "process"] }
 tracing = { workspace = true }
 serde = { workspace = true }

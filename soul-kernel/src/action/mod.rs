@@ -119,17 +119,25 @@ impl Action {
                     return Err("Security: invalid shell command".to_string());
                 }
                 info!("💻 Shell: {}", cmd);
-                match Command::new("sh").args(["-c", cmd]).output() {
-                    Ok(o) if o.status.success() => {
-                        let out = String::from_utf8_lossy(&o.stdout);
-                        Ok(out.trim().to_string())
-                    }
-                    Ok(o) => Err(format!(
-                        "Exit {}: {}",
-                        o.status,
-                        String::from_utf8_lossy(&o.stderr)
-                    )),
-                    Err(e) => Err(format!("Error: {}", e)),
+                // `is_safe_shell_command` above stays as a cheap first pass,
+                // but it is a denylist and it had a hole (see its doc
+                // comment). What holds here is the sandbox, which never
+                // invokes a shell at all — so a separator this filter misses
+                // has nothing to separate (INV-EXEC-1).
+                let verdict = soul_sandbox::Sandbox::new(soul_sandbox::SandboxPolicy::default())
+                    .execute(cmd)
+                    .map_err(|e| format!("Security: sandbox refused command: {e}"))?;
+                if verdict.timed_out {
+                    return Err("Timeout: sandbox killed the process group".to_string());
+                }
+                if verdict.exit_code == Some(0) {
+                    Ok(verdict.stdout.trim().to_string())
+                } else {
+                    Err(format!(
+                        "Exit {:?}: {}",
+                        verdict.exit_code,
+                        verdict.stderr.trim()
+                    ))
                 }
             }
             Action::SelfEvolve => {
@@ -247,6 +255,24 @@ fn is_safe_name(name: &str) -> bool {
         .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
 }
 
+/// Cheap first-pass denylist for shell metacharacters.
+///
+/// **This is not a security boundary, and it never was a complete one.** It
+/// blocks `;`, `&&`, `||`, `|`, backtick, `$(`, `${` and `>` — but not a
+/// newline, which `sh` treats as a command separator exactly like `;`. So
+/// `"ls\nrm -rf /tmp/x"` passed every check here and `sh -c` ran both
+/// commands. `&` (background), `<` (input redirect) and `$'\x3b'`-style
+/// encodings were missed too.
+///
+/// That hole is closed not by extending the list — the next missing character
+/// would reopen it — but by `Action::ExecuteShell` no longer invoking a shell:
+/// it goes through `soul_sandbox`, which normalises encodings before matching
+/// and runs the command directly. A separator this function misses now has
+/// nothing to separate.
+///
+/// Kept as a first pass because rejecting an obviously bad command before
+/// spawning anything is still worth doing, and because removing it would look
+/// like the protection was withdrawn rather than superseded.
 fn is_safe_shell_command(cmd: &str) -> bool {
     if cmd.is_empty() || cmd.contains('\0') {
         return false;
@@ -341,5 +367,40 @@ mod tests {
         assert!(!is_safe_name("invalid;name"));
         assert!(!is_safe_name("../traversal"));
         assert!(!is_safe_name(""));
+    }
+
+    /// Documents the hole rather than pretending it is not there: a newline is
+    /// a command separator to `sh` exactly like `;`, and this denylist does not
+    /// block it. Before `ExecuteShell` was routed through the sandbox, this
+    /// string passed validation and `sh -c` ran both halves.
+    ///
+    /// The assertion is deliberately `is_safe_shell_command(..) == true`. If
+    /// someone later adds `\n` to the denylist this test fails and they will
+    /// read why: the filter is a first pass, and the actual protection is that
+    /// no shell is invoked at all. Fixing the list is welcome; believing the
+    /// list is what holds is not.
+    #[test]
+    fn the_denylist_still_admits_a_newline_separated_command() {
+        assert!(
+            is_safe_shell_command("ls\nrm -rf /tmp/x"),
+            "if this now returns false the denylist grew a newline check - \
+             update the doc comment on is_safe_shell_command, and keep in mind \
+             that the sandbox, not this function, is what makes ExecuteShell safe"
+        );
+    }
+
+    #[test]
+    fn the_denylist_still_catches_what_it_always_caught() {
+        for bad in [
+            "ls; rm -rf /",
+            "a && b",
+            "a || b",
+            "a | b",
+            "`id`",
+            "$(id)",
+            "a > b",
+        ] {
+            assert!(!is_safe_shell_command(bad), "{bad:?} should be rejected");
+        }
     }
 }

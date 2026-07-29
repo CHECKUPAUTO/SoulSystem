@@ -16,14 +16,14 @@
     "REQUIRES_RUNTIME_VERIFICATION": "Static inspection cannot decide; the required dynamic test is stated.",
     "DEFERRED_PRODUCT_DECISION": "Remaining work needs an explicit product/governance decision; carries decision_required."
   },
-  "count": 37,
+  "count": 38,
   "status_summary": {
+    "PARTIALLY_FIXED": 7,
+    "FIXED_AND_VERIFIED": 16,
     "CONFIRMED_CURRENT": 6,
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
-    "FIXED_AND_VERIFIED": 16,
-    "NOT_REACHABLE": 5,
-    "PARTIALLY_FIXED": 6
+    "NOT_REACHABLE": 5
   },
   "severity_status_summary": {
     "critical": {
@@ -41,7 +41,7 @@
       "FALSE_POSITIVE": 2,
       "CONFIRMED_CURRENT": 1,
       "NOT_REACHABLE": 3,
-      "PARTIALLY_FIXED": 2
+      "PARTIALLY_FIXED": 3
     },
     "low": {
       "DEFERRED_PRODUCT_DECISION": 1,
@@ -53,7 +53,7 @@
   "severity_summary": {
     "critical": 6,
     "high": 10,
-    "medium": 13,
+    "medium": 14,
     "low": 8
   },
   "previous_status_summary_for_comparison": {
@@ -89,7 +89,7 @@
         "AutonomousAgent::run_react -> async_dispatch_tool -> dispatch_tool -> execute_shell -> bare std::process::Command"
       ],
       "current_state": "The original vector is closed: soul_tools::execute_shell constructs a soul_sandbox::Sandbox and no bare Command remains on the agent tool-dispatch path. Re-examined more precisely at this commit, correcting an overstatement in the previous re-verification: of the three process-execution sites in src/self_healer.rs, only ONE was ever live. `read_system_stats` ran `df --output=pcent` on every tick of the 30-second run() loop spawned from src/main.rs. The KillNonEssential and RestartService arms exec `kill` and `systemctl`, but no producer in the workspace constructs either DefenseAction variant - Preservation emits only Throttle, MemoryDump, EmergencySave, LocalFallback, DistressSignal and GracefulShutdown - so those two arms were latent, not attacker-reachable as previously described. Both classes are now addressed: the df exec is replaced by a statvfs(3) call (SelfHealer::root_disk_used_percent), removing the spawn entirely rather than sandboxing it; `kill(1)` is replaced by a direct libc::kill signal; and both privileged arms are gated behind ProcessControl::Enabled, which defaults to Disabled, so adding a producer cannot by itself turn bus traffic into host process control. The systemctl unit name is additionally validated by is_safe_service_name. tests/architecture_process_execution.rs now pins the permitted set of process-spawning files in the soulsystem binary crate and fails CI on any new one. P1-8 widens the architecture guard from the binary crate to EVERY workspace member, with each of the 30 production spawn files classified into one of five categories: sandbox-implementation (the crate IS the isolation boundary - bound-system, soul_sandbox, avid-sandbox, soul-kernel/sandbox), host-control-fixed-argv (systemctl/nvidia-smi/ss/df/tmux/docker with no caller-controlled argv), dev-tooling (cargo/git in self-modification and workflow paths), unsandboxed-arbitrary-command (12 files - KNOWN PROBLEMS recorded so they cannot grow, not approvals), and no-reachable-caller. Member directories are parsed from the root Cargo.toml rather than hardcoded, so a new workspace crate is scanned automatically. A false positive is explicitly exempted: soul_sandbox/src/seccomp.rs matches on `execve` only because it names SYS_execve as the syscall it BLOCKS, and a test asserts the exemption stays sound. Verified negatively three ways: an introduced Command in a non-allowlisted crate is caught; breaking the member parsing fails two vacuity guards; a stale allowlist entry is caught.",
-      "remaining_exposure": "11 workspace files still perform unsandboxed arbitrary command execution and are recorded in the guard's allowlist rather than fixed: the soullink-workflow node/condition `sh -c` sites, soullink-actions' shell action, soul-kernel's action and perception `sh -c` paths, soul_automation, both soul-bridge child spawns, the remaining python3 orchestrator spawn (the request-reachable one, `soullink-orchestrator-standalone/src/routes/spawn.rs`, was fixed by P1-8-B and removed from the allowlist, making it the highest priority), soul-kernel/parallel, and the gateway's osascript iMessage provider. A count budget pins the category so it cannot grow silently, and the ratchet also fails if the budget is left high after sites are fixed - but a pinned count is not a fix. Separately, 112 spawn sites in non-workspace-member directories (ironclaw, openevolve, backlog, os-agents, soullink-node and others) are outside the guard entirely: they are not built by cargo build --workspace, so the guard says nothing about them and the register does not claim otherwise.",
+      "remaining_exposure": "8 workspace files still perform unsandboxed arbitrary command execution and are recorded in the guard's allowlist rather than fixed. P1-8-B has now fixed four sites across two rounds: the request-reachable `soullink-orchestrator-standalone/src/routes/spawn.rs`, and the `sh -c` group - soullink-workflow's node and conditions, soullink-actions' shell tool, and soul-kernel's `Action::ExecuteShell`. What remains: soul-kernel's `OptimizeSystem` (three FIXED `sh -c` strings doing privileged host mutations - no caller input, so nothing to inject, but they want rewriting as direct operations), soul-kernel/perception and soul-kernel/parallel, soul_automation, both soul-bridge child spawns, soullink-orchestrator's main, and the gateway's macOS-only `osascript` iMessage provider. A further 112 spawn sites sit in ten non-member trees that `cargo build --workspace` never builds, so this guard says nothing about them.",
       "required_invariant": "No production-reachable code path invokes process execution outside the approved soul_sandbox executor (INV-EXEC-1).",
       "fixing_prs": [
         {
@@ -1782,6 +1782,46 @@
       "follow_up": "MED-013-B: decide whether this service requires authentication, and if so route it through the same auth used for CRIT-007. Product decision, not a code fix.",
       "required_invariant": "A request-reachable route must not spawn a process outside soul_sandbox, must not let caller-supplied text be parsed as an argument by the spawned program, and must bound how many processes a caller can create (INV-EXEC-1).",
       "remaining_exposure": "The route has no authentication. `soul_cors` blocks a browser's cross-origin call but stops nothing that is not a browser, so any client with network access to the listener can spawn up to MAX_LIVE_BRAINS=16 python3 processes. That is a bounded denial of service rather than an unbounded one, and the spawned children are now seccomp-confined and rlimit-bounded, but the route is still an unauthenticated way to make this host run code it was configured to run. The brain also keeps host networking, necessarily: it exists to bind a port and answer on it."
+    },
+    {
+      "id": "MED-014",
+      "title": "soul-kernel's is_safe_shell_command denylist does not block a newline, which sh treats as a command separator exactly like ';'",
+      "status": "PARTIALLY_FIXED",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "audit_category": "Incomplete Denylist / Command Injection",
+      "discovered_by": "P1-8-B, while routing the sh -c sites through the sandbox. Reading the existing 'security' check to see what it already covered is what turned it up; it is not in the original audit.",
+      "original_audit_baseline": "5e3b0c3b0d18f6d0022c1c762821d9aad340b011",
+      "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
+      "current_files": [
+        "soul-kernel/src/action/mod.rs"
+      ],
+      "current_symbols": [
+        "is_safe_shell_command",
+        "Action::ExecuteShell"
+      ],
+      "original_reachable_path": [
+        "Action::ExecuteShell(cmd) -> is_safe_shell_command(cmd) returns true for a newline-separated payload -> Command::new(\"sh\").args([\"-c\", cmd]) runs both commands"
+      ],
+      "required_invariant": "A caller-supplied string must not be able to run a command the code did not intend, whether or not any particular metacharacter appears in a denylist (INV-EXEC-1).",
+      "current_state": "Fixed in code; the status stays PARTIALLY_FIXED only because the change is not merged yet and the register records FIXED_AND_VERIFIED against a merged PR. `is_safe_shell_command` blocked `;`, `&&`, `||`, `|`, backtick, `$(`, `${` and `>` - but not a newline, which `sh` treats as a command separator exactly like `;`. So `\"ls\\nrm -rf /tmp/x\"` passed the check and `sh -c` ran both halves. Verified directly: `sh -c \"echo FIRST\\necho SECOND\"` prints both. `&` (background), `<` (input redirect) and `$'\\x3b'`-style encodings were missed as well. The fix is not a longer denylist - the next missing character reopens it - but removing the shell: `Action::ExecuteShell` now executes through `soul_sandbox::Sandbox::execute`, which normalises encodings before matching, refuses `sh` as a head binary, and runs the command directly under seccomp and setrlimit. A separator the filter misses now has nothing to separate. `is_safe_shell_command` is kept as a cheap first pass, with a doc comment stating plainly that it is not the boundary, and a test that asserts the newline is STILL admitted - so anyone who later 'fixes' the list has to read why the list is not what holds.",
+      "follow_up": "Covered by the INV-EXEC-1 guard: a new spawn site fails CI unless it is sandboxed or explicitly allowlisted.",
+      "verification_tests": [
+        {
+          "name": "the_denylist_still_admits_a_newline_separated_command",
+          "command": "cargo test -p soul-kernel the_denylist_still_admits_a_newline_separated_command"
+        },
+        {
+          "name": "a_newline_separated_second_command_is_not_executed",
+          "command": "cargo test -p soul_sandbox a_newline_separated_second_command_is_not_executed"
+        },
+        {
+          "name": "the_denylist_still_catches_what_it_always_caught",
+          "command": "cargo test -p soul-kernel the_denylist_still_catches_what_it_always_caught"
+        }
+      ],
+      "remaining_exposure": "Not yet merged. The register records FIXED_AND_VERIFIED only against a merged PR, so this stays PARTIALLY_FIXED until then; the code change and its three tests are complete.",
+      "residual_risk": "None on this path once merged: `Action::ExecuteShell` no longer invokes a shell, so no separator - listed or missed - can start a second command. The class is not eliminated repo-wide. `soullink-actions`' `is_dangerous` and the orchestrator's own input checks are also denylists; they are now backed by the sandbox rather than relied upon, but any future site that adds a string filter WITHOUT routing through the sandbox reintroduces exactly this bug."
     },
     {
       "id": "LOW-001",
