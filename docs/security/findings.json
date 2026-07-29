@@ -73,10 +73,11 @@
       "original_audit_baseline": "5e3b0c3b0d18f6d0022c1c762821d9aad340b011",
       "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
       "current_files": [
-        "soul_tools/src/lib.rs",
         "soul-agent-core/src/lib.rs",
+        "soul_tools/src/lib.rs",
+        "src/main.rs",
         "src/self_healer.rs",
-        "src/main.rs"
+        "tests/architecture_process_execution.rs"
       ],
       "current_symbols": [
         "execute_shell",
@@ -87,8 +88,8 @@
       "original_reachable_path": [
         "AutonomousAgent::run_react -> async_dispatch_tool -> dispatch_tool -> execute_shell -> bare std::process::Command"
       ],
-      "current_state": "The original vector is closed: soul_tools::execute_shell constructs a soul_sandbox::Sandbox and no bare Command remains on the agent tool-dispatch path. Re-examined more precisely at this commit, correcting an overstatement in the previous re-verification: of the three process-execution sites in src/self_healer.rs, only ONE was ever live. `read_system_stats` ran `df --output=pcent` on every tick of the 30-second run() loop spawned from src/main.rs. The KillNonEssential and RestartService arms exec `kill` and `systemctl`, but no producer in the workspace constructs either DefenseAction variant - Preservation emits only Throttle, MemoryDump, EmergencySave, LocalFallback, DistressSignal and GracefulShutdown - so those two arms were latent, not attacker-reachable as previously described. Both classes are now addressed: the df exec is replaced by a statvfs(3) call (SelfHealer::root_disk_used_percent), removing the spawn entirely rather than sandboxing it; `kill(1)` is replaced by a direct libc::kill signal; and both privileged arms are gated behind ProcessControl::Enabled, which defaults to Disabled, so adding a producer cannot by itself turn bus traffic into host process control. The systemctl unit name is additionally validated by is_safe_service_name. tests/architecture_process_execution.rs now pins the permitted set of process-spawning files in the soulsystem binary crate and fails CI on any new one.",
-      "remaining_exposure": "The architecture guard covers the root soulsystem binary crate (src/) only. The wider workspace inventory - 110 process-execution matches across 25 workspace-member crates, including 22 in the separate soul-kernel binary - is not yet enforced; each would need classifying before the guard could be widened without false positives. soul-automodify still invokes `cargo` and the soul_gateway iMessage provider still invokes `osascript`, both outside the sandbox and outside this guard's scope. RestartService, when explicitly enabled, still spawns systemctl unsandboxed by design - restarting a host unit is inherently a host operation, so the control is that it is opt-in, not that it is confined.",
+      "current_state": "The original vector is closed: soul_tools::execute_shell constructs a soul_sandbox::Sandbox and no bare Command remains on the agent tool-dispatch path. Re-examined more precisely at this commit, correcting an overstatement in the previous re-verification: of the three process-execution sites in src/self_healer.rs, only ONE was ever live. `read_system_stats` ran `df --output=pcent` on every tick of the 30-second run() loop spawned from src/main.rs. The KillNonEssential and RestartService arms exec `kill` and `systemctl`, but no producer in the workspace constructs either DefenseAction variant - Preservation emits only Throttle, MemoryDump, EmergencySave, LocalFallback, DistressSignal and GracefulShutdown - so those two arms were latent, not attacker-reachable as previously described. Both classes are now addressed: the df exec is replaced by a statvfs(3) call (SelfHealer::root_disk_used_percent), removing the spawn entirely rather than sandboxing it; `kill(1)` is replaced by a direct libc::kill signal; and both privileged arms are gated behind ProcessControl::Enabled, which defaults to Disabled, so adding a producer cannot by itself turn bus traffic into host process control. The systemctl unit name is additionally validated by is_safe_service_name. tests/architecture_process_execution.rs now pins the permitted set of process-spawning files in the soulsystem binary crate and fails CI on any new one. P1-8 widens the architecture guard from the binary crate to EVERY workspace member, with each of the 30 production spawn files classified into one of five categories: sandbox-implementation (the crate IS the isolation boundary - bound-system, soul_sandbox, avid-sandbox, soul-kernel/sandbox), host-control-fixed-argv (systemctl/nvidia-smi/ss/df/tmux/docker with no caller-controlled argv), dev-tooling (cargo/git in self-modification and workflow paths), unsandboxed-arbitrary-command (12 files - KNOWN PROBLEMS recorded so they cannot grow, not approvals), and no-reachable-caller. Member directories are parsed from the root Cargo.toml rather than hardcoded, so a new workspace crate is scanned automatically. A false positive is explicitly exempted: soul_sandbox/src/seccomp.rs matches on `execve` only because it names SYS_execve as the syscall it BLOCKS, and a test asserts the exemption stays sound. Verified negatively three ways: an introduced Command in a non-allowlisted crate is caught; breaking the member parsing fails two vacuity guards; a stale allowlist entry is caught.",
+      "remaining_exposure": "12 workspace files still perform unsandboxed arbitrary command execution and are recorded in the guard's allowlist rather than fixed: the soullink-workflow node/condition `sh -c` sites, soullink-actions' shell action, soul-kernel's action and perception `sh -c` paths, soul_automation, both soul-bridge child spawns, the two python3 orchestrator spawns (one of which is reachable from an HTTP route, making it the highest priority), soul-kernel/parallel, and the gateway's osascript iMessage provider. A count budget pins the category so it cannot grow silently, and the ratchet also fails if the budget is left high after sites are fixed - but a pinned count is not a fix. Separately, 112 spawn sites in non-workspace-member directories (ironclaw, openevolve, backlog, os-agents, soullink-node and others) are outside the guard entirely: they are not built by cargo build --workspace, so the guard says nothing about them and the register does not claim otherwise.",
       "required_invariant": "No production-reachable code path invokes process execution outside the approved soul_sandbox executor (INV-EXEC-1).",
       "fixing_prs": [
         {
@@ -132,10 +133,40 @@
           "crate": "soul_agent_core",
           "name": "run_react_dispatch_path_is_sandboxed_for_destructive_commands",
           "command": "cargo test -p soul_agent_core --lib run_react_dispatch_path_is_sandboxed_for_destructive_commands"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "no_unapproved_process_execution_in_any_workspace_member",
+          "command": "cargo test -p soulsystem no_unapproved_process_execution_in_any_workspace_member"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "every_allowlist_entry_is_still_justified",
+          "command": "cargo test -p soulsystem every_allowlist_entry_is_still_justified"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "the_allowlist_has_no_duplicate_entries",
+          "command": "cargo test -p soulsystem the_allowlist_has_no_duplicate_entries"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "unsandboxed_arbitrary_command_sites_do_not_grow",
+          "command": "cargo test -p soulsystem unsandboxed_arbitrary_command_sites_do_not_grow"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "the_scan_reaches_crates_across_the_workspace",
+          "command": "cargo test -p soulsystem the_scan_reaches_crates_across_the_workspace"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "the_seccomp_filter_is_not_mistaken_for_a_spawn",
+          "command": "cargo test -p soulsystem the_seccomp_filter_is_not_mistaken_for_a_spawn"
         }
       ],
       "residual_risk": "Agent tool dispatch is sandboxed and tested, the binary's only live unsandboxed spawn is gone, and new ones in src/ now fail CI. Workspace-wide enforcement, and the soul-automodify / iMessage spawns, remain open.",
-      "follow_up": "Classify the 110 workspace-wide process-execution matches and widen tests/architecture_process_execution.rs beyond src/; route soul-automodify's cargo invocation and the soul_gateway iMessage osascript invocation through soul_sandbox or gate them."
+      "follow_up": "P1-8-B: route the 12 unsandboxed-arbitrary-command sites through soul_sandbox, lowering UNSANDBOXED_ARBITRARY_BUDGET with each, starting with soullink-orchestrator-standalone/src/routes/spawn.rs because it is request-reachable. Then decide whether the non-member trees are shipped code that should join the workspace and the guard, or dead weight that should be removed - that is a product question about what this repository actually ships."
     },
     {
       "id": "CRIT-002",
@@ -579,9 +610,10 @@
       "original_audit_baseline": "5e3b0c3b0d18f6d0022c1c762821d9aad340b011",
       "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
       "current_files": [
-        "soul-skills/src/validation.rs",
         "soul-agent-core/src/lib.rs",
-        "soul_sandbox/src/seccomp.rs"
+        "soul-skills/src/validation.rs",
+        "soul_sandbox/src/seccomp.rs",
+        "tests/architecture_process_execution.rs"
       ],
       "current_symbols": [
         "StructuralValidator",
@@ -591,8 +623,8 @@
       "original_reachable_path": [
         "security components (validators, seccomp, TLS config) existed but had no production call site, creating a false security posture"
       ],
-      "current_state": "Several previously-dead components are now genuinely wired: StructuralValidator is invoked from the skill crystallization path (PR #85), seccomp::install_filter is invoked from the sandbox pre_exec and is mandatory by default (PR #84), and TlsConfig is now reachable through serve_with_tls (PR #93). The general problem is not eliminated: the process-execution inventory shows 110 matches across 25 workspace crates with no architecture test tying them to the approved executor, and there is still no CI guard that fails when a security component loses its last caller.",
-      "remaining_exposure": "No automated reachability guard exists, so a future refactor can silently orphan a security component again, exactly as happened originally.",
+      "current_state": "Several previously-dead components are now genuinely wired: StructuralValidator is invoked from the skill crystallization path (PR #85), seccomp::install_filter is invoked from the sandbox pre_exec and is mandatory by default (PR #84), and TlsConfig is now reachable through serve_with_tls (PR #93). The general problem is not eliminated: the process-execution inventory shows 110 matches across 25 workspace crates with no architecture test tying them to the approved executor, and there is still no CI guard that fails when a security component loses its last caller. P1-8 widens the architecture guard from the binary crate to EVERY workspace member, with each of the 30 production spawn files classified into one of five categories: sandbox-implementation (the crate IS the isolation boundary - bound-system, soul_sandbox, avid-sandbox, soul-kernel/sandbox), host-control-fixed-argv (systemctl/nvidia-smi/ss/df/tmux/docker with no caller-controlled argv), dev-tooling (cargo/git in self-modification and workflow paths), unsandboxed-arbitrary-command (12 files - KNOWN PROBLEMS recorded so they cannot grow, not approvals), and no-reachable-caller. Member directories are parsed from the root Cargo.toml rather than hardcoded, so a new workspace crate is scanned automatically. A false positive is explicitly exempted: soul_sandbox/src/seccomp.rs matches on `execve` only because it names SYS_execve as the syscall it BLOCKS, and a test asserts the exemption stays sound. Verified negatively three ways: an introduced Command in a non-allowlisted crate is caught; breaking the member parsing fails two vacuity guards; a stale allowlist entry is caught.",
+      "remaining_exposure": "12 workspace files still perform unsandboxed arbitrary command execution and are recorded in the guard's allowlist rather than fixed: the soullink-workflow node/condition `sh -c` sites, soullink-actions' shell action, soul-kernel's action and perception `sh -c` paths, soul_automation, both soul-bridge child spawns, the two python3 orchestrator spawns (one of which is reachable from an HTTP route, making it the highest priority), soul-kernel/parallel, and the gateway's osascript iMessage provider. A count budget pins the category so it cannot grow silently, and the ratchet also fails if the budget is left high after sites are fixed - but a pinned count is not a fix. Separately, 112 spawn sites in non-workspace-member directories (ironclaw, openevolve, backlog, os-agents, soullink-node and others) are outside the guard entirely: they are not built by cargo build --workspace, so the guard says nothing about them and the register does not claim otherwise.",
       "required_invariant": "Security components claimed by documentation must have a production call site proven by a test.",
       "fixing_prs": [
         {
@@ -621,10 +653,40 @@
           "crate": "soul_sandbox",
           "name": "default_policy_has_mandatory_isolation_active",
           "command": "cargo test -p soul_sandbox default_policy_has_mandatory_isolation_active"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "no_unapproved_process_execution_in_any_workspace_member",
+          "command": "cargo test -p soulsystem no_unapproved_process_execution_in_any_workspace_member"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "every_allowlist_entry_is_still_justified",
+          "command": "cargo test -p soulsystem every_allowlist_entry_is_still_justified"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "the_allowlist_has_no_duplicate_entries",
+          "command": "cargo test -p soulsystem the_allowlist_has_no_duplicate_entries"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "unsandboxed_arbitrary_command_sites_do_not_grow",
+          "command": "cargo test -p soulsystem unsandboxed_arbitrary_command_sites_do_not_grow"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "the_scan_reaches_crates_across_the_workspace",
+          "command": "cargo test -p soulsystem the_scan_reaches_crates_across_the_workspace"
+        },
+        {
+          "crate": "soulsystem",
+          "name": "the_seccomp_filter_is_not_mistaken_for_a_spawn",
+          "command": "cargo test -p soulsystem the_seccomp_filter_is_not_mistaken_for_a_spawn"
         }
       ],
       "residual_risk": "Verification is per-component and manual; the class of defect (silently unreachable security code) has no systemic guard.",
-      "follow_up": "Add a CI reachability/architecture test asserting each named security component has a non-test caller."
+      "follow_up": "P1-8-B: route the 12 unsandboxed-arbitrary-command sites through soul_sandbox, lowering UNSANDBOXED_ARBITRARY_BUDGET with each, starting with soullink-orchestrator-standalone/src/routes/spawn.rs because it is request-reachable. Then decide whether the non-member trees are shipped code that should join the workspace and the guard, or dead weight that should be removed - that is a product question about what this repository actually ships."
     },
     {
       "id": "HIGH-003",
