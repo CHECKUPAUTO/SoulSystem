@@ -14,7 +14,9 @@ axum-server = { version = "0.7", features = ["tls-rustls"] }
 tokio = { workspace = true, features = ["full"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { workspace = true }
+# `limit` for the shared-semaphore concurrency bound, `util` for `ServiceExt`.
+tower = { workspace = true, features = ["limit"] }
 uuid = { workspace = true, features = ["v4"] }
 chrono = { workspace = true, features = ["serde"] }
 parking_lot = { workspace = true }
@@ -31,5 +33,4 @@ ed25519-dalek = { workspace = true }
 subtle = { workspace = true }
 
 [dev-dependencies]
-tower = { workspace = true }
 tempfile = { workspace = true }

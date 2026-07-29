@@ -15,17 +15,19 @@ finding move to `FIXED_AND_VERIFIED`.
 
 The verdict follows from the register, not from campaign progress: 2 of 6
 critical findings and 3 of 10 high findings remain `PARTIALLY_FIXED`, and one
-high finding is `CONFIRMED_CURRENT`. **Both P0 items are now closed**, but the
-verdict does not move to `LIMITED_PRODUCTION` on that alone: the P1 set below
-still contains unauthenticated surface (`src/api.rs`), missing webhook
-signature verification, permissive CORS, absent request limits and unbounded
-sandbox resources.
+high finding is `CONFIRMED_CURRENT`. **Both P0 items are closed, and P1-1 and
+P1-2 are closed**, but the verdict does not move to `LIMITED_PRODUCTION` on that
+alone: the P1 set below still contains unauthenticated surface (`src/api.rs`),
+unbounded sandbox resources, unbounded connection counts and no per-client rate
+limiting.
 
 `LIMITED_PRODUCTION` is defensible for a **trusted, loopback-only, single-tenant**
 deployment where: the process bus cannot be reached by untrusted input, the
 gateway is bound to loopback or fronted by an authenticating reverse proxy that
-also supplies CORS and request limits, and `--entity` is not used. Those are
-operational compensating controls, not proven invariants.
+supplies connection limits and rate limiting, and `--entity` is not used. Those
+are operational compensating controls, not proven invariants. Note that CORS and
+request-body limits no longer belong on that list — the gateway now enforces
+both itself.
 
 `PRODUCTION_READY` requires at minimum P0 and P1 closed and INV-PERSIST-2
 (backup/restore) qualified by an executable test.
@@ -99,17 +101,74 @@ operational compensating controls, not proven invariants.
   unit-tested against real algorithm output (including genuine Ed25519
   signing), not against live provider traffic.
 
-### P1-2 CORS allowlist and request/message/concurrency limits
+### ~~P1-2 CORS allowlist and request/message/concurrency limits~~ — CLOSED
 
-- **Findings / invariants:** INV-NET-4, INV-NET-5 (both `TARGET`)
-- **Surface:** `soul_gateway::router`, which applies
-  `tower_http::cors::CorsLayer::permissive()` to the merged router — so it
-  covers the authenticated `/v1/*` routes, not only `/health`. No
-  `DefaultBodyLimit`, concurrency layer, rate limiter, or WebSocket
-  max-message bound is present on any gateway path.
-- **Acceptance tests:** a disallowed `Origin` is rejected; an oversized body is
-  rejected with 413; an oversized WebSocket message is rejected; concurrent
-  requests beyond the cap are shed rather than queued unboundedly.
+- **Findings / invariants:** INV-NET-4, INV-NET-5 (both now `PARTIAL`, not
+  `HELD` — see the residuals below and the two follow-up items P1-10 / P1-11)
+- **Status:** closed by `security/p1-2-cors-and-request-limits`.
+- **What changed — CORS:** `soul_gateway::limits::CorsPolicy` replaces
+  `CorsLayer::permissive()`. The allowlist comes from
+  `SOULSYSTEM_GATEWAY_CORS_ORIGINS`; unset, blank, and a bare `*` all resolve to
+  `CorsPolicy::Disabled`, which emits no `Access-Control-Allow-Origin` header at
+  all. `*` is filtered rather than honoured deliberately: re-creating the
+  permissive behaviour should require enumerating origins, not typing one
+  character. There is therefore no reachable permissive state. The layer is
+  applied outermost so 401 and 413 responses carry the same origin decision as
+  successful ones.
+- **What changed — limits:** `DefaultBodyLimit::max` (1 MiB default) on every
+  route, `GlobalConcurrencyLimitLayer` (64 default) across all routes, and
+  `max_message_size`/`max_frame_size` (256 KiB default) on the `/v1/stream`
+  upgrade, read off `GatewayState::limits`. All three come from the environment
+  and a malformed or zero value falls back to the default — `MAX_BODY=abc` must
+  not silently become "reject everything", which would present as an outage
+  rather than a misconfiguration.
+- **Two implementation notes worth recording:**
+  - `GlobalConcurrencyLimitLayer`, not `ConcurrencyLimitLayer`. The latter
+    constructs a fresh semaphore on every `Layer::layer` call, and
+    `Router::layer` calls it once per route — so the real ceiling would have
+    been N × routes rather than N. This was verified, not assumed: swapping in
+    `ConcurrencyLimitLayer` makes `the_concurrency_budget_is_shared_across_routes`
+    fail.
+  - The body bound also protects the *unauthenticated* webhook surface, because
+    axum runs extractors before the handler body — so an oversized
+    `/providers/slack/webhook` request returns 413 and never reaches the
+    signature check.
+- **Deviation from this roadmap's own acceptance criteria:** it asked that
+  "concurrent requests beyond the cap are shed rather than queued unboundedly".
+  The implementation **queues** rather than sheds: excess requests wait on the
+  shared semaphore and are served when a permit frees. Shedding with 429 was
+  rejected because the gateway's clients are operators and channel providers,
+  for whom a dropped request is a lost instruction, whereas added latency is
+  recoverable. The queue is not itself bounded, which is exactly residual (a)
+  below.
+- **Also fixed, outside the original scope:** `soul-dashboard` applied
+  `CorsLayer::permissive()` too, and it is reachable from the production binary
+  (`src/main.rs:1230`, whenever `--dashboard-port > 0` or `--dev`). Binding to
+  `127.0.0.1` does not make that safe — a page in the operator's browser can
+  read `http://127.0.0.1:<port>/api/*` cross-origin precisely because of the
+  `*` header, and `src/main.rs:1235` calls `run_server(..., None)`, i.e. with no
+  auth token. It now uses the same allowlist shape via `cors_layer_from_env`
+  and `SOULSYSTEM_DASHBOARD_CORS_ORIGINS`. The policy is a ~30-line local mirror
+  rather than a shared type: giving `soul-dashboard` a dependency on
+  `soul_gateway` would invert the layering, and hoisting the type into
+  `soulsystem-common` would pull `tower-http` into a crate that does not
+  otherwise need HTTP.
+- **Residual (a) — no connection bound.** The concurrency layer limits work in
+  flight, not accepted connections or queued requests. A slow-loris style
+  connection flood is not addressed. Tracked as P1-11.
+- **Residual (b) — no per-client rate limiting** on `soul_gateway`.
+  `soul-dashboard` has a `SimpleRateLimiter`; the gateway has none. Tracked as
+  P1-11.
+- **Residual (c) — the other listeners are untouched.** `src/api.rs` and
+  `src/ws_bridge.rs` carry no body, message or concurrency limits at all.
+  Tracked as P1-11.
+- **Residual (d) — four other crates still call `CorsLayer::permissive()`:**
+  `soullink-gateway` (`src/cli/run.rs`), `soullink-inference`
+  (`src/bin/turboquant-proxy.rs`), `soullink-orchestrator-v3` (`src/main.rs`)
+  and `soulsystem-lite` (`src/main.rs`). Each was checked against
+  `cargo tree -p soulsystem --edges normal`; none is in the production binary's
+  dependency graph, so none is reachable from `soulsystem`. They are still real
+  services if deployed on their own. Tracked as P1-10.
 
 ### P1-3 Sandbox resource limits (cgroups) and filesystem/PID namespaces
 
@@ -199,6 +258,42 @@ operational compensating controls, not proven invariants.
   proves a backup can be taken, state destroyed, and the backup restored.
 - **Acceptance tests:** an integration test performing backup → destroy →
   restore → integrity check; a torn-multi-file-write test proving detection.
+
+### P1-10 Permissive CORS in the four non-production HTTP services
+
+- **Findings / invariants:** INV-NET-4 (`PARTIAL`)
+- **Surface:** `soullink-gateway` (`src/cli/run.rs`), `soullink-inference`
+  (`src/bin/turboquant-proxy.rs`), `soullink-orchestrator-v3` (`src/main.rs`)
+  and `soulsystem-lite` (`src/main.rs`) all call
+  `tower_http::cors::CorsLayer::permissive()`.
+- **Why it is P1 and not P0:** each was checked against
+  `cargo tree -p soulsystem --edges normal` and none appears in the production
+  binary's dependency graph, so none is reachable from `soulsystem`. They are
+  independently deployable services, so the defect is real but not on the
+  production path.
+- **Recommended PR scope:** the same allowlist shape as P1-2. If a third copy
+  is needed, hoist the policy into a small shared crate rather than mirroring it
+  again — two copies is the point at which duplication is still cheaper than
+  the dependency edge, three is not.
+- **Acceptance tests:** per service, a disallowed `Origin` receives no
+  `Access-Control-Allow-Origin`, and a bare `*` in config does not re-enable
+  permissive behaviour.
+
+### P1-11 Connection bounds, rate limiting, and limits on the other listeners
+
+- **Findings / invariants:** INV-NET-5 (`PARTIAL`)
+- **Surface:** `soul_gateway` (connection count, per-client rate), `src/api.rs`
+  and `src/ws_bridge.rs` (no limits of any kind).
+- **Current risk:** P1-2 bounds request *bodies*, *messages* and *work in
+  flight* on the gateway. It does not bound accepted connections, so a
+  slow-loris style flood still ties up sockets and grows the wait queue behind
+  the concurrency semaphore; and there is no per-client rate limit, so one
+  authenticated operator token can saturate the whole budget. `src/api.rs` and
+  `src/ws_bridge.rs` were not touched at all.
+- **Acceptance tests:** connections beyond the cap are refused rather than
+  accepted-and-parked; a single client exceeding its rate is throttled without
+  affecting others; `src/api.rs` and `src/ws_bridge.rs` reject an oversized
+  body and an oversized WebSocket frame.
 
 ## Priority 2 — Product decisions
 
