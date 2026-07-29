@@ -14,9 +14,9 @@ finding move to `FIXED_AND_VERIFIED`.
 **`NOT_READY` for untrusted-network production.**
 
 The verdict follows from the register, not from campaign progress: 2 of 6
-critical findings and 3 of 10 high findings remain `PARTIALLY_FIXED`, one high
-finding is `CONFIRMED_CURRENT`, and the two P0 items below are both reachable
-from the `soulsystem` binary without any feature gate.
+critical findings and 3 of 10 high findings remain `PARTIALLY_FIXED`, and one
+high finding is `CONFIRMED_CURRENT`. P0-1 is now closed; **P0-2 remains open and
+is reachable from the `soulsystem` binary without any feature gate**.
 
 `LIMITED_PRODUCTION` is defensible for a **trusted, loopback-only, single-tenant**
 deployment where: the process bus cannot be reached by untrusted input, the
@@ -29,31 +29,26 @@ operational compensating controls, not proven invariants.
 
 ## Priority 0 — Production blockers
 
-### P0-1 Unsandboxed, bus-triggered host command execution
+### ~~P0-1 Unsandboxed host command execution in the binary~~ — CLOSED
 
-- **Findings / invariants:** CRIT-001 (`PARTIALLY_FIXED`), HIGH-002, INV-EXEC-1
-- **Surface:** `src/self_healer.rs` (`SelfHealer::execute`), instantiated
-  unconditionally at `src/main.rs` daemon startup ("Phase 5") and driven by a
-  spawned task subscribed to `error.*` bus messages. Secondary surfaces:
-  `soul-automodify` (invokes `cargo`), `soul_gateway` iMessage provider
-  (invokes `osascript`).
-- **Current risk:** `DefenseAction` handling runs `kill`, `systemctl
-  restart/start` and `df` through bare `std::process::Command` — no sandbox, no
-  seccomp filter, no output bound, no capability check. Anything that can
-  publish an `error.*` bus message, or influence the PIDs and service names
-  that reach a `DefenseAction`, reaches host command execution.
-- **Recommended PR scope:** route `SelfHealer` command execution through
-  `soul_sandbox`, or gate the healer off unless explicitly enabled; then add a
-  workspace architecture guard that fails CI on `Command::new` outside the
-  approved executor, with an explicit allowlist for build tooling and tests.
-- **Dependencies:** none. The sandbox already exists and is proven by
-  `soul_sandbox`'s suite.
-- **Acceptance tests:** a test asserting a `DefenseAction` cannot spawn an
-  unsandboxed process; an architecture test enumerating process-execution call
-  sites and failing on any not in the allowlist. The inventory this
-  re-verification used (227 matches in the live tree, 110 inside 25
-  workspace-member crates) is the starting baseline for that allowlist.
-- **Production impact:** removes the highest-severity reachable execution path.
+- **Findings / invariants:** CRIT-001, HIGH-002, INV-EXEC-1
+- **Status:** closed by the `security/p0-1-sandbox-self-healer` change. Note this
+  also **corrected an overstatement** in the first re-verification: of the three
+  spawn sites in `src/self_healer.rs`, only `df` was ever live (via the
+  30-second `run()` loop). The `kill` and `systemctl` arms had **no producer** —
+  `Preservation` never constructs `KillNonEssential` or `RestartService` — so
+  they were latent, not attacker-reachable as originally written.
+- **What changed:** the `df` spawn is replaced by `statvfs(3)`
+  (`SelfHealer::root_disk_used_percent`), removing the exec rather than
+  sandboxing it; `kill(1)` is replaced by a direct `libc::kill` signal; both
+  privileged arms are gated behind `ProcessControl::Enabled` (default
+  `Disabled`), so adding a producer cannot by itself turn bus traffic into host
+  process control; the systemd unit name is validated by `is_safe_service_name`.
+- **Guard:** `tests/architecture_process_execution.rs` pins the permitted set of
+  process-spawning files in the binary crate, verifies each allowlist entry is
+  still justified, and asserts disk telemetry never shells out again. Its
+  failure path was verified by introducing a deliberate violation.
+- **Remaining (moved to P1-8):** the guard covers `src/` only.
 
 ### P0-2 `ws_bridge` fails open when no shared secret is configured
 
@@ -134,6 +129,22 @@ operational compensating controls, not proven invariants.
 - **Acceptance tests:** a failure-injecting mock provider proves bounded
   exponential backoff with jitter, a respected `Retry-After`, and a bounded
   total attempt count shared with the agent loop.
+
+### P1-8 Widen the process-execution guard beyond the binary crate
+
+- **Findings / invariants:** CRIT-001 (residual), HIGH-002, INV-EXEC-1
+- **Surface:** 110 process-execution matches across 25 workspace-member crates,
+  including 22 in the separate `soul-kernel` binary. Also `soul-automodify`
+  (invokes `cargo`) and the `soul_gateway` iMessage provider (invokes
+  `osascript`), both outside the sandbox.
+- **Why it is P1 and not P0:** the binary's only *live* unsandboxed spawn is
+  gone and new ones in `src/` now fail CI. The rest is unenforced surface, not a
+  demonstrated reachable path.
+- **Recommended PR scope:** classify each match (approved sandbox impl /
+  test-only / build tooling / supported production path / experimental /
+  unreachable), then extend the existing guard's allowlist model workspace-wide.
+- **Acceptance tests:** the guard runs over all workspace members with a
+  justified allowlist, and fails on an introduced violation in any crate.
 
 ### P1-5 Secret-type sweep beyond `soullink-secrets`
 
