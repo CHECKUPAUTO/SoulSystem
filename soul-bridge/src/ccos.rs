@@ -13,6 +13,7 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use soul_sandbox::{Sandbox, SandboxPolicy, SpawnSpec};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -127,15 +128,37 @@ impl CcosClient {
     pub async fn spawn(cmd: &str, workspace: &str) -> Result<Self> {
         let workspace = workspace.to_string();
 
-        let mut child = Command::new(cmd)
-            .args(if workspace.is_empty() {
-                vec!["mcp".to_string()]
-            } else {
-                vec!["mcp".to_string(), workspace.clone()]
-            })
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
+        // Through the sandbox (INV-EXEC-1). `cmd` and the `mcp` subcommand are
+        // chosen by configuration, so they are `flag`; `workspace` is a path
+        // that can come from a config file this process did not write, so it is
+        // `value` and is refused if it is flag-shaped.
+        //
+        // `piped_stdio` is required, not cosmetic: this is an MCP server and
+        // the JSON-RPC exchange below happens over those pipes. With the
+        // default null stdio it would start, read EOF, and `send_request` would
+        // wait forever.
+        //
+        // `network_isolated: false` because CCOS is expected to reach the
+        // services it fronts; in an empty namespace it would come up and fail
+        // every call. Seccomp and the rlimits still apply.
+        let mut spec = SpawnSpec::new(cmd).flag("mcp");
+        if !workspace.is_empty() {
+            spec = spec.value(&workspace);
+        }
+        let spec = spec.piped_stdio();
+
+        let sandbox = Sandbox::new(SandboxPolicy {
+            network_isolated: false,
+            ..Default::default()
+        });
+        let std_cmd = sandbox
+            .supervised_command(&spec)
+            .map_err(|e| anyhow!("sandbox refused CCOS spawn ({cmd} mcp): {e}"))?;
+
+        // Converted to a tokio `Command` so the pipes are async: the request
+        // loop below awaits on them, and blocking reads there would stall a
+        // runtime worker for the length of every CCOS call.
+        let mut child = Command::from(std_cmd)
             .spawn()
             .context(format!("Failed to spawn CCOS: {cmd} mcp"))?;
 

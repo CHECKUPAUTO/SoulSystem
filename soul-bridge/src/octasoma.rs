@@ -9,6 +9,7 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use soul_sandbox::{Sandbox, SandboxPolicy, SpawnSpec};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -116,15 +117,32 @@ impl OctaClient {
     ) -> Result<Self> {
         let store = store.to_string();
 
-        let mut child = Command::new(cmd)
-            .arg(&store)
-            .arg("--url")
-            .arg(ollama_url)
-            .arg("--model")
-            .arg(ollama_model)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
+        // Through the sandbox (INV-EXEC-1). `--url` and `--model` are literals
+        // the code chose, so they are `flag`; `store`, `ollama_url` and
+        // `ollama_model` come from configuration and are `value`, so a value
+        // shaped like `--something` is refused rather than becoming a flag to
+        // the OctaSoma binary.
+        //
+        // `piped_stdio` because this is an MCP server spoken to over its pipes;
+        // null stdio would hang the first request rather than fail it.
+        // `network_isolated: false` because it must reach `ollama_url`.
+        let spec = SpawnSpec::new(cmd)
+            .value(&store)
+            .flag("--url")
+            .value(ollama_url)
+            .flag("--model")
+            .value(ollama_model)
+            .piped_stdio();
+
+        let sandbox = Sandbox::new(SandboxPolicy {
+            network_isolated: false,
+            ..Default::default()
+        });
+        let std_cmd = sandbox
+            .supervised_command(&spec)
+            .map_err(|e| anyhow!("sandbox refused OctaSoma spawn ({cmd}): {e}"))?;
+
+        let mut child = Command::from(std_cmd)
             .spawn()
             .context(format!("Failed to spawn OctaSoma MCP: {cmd}"))?;
 
