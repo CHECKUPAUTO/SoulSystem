@@ -137,7 +137,13 @@ impl App {
 pub async fn run() -> Result<()> {
     color_eyre::install()?;
     let mut terminal = setup_terminal()?;
-    let api_token = std::env::var("AVID_API_TOKEN").unwrap_or_else(|_| "dev-token".to_string());
+    // Held in `SecretString` so the token cannot reach a log line or a `{:?}`
+    // render of any enclosing structure (INV-SEC-2). It is cloned into several
+    // async tasks below; each clone stays typed, and is unwrapped only at the
+    // header.
+    let api_token = soulsystem_common::secrets::SecretString::new(
+        std::env::var("AVID_API_TOKEN").unwrap_or_else(|_| "dev-token".to_string()),
+    );
     let server_port = std::env::var("AVID_PORT").unwrap_or_else(|_| "3000".to_string());
     let server_url = format!("http://localhost:{server_port}");
 
@@ -188,7 +194,10 @@ pub async fn run() -> Result<()> {
             // Poll history and check for pending task completion
             if let Ok(resp) = client
                 .get(format!("{server_url_clone}/tasks"))
-                .header("Authorization", format!("Bearer {api_token_clone}"))
+                .header(
+                    "Authorization",
+                    format!("Bearer {}", api_token_clone.expose()),
+                )
                 .send()
                 .await
             {
@@ -211,7 +220,10 @@ pub async fn run() -> Result<()> {
                     for task_id in completed_tasks {
                         if let Ok(resp) = client
                             .get(format!("{server_url_clone}/tasks/{task_id}"))
-                            .header("Authorization", format!("Bearer {api_token_clone}"))
+                            .header(
+                                "Authorization",
+                                format!("Bearer {}", api_token_clone.expose()),
+                            )
                             .send()
                             .await
                         {
@@ -262,7 +274,7 @@ pub fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: Arc<Mutex<App>>,
-    api_token: String,
+    api_token: soulsystem_common::secrets::SecretString,
     server_url: String,
 ) -> Result<()> {
     let tick_rate = Duration::from_millis(100);
@@ -427,7 +439,7 @@ async fn run_app(
                                                 .get(format!("{server_url_clone}/tasks/{task_id}"))
                                                 .header(
                                                     "Authorization",
-                                                    format!("Bearer {api_token_clone}"),
+                                                    format!("Bearer {}", api_token_clone.expose()),
                                                 )
                                                 .send()
                                                 .await
@@ -503,7 +515,7 @@ async fn run_app(
                                                 .post(format!("{server_url_clone}/tasks"))
                                                 .header(
                                                     "Authorization",
-                                                    format!("Bearer {api_token_clone}"),
+                                                    format!("Bearer {}", api_token_clone.expose()),
                                                 )
                                                 .json(&req)
                                                 .send()
@@ -574,7 +586,10 @@ async fn run_app(
                                 };
                                 match client
                                     .post(format!("{server_url_clone}/tasks"))
-                                    .header("Authorization", format!("Bearer {api_token_clone}"))
+                                    .header(
+                                        "Authorization",
+                                        format!("Bearer {}", api_token_clone.expose()),
+                                    )
                                     .json(&req)
                                     .send()
                                     .await

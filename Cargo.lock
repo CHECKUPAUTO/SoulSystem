@@ -1419,6 +1419,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "soulsystem-common",
  "throbber-widgets-tui",
  "tokio",
  "tui-input",
