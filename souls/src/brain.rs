@@ -87,6 +87,11 @@ impl BrainMesh {
             embedding: None,
             associations: vec![],
             metadata: std::collections::HashMap::new(),
+            // Deliberately Unrecorded: `input`/`result` carry raw tool output
+            // and no screening happens on this path. Labelling it anything
+            // stronger would vouch for content nothing inspected — routing
+            // this through a screening write path is the actual fix.
+            trust: soullink_memory_hierarchy::MemoryTrust::Unrecorded,
         };
         self.memory.store(entry, MemoryLayer::Episodic).await;
 

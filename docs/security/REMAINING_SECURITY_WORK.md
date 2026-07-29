@@ -756,7 +756,23 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
     hiding it, but a caller that ignores it can still be misled.
   - `soul-memory`, `soullink-memory` and `soullink-memory-hierarchy` have their
     own write paths and remain outside the P1-6 guard entirely.
-- **Tracked as MED-015-B.**
+- **Tracked as MED-015-B — CLOSED.** Both halves landed. The binaries load the
+  index at startup and persist it after work (production refuses to start on an
+  unreadable index; the daemon persists after failed runs too, because what the
+  agent observed during a failed run is still evidence). And
+  `soullink-memory-hierarchy`'s `MemoryEntry` now carries a **required**
+  `trust: MemoryTrust` whose serde default is `Unrecorded` — pre-trust entries
+  and silent writers cannot look clean, the compiler enumerated every
+  construction site, and consolidation takes the **floor** of merged members so
+  a merge cannot launder a `Spotlighted` member into a clean summary. One site
+  is deliberately labelled `Unrecorded` rather than fixed:
+  `souls::brain::observe` writes raw tool output with no screening on that
+  path, and labelling it anything stronger would vouch for content nothing
+  inspected. What remains is **MED-015-C**: recall paths do not yet *consult*
+  trust (a `Spotlighted` record is retrievable exactly like an `Internal` one),
+  `soul-memory`'s sled record shape has no trust field, and the daemon's
+  per-goal load-modify-persist can lose (never corrupt) records under
+  concurrent goals.
 
 ### P1-7 Transactional multi-file persistence and backup/restore qualification — DONE (INV-PERSIST-2 held; INV-PERSIST-1 partial)
 

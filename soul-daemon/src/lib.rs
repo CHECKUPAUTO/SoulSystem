@@ -40,6 +40,19 @@ pub struct DaemonConfig {
     pub auto_retry_failed: bool,
     pub model: String,
     pub ollama_url: String,
+    /// Where the memory-provenance index lives (INV-MEM-3 / MED-015-B).
+    ///
+    /// `Some` makes every per-goal agent load the index before running and
+    /// persist it after, so provenance survives both goal turnover and daemon
+    /// restarts. `None` keeps the old behaviour: each goal starts blind and
+    /// its provenance dies with it.
+    ///
+    /// Caveat, stated rather than hidden: with `max_concurrent_goals > 1`,
+    /// concurrent goals each load-modify-persist this one file. The write is
+    /// atomic (temp + rename), so the index can never be *corrupt*, but the
+    /// last persist wins and records from an overlapping goal can be lost —
+    /// they come back `Unknown`, not wrong. Merging is follow-up work.
+    pub provenance_path: Option<std::path::PathBuf>,
 }
 
 impl Default for DaemonConfig {
@@ -51,6 +64,7 @@ impl Default for DaemonConfig {
             auto_retry_failed: false,
             model: "qwen3:8b".into(),
             ollama_url: "http://localhost:11434".into(),
+            provenance_path: None,
         }
     }
 }
@@ -392,6 +406,17 @@ impl Daemon {
 
         let llm = OllamaClient::new(self.llm_config.clone());
         let mut agent = AutonomousAgent::new(llm, config);
+        if let Some(path) = &self.config.provenance_path {
+            // A missing file is a fresh start (Ok); an unreadable index is
+            // worth failing the goal over — running anyway would persist a
+            // fresh index over the evidence at the end of the run.
+            agent.load_memory_provenance(path).map_err(|e| {
+                DaemonError::Agent(format!(
+                    "provenance index at {} is unreadable: {e}",
+                    path.display()
+                ))
+            })?;
+        }
         agent.set_event_sender(event_tx);
 
         // Publish task received event
@@ -403,7 +428,19 @@ impl Daemon {
         let handle = {
             let description = goal.description.clone();
             let mut agent = agent;
-            tokio::spawn(async move { agent.run_task(&description).await })
+            let persist_provenance = self.config.provenance_path.is_some();
+            tokio::spawn(async move {
+                let result = agent.run_task(&description).await;
+                // Persist on failure too: what the agent observed during a
+                // failed run is still evidence, and losing it makes the same
+                // records come back `Unknown` after a restart.
+                if persist_provenance {
+                    if let Err(e) = agent.persist_memory_provenance() {
+                        tracing::warn!("memory-provenance persist failed: {e}");
+                    }
+                }
+                result
+            })
         };
 
         // Collect events and forward to event bus + tracker

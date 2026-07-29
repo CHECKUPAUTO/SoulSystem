@@ -65,6 +65,70 @@ pub struct MemoryEntry {
     /// Metadata.
     #[serde(default)]
     pub metadata: HashMap<String, serde_json::Value>,
+    /// How much this record's content can be trusted (INV-MEM-3).
+    ///
+    /// A required field, not an `Option`: every construction site has to say
+    /// what it knows, and a path that records nothing produces
+    /// [`MemoryTrust::Unrecorded`] — visibly, in its own source. Entries
+    /// persisted before this field existed deserialize as `Unrecorded` too,
+    /// which is the honest reading: nobody vouched for them at write time,
+    /// and a default of `Trusted` would have this field vouch for exactly the
+    /// records nothing ever inspected.
+    #[serde(default)]
+    pub trust: MemoryTrust,
+}
+
+/// Trust carried *on the record itself*, so it survives wherever the record
+/// goes — recall, promotion between layers, persistence, export.
+///
+/// This is the store's own vocabulary, deliberately smaller than the screening
+/// pipeline's `TrustLevel`: quarantined content never reaches a store, so the
+/// store has no word for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum MemoryTrust {
+    /// Operator-supplied or system-internal; never crossed an untrusted
+    /// boundary.
+    Internal,
+    /// Untrusted content that passed the injection scanner cleanly.
+    Screened,
+    /// Flagged by the scanner and fenced as inert data. Recall paths should
+    /// not re-inject it as instruction-bearing text.
+    Spotlighted,
+    /// Model-generated (distillation, reflection). Derived from a context
+    /// that may have contained untrusted material, so it inherits suspicion
+    /// rather than authority.
+    Derived,
+    /// The write path recorded nothing. This is the deserialization default
+    /// for pre-trust entries and the only honest label for a writer that
+    /// did not say — an unrecorded write must not look clean.
+    #[default]
+    Unrecorded,
+}
+
+impl MemoryTrust {
+    /// Where this level sits, higher = more trusted. Used only to take the
+    /// floor when records merge.
+    fn rank(self) -> u8 {
+        match self {
+            Self::Unrecorded => 0,
+            Self::Spotlighted => 1,
+            Self::Derived => 2,
+            Self::Screened => 3,
+            Self::Internal => 4,
+        }
+    }
+
+    /// The least-trusted level among `levels`.
+    ///
+    /// A record produced by merging others is only as trustworthy as its
+    /// least-trusted input: consolidation must not launder a Spotlighted
+    /// member into a clean-looking semantic summary.
+    pub fn floor_of(levels: impl IntoIterator<Item = MemoryTrust>) -> MemoryTrust {
+        levels
+            .into_iter()
+            .min_by_key(|t| t.rank())
+            .unwrap_or(MemoryTrust::Unrecorded)
+    }
 }
 
 /// Which memory layer a entry belongs to.
@@ -632,6 +696,9 @@ impl ConsolidationEngine {
                 ("source".into(), serde_json::json!("consolidation")),
                 ("cluster_size".into(), serde_json::json!(cluster.len())),
             ]),
+            // The floor, not the base entry's level: a merged record is only
+            // as trustworthy as its least-trusted member.
+            trust: MemoryTrust::floor_of(cluster.iter().map(|e| e.trust)),
         }
     }
 }
@@ -740,6 +807,7 @@ mod tests {
                 embedding: None,
                 associations: vec![],
                 metadata: HashMap::new(),
+                trust: MemoryTrust::Internal,
             });
         }
         assert_eq!(wm.len(), 3);
@@ -766,6 +834,7 @@ mod tests {
             embedding: None,
             associations: vec![],
             metadata: HashMap::new(),
+            trust: MemoryTrust::Internal,
         });
 
         let removed = store.decay();
@@ -789,6 +858,7 @@ mod tests {
                 embedding: None,
                 associations: vec![],
                 metadata: HashMap::new(),
+                trust: MemoryTrust::Internal,
             },
             ConceptType::Fact,
         );
@@ -806,6 +876,7 @@ mod tests {
                 embedding: None,
                 associations: vec![],
                 metadata: HashMap::new(),
+                trust: MemoryTrust::Internal,
             },
             ConceptType::Person,
         );
@@ -843,6 +914,7 @@ mod tests {
                 embedding: None,
                 associations: vec![],
                 metadata: HashMap::new(),
+                trust: MemoryTrust::Internal,
             });
         }
 
@@ -861,5 +933,88 @@ mod tests {
         assert!(result.promoted >= 3);
         assert!(episodic.is_empty());
         assert!(!semantic.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod memory_trust_tests {
+    use super::*;
+
+    /// An entry persisted before the trust field existed must read back as
+    /// `Unrecorded` — nobody vouched for it at write time, and a default of
+    /// anything stronger would have the field vouch for exactly the records
+    /// nothing ever inspected.
+    #[test]
+    fn a_pre_trust_entry_deserializes_as_unrecorded() {
+        let old_json = r#"{
+            "id": "e1", "text": "persisted before the field existed",
+            "created_at": "2025-01-01T00:00:00Z",
+            "last_accessed": "2025-01-01T00:00:00Z",
+            "access_count": 1, "importance": 0.5, "layer": "Episodic",
+            "tags": []
+        }"#;
+        let entry: MemoryEntry = serde_json::from_str(old_json).unwrap();
+        assert_eq!(entry.trust, MemoryTrust::Unrecorded);
+    }
+
+    /// Round-tripping keeps the level: trust must survive persistence, or a
+    /// restart silently launders everything.
+    #[test]
+    fn trust_survives_a_serde_round_trip() {
+        for trust in [
+            MemoryTrust::Internal,
+            MemoryTrust::Screened,
+            MemoryTrust::Spotlighted,
+            MemoryTrust::Derived,
+            MemoryTrust::Unrecorded,
+        ] {
+            let entry = MemoryEntry {
+                id: "rt".into(),
+                text: "round trip".into(),
+                created_at: "2025-01-01T00:00:00Z".into(),
+                last_accessed: "2025-01-01T00:00:00Z".into(),
+                access_count: 0,
+                importance: 0.5,
+                layer: MemoryLayer::Semantic,
+                tags: vec![],
+                embedding: None,
+                associations: vec![],
+                metadata: HashMap::new(),
+                trust,
+            };
+            let back: MemoryEntry =
+                serde_json::from_str(&serde_json::to_string(&entry).unwrap()).unwrap();
+            assert_eq!(back.trust, trust);
+        }
+    }
+
+    /// A merged record is only as trustworthy as its least-trusted member:
+    /// consolidation must not launder a Spotlighted member into a clean
+    /// semantic summary.
+    #[test]
+    fn the_floor_is_the_least_trusted_member() {
+        assert_eq!(
+            MemoryTrust::floor_of([
+                MemoryTrust::Internal,
+                MemoryTrust::Screened,
+                MemoryTrust::Spotlighted
+            ]),
+            MemoryTrust::Spotlighted
+        );
+        assert_eq!(
+            MemoryTrust::floor_of([MemoryTrust::Internal, MemoryTrust::Internal]),
+            MemoryTrust::Internal
+        );
+        // An Unrecorded member drags the merge to Unrecorded: merging with
+        // something nobody vouched for produces something nobody vouched for.
+        assert_eq!(
+            MemoryTrust::floor_of([MemoryTrust::Screened, MemoryTrust::Unrecorded]),
+            MemoryTrust::Unrecorded
+        );
+        // And an empty merge has nobody to vouch at all.
+        assert_eq!(
+            MemoryTrust::floor_of(std::iter::empty()),
+            MemoryTrust::Unrecorded
+        );
     }
 }

@@ -443,6 +443,9 @@ impl SoulEntity {
                     access_count: 1,
                     importance: 0.6,
                     layer: MemoryLayer::Working,
+                    // System-composed from the goal description; never
+                    // crossed an untrusted boundary.
+                    trust: soullink_memory_hierarchy::MemoryTrust::Internal,
                     tags: vec!["goal".to_string(), "cycle".to_string()],
                     embedding: None,
                     associations: vec![],
@@ -667,7 +670,16 @@ impl SoulEntity {
     }
 
     /// Store an observation in both memory systems.
-    pub async fn store_observation(&self, observation: &str, layer: MemoryLayer) {
+    ///
+    /// `trust` is a required argument, not a default: this is a public write
+    /// path taking arbitrary text, and the caller is the only one who knows
+    /// where that text came from (INV-MEM-3).
+    pub async fn store_observation(
+        &self,
+        observation: &str,
+        layer: MemoryLayer,
+        trust: soullink_memory_hierarchy::MemoryTrust,
+    ) {
         let entry = MemoryEntry {
             id: uuid::Uuid::new_v4().to_string(),
             text: observation.to_string(),
@@ -676,6 +688,7 @@ impl SoulEntity {
             access_count: 1,
             importance: 0.5,
             layer,
+            trust,
             tags: vec!["observation".to_string()],
             embedding: None,
             associations: vec![],
