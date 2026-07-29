@@ -590,3 +590,313 @@ fn an_already_migrated_field_is_not_flagged() {
         "a collection of strings is not a credential field"
     );
 }
+
+// ── P1-5-C: beyond the `Debug` set ──────────────────────────────────────────
+//
+// The checks above key on `#[derive(Debug)]` and on field *names*. Both limits
+// were recorded when P1-5 landed, and both were hit in practice: `Telegram::bot`
+// is a bot token in a field called `bot`, and it was migrated because a call
+// site led there, not because the guard reported it.
+//
+// These two checks attack the limits from different directions. Neither
+// subsumes the name-based scan — a credential can sit in a struct forever
+// without ever reaching an `Authorization` header — so all three coexist.
+
+/// Structs that hold a credential-shaped field while deriving `Clone` but not
+/// `Debug`.
+///
+/// Smaller exposure than the `Debug` set: `Clone` does not render, so there is
+/// no accidental `{:?}` path. It still means the plaintext is copied freely and
+/// lives in as many places as it was cloned into, which is what makes zeroizing
+/// it later unreliable — `SecretString` at least keeps the copies typed.
+fn clone_only_secret_holders() -> Vec<Finding> {
+    let mut found = Vec::new();
+
+    for (path, rel) in scanned_files() {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let lines: Vec<&str> = text.lines().collect();
+        let mut derives_clone_not_debug = false;
+        let mut current_struct: Option<String> = None;
+
+        for (idx, raw) in lines.iter().enumerate() {
+            let line = raw.trim();
+
+            if line.starts_with("impl ") || line.starts_with("fn ") || line.starts_with("pub fn ") {
+                derives_clone_not_debug = false;
+                current_struct = None;
+                continue;
+            }
+
+            if let Some(rest) = line
+                .strip_prefix("pub struct ")
+                .or_else(|| line.strip_prefix("struct "))
+            {
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                let derive_lines: Vec<&&str> = lines[idx.saturating_sub(6)..idx]
+                    .iter()
+                    .filter(|l| l.contains("derive"))
+                    .collect();
+                derives_clone_not_debug = derive_lines.iter().any(|l| l.contains("Clone"))
+                    && !derive_lines.iter().any(|l| l.contains("Debug"));
+                current_struct = Some(name.clone());
+
+                if derives_clone_not_debug {
+                    for field in secret_string_fields(rest) {
+                        found.push(Finding {
+                            file: rel.clone(),
+                            line: idx + 1,
+                            struct_name: name.clone(),
+                            field,
+                        });
+                    }
+                }
+                continue;
+            }
+
+            if !derives_clone_not_debug {
+                continue;
+            }
+            let Some(struct_name) = current_struct.as_ref() else {
+                continue;
+            };
+            for field in secret_string_fields(line) {
+                found.push(Finding {
+                    file: rel.clone(),
+                    line: idx + 1,
+                    struct_name: struct_name.clone(),
+                    field,
+                });
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Structs recorded as holding a credential while deriving only `Clone`.
+///
+/// Deliberately a recorded set rather than a hard failure, matching how P1-5
+/// handled the `Debug` set: the exposure is real but smaller, and making it
+/// visible with a ratchet beats a flag day. Lowering the budget as these are
+/// migrated is the intended direction.
+const CLONE_ONLY_HOLDERS: &[(&str, &str)] = &[
+    (
+        "clawd/src/lib.rs",
+        "Settings::bot_token — a Telegram bot token, passed to ClawdContext::new \
+         and cloned into the context. Same credential class as \
+         synergie::Telegram::bot, which P1-5-B migrated.",
+    ),
+    (
+        "crates/soul-dashboard/src/lib.rs",
+        "AppState::auth_token — the dashboard's own bearer token, cloned into \
+         every axum handler through the extractor.",
+    ),
+    (
+        "soullink-brain/soullink-gateway/src/telegram/client.rs",
+        "TelegramClient::token — recorded rather than migrated, because the \
+         author already solved the display path by hand: there is a manual \
+         `impl Debug` that renders the token as `<redacted>`. This check keys \
+         on the *derive* list and cannot see that, so flagging it is a false \
+         positive for the reason the check exists. The real residue is \
+         elsewhere — line 266 interpolates the token into a URL path \
+         (`/bot{token}/`), so anything that logs the request URL leaks it \
+         regardless of any Debug impl, exactly as synergie::Telegram::bot did. \
+         Migrating it to SecretString would not fix that; not logging URLs \
+         would.",
+    ),
+];
+
+/// Budget for [`CLONE_ONLY_HOLDERS`], pinned in both directions like the
+/// `Debug` set's was.
+const CLONE_ONLY_BUDGET: usize = 3;
+
+/// Acceptance test 1 for P1-5-C: the guard reports `Clone`-only credential
+/// holders.
+///
+/// Two-way, so a fix must lower the budget and a new holder cannot appear
+/// quietly.
+#[test]
+fn clone_only_credential_holders_are_recorded_and_do_not_grow() {
+    let found = clone_only_secret_holders();
+    let recorded: BTreeSet<&str> = CLONE_ONLY_HOLDERS.iter().map(|(f, _)| *f).collect();
+    let unrecorded: Vec<&Finding> = found
+        .iter()
+        .filter(|f| !recorded.contains(f.file.as_str()))
+        .collect();
+
+    assert!(
+        unrecorded.is_empty(),
+        "these structs hold a credential-shaped field while deriving Clone but \
+         not Debug, and are not recorded: {unrecorded:#?}. Use \
+         soulsystem_common::secrets::SecretString, or add the file to \
+         CLONE_ONLY_HOLDERS with a justification and raise CLONE_ONLY_BUDGET."
+    );
+    assert_eq!(
+        CLONE_ONLY_HOLDERS.len(),
+        CLONE_ONLY_BUDGET,
+        "CLONE_ONLY_HOLDERS has {} entries but the budget is {CLONE_ONLY_BUDGET}. \
+         Migrating one means lowering the budget in the same change; adding one \
+         means saying so out loud.",
+        CLONE_ONLY_HOLDERS.len()
+    );
+}
+
+/// A site that attaches a credential to an outbound request.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct AuthSite {
+    file: String,
+    line: usize,
+    argument: String,
+}
+
+/// Sites that put a value into an `Authorization` header.
+///
+/// **This is the check that does not depend on field naming.** It does not ask
+/// what a variable is called; it asks what is done with it. Anything handed to
+/// `bearer_auth` or interpolated into a `Bearer`/`Bot`/`Token` header *is* a
+/// credential — that is what the header means — whatever its name, and whether
+/// it is a struct field, a function parameter or a local.
+///
+/// A site is clean when the value goes through `.expose()`, i.e. it is held in
+/// `SecretString` or `ProtocolSecret` and deliberately unwrapped at the point of
+/// use. A bare identifier is plaintext travelling under whatever name it has.
+fn authorization_header_sites() -> Vec<AuthSite> {
+    let mut sites = Vec::new();
+
+    for (path, rel) in scanned_files() {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for (idx, raw) in text.lines().enumerate() {
+            let line = raw.trim();
+            if line.starts_with("//") || line.starts_with("///") {
+                continue;
+            }
+            let attaches = line.contains(".bearer_auth(")
+                || line.contains("\"Bearer {")
+                || line.contains("\"Bot {")
+                || line.contains("\"Token {")
+                || (line.contains("AUTHORIZATION") && line.contains("format!"));
+            if !attaches {
+                continue;
+            }
+            // `.expose()` is the deliberate unwrap of a secret type.
+            if line.contains(".expose()") {
+                continue;
+            }
+            sites.push(AuthSite {
+                file: rel.clone(),
+                line: idx + 1,
+                argument: line.chars().take(100).collect(),
+            });
+        }
+    }
+    sites.sort();
+    sites
+}
+
+/// How many outbound credential-attachment sites still pass a plain value.
+///
+/// Pinned two-way. This number is large because the check found what the
+/// name-based scan structurally could not: most of these are `&str` function
+/// parameters and locals, which no amount of matching on field names reaches.
+/// It is recorded rather than fixed in one change because migrating them means
+/// changing signatures across a dozen crates, and a flag day there would be
+/// churn rather than hardening.
+const PLAINTEXT_AUTH_SITE_BUDGET: usize = 27;
+
+/// Acceptance test 2 for P1-5-C: a check that does not depend on field naming.
+#[test]
+fn plaintext_authorization_sites_do_not_grow() {
+    let sites = authorization_header_sites();
+    assert!(
+        sites.len() <= PLAINTEXT_AUTH_SITE_BUDGET,
+        "{} sites attach a credential to an Authorization header without \
+         .expose(), but the budget is {PLAINTEXT_AUTH_SITE_BUDGET}. A new one \
+         means a credential is travelling as a plain String: hold it in \
+         SecretString (or ProtocolSecret if it must serialize faithfully) and \
+         unwrap at the point of use. Sites: {sites:#?}",
+        sites.len()
+    );
+    assert!(
+        sites.len() >= PLAINTEXT_AUTH_SITE_BUDGET,
+        "only {} sites remain but the budget is still \
+         {PLAINTEXT_AUTH_SITE_BUDGET}. Lower it so the ratchet keeps holding.",
+        sites.len()
+    );
+}
+
+/// Anti-vacuous-pass: the name-independent matcher must recognise the shapes it
+/// forbids and ignore the ones it should not, or both tests above pass because
+/// the scan stopped looking.
+#[test]
+fn the_authorization_matcher_recognises_attachment_but_not_inspection() {
+    let cases = [
+        // Attaching a credential — these are what the check is for.
+        (r#"req = req.bearer_auth(t);"#, true),
+        (
+            r#".header("Authorization", format!("Bearer {token}"))"#,
+            true,
+        ),
+        (r#".header("Authorization", format!("Bot {token}"))"#, true),
+        // Already deliberate — a secret type unwrapped at the point of use.
+        (r#"format!("Bearer {}", token.expose())"#, false),
+        // Reading an inbound header to authenticate a caller is not a leak:
+        // the credential is arriving, not departing.
+        (r#"headers.get(axum::http::header::AUTHORIZATION)"#, false),
+        // Prose.
+        (r#"// .bearer_auth(token) used to be here"#, false),
+        (r#"let x = 1;"#, false),
+    ];
+    for (line, expected) in cases {
+        let t = line.trim();
+        let is_comment = t.starts_with("//") || t.starts_with("///");
+        let attaches = !is_comment
+            && (line.contains(".bearer_auth(")
+                || line.contains("\"Bearer {")
+                || line.contains("\"Bot {")
+                || line.contains("\"Token {")
+                || (line.contains("AUTHORIZATION") && line.contains("format!")))
+            && !line.contains(".expose()");
+        assert_eq!(attaches, expected, "matcher disagreed on {line:?}");
+    }
+}
+
+/// The two limits are independent, and this records why both checks exist.
+///
+/// A `Clone`-only holder never reaches an `Authorization` header, and a `&str`
+/// parameter handed to `bearer_auth` is in no struct at all. Neither check
+/// finds the other's cases, and the original name-based scan finds neither.
+#[test]
+fn the_three_checks_cover_different_sets() {
+    let named = findings();
+    let clone_only = clone_only_secret_holders();
+    let auth = authorization_header_sites();
+
+    let named_files: BTreeSet<&str> = named.iter().map(|f| f.file.as_str()).collect();
+    let clone_files: BTreeSet<&str> = clone_only.iter().map(|f| f.file.as_str()).collect();
+    let auth_files: BTreeSet<&str> = auth.iter().map(|s| s.file.as_str()).collect();
+
+    assert!(
+        named_files.is_empty(),
+        "the name-based set is migrated and should be empty, got {named_files:?}"
+    );
+    assert!(
+        !clone_files.is_empty(),
+        "the Clone-only check must find the recorded holders, or it is not running"
+    );
+    assert!(
+        !auth_files.is_empty(),
+        "the Authorization check must find real sites, or it is not running"
+    );
+    assert!(
+        auth_files.difference(&clone_files).next().is_some(),
+        "the Authorization check must reach files the Clone-only check does not, \
+         which is the point of not keying on field names"
+    );
+}

@@ -16,11 +16,11 @@
     "REQUIRES_RUNTIME_VERIFICATION": "Static inspection cannot decide; the required dynamic test is stated.",
     "DEFERRED_PRODUCT_DECISION": "Remaining work needs an explicit product/governance decision; carries decision_required."
   },
-  "count": 39,
+  "count": 40,
   "status_summary": {
     "PARTIALLY_FIXED": 7,
     "FIXED_AND_VERIFIED": 17,
-    "CONFIRMED_CURRENT": 6,
+    "CONFIRMED_CURRENT": 7,
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
     "NOT_REACHABLE": 5
@@ -39,7 +39,7 @@
     "medium": {
       "FIXED_AND_VERIFIED": 6,
       "FALSE_POSITIVE": 2,
-      "CONFIRMED_CURRENT": 1,
+      "CONFIRMED_CURRENT": 2,
       "NOT_REACHABLE": 3,
       "PARTIALLY_FIXED": 3
     },
@@ -53,7 +53,7 @@
   "severity_summary": {
     "critical": 6,
     "high": 10,
-    "medium": 15,
+    "medium": 16,
     "low": 8
   },
   "previous_status_summary_for_comparison": {
@@ -1887,6 +1887,57 @@
       ],
       "residual_risk": "`demoted` is bounded too, so past a second cap a record is genuinely forgotten and `Unknown` becomes inconclusive again. That is surfaced by `forgotten_count()` rather than hidden, but a caller that does not check it can still mistake a forgotten record for an unscreened one. `persist` is not called automatically per record - a write per observation would put an fsync-shaped cost on the hot path of an autonomous loop - so anything recorded since the last call is lost on a crash and returns to `Unknown`.",
       "remaining_exposure": "The stores themselves still carry no trust field: this makes provenance durable ALONGSIDE the records, not part of them, so a record written through a path that does not call `record_provenance` is still invisible to it. P1-6-B's roadmap entry asked for the record shapes to change; that part is not done. `soul-memory`, `soullink-memory` and `soullink-memory-hierarchy` have their own write paths and remain outside the P1-6 guard entirely. Nothing yet calls `load_memory_provenance` at startup in the binaries - the API exists and is tested, but wiring it into each entry point is follow-on work."
+    },
+    {
+      "id": "MED-016",
+      "title": "27 sites attach a credential to an Authorization header as a plain String, invisible to a guard that matches on struct field names",
+      "status": "CONFIRMED_CURRENT",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "audit_category": "Credential Handling / Detection Gap",
+      "discovered_by": "P1-5-C. Found by asking what is DONE with a value rather than what it is CALLED - the name-based scan structurally cannot reach these, because most are &str function parameters and locals, not struct fields.",
+      "original_audit_baseline": "5e3b0c3b0d18f6d0022c1c762821d9aad340b011",
+      "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
+      "current_files": [
+        "soullink-brain/soullink-gateway/src/channels/slack.rs",
+        "soullink-brain/soullink-gateway/src/channels/discord.rs",
+        "soullink-brain/soullink-security/src/verify.rs",
+        "soul_llm/src/providers/openai.rs",
+        "soul_gateway/src/providers/slack.rs",
+        "avid/crates/avid-tui/src/lib.rs",
+        "ccos/src/eval.rs"
+      ],
+      "current_symbols": [
+        "bearer_auth",
+        "PLAINTEXT_AUTH_SITE_BUDGET"
+      ],
+      "original_reachable_path": [
+        "a credential arrives as `token: &str` -> req.bearer_auth(token) / format!(\"Bearer {token}\") -> outbound request"
+      ],
+      "required_invariant": "A credential must be held in a redacting type and unwrapped only at the point of use, whatever the holding variable is named (INV-SEC-2).",
+      "current_state": "Confirmed and now VISIBLE, not fixed. P1-5-C added `plaintext_authorization_sites_do_not_grow`, which flags any value handed to `bearer_auth` or interpolated into a `Bearer`/`Bot`/`Token` header without `.expose()`. The check does not depend on naming at all: anything placed in an Authorization header IS a credential - that is what the header means - regardless of what the variable is called or whether it is a field, a parameter or a local. That is why it reaches 27 sites the P1-5 field-name scan reported nothing about. Only synergie's API currently does this correctly, via `token.expose()`. The budget is pinned two-way, so the set cannot grow and a fix must lower it. Verified negatively: adding one `bearer_auth(t)` call anywhere in a workspace member fails the test at 28. Not fixed in one change because migrating these means changing function signatures across a dozen crates; a flag day there would be churn rather than hardening, and the ratchet makes the exposure visible in the meantime.",
+      "follow_up": "MED-016-B: migrate the sites crate by crate, lowering PLAINTEXT_AUTH_SITE_BUDGET with each. soul_gateway's three provider modules and avid-tui's five call sites are the largest single wins.",
+      "verification_tests": [
+        {
+          "name": "plaintext_authorization_sites_do_not_grow",
+          "command": "cargo test -p soulsystem --test architecture_secret_types plaintext_authorization_sites_do_not_grow"
+        },
+        {
+          "name": "the_authorization_matcher_recognises_attachment_but_not_inspection",
+          "command": "cargo test -p soulsystem --test architecture_secret_types the_authorization_matcher_recognises_attachment_but_not_inspection"
+        },
+        {
+          "name": "the_three_checks_cover_different_sets",
+          "command": "cargo test -p soulsystem --test architecture_secret_types the_three_checks_cover_different_sets"
+        },
+        {
+          "name": "clone_only_credential_holders_are_recorded_and_do_not_grow",
+          "command": "cargo test -p soulsystem --test architecture_secret_types clone_only_credential_holders_are_recorded_and_do_not_grow"
+        }
+      ],
+      "residual_risk": "Each site holds a credential in a plain String for the life of the call, so it can reach a log line, a panic message or a Debug render of any enclosing structure without anything failing. The check bounds growth; it does not reduce the existing 27.",
+      "reachable_from": "Any outbound integration that authenticates: soul_gateway's Slack/WhatsApp/Discord providers, soullink-gateway's channel modules and OpenAI provider, soul_llm's OpenAI and Ollama providers, soullink-security's verify calls, avid-scout's auth, avid-tui's five API calls, ccos/eval, and src/main.rs. Each is reached whenever the corresponding integration is configured and used; none requires an attacker, because the exposure is the credential's in-process representation rather than a request an attacker sends.",
+      "reproducer": "cargo test -p soulsystem --test architecture_secret_types plaintext_authorization_sites_do_not_grow -- --nocapture\nprints all 27 sites with file and line. To confirm the check is live rather than vacuous, append `pub fn probe(c: reqwest::RequestBuilder, t: &str) -> reqwest::RequestBuilder { c.bearer_auth(t) }` to any workspace member's lib.rs and re-run: the test fails at 28 sites naming the new file."
     },
     {
       "id": "LOW-001",

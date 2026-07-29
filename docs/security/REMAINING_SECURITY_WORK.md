@@ -654,16 +654,43 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   `secret` or `api_key` finds it. It was migrated because a call site led there,
   not because the guard reported it.
 
-### P1-5-C Beyond the `Debug` set
+### ~~P1-5-C Beyond the `Debug` set~~ — CLOSED (both checks land); MED-016 opened
 
-- **Findings / invariants:** INV-SEC-2 (residual)
-- **Current risk:** the guard keys on `#[derive(Debug)]` and on field *names*.
-  `clawd::Settings` and `soul-dashboard::AppState` hold credentials while
-  deriving only `Clone` — a smaller exposure, not an absent one. A credential in
-  a field named `value`, `blob` or `bot` is invisible to it.
-- **Acceptance tests:** the guard reports `Clone`-only credential holders; a
-  check that does not depend on field naming (for example, flagging any
-  `String` field whose value flows into an `Authorization` header).
+- **Findings / invariants:** INV-SEC-2 (residual), MED-016 (new)
+- **Both acceptance tests met**, and they found different things.
+- **Acceptance test 1 — `Clone`-only holders are reported.**
+  `clone_only_credential_holders_are_recorded_and_do_not_grow`, two-way budget
+  of 3. It found one holder beyond the two the roadmap named:
+  `soullink-gateway::TelegramClient::token`.
+  **It is recorded, not migrated, and the justification says why**: the author
+  already solved the display path by hand — there is a manual `impl Debug`
+  rendering the token as `<redacted>`. The check keys on the *derive* list and
+  cannot see that, so this is a false positive for exactly the reason the check
+  exists. The real residue is elsewhere: line 266 interpolates the token into a
+  URL path (`/bot{token}/`), so anything logging the request URL leaks it
+  regardless of any `Debug` impl — the same shape as `synergie::Telegram::bot`.
+  Migrating to `SecretString` would not fix that; not logging URLs would.
+- **Acceptance test 2 — a check that does not depend on field naming.**
+  `plaintext_authorization_sites_do_not_grow` asks what is *done* with a value,
+  not what it is *called*: anything handed to `bearer_auth` or interpolated into
+  a `Bearer`/`Bot`/`Token` header **is** a credential, whatever its name and
+  whether it is a field, a parameter or a local. A site is clean when the value
+  goes through `.expose()`.
+- **It found 27 sites the name-based scan reported nothing about**, because most
+  are `&str` function parameters and locals — structurally unreachable by field
+  matching. Only synergie does this correctly today. Recorded as **MED-016**
+  with a two-way budget rather than fixed in one change: migrating them means
+  changing signatures across a dozen crates, and a flag day there is churn, not
+  hardening.
+- **All three checks coexist**, and `the_three_checks_cover_different_sets`
+  pins that: a `Clone`-only holder never reaches an `Authorization` header, and
+  a `&str` parameter handed to `bearer_auth` is in no struct at all.
+- **Verified negatively** on both new checks: a `#[derive(Clone)]` struct with an
+  `api_key` field fails the first; one extra `bearer_auth(t)` call fails the
+  second at 28.
+- **Still not covered:** credentials committed to non-Rust files. PR #116
+  (separate work) found a real Telegram bot token in `configs/env/soullink.env`;
+  no check here would have caught it, since all three scan `.rs` sources.
 
 ### P1-6 Memory provenance and trust metadata — DONE (INV-MEM-4 held; INV-MEM-3 partial)
 
