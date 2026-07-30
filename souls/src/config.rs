@@ -14,6 +14,7 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
+use zeroize::Zeroize;
 
 const CONFIG_DIR: &str = "soulsystem";
 const CONFIG_FILE: &str = "config.toml";
@@ -248,13 +249,18 @@ impl ConfigApp {
         }
 
         let current = match &field {
-            SettingField::ApiKey => self
-                .cfg
-                .llm
-                .api_key
-                .as_ref()
-                .map(|k| k.expose().to_string())
-                .unwrap_or_default(),
+            // The API key is deliberately NOT pre-filled. Every other field
+            // seeds the buffer with its current value so it can be edited in
+            // place; doing that for a secret would copy the plaintext key out
+            // of `SecretString` into `edit_buffer`, an ordinary `String` that
+            // is not zeroized and lives as long as the dialog. The dialog
+            // already masks what it renders, so the copy was never visible —
+            // it was simply resident, which is the part that matters after a
+            // core dump or a swapped page.
+            //
+            // Editing therefore means *replacing*: type a new key, or leave it
+            // empty to keep the existing one. See `apply_edit`.
+            SettingField::ApiKey => String::new(),
             SettingField::Temperature => format!("{:.1}", self.cfg.llm.temperature),
             SettingField::MaxTokens => self.cfg.llm.max_tokens.to_string(),
             SettingField::Url => self.cfg.llm.base_url.clone(),
@@ -273,11 +279,14 @@ impl ConfigApp {
         if let Some(ref field) = self.edit_field.clone() {
             match field {
                 SettingField::Url => self.cfg.llm.base_url = self.edit_buffer.clone(),
+                // Empty means "leave it alone", not "delete it". Since the
+                // buffer no longer starts pre-filled, an empty buffer is what
+                // you get by opening the dialog and pressing Enter — under the
+                // old "empty deletes" rule that keystroke would silently
+                // destroy a working key. Deletion is now explicit: Ctrl+D.
                 SettingField::ApiKey => {
-                    self.cfg.llm.api_key = if self.edit_buffer.is_empty() {
-                        None
-                    } else {
-                        Some(SecretString::new(self.edit_buffer.clone()))
+                    if !self.edit_buffer.is_empty() {
+                        self.cfg.llm.api_key = Some(SecretString::new(self.edit_buffer.clone()));
                     }
                 }
                 SettingField::Temperature => {
@@ -296,6 +305,25 @@ impl ConfigApp {
             }
             self.dirty = true;
         }
+        self.close_edit();
+    }
+
+    /// Leave the dialog without applying anything.
+    fn cancel_edit(&mut self) {
+        self.close_edit();
+    }
+
+    /// Shared exit path: wipe the buffer before dropping the dialog.
+    ///
+    /// A typed API key lands in `edit_buffer` no matter what, since the user
+    /// has to type it somewhere. `String`'s own drop just frees the
+    /// allocation and leaves the bytes on the heap, so the key would outlive
+    /// the dialog in freed memory. Zeroizing on the way out bounds its
+    /// lifetime to the edit itself, which is the most this buffer can offer
+    /// short of holding every keystroke in a secret type.
+    fn close_edit(&mut self) {
+        self.edit_buffer.zeroize();
+        self.edit_cursor = 0;
         self.focus = Focus::SettingsList;
         self.edit_field = None;
     }
@@ -412,11 +440,20 @@ fn handle_settings_key(app: &mut ConfigApp, key: KeyEvent) -> bool {
 fn handle_edit_key(app: &mut ConfigApp, key: KeyEvent) -> bool {
     match key.code {
         KeyCode::Esc => {
-            app.focus = Focus::SettingsList;
-            app.edit_field = None;
+            app.cancel_edit();
         }
         KeyCode::Enter => {
             app.apply_edit();
+        }
+        // Explicit deletion, replacing the old "an empty buffer deletes the
+        // key" rule. That rule was safe only while the buffer arrived
+        // pre-filled; it no longer does.
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            if matches!(app.edit_field, Some(SettingField::ApiKey)) {
+                app.cfg.llm.api_key = None;
+                app.dirty = true;
+                app.cancel_edit();
+            }
         }
         KeyCode::Char(c) => {
             app.edit_buffer.insert(app.edit_cursor, c);
@@ -740,7 +777,7 @@ fn draw_edit_dialog(f: &mut Frame, size: Rect, app: &ConfigApp) {
 
     let label = match &app.edit_field {
         Some(SettingField::Url) => "URL du serveur LLM",
-        Some(SettingField::ApiKey) => "Clé API (vide pour supprimer)",
+        Some(SettingField::ApiKey) => "Clé API (vide = inchangée · Ctrl+D = supprimer)",
         Some(SettingField::Temperature) => "Température (0.0 — 2.0)",
         Some(SettingField::MaxTokens) => "Max tokens (1 — 128000)",
         Some(SettingField::EntityName) => "Nom de l'entité",
@@ -1038,6 +1075,80 @@ mod tests {
             mask_api_key(&Some("sk-1234567890abcdef".into())),
             "configurée dans le gestionnaire système"
         );
+    }
+
+    /// Opening the key dialog must not copy the key into the edit buffer.
+    ///
+    /// This is the whole of MED-016-C: the dialog already masked what it
+    /// rendered, so the plaintext was never on screen — it was resident in an
+    /// ordinary `String`, which is what survives into a core dump.
+    #[test]
+    fn opening_the_api_key_editor_does_not_copy_the_key() {
+        let mut cfg = PersistConfig::default();
+        cfg.llm.api_key = Some("sk-must-not-be-copied".into());
+        let mut app = ConfigApp::new(&cfg);
+
+        app.start_edit(3);
+
+        assert!(
+            app.edit_buffer.is_empty(),
+            "the edit buffer holds a copy of the key: {:?}",
+            app.edit_buffer
+        );
+        assert_eq!(app.edit_cursor, 0);
+    }
+
+    /// Confirming an empty buffer keeps the existing key.
+    ///
+    /// The old rule was "empty deletes". That was safe only while the buffer
+    /// arrived pre-filled; now that it starts empty, the same rule would mean
+    /// open-dialog-then-Enter silently destroys a working key.
+    #[test]
+    fn confirming_an_empty_api_key_buffer_keeps_the_existing_key() {
+        let mut cfg = PersistConfig::default();
+        cfg.llm.api_key = Some("sk-keep-me".into());
+        let mut app = ConfigApp::new(&cfg);
+
+        app.start_edit(3);
+        app.apply_edit();
+
+        assert_eq!(
+            app.cfg.llm.api_key.as_ref().map(SecretString::expose),
+            Some("sk-keep-me"),
+            "an empty buffer must leave the key alone, not delete it"
+        );
+    }
+
+    /// Typing a new key replaces the old one.
+    #[test]
+    fn typing_a_new_api_key_replaces_it() {
+        let mut cfg = PersistConfig::default();
+        cfg.llm.api_key = Some("sk-old".into());
+        let mut app = ConfigApp::new(&cfg);
+
+        app.start_edit(3);
+        app.edit_buffer.push_str("sk-new");
+        app.apply_edit();
+
+        assert_eq!(
+            app.cfg.llm.api_key.as_ref().map(SecretString::expose),
+            Some("sk-new")
+        );
+    }
+
+    /// Leaving the dialog wipes the buffer rather than freeing it intact.
+    #[test]
+    fn closing_the_editor_clears_the_buffer() {
+        let cfg = PersistConfig::default();
+        let mut app = ConfigApp::new(&cfg);
+
+        app.start_edit(3);
+        app.edit_buffer.push_str("sk-typed-then-cancelled");
+        app.cancel_edit();
+
+        assert!(app.edit_buffer.is_empty());
+        assert_eq!(app.edit_cursor, 0);
+        assert!(app.edit_field.is_none());
     }
 
     #[test]
