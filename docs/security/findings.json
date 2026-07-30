@@ -1027,7 +1027,9 @@
         }
       ],
       "residual_risk": "The entity no longer CLAIMS work it did not do, but it still does not do the work: execute_plan dispatches nothing. This is a truthfulness fix, not an autonomy feature. --entity refuses under production and warns otherwise, so the simulated path cannot run unannounced in a production process. The guard is string-level: it pins the specific fabrications that existed (success:true, [OK], score 0.9, confidence 0.95, goals_completed) and would not catch a NEW fabrication expressed differently.",
-      "follow_up": null
+      "follow_up": null,
+      "remaining_exposure": " | GAP FOUND AND CLOSED WHILE EXECUTING THE SIMULATED-FEATURES WORKSTREAM: soul-prod-guard has always been able to refuse an experimental runtime in production (GuardViolation::ExperimentalRuntimeInProduction), but src/prod_guard.rs::assemble_posture passed a HARDCODED None for experimental_runtime_selected. The refusal therefore could not fire for the only runtime it exists to catch - `--entity`, this finding's simulated autonomy. The guard crate's own test set the field by hand, which proves the guard and not the wiring: the same shape as HIGH-008. The CLI selection now reaches the posture (cli.entity -> Some(\"soul_entity\")). Negative-probed: restoring the hardcoded None makes the_posture_carries_the_selected_experimental_runtime FAIL, and restoring the wiring makes it pass. A control test asserts a canonical start reports None, so the field means 'an experimental runtime was chosen' rather than always-set noise.",
+      "verification_test": "cargo test -p soulsystem --bin soulsystem experimental_runtime_wiring"
     },
     {
       "id": "HIGH-007",

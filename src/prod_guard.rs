@@ -122,6 +122,7 @@ fn assemble_posture(
     gateway_tls_enabled: bool,
     ws_bridge: &soulsystem::ws_bridge::WsBridgeConfig,
     api_authenticated: bool,
+    experimental_runtime: Option<String>,
 ) -> SecurityPosture {
     let tokens = gateway_tokens();
     let auth_material_present =
@@ -182,7 +183,7 @@ fn assemble_posture(
         webhook_providers_with_secret: Vec::new(),
         insecure_permission_paths,
         default_or_example_secret_names,
-        experimental_runtime_selected: None,
+        experimental_runtime_selected: experimental_runtime,
     }
 }
 
@@ -198,6 +199,7 @@ pub fn enforce_startup_security(
     gateway_tls_enabled: bool,
     ws_bridge: &soulsystem::ws_bridge::WsBridgeConfig,
     api_auth: &soulsystem::api::ApiAuth,
+    experimental_runtime: Option<String>,
 ) -> anyhow::Result<GuardReport> {
     let mode = resolve_mode()?;
     let posture = assemble_posture(
@@ -207,6 +209,7 @@ pub fn enforce_startup_security(
         gateway_tls_enabled,
         ws_bridge,
         api_auth.is_configured(),
+        experimental_runtime,
     );
 
     match evaluate(mode, &posture) {
@@ -268,6 +271,7 @@ mod tests {
             false,
             &soulsystem::ws_bridge::WsBridgeConfig::default(),
             false,
+            None,
         );
 
         assert!(listener(&posture, "gateway").authenticated);
@@ -287,6 +291,7 @@ mod tests {
             false,
             &soulsystem::ws_bridge::WsBridgeConfig::default(),
             false,
+            None,
         );
 
         assert!(!listener(&posture, "gateway").authenticated);
@@ -312,6 +317,7 @@ mod tests {
             false,
             &configured,
             false,
+            None,
         );
         assert!(
             listener(&posture, "ws_bridge").authenticated,
@@ -333,6 +339,7 @@ mod tests {
             false,
             &opted_in,
             false,
+            None,
         );
         assert!(
             !listener(&posture, "ws_bridge").authenticated,
@@ -359,6 +366,7 @@ mod tests {
             false,
             &bridge,
             soulsystem::api::ApiAuth::default().is_configured(),
+            None,
         );
         assert!(
             !listener(&unconfigured, "api").authenticated,
@@ -372,6 +380,7 @@ mod tests {
             false,
             &bridge,
             soulsystem::api::ApiAuth::new(Some("a-real-api-token".into())).is_configured(),
+            None,
         );
         assert!(
             listener(&configured, "api").authenticated,
@@ -393,6 +402,7 @@ mod tests {
                 ..Default::default()
             },
             false,
+            None,
         );
         let result = evaluate(RuntimeMode::Production, &posture);
         assert!(
@@ -414,6 +424,7 @@ mod tests {
             true,
             &soulsystem::ws_bridge::WsBridgeConfig::default(),
             false,
+            None,
         );
 
         let rejected = evaluate(RuntimeMode::Production, &posture)
@@ -431,5 +442,54 @@ mod tests {
             !rejected.details.contains("a-real-operator-token"),
             "the rejection summary must stay secret-free"
         );
+    }
+}
+
+#[cfg(test)]
+mod experimental_runtime_wiring_tests {
+    use super::*;
+
+    /// The production guard must see the runtime the operator actually chose.
+    ///
+    /// `GuardViolation::ExperimentalRuntimeInProduction` has existed since the
+    /// guard was written, and `assemble_posture` passed a hardcoded `None`, so
+    /// it could never fire for the one runtime it exists to catch: `--entity`,
+    /// the simulated autonomy of HIGH-006. The guard crate's own test set the
+    /// field by hand, which proves the guard and not the wiring.
+    #[test]
+    fn the_posture_carries_the_selected_experimental_runtime() {
+        let settings = Settings::default();
+        let posture = assemble_posture(
+            "127.0.0.1:7878",
+            &settings,
+            true,
+            false,
+            &soulsystem::ws_bridge::WsBridgeConfig::default(),
+            true,
+            Some("soul_entity".to_string()),
+        );
+        assert_eq!(
+            posture.experimental_runtime_selected.as_deref(),
+            Some("soul_entity"),
+            "the selected experimental runtime must reach the guard"
+        );
+    }
+
+    /// The control case: a non-experimental start reports nothing, so the
+    /// field means "an experimental runtime was chosen" rather than being
+    /// always-set noise the guard would learn to ignore.
+    #[test]
+    fn a_canonical_runtime_reports_no_experimental_selection() {
+        let settings = Settings::default();
+        let posture = assemble_posture(
+            "127.0.0.1:7878",
+            &settings,
+            true,
+            false,
+            &soulsystem::ws_bridge::WsBridgeConfig::default(),
+            true,
+            None,
+        );
+        assert!(posture.experimental_runtime_selected.is_none());
     }
 }
