@@ -56,6 +56,13 @@ pub const STATE_FORMAT_VERSION: u32 = 1;
 /// File name of the manifest that describes the set.
 pub const MANIFEST_FILE: &str = "state.manifest";
 
+/// Opt back into accepting a state directory with no manifest (P1-7-C).
+///
+/// Set to `1`/`true` during the migration window for a deployment whose state
+/// predates manifests. Strict is the default precisely because the lenient
+/// path cannot tell a legacy directory from one whose manifest was deleted.
+pub const ALLOW_LEGACY_RESTORE_VAR: &str = "SOULSYSTEM_ALLOW_LEGACY_RESTORE";
+
 /// Subdirectory holding the previous verified generation.
 ///
 /// P1-7 bought detection without recovery: a torn set was reported and refused,
@@ -439,6 +446,54 @@ impl PersistentRuntime {
             .verify_integrity()
             .map_err(PersistenceError::Integrity)?;
         Ok(state)
+    }
+
+    /// Restore under the deployment's configured policy (P1-7-C).
+    ///
+    /// **Strict is the default.** A directory with no manifest is refused,
+    /// because a missing manifest and a deleted one are indistinguishable from
+    /// here: accepting "legacy" lets anyone who can unlink one file opt the
+    /// whole directory out of verification. That is not a hypothetical
+    /// weakness — it is a one-command bypass of the integrity checking this
+    /// module exists to provide.
+    ///
+    /// ## The migration window
+    ///
+    /// Making strict the default breaks exactly one case: a deployment whose
+    /// state directory predates manifests. Those exist, so the change cannot
+    /// simply be made — hence [`ALLOW_LEGACY_RESTORE_VAR`], which restores the
+    /// old lenient behaviour for one directory at a time.
+    ///
+    /// The opt-out warns on **every** restore rather than once at startup. A
+    /// migration window that is quiet is a migration window nobody finishes:
+    /// the warning is the thing that makes the temporary state visible, and
+    /// re-saving with this build produces a manifest and ends it.
+    ///
+    /// The variable is read per call rather than cached so that a deployment
+    /// can clear it and have the next restore be strict, without a restart.
+    pub fn restore_runtime_default(&self) -> Result<RuntimeState, PersistenceError> {
+        let legacy_permitted = std::env::var(ALLOW_LEGACY_RESTORE_VAR)
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
+        if !legacy_permitted {
+            return self.restore_runtime_strict();
+        }
+
+        if self.verify_set_integrity()? == SetIntegrity::Legacy {
+            // `eprintln!` rather than a log macro: `ccos` has no logging
+            // dependency, and adding one so a migration warning can be
+            // filtered out by log level would defeat the point of it.
+            eprintln!(
+                "WARNING: restoring an UNVERIFIED state directory {}: it has no \
+                 {MANIFEST_FILE}, and {ALLOW_LEGACY_RESTORE_VAR} is set. A deleted \
+                 manifest is indistinguishable from one that never existed, so this \
+                 restore cannot tell a legacy directory from a tampered one. Re-save \
+                 with this build to produce a manifest, then unset the variable.",
+                self.dir.display()
+            );
+        }
+        self.restore_runtime()
     }
 
     /// [`PersistentRuntime::restore_runtime`], but a directory without a
@@ -869,6 +924,89 @@ mod tests {
         assert!(
             runtime.restore_runtime().is_ok(),
             "a legacy set must remain loadable"
+        );
+        cleanup(&dir);
+    }
+
+    /// Serialises the three tests that touch [`ALLOW_LEGACY_RESTORE_VAR`].
+    ///
+    /// The variable is process-global, and cargo runs tests in one binary
+    /// concurrently: without this, one test's `set_var` lands inside another's
+    /// window and the pair fails intermittently. Introducing a flaky test to
+    /// prove a fail-closed default would be its own small joke.
+    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// P1-7-C: the default is strict, so a deleted manifest is refused
+    /// without anyone having to opt in.
+    ///
+    /// This is the behaviour change. Before it, the only caller in the
+    /// codebase used the lenient path, so `restore_runtime_strict` existed and
+    /// protected nothing.
+    #[test]
+    fn the_default_restore_is_strict() {
+        let _env = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = temp_dir("default-strict");
+        let runtime = PersistentRuntime::new(&dir);
+        runtime.save_state(&sample_state()).unwrap();
+        std::fs::remove_file(runtime.manifest_path()).unwrap();
+
+        // The variable must be absent for the default to be observed. Set by
+        // another test in this binary, it would silently make this one pass
+        // for the wrong reason.
+        std::env::remove_var(ALLOW_LEGACY_RESTORE_VAR);
+
+        let err = runtime
+            .restore_runtime_default()
+            .expect_err("the default must refuse an unverifiable set");
+        assert!(err.to_string().contains(MANIFEST_FILE), "{err}");
+        cleanup(&dir);
+    }
+
+    /// The migration window works, and only for the directory it is set for.
+    #[test]
+    fn the_migration_variable_reopens_the_legacy_path() {
+        let _env = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = temp_dir("migration-window");
+        let runtime = PersistentRuntime::new(&dir);
+        runtime.save_state(&sample_state()).unwrap();
+        std::fs::remove_file(runtime.manifest_path()).unwrap();
+
+        std::env::set_var(ALLOW_LEGACY_RESTORE_VAR, "1");
+        let restored = runtime.restore_runtime_default();
+        std::env::remove_var(ALLOW_LEGACY_RESTORE_VAR);
+
+        assert!(
+            restored.is_ok(),
+            "the migration window must accept a pre-manifest directory, or an \
+             existing deployment cannot upgrade: {:?}",
+            restored.err()
+        );
+        cleanup(&dir);
+    }
+
+    /// The migration window does not disable verification, only the
+    /// missing-manifest refusal.
+    ///
+    /// The distinction is the whole point: a deployment opting into the legacy
+    /// path is saying "my directory predates manifests", not "stop checking my
+    /// data". A torn set must still be refused.
+    #[test]
+    fn the_migration_variable_does_not_disable_integrity_checking() {
+        let _env = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = temp_dir("migration-still-verifies");
+        let runtime = PersistentRuntime::new(&dir);
+        runtime.save_state(&sample_state()).unwrap();
+
+        // Manifest present, but one member file no longer matches it.
+        std::fs::write(runtime.events_path(), b"tampered").unwrap();
+
+        std::env::set_var(ALLOW_LEGACY_RESTORE_VAR, "1");
+        let result = runtime.restore_runtime_default();
+        std::env::remove_var(ALLOW_LEGACY_RESTORE_VAR);
+
+        assert!(
+            result.is_err(),
+            "a torn set must be refused even inside the migration window"
         );
         cleanup(&dir);
     }
