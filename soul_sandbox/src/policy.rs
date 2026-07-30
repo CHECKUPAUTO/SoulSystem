@@ -130,6 +130,18 @@ pub struct ResourceLimits {
     /// `RLIMIT_NOFILE` — maximum open file descriptors.
     pub max_open_files: Option<u64>,
 
+    /// cgroup v2 `pids.max` — the process-TREE task ceiling `RLIMIT_NPROC`
+    /// cannot express on a shared-UID host (P1-12). Applied only when a
+    /// delegated subtree is available (`SOUL_SANDBOX_CGROUP_DIR`); otherwise
+    /// the sandbox reports the fallback once and relies on rlimits. The
+    /// default contains a fork bomb without constraining ordinary builds.
+    pub cgroup_pids_max: Option<u64>,
+
+    /// cgroup v2 `memory.max` — resident memory, which `RLIMIT_AS` (address
+    /// space) does not express. `None` by default: a wrong memory ceiling
+    /// OOM-kills legitimate work, so the operator opts in per policy.
+    pub cgroup_memory_max_bytes: Option<u64>,
+
     /// `RLIMIT_CPU` — maximum CPU seconds, summed across the process's threads.
     ///
     /// This is CPU time, not wall time, and is therefore not a substitute for
@@ -161,6 +173,8 @@ impl Default for ResourceLimits {
             max_cpu_seconds: Some(60),
             max_file_size_bytes: Some(256 * 1024 * 1024),
             max_core_bytes: Some(0),
+            cgroup_pids_max: Some(512),
+            cgroup_memory_max_bytes: None,
         }
     }
 }
@@ -178,10 +192,17 @@ impl ResourceLimits {
             max_cpu_seconds: None,
             max_file_size_bytes: None,
             max_core_bytes: None,
+            cgroup_pids_max: None,
+            cgroup_memory_max_bytes: None,
         }
     }
 
     /// Whether any ceiling is set.
+    /// Whether any cgroup-expressible limit is requested.
+    pub fn wants_cgroup(&self) -> bool {
+        self.cgroup_pids_max.is_some() || self.cgroup_memory_max_bytes.is_some()
+    }
+
     pub fn is_unlimited(&self) -> bool {
         *self == Self::unlimited()
     }

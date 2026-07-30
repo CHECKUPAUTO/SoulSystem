@@ -13,6 +13,7 @@
 //!    group entier (pas de zombie sur fork).
 //! 6. **Journalisation** complète.
 
+pub mod cgroup;
 mod policy;
 #[cfg(target_os = "linux")]
 mod seccomp;
@@ -177,6 +178,25 @@ fn read_capped(reader: impl Read, max_bytes: usize) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
+/// Detect the delegated cgroup subtree once per process, logging the outcome
+/// exactly once either way.
+fn cgroup_context_once() -> Result<&'static cgroup::CgroupContext, ()> {
+    use std::sync::OnceLock;
+    static CTX: OnceLock<Result<cgroup::CgroupContext, ()>> = OnceLock::new();
+    CTX.get_or_init(|| match cgroup::CgroupContext::detect() {
+        Ok(ctx) => {
+            tracing::info!("[sandbox] cgroup v2 backend active (delegated subtree found)");
+            Ok(ctx)
+        }
+        Err(reason) => {
+            tracing::warn!("[sandbox] cgroup v2 backend unavailable: {reason}");
+            Err(())
+        }
+    })
+    .as_ref()
+    .map_err(|_| ())
+}
+
 pub struct Sandbox {
     policy: SandboxPolicy,
     history: Arc<Mutex<VecDeque<SandboxVerdict>>>,
@@ -248,15 +268,28 @@ impl Sandbox {
     /// without network isolation for that execution; seccomp (which has no
     /// such host-policy dependency) still applies.
     #[cfg(target_os = "linux")]
-    fn apply_sandbox_pre_exec(&self, command: &mut Command) {
+    fn apply_sandbox_pre_exec(
+        &self,
+        command: &mut Command,
+        cgroup_procs: Option<std::path::PathBuf>,
+    ) {
         let profile = self.policy.seccomp_profile.clone();
         let network_isolated = self.policy.network_isolated;
         let limits = self.policy.resource_limits;
+
         unsafe {
             command.pre_exec(move || {
                 libc::setpgid(0, 0);
 
                 apply_resource_limits(&limits)?;
+
+                if let Some(ref procs) = cgroup_procs {
+                    // Fail-closed: the leaf existed and had limits written at
+                    // spawn time; if the child cannot enter it, running
+                    // outside those limits silently is exactly the outcome
+                    // this backend exists to prevent.
+                    std::fs::write(procs, b"0")?;
+                }
 
                 if network_isolated {
                     // CLONE_NEWUSER alongside CLONE_NEWNET so this works
@@ -301,7 +334,11 @@ impl Sandbox {
     /// namespaces. Keep process-group isolation so timeouts still terminate
     /// the complete child tree; command and path policy checks remain active.
     #[cfg(all(unix, not(target_os = "linux")))]
-    fn apply_sandbox_pre_exec(&self, command: &mut Command) {
+    fn apply_sandbox_pre_exec(
+        &self,
+        command: &mut Command,
+        _cgroup_procs: Option<std::path::PathBuf>,
+    ) {
         let limits = self.policy.resource_limits;
         unsafe {
             command.pre_exec(move || {
@@ -319,15 +356,37 @@ impl Sandbox {
         &self,
         cmd: &str,
         stdin_mode: Stdio,
-    ) -> Result<(std::process::Child, i32), SandboxError> {
+    ) -> Result<(std::process::Child, i32, Option<cgroup::CgroupLeaf>), SandboxError> {
         let (mut command, _, _) = self.build_command(cmd, stdin_mode);
 
+        // cgroup v2 pids.max/memory.max when the host granted a delegated
+        // subtree (P1-12 part 1). The leaf is created BEFORE spawn with its
+        // limits already written, the child moves itself in from pre_exec
+        // (writing "0" to cgroup.procs moves the calling process, so there is
+        // no window where it runs outside its limits), and the caller holds
+        // the returned leaf until after the wait so removal happens once the
+        // tree is reaped. Availability — or the reason for falling back to
+        // the P1-3 rlimits — is reported once per process, not per spawn: a
+        // degraded bound that is reported is a decision someone can revisit;
+        // a silent one is a hole.
+        let leaf = if self.policy.resource_limits.wants_cgroup() {
+            match cgroup_context_once() {
+                Ok(ctx) => Some(ctx.create_leaf(
+                    self.policy.resource_limits.cgroup_pids_max,
+                    self.policy.resource_limits.cgroup_memory_max_bytes,
+                )?),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
         #[cfg(unix)]
-        self.apply_sandbox_pre_exec(&mut command);
+        self.apply_sandbox_pre_exec(&mut command, leaf.as_ref().map(|l| l.procs_path()));
 
         let child = command.spawn()?;
         let pid = child.id() as i32;
-        Ok((child, pid))
+        Ok((child, pid, leaf))
     }
 
     /// Wait for child to exit (with timeout), kill process group on timeout.
@@ -488,7 +547,7 @@ impl Sandbox {
         let started_at = Utc::now();
         let t0 = Instant::now();
 
-        let (mut child, pid) = self.spawn_with_sandbox(&safe_cmd, Stdio::null())?;
+        let (mut child, pid, _cgroup_leaf) = self.spawn_with_sandbox(&safe_cmd, Stdio::null())?;
         let (exit_code, stdout, stderr, timed_out) = self.wait_with_timeout(&mut child, pid);
 
         let duration_ms = t0.elapsed().as_millis() as u64;
@@ -545,7 +604,7 @@ impl Sandbox {
         let started_at = Utc::now();
         let t0 = Instant::now();
 
-        let (mut child, pid) = self.spawn_with_sandbox(cmd, Stdio::null())?;
+        let (mut child, pid, _cgroup_leaf) = self.spawn_with_sandbox(cmd, Stdio::null())?;
 
         let (tx, rx) = mpsc::channel();
 
@@ -627,8 +686,22 @@ impl Sandbox {
 
         let (mut command, _, _) = self.build_command(cmd, Stdio::piped());
 
+        // Same cgroup leaf flow as `spawn_with_sandbox`; held until after the
+        // wait below so removal happens once the tree is reaped.
+        let _cgroup_leaf = if self.policy.resource_limits.wants_cgroup() {
+            match cgroup_context_once() {
+                Ok(ctx) => Some(ctx.create_leaf(
+                    self.policy.resource_limits.cgroup_pids_max,
+                    self.policy.resource_limits.cgroup_memory_max_bytes,
+                )?),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
         #[cfg(unix)]
-        self.apply_sandbox_pre_exec(&mut command);
+        self.apply_sandbox_pre_exec(&mut command, _cgroup_leaf.as_ref().map(|l| l.procs_path()));
 
         let mut child = command.spawn()?;
         let pid = child.id() as i32;
@@ -1640,8 +1713,11 @@ impl Sandbox {
             command.current_dir(dir);
         }
 
+        // This path hands the `Command` to the caller, so there is no wait
+        // hook to anchor a cgroup leaf's lifetime to — rlimits and seccomp
+        // still apply; the cgroup backend covers the owned execute paths.
         #[cfg(unix)]
-        self.apply_sandbox_pre_exec(&mut command);
+        self.apply_sandbox_pre_exec(&mut command, None);
 
         Ok(command)
     }

@@ -269,12 +269,21 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   question, and `SandboxPolicy` currently expresses path policy as string
   matching over the command line, not as a filesystem view. The policy model has
   to exist before the namespace is useful.
-- **Recommended PR scope:** (1) a cgroup v2 backend used when a delegated
-  subtree is available, supplying `pids.max` and `memory.max` and falling back
-  to the rlimits from P1-3 otherwise — with the availability check reported, not
-  silent; (2) the double-fork spawn restructure for `CLONE_NEWPID`; (3) a
-  filesystem-view policy, then `CLONE_NEWNS` on top of it; (4) per-tool egress
-  allowlisting to replace the current all-or-nothing network namespace.
+- **Part (1) is DONE:** the cgroup v2 backend exists. `pids.max` defaults to
+  512 (contains a fork bomb without constraining ordinary builds);
+  `memory.max` is opt-in (a wrong ceiling OOM-kills legitimate work). The
+  leaf's limits are written **before** spawn, the child moves itself in from
+  `pre_exec` (`"0"` → `cgroup.procs` moves the calling process, so there is no
+  window outside the limits) and entering is **fail-closed**; the execute
+  paths hold the leaf until after the wait. Availability — or the typed reason
+  for the rlimit fallback — is reported once per process, and detection probes
+  real leaf creation so read-only mounts fail before an execution depends on
+  them. The enforcement test self-skips without a delegated subtree: CI
+  exercises the fallback for real, prepared hosts exercise enforcement.
+- **Remaining scope:** (2) the double-fork spawn restructure for
+  `CLONE_NEWPID`; (3) a filesystem-view policy, then `CLONE_NEWNS` on top of
+  it; (4) per-tool egress allowlisting to replace the current all-or-nothing
+  network namespace. Each is a restructure, not a flag — see above.
 - **Acceptance tests:** a fork bomb is contained without relying on a dedicated
   UID; a memory hog is killed by its own cgroup rather than by the host OOM
   killer; the sandboxed process sees only the paths its policy grants; a tool
