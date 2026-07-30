@@ -340,7 +340,6 @@ mod tests {
         assert_eq!(tree.get(child).unwrap().status, NodeStatus::Pruned);
     }
 
-    #[test]
     /// The exact placeholder MED-004 was built on is refused.
     #[test]
     fn a_constant_embedding_is_refused_rather_than_scored() {
