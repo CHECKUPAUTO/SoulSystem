@@ -178,6 +178,40 @@ impl EventHub {
 /// is no implicit "open" state (CRIT-007 / INV-NET-1). The token is compared
 /// in constant time so response latency cannot be used to recover it byte by
 /// byte, and it is never included in `Debug` output or logs.
+/// Restore the pre-CRIT-007 grant-everything default during migration.
+pub const UNSCOPED_GRANTS_ALL_VAR: &str = "SOULSYSTEM_GATEWAY_UNSCOPED_GRANTS_ALL";
+
+/// Scopes granted to a credential configured without an explicit list.
+///
+/// [`scope::ScopeSet::default_for_unscoped_credential`] — read-only — unless
+/// the migration window is open (CRIT-007 residual).
+///
+/// The window exists because reversing this default is the one change that
+/// can 403 automation which worked yesterday: a deployment whose tokens were
+/// configured before scopes existed holds no scope list at all, so every
+/// write or exec call it makes would start failing on upgrade.
+///
+/// It warns on every read rather than once, for the same reason the
+/// persistence migration does: a quiet window is one nobody closes. Read per
+/// call, so clearing the variable takes effect on the next credential parse.
+fn unscoped_default() -> scope::ScopeSet {
+    let legacy = std::env::var(UNSCOPED_GRANTS_ALL_VAR)
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if legacy {
+        tracing::warn!(
+            var = UNSCOPED_GRANTS_ALL_VAR,
+            "a credential with no scope list is being granted EVERY scope, \
+             including exec. This is the pre-CRIT-007 behaviour, kept only for \
+             migration: one leaked token reaches shell execution. Add an \
+             explicit scope list (principal:read+write=token) and unset this."
+        );
+        return scope::ScopeSet::all();
+    }
+    scope::ScopeSet::default_for_unscoped_credential()
+}
+
 #[derive(Clone)]
 pub struct GatewayAuth {
     credentials: Arc<[GatewayCredential]>,
@@ -260,7 +294,7 @@ impl GatewayAuth {
                 credentials.push(GatewayCredential {
                     principal: Arc::from("legacy"),
                     token: Arc::from(token),
-                    scopes: scope::ScopeSet::all(),
+                    scopes: unscoped_default(),
                 });
             }
         }

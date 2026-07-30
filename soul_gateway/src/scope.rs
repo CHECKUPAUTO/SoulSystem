@@ -105,6 +105,27 @@ impl ScopeSet {
         Self { scopes: Vec::new() }
     }
 
+    /// What a credential configured without an explicit scope list receives
+    /// (CRIT-007 residual).
+    ///
+    /// [`Scope::Read`] only. Previously this was [`Self::all`], which made
+    /// least privilege *expressible* rather than *default*: a deployment that
+    /// configured no scopes was exactly as exposed as before scopes existed,
+    /// and one leaked token still reached shell execution.
+    ///
+    /// `Read` rather than [`Self::none`] because a credential that holds
+    /// nothing is indistinguishable from a broken one — every request 403s and
+    /// the operator's first conclusion is that authentication is misconfigured.
+    /// `Read` fails in the direction that is diagnosable: status routes answer,
+    /// the ones that act do not.
+    ///
+    /// `Exec` is deliberately not included at any implicit level. It is the
+    /// scope that turns a leaked token into host compromise, so it is only
+    /// ever held by saying so.
+    pub fn default_for_unscoped_credential() -> Self {
+        Self::from_scopes([Scope::Read])
+    }
+
     /// Build from an explicit list, de-duplicated and ordered.
     pub fn from_scopes(scopes: impl IntoIterator<Item = Scope>) -> Self {
         let mut scopes: Vec<Scope> = scopes.into_iter().collect();
@@ -189,7 +210,11 @@ pub fn split_principal_and_scopes(raw: &str) -> (String, ScopeSet, Vec<String>) 
             // visible in the logs and at the first request.
             (principal.trim().to_owned(), scopes, unknown)
         }
-        None => (raw.trim().to_owned(), ScopeSet::all(), Vec::new()),
+        None => (
+            raw.trim().to_owned(),
+            ScopeSet::default_for_unscoped_credential(),
+            Vec::new(),
+        ),
     }
 }
 
@@ -272,14 +297,31 @@ mod tests {
         );
     }
 
+    /// CRIT-007 residual: this test used to assert the opposite.
+    ///
+    /// It read `assert!(scopes.is_all())` and recorded the product decision
+    /// that scopes were opt-in, so an upgrade could not 403 automation that
+    /// worked yesterday. That decision made least privilege *expressible*
+    /// rather than *default*: a deployment configuring no scopes was exactly
+    /// as exposed as before scopes existed, and one leaked token still reached
+    /// shell execution.
+    ///
+    /// The default is now read-only. The old behaviour is still reachable for
+    /// the migration window via `SOULSYSTEM_GATEWAY_UNSCOPED_GRANTS_ALL`,
+    /// which warns on every use.
     #[test]
-    fn a_principal_without_a_scope_list_is_granted_everything() {
-        // The recorded product decision: scopes are opt-in, so upgrading does
-        // not start returning 403 to automation that worked yesterday.
+    fn a_principal_without_a_scope_list_is_read_only() {
         let (principal, scopes, unknown) = split_principal_and_scopes("alice");
         assert_eq!(principal, "alice");
-        assert!(scopes.is_all());
-        assert!(scopes.allows(Scope::Exec));
+        assert!(scopes.allows(Scope::Read));
+        assert!(
+            !scopes.is_all(),
+            "an unscoped credential must not hold admin"
+        );
+        assert!(
+            !scopes.allows(Scope::Exec),
+            "exec turns a leaked token into host compromise; never implicit"
+        );
         assert!(unknown.is_empty());
     }
 
@@ -319,6 +361,62 @@ mod tests {
             ScopeSet::from_scopes([Scope::Write, Scope::Read]).to_string(),
             "read+write",
             "ordered, so log lines are comparable"
+        );
+    }
+}
+
+#[cfg(test)]
+mod unscoped_default_tests {
+    use super::*;
+
+    /// CRIT-007 residual: an unscoped credential is read-only, not all-powerful.
+    #[test]
+    fn an_unscoped_credential_is_read_only() {
+        let set = ScopeSet::default_for_unscoped_credential();
+        assert!(set.allows(Scope::Read));
+        assert!(
+            !set.allows(Scope::Write),
+            "an unscoped credential must not be able to change state"
+        );
+        assert!(
+            !set.allows(Scope::Exec),
+            "exec is the scope that turns a leaked token into host compromise; \
+             it must never be granted implicitly"
+        );
+        assert!(!set.is_all());
+    }
+
+    /// Read, not none: a credential holding nothing 403s everywhere and reads
+    /// as a broken deployment rather than a restricted one.
+    #[test]
+    fn the_default_is_diagnosable_rather_than_empty() {
+        let set = ScopeSet::default_for_unscoped_credential();
+        assert!(
+            !set.is_empty(),
+            "an empty set is indistinguishable from a misconfiguration"
+        );
+    }
+
+    /// An explicit list still wins, and still parses exactly.
+    #[test]
+    fn an_explicit_scope_list_is_unaffected() {
+        let (name, scopes, unknown) = split_principal_and_scopes("ci:read+exec");
+        assert_eq!(name, "ci");
+        assert!(unknown.is_empty());
+        assert!(scopes.allows(Scope::Read));
+        assert!(scopes.allows(Scope::Exec));
+        assert!(!scopes.allows(Scope::Write));
+    }
+
+    /// A principal with no colon gets the new default, not everything.
+    #[test]
+    fn a_principal_without_a_scope_list_gets_the_safe_default() {
+        let (name, scopes, _) = split_principal_and_scopes("legacy-automation");
+        assert_eq!(name, "legacy-automation");
+        assert!(scopes.allows(Scope::Read));
+        assert!(
+            !scopes.allows(Scope::Exec),
+            "this is the CRIT-007 residual: it used to be ScopeSet::all()"
         );
     }
 }
