@@ -139,6 +139,7 @@ mod tests {
         e.store_observation(
             "test fact: the sky is blue",
             soullink_memory_hierarchy::MemoryLayer::Episodic,
+            soullink_memory_hierarchy::MemoryTrust::Internal,
         )
         .await;
         // Search for it with a substring that is present

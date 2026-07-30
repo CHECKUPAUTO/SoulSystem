@@ -1910,6 +1910,10 @@ Only return the JSON, no explanation."#,
                                     embedding: None,
                                     associations: vec![],
                                     metadata: HashMap::new(),
+                                    // Model output distilled from a context
+                                    // that may have carried screened-untrusted
+                                    // material: Derived, not Internal.
+                                    trust: soullink_memory_hierarchy::MemoryTrust::Derived,
                                 };
                                 self.memory
                                     .store(entry, soullink_memory_hierarchy::MemoryLayer::Episodic)
@@ -1933,6 +1937,7 @@ Only return the JSON, no explanation."#,
                                     embedding: None,
                                     associations: vec![],
                                     metadata: HashMap::new(),
+                                    trust: soullink_memory_hierarchy::MemoryTrust::Derived,
                                 };
                                 self.memory
                                     .store(entry, soullink_memory_hierarchy::MemoryLayer::Semantic)

@@ -1210,6 +1210,40 @@ async fn main() -> Result<()> {
     let mut autonomous =
         soulsystem::autonomous::AutonomousEntity::new(autonomous_config, &entity_name);
 
+    // ── Index de provenance mémoire (INV-MEM-3 / MED-015-B) ──────────
+    // Sans ce chargement, un processus redémarré répond `Unknown` pour chaque
+    // enregistrement qu'il a persisté dans une vie antérieure.
+    let provenance_path = settings
+        .paths
+        .data_dir
+        .join("agent")
+        .join("provenance.json");
+    if let Err(e) = autonomous.agent.load_memory_provenance(&provenance_path) {
+        // Un fichier absent est un premier démarrage (Ok). Une erreur ici est
+        // un index corrompu ou d'une version inconnue — en production on
+        // refuse de démarrer plutôt que de répondre `Unknown` en silence.
+        let production = soul_prod_guard::RuntimeMode::from_env()
+            .map(|m| m.is_production())
+            .unwrap_or(true);
+        if production {
+            return Err(anyhow::anyhow!(
+                "index de provenance illisible ({}): {e} — refus de démarrer \
+                 en production; réparez ou déplacez le fichier",
+                provenance_path.display()
+            ));
+        }
+        tracing::warn!(
+            "index de provenance illisible ({}): {e} — mode dev, démarrage \
+             avec un index vide",
+            provenance_path.display()
+        );
+    } else {
+        info!(
+            "Provenance mémoire: index actif ({})",
+            provenance_path.display()
+        );
+    }
+
     // ── Persistent store (sled) ───────────────────────────────────────
     let persist_dir = settings.paths.data_dir.join("agent");
     let persist_store = match soul_memory::PersistentStore::open(&persist_dir) {
@@ -1355,15 +1389,26 @@ async fn main() -> Result<()> {
 
         // Add goal
         if let Some(ref goal_desc) = cli.goal {
-            let daemon =
-                soul_daemon::Daemon::new(soul_daemon::DaemonConfig::default(), persist_store);
+            let daemon = soul_daemon::Daemon::new(
+                soul_daemon::DaemonConfig {
+                    provenance_path: Some(provenance_path.clone()),
+                    ..Default::default()
+                },
+                persist_store,
+            );
             let goal = daemon.add_goal(goal_desc, 5)?;
             println!("Goal ajouté: {} ({})", goal.description, &goal.id[..8]);
             return Ok(());
         }
 
         // Run daemon (with or without REPL)
-        let daemon = soul_daemon::Daemon::new(soul_daemon::DaemonConfig::default(), persist_store);
+        let daemon = soul_daemon::Daemon::new(
+            soul_daemon::DaemonConfig {
+                provenance_path: Some(provenance_path.clone()),
+                ..Default::default()
+            },
+            persist_store,
+        );
 
         // Subscribe daemon events to dashboard
         {
@@ -1586,7 +1631,14 @@ async fn main() -> Result<()> {
 
     if let Some(ref question) = cli.ask {
         info!("▶ Mode ask: {}", question);
-        match autonomous.ask(question).await {
+        let ask_result = autonomous.ask(question).await;
+        // La cadence de persistance appartient à l'appelant (voir
+        // `persist_memory_provenance`) : pour un processus one-shot, c'est ici
+        // ou jamais.
+        if let Err(e) = autonomous.agent.persist_memory_provenance() {
+            tracing::warn!("persistance de l'index de provenance échouée: {e}");
+        }
+        match ask_result {
             Ok(answer) => println!("{}", answer),
             Err(e) => eprintln!("Error: {}", e),
         }
