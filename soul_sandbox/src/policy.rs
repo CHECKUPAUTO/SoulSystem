@@ -247,6 +247,34 @@ pub struct SandboxPolicy {
     /// `setrlimit` rather than cgroups.
     pub resource_limits: ResourceLimits,
 
+    /// If true (the default), the sandboxed process runs in its own PID
+    /// namespace, so it cannot see or signal host processes.
+    ///
+    /// This closes a gap the network namespace did not: a confined process
+    /// that could still `kill(host_pid)` can stop the very daemon supervising
+    /// it. `kill(2)` resolves PIDs within the caller's namespace, so a process
+    /// whose namespace contains only itself has nothing to signal.
+    ///
+    /// Best-effort for the same reason as [`Self::network_isolated`]: it needs
+    /// an unprivileged user namespace, which some hosts forbid outright. A
+    /// mandatory feature that breaks common hosts gets disabled wholesale,
+    /// which is worse in aggregate than degrading — see
+    /// `Sandbox::apply_sandbox_pre_exec`.
+    pub pid_isolated: bool,
+
+    /// If true (the default), the sandboxed process gets its own mount
+    /// namespace with `/proc` remounted for its PID namespace.
+    ///
+    /// Without this, PID isolation stops the process *signalling* host
+    /// processes but still lets it *read* them: `/proc` would be the host's,
+    /// so `ps` and anything walking `/proc/<pid>` would enumerate the whole
+    /// machine. Reconnaissance is not as bad as control, but the sandbox
+    /// should not claim isolation it does not have.
+    ///
+    /// Has no effect unless [`Self::pid_isolated`] is set: remounting `/proc`
+    /// without a new PID namespace would show the same processes.
+    pub mount_isolated: bool,
+
     /// Working directory for the child, or the parent's cwd if `None`.
     ///
     /// Exists because callers that had one before they were sandboxed would
@@ -273,6 +301,8 @@ impl Default for SandboxPolicy {
             block_shell_bypass: true,
             seccomp_profile: Some("default".to_string()),
             network_isolated: true,
+            pid_isolated: true,
+            mount_isolated: true,
             max_output_bytes: 2 * 1024 * 1024,
             resource_limits: ResourceLimits::default(),
             working_dir: None,

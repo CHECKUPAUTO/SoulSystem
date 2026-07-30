@@ -280,10 +280,54 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   real leaf creation so read-only mounts fail before an execution depends on
   them. The enforcement test self-skips without a delegated subtree: CI
   exercises the fallback for real, prepared hosts exercise enforcement.
-- **Remaining scope:** (2) the double-fork spawn restructure for
-  `CLONE_NEWPID`; (3) a filesystem-view policy, then `CLONE_NEWNS` on top of
-  it; (4) per-tool egress allowlisting to replace the current all-or-nothing
-  network namespace. Each is a restructure, not a flag — see above.
+- **Part (2) is DONE.** The double-fork restructure is implemented:
+  `pre_exec` unshares `CLONE_NEWPID`, forks, and the intermediate waits and
+  mirrors the grandchild's fate (`WEXITSTATUS`, or `128 + signal`) so callers
+  still see the command's own result. Measured: `readlink /proc/self` returns
+  `1` under isolation and the real host PID without it.
+
+  Two hazards the section above predicted, plus one it did not:
+
+  * exit-status reporting — handled by the mirroring described above;
+  * the `killpg` timeout path — process groups do not span a PID namespace,
+    so the grandchild sets `PR_SET_PDEATHSIG` to `SIGKILL` and re-checks
+    `getppid()` for the race where the parent died before the `prctl`;
+  * **the one that was not predicted** — the intermediate inherited
+    `Command::spawn`'s `CLOEXEC` status pipe, which `spawn` reads until EOF.
+    Since the intermediate never execs, `spawn` did not return until the
+    command finished. The deadline is armed *after* `spawn`, so a 150 ms
+    timeout on `sleep 10` waited the full ten seconds and then reported
+    **success**. The intermediate now closes inherited descriptors above
+    stdio before waiting. Pinned by
+    `the_deadline_still_fires_with_pid_isolation`.
+
+- **Part (3) is PARTIAL.** `CLONE_NEWNS` is unshared alongside the PID
+  namespace and `/proc` is remounted for the new namespace, so the sandboxed
+  process cannot *enumerate* host processes — measured at 1 visible process
+  versus 86 without. That closes the reconnaissance half.
+
+  A **filesystem-view policy** is still not implemented: nothing restricts
+  which paths the process can open. `SandboxPolicy` still expresses path
+  policy as string matching over the command line, and a real view needs
+  `pivot_root` with the binary and its shared libraries bound in. The mount
+  namespace is now present and useful for `/proc`; it is not yet a
+  containment boundary for the filesystem, and the code says so where it
+  matters rather than implying otherwise.
+
+- **Part (4) is NOT DONE as per-host egress, deliberately.** Egress control
+  is per-tool and binary today: `network_isolated` either gives a tool the
+  host's network or none of it. `tests/architecture_network_egress.rs` now
+  pins the three opt-out sites by name and count, in both directions, and
+  requires each to state why it needs a network — so the exception cannot
+  grow quietly.
+
+  Restricting a tool to *specific* hosts needs nftables rules inside the
+  netns (privileged setup), a forced proxy (same redirect rules, or it is
+  advisory), or `SECCOMP_RET_USER_NOTIF` supervision of `connect(2)` — plain
+  seccomp cannot inspect a `sockaddr` because BPF may not dereference
+  pointers. An `AllowedHosts` field that nothing enforced would look like the
+  missing control while providing none of it, which is the failure mode this
+  roadmap exists to avoid.
 - **Acceptance tests:** a fork bomb is contained without relying on a dedicated
   UID; a memory hog is killed by its own cgroup rather than by the host OOM
   killer; the sandboxed process sees only the paths its policy grants; a tool
