@@ -225,9 +225,13 @@ fn every_decision_names_a_recommendation_and_an_owner() {
             .split("\n## ")
             .find(|s| s.starts_with(id))
             .unwrap_or_else(|| panic!("{id} has no section"));
+        // Either word: a fresh entry starts as a recommendation and becomes a
+        // decision once someone owns it. Both are a stated position; what the
+        // guard refuses is an entry that describes the problem and stops.
         assert!(
-            section.contains("Recommendation"),
-            "{id} has no recommendation"
+            section.contains("Recommendation") || section.contains("Decision"),
+            "{id} states neither a recommendation nor a decision — describing \
+             the problem is not the same as saying what happens to it"
         );
         assert!(
             section.contains("Decided by"),

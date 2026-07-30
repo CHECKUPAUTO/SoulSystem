@@ -11,9 +11,9 @@ decision, and a date — and so that
 `tests/architecture_simulated_execution.rs` can fail when a new one appears
 without them.
 
-**Status of this document:** recommendations written from measured evidence.
-The `Decided by` column is `PENDING` where the call belongs to the repository
-owner rather than to whoever wrote the code.
+**Status of this document:** decided. The repository owner reviewed the
+recommendations below and adopted them as written (2026-07-30). Each entry
+records that decision rather than a proposal.
 
 ---
 
@@ -24,8 +24,8 @@ owner rather than to whoever wrote the code.
 | Claims | An autonomous entity runtime (`soul_entity`) |
 | Actually does | Simulated autonomy; never finished |
 | Neutralised | Yes — no longer reports simulated steps as successes |
-| **Recommendation** | **Keep gated**, review by 2026-10-31 |
-| Decided by | PENDING |
+| **Decision** | **Keep gated**, review by 2026-10-31 |
+| Decided by | repository owner, 2026-07-30 (adopted the recommendation as written) |
 
 **Evidence.** The production guard can refuse it —
 `GuardViolation::ExperimentalRuntimeInProduction` — but until #161 the posture
@@ -46,8 +46,8 @@ cost of keeping it is bounded.
 | Claims | Semantic scoring and pruning of reasoning nodes |
 | Actually does | Constant placeholder vectors → similarity scores that mean nothing |
 | Neutralised | Yes — the literal placeholder is refused, scores are no longer presented as semantic |
-| **Recommendation** | **Finish**, or delete the scoring path if no consumer needs it |
-| Decided by | PENDING |
+| **Decision** | **Finish**, or delete the scoring path if no consumer needs it |
+| Decided by | repository owner, 2026-07-30 (adopted the recommendation as written) |
 
 **The trap.** Do not "finish" this by substituting a better-dressed
 placeholder. The original defect was exactly that: constant vectors producing
@@ -64,8 +64,8 @@ reader can predict** — not that a placeholder is correctly refused.
 | Claims | Goal decomposition |
 | Actually does | Keyword matching, no LLM reasoning |
 | Neutralised | Yes — gated and labelled non-reasoning |
-| **Recommendation** | **Finish** — `soul_planner` already has LLM access |
-| Decided by | PENDING |
+| **Decision** | **Finish** — `soul_planner` already has LLM access |
+| Decided by | repository owner, 2026-07-30 (adopted the recommendation as written) |
 
 The gap between what it does and what it could do is small: the planner crate
 already holds an LLM client. This is the cheapest of the three "finish"
@@ -80,8 +80,8 @@ candidates.
 | Claims | Tool calling across providers |
 | Actually does | Ollama has native tool calling; OpenAI/Anthropic flattened tools into the prompt |
 | Neutralised | Yes — no longer silent |
-| **Recommendation** | **Finish** — implement native tool calling for OpenAI and Anthropic |
-| Decided by | PENDING |
+| **Decision** | **Finish** — implement native tool calling for OpenAI and Anthropic |
+| Decided by | repository owner, 2026-07-30 (adopted the recommendation as written) |
 
 Both providers have documented native tool-calling APIs. This is ordinary
 integration work with a clear acceptance test: a tool call round-trips as a
@@ -96,8 +96,8 @@ structured call, not as text the model happened to format correctly.
 | Claims | A WASM runtime with WASI host functions |
 | Actually does | `fd_write` / `proc_exit` / `environ_*` are placeholders |
 | Reachable | **No** |
-| **Recommendation** | **Delete** |
-| Decided by | PENDING |
+| **Decision** | **Delete** |
+| Decided by | repository owner, 2026-07-30 (adopted the recommendation as written) |
 
 **Evidence for deletion**, all measured:
 
@@ -122,8 +122,8 @@ by someone who assumes it works. Git keeps the history if it is ever wanted.
 | Claims | Dispatches a function to the GPU |
 | Actually does | Parses the signature looking for `&mut [f32]`; never applied anywhere |
 | Reachable | **No** |
-| **Recommendation** | **Keep the crate, delete nothing yet** — see below |
-| Decided by | PENDING |
+| **Decision** | **Keep the crate, delete nothing yet** — see below |
+| Decided by | repository owner, 2026-07-30 (adopted the recommendation as written) |
 
 This one is **not** the clean deletion it first appears to be, and the
 difference matters.
@@ -160,11 +160,14 @@ reference for another. **Fix the tree first, then revisit this entry.**
 
 ## Summary
 
-| id | recommendation | blocked on |
+| id | decision | next step |
 |---|---|---|
-| HIGH-006 | keep gated, review 2026-10-31 | — |
-| MED-004 | finish, or delete the scoring path | product call |
-| LOW-006 | finish | product call |
-| LOW-008 | finish | product call |
-| MED-010 | delete | owner approval |
-| LOW-004 | defer | MED-017 — fix `soullink-node/scirust` first |
+| HIGH-006 | keep gated, review 2026-10-31 | none until the review date |
+| MED-004 | finish | needs a real embedding source; see the trap above |
+| LOW-006 | finish | cheapest of the three — `soul_planner` already holds an LLM client |
+| LOW-008 | finish | native tool calling for OpenAI and Anthropic |
+| MED-010 | **delete** | `soul-wasm` and its `[workspace.dependencies]` line, together |
+| LOW-004 | defer | blocked on MED-017 — fix `soullink-node/scirust` first |
+
+The three "finish" items are scheduled work, not blockers: each is neutralised
+today, so nothing reports a false success while they wait.
