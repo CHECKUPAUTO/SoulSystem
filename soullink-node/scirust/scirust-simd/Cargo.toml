@@ -7,7 +7,7 @@ description = "SIMD auto-vectorization primitives for SciRust"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-scirust-simd-macros = { path = "/root/scirust/scirust-simd-macros" }
+scirust-simd-macros = { path = "../scirust-simd-macros" }
 
 [features]
 default = []

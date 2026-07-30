@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-scirust-core = { path = "/root/scirust/scirust-core" }
-scirust-autodiff = { path = "/root/scirust/scirust-autodiff" }
+scirust-core = { path = "../../scirust-core" }
+scirust-autodiff = { path = "../../scirust-autodiff" }

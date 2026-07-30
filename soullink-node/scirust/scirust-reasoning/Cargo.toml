@@ -7,5 +7,5 @@ description = "Reasoning engine for SciRust: equation solving, optimization, tra
 publish = false
 
 [dependencies]
-scirust-symbolic = { path = "/root/scirust/scirust-symbolic" }
-scirust-autodiff = { path = "/root/scirust/scirust-autodiff" }
+scirust-symbolic = { path = "../scirust-symbolic" }
+scirust-autodiff = { path = "../scirust-autodiff" }

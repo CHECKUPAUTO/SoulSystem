@@ -1702,7 +1702,8 @@
       "fixing_prs": [],
       "verification_tests": [],
       "residual_risk": "If wired later, plugins silently no-op all I/O while reporting success, and fd_write's unbounded handling of an unvalidated iovs pointer would need bounds checking against linear memory before use.",
-      "follow_up": "Gate the execution API behind an experimental feature flag until the host functions are implemented and bounds-checked."
+      "follow_up": "None.",
+      "remaining_exposure": "DELETED, PENDING MERGE - promote only once the PR carries a real merge commit. RESOLVED BY DELETION. The crate held placeholder WASI host functions (fd_write/proc_exit/environ_*), had ZERO Rust callers, and was not a workspace member - so it was invisible to every architecture guard, which parse `members` from the root manifest. Its only trace was one line in [workspace.dependencies] that nothing consumed. A WASM runtime with placeholder host functions, that nothing builds and no guard watches, is the expensive kind of dead code: it gets found later by someone who assumes it works. The directory and the manifest line were removed together, so the disposition guard's 'wholly present or wholly gone' assertion holds. cargo check --workspace --all-targets is clean afterwards, which is what the decision rested on. Git keeps the history if it is ever wanted."
     },
     {
       "id": "MED-011",
@@ -2059,7 +2060,7 @@
       "severity": "medium",
       "status": "FIXED_AND_VERIFIED",
       "current_state": "SecretString implemented Display as the literal string [REDACTED]. Leak-proof, but it fails SILENTLY WHERE IT MATTERS: format!(\"Bearer {token}\") on a SecretString compiled cleanly and attached \"Bearer [REDACTED]\" as the credential. FOUR shipped sites did exactly that - soul_llm's OpenAI provider (every authenticated OpenAI-compatible request got 401), soul_llm's Ollama provider (auth_token), avid-scout's Bearer arm, and soul_api's Telegram URL (\"...bot[REDACTED]/sendMessage\") - authentication and notifications silently broken at runtime with no compile-time signal and no test coverage, since provider tests need live endpoints. FIX: impl Display for SecretString is REMOVED. Interpolating a secret is now a compile error; the author must choose .expose() for the real value or {:?} for the redacted form. A compile_fail doctest pins the absence. All four sites now use .expose() and the doctor-path test asserts the header carries the REAL value. MED-017-B audited ProtocolSecret's usage (only soullink-gateway's ws protocol structs, which serde-serialize it faithfully to the peer - no Display interpolation existed anywhere) and removed its Display the same way, with its own compile_fail doctest. For a type whose purpose is carrying the value faithfully, the redacting-Display failure mode was worse than SecretString's: the wire form would be corrupted while every log line looked correct. The footgun is removed before any site tripped it.",
-      "follow_up": "None. The class hazard (a future type given a redacting Display) is recorded in SECURITY_INVARIANTS' INV-SEC-2 row.",
+      "follow_up": "Whether this tree should join the workspace and the guards, or be removed, remains the product question MED-017 tracks. It can now at least be evaluated: before this it could not be resolved, let alone built.",
       "required_invariant": "A secret type must fail loudly, at compile time, when used where a plain string is expected - a redaction that silently replaces the value at runtime breaks the caller while looking safe (INV-SEC-2 corollary).",
       "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
       "audit_category": "secret-handling",
@@ -2110,7 +2111,8 @@
           "title": "security(MED-017-B): remove ProtocolSecret's Display before anyone trips it"
         }
       ],
-      "residual_risk": "None in the two secret types: neither implements Display and both absences are compile_fail-pinned. The class hazard persists only as a pattern - any future type given a redacting Display reintroduces it - and is recorded on the INV-SEC-2 invariant row."
+      "residual_risk": "None in the two secret types: neither implements Display and both absences are compile_fail-pinned. The class hazard persists only as a pattern - any future type given a redacting Display reintroduces it - and is recorded on the INV-SEC-2 invariant row.",
+      "remaining_exposure": " | CONCRETE INSTANCE FIXED (pending merge): the soullink-node/scirust tree could not be resolved by cargo AT ALL, in three separate ways, none of which CI could ever see because soullink-node sits in the root workspace's `exclude` list. (1) 16 manifests declared 50 dependency paths pointing at /root/scirust/..., an absolute directory outside the repository that does not exist - every referenced crate was in fact present in-repo as a sibling, so the paths were a development leftover; rewritten as relative. (2) The scirust workspace root had NO [workspace.dependencies] section while two members inherited serde/serde_json with `{ workspace = true }`. (3) scirust-inference's `serialization` feature named serde without it being optional, which is a manifest error rather than a no-op. MEASURED: `cargo metadata --no-deps` in that tree went from exit 101 to exit 0, and `cargo check -p scirust-macros` compiles. NOT claimed: a full build of the tree, which is excluded precisely because it OOMs a 7 GB runner."
     },
     {
       "id": "LOW-001",

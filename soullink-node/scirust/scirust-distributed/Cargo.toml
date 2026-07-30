@@ -5,5 +5,5 @@ edition = "2021"
 description = "Distributed inference for SciRust: TCP-based model serving, data parallelism, rendezvous"
 
 [dependencies]
-scirust-inference = { path = "/root/scirust/scirust-inference" }
-scirust-probability = { path = "/root/scirust/scirust-probability" }
+scirust-inference = { path = "../scirust-inference" }
+scirust-probability = { path = "../scirust-probability" }
