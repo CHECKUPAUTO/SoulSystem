@@ -327,7 +327,11 @@ octasoma = { path = "octasoma" }
 
 [package]
 name = "soulsystem"
-version = "0.6.0"
+# Inherited, not restated: the root binary shipped 0.6.0 while every workspace
+# member carried 13.5.0, so `soulsystem --version` disagreed with the release
+# it was built from (LOW-002). A literal here can drift again; the workspace
+# value cannot.
+version.workspace = true
 edition = "2021"
 description = "SoulSystem — Autonomous digital agent ecosystem"
 license = "MIT OR Apache-2.0"

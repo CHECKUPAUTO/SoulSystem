@@ -1916,7 +1916,7 @@
       ],
       "required_invariant": "A credential must be held in a redacting type and unwrapped only at the point of use, whatever the holding variable is named (INV-SEC-2).",
       "current_state": "Confirmed and now VISIBLE, not fixed. P1-5-C added `plaintext_authorization_sites_do_not_grow`, which flags any value handed to `bearer_auth` or interpolated into a `Bearer`/`Bot`/`Token` header without `.expose()`. The check does not depend on naming at all: anything placed in an Authorization header IS a credential - that is what the header means - regardless of what the variable is called or whether it is a field, a parameter or a local. That is why it reached 27 sites the P1-5 field-name scan reported nothing about; MED-016-B has since migrated 8 of them, leaving 19. Only synergie's API currently does this correctly, via `token.expose()`. The budget is pinned two-way, so the set cannot grow and a fix must lower it. Verified negatively: adding one `bearer_auth(t)` call anywhere in a workspace member fails the test at 28. Not fixed in one change because migrating these means changing function signatures across a dozen crates; a flag day there would be churn rather than hardening, and the ratchet makes the exposure visible in the meantime. MED-016-B (first pass) migrated the two largest groups: soul_gateway's Slack/WhatsApp/Discord providers, whose tokens were `Option<String>` struct fields read from env, and avid-tui's five call sites, where one env-derived local was cloned into five async tasks. All eight now hold `SecretString` and call `.expose()` only at the header. `SecretString::is_empty` delegates to the inner value, so the providers' existing emptiness guards behave identically. The budget moved 27 -> 19 in the same change, and the ratchet's lower bound is what reported the new number: after the migration the test failed with 'only 19 sites remain but the budget is still 27'. Second pass (tranche 2) took the budget 19 -> 12: soullink-security's verify.rs (8 verifier functions), soullink-gateway's Slack and WhatsApp channels, its CLI `call` path and the OpenAI provider header. verify.rs was the instructive one - `Finding::secret` was ALREADY a SecretString, exposed at the dispatcher and passed as a plain `&str` into every verifier, so the type existed and was being discarded one frame too early. The verifiers now take `&SecretString` and expose only at the header or URL. The same file kept `checked: HashSet<String>` holding the EXPOSED text of every secret the scan had touched, purely to avoid double-checking; it now stores SHA-256 digests, which answer 'have I seen this' identically without retaining the credential. That was not one of the 27 counted sites - the scanner looks for Authorization attachment, not for retention - so it is a defect the guard could not have found. The retention check proposed after tranche 2 now exists: `exposed_secrets_are_not_retained_as_plain_owned_strings` scans for owned plaintext copies of exposed secrets (`.expose().to_owned()/.to_string()/.as_bytes().to_vec()`), sanctions copies wrapped in `Zeroizing::new` (they zero on drop - HIGH-001's own pattern), skips test modules, and pins the remainder two-way. It found exactly one member site: souls' settings TUI shows the stored API key as the editable 'current value' (souls/src/config.rs). That is recorded with a comment rather than silently fixed, because the fix is a UI decision - mask it or show set/unset - not a mechanical migration. A negative probe confirmed the check goes red on an unrecorded copy with file:line named. MED-016-B final pass took the budget 12 -> 4: soul_llm's OpenAI and Ollama providers, avid-scout's Bearer arm, ccos/eval.rs, soullink-decision-v13's two sites, the discord channel and src/main.rs's doctor chain (resolved_api_key is now SecretString from the moment of resolution, which also removed a plain non-zeroizing copy of the secret-store value). The 4 remaining sites are TEST-FIXTURE HELPERS (src/api.rs and soul_gateway test senders) interpolating literal test tokens; the guard deliberately has no test-module skip for this check, so they count. Whether to migrate them or teach the check to skip test modules (as the retention check does) is a guard-design choice, noted rather than decided in the same PR that lowers the count.",
-      "follow_up": "MED-016-B (final): migrate the remaining 12 attachment sites. MED-016-C: decide the souls settings-TUI display (mask vs set/unset indicator) and clear RETAINED_EXPOSED_COPIES to empty.",
+      "follow_up": "MED-016-B (final): 4 attachment sites remain, all test-fixture senders - migrate them or teach the check to skip test modules (guard-design choice). MED-016-C: decide the souls settings-TUI display (mask vs set/unset) and clear RETAINED_EXPOSED_COPIES.",
       "verification_tests": [
         {
           "name": "plaintext_authorization_sites_do_not_grow",
@@ -2048,17 +2048,25 @@
       "original_reachable_path": [
         "GET /health -> HealthResponse.version = env!(CARGO_PKG_VERSION) = 0.6.0 while all member crates report 13.5.0"
       ],
-      "current_state": "Unchanged. cargo metadata on current main reports the root soulsystem package at version 0.6.0 while [workspace.package].version is 13.5.0, so the binary's startup banner, /health response, metrics and backup metadata all report 0.6.0.",
+      "current_state": "Unchanged. cargo metadata on current main reports the root soulsystem package at version 0.6.0 while [workspace.package].version is 13.5.0, so the binary's startup banner, /health response, metrics and backup metadata all report 0.6.0. Fixed: the root [package] now uses version.workspace = true, so `soulsystem --version` reports 13.5.0 - the same number every workspace member carries. A tests/architecture_manifest_consistency.rs guard pins the MECHANISM, not the number: it reads the manifest TEXT rather than cargo metadata, because metadata reports the resolved value and cannot tell an inherited version from a hand-copied one that happens to be correct today. A companion test refuses to pass vacuously if [workspace.package] loses its concrete version.",
       "reachable_from": [
         "src/api.rs health_handler -> HealthResponse.version",
         "src/main.rs startup banner"
       ],
       "reproducer": "cargo metadata --no-deps --format-version 1 reports version 0.6.0 for package soulsystem; grep [workspace.package] in Cargo.toml shows 13.5.0.",
       "required_invariant": "The root binary package version and [workspace.package].version are identical, so every runtime surface reports one consistent version.",
-      "fixing_prs": [],
-      "verification_tests": [],
-      "residual_risk": "Observability and incident-response drift only; no security impact. Misleading when correlating a deployed binary with a source revision.",
-      "follow_up": "Set the root package to version.workspace = true and add a CI manifest-consistency check."
+      "verification_tests": [
+        {
+          "name": "root package inherits the workspace version",
+          "command": "cargo test --test architecture_manifest_consistency"
+        },
+        {
+          "name": "guard fails when the inheritance is undone (negative probe)",
+          "command": "revert to a literal version, then cargo test --test architecture_manifest_consistency"
+        }
+      ],
+      "residual_risk": "None for the root package. Individual member crates that restate a literal version are not covered by this guard - it checks the root only, which is the one the shipped binary reports.",
+      "follow_up": "The fix is implemented and guarded (root [package] uses version.workspace = true; tests/architecture_manifest_consistency.rs pins the mechanism). Status stays CONFIRMED_CURRENT until that PR merges - FIXED_AND_VERIFIED requires a real merge commit, and a placeholder there would make the register lie about what has shipped. Promote in a docs pass afterwards."
     },
     {
       "id": "LOW-003",
@@ -2165,7 +2173,7 @@
       "original_reachable_path": [
         "src/main.rs --plan flag -> CognitiveLoop::create_plan(&goal, &[]) -> empty plan, no LLM decomposition"
       ],
-      "current_state": "Unchanged. CognitiveLoop::decide still branches on substring matching over the context string, and create_plan mechanically maps caller-supplied commands to steps, so --plan with no supplied commands yields an empty plan. soul_planner still declares no LLM dependency. The orphaned src/autonomous_loop.rs, which contained a second keyword-decide cycle, is confirmed dead: no `mod autonomous_loop` declaration exists in src/lib.rs or src/main.rs, so it is not compiled - which also means the 0.0.0.0 listener bind inside it is unreachable.",
+      "current_state": "Unchanged. CognitiveLoop::decide still branches on substring matching over the context string, and create_plan mechanically maps caller-supplied commands to steps, so --plan with no supplied commands yields an empty plan. soul_planner still declares no LLM dependency. The orphaned src/autonomous_loop.rs, which contained a second keyword-decide cycle, is confirmed dead: no `mod autonomous_loop` declaration exists in src/lib.rs or src/main.rs, so it is not compiled - which also means the 0.0.0.0 listener bind inside it is unreachable. The dead file half is done: src/autonomous_loop.rs (391 lines) had NO `mod autonomous_loop;` declaration anywhere in src/, so it was never compiled - the `autonomous_loop()` called at main.rs:1575 is a method on soul_entity's Entity, not this module. Deleting it left the workspace check clean, which is the proof it was dead. The keyword-matching CognitiveLoop itself is untouched: wiring --plan to LLM-backed decomposition versus experimental-gating the flag is a product decision, not a migration.",
       "reachable_from": [
         "src/main.rs --plan flag -> soul_planner::CognitiveLoop::create_plan (reachable, produces an empty plan)"
       ],
@@ -2174,7 +2182,7 @@
       "fixing_prs": [],
       "verification_tests": [],
       "residual_risk": "The reachable damage is limited: run_react does its reasoning through the LLM and uses CognitiveLoop only for memory/history, so the keyword path is not load-bearing for the main agent loop. The --plan CLI surface still presents an empty plan as a result.",
-      "follow_up": "Either wire --plan to LLM-backed decomposition or remove/experimental-gate the flag; delete the dead src/autonomous_loop.rs."
+      "follow_up": "LOW-006 (remaining): decide whether `--plan` gets LLM-backed decomposition or an experimental gate that stops reporting keyword matches as reasoning. Product decision."
     },
     {
       "id": "LOW-007",
