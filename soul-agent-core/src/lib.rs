@@ -959,6 +959,22 @@ impl AutonomousAgent {
 
     // ── Core ReAct Loop ──
 
+    /// Reset the per-run budget counters. Called at the top of every
+    /// `run_task`; extracted so the reset is testable without a live provider.
+    ///
+    /// `provider_attempts_spent` belongs in this list and originally was not
+    /// in it: P1-13-B documented the attempt ceiling as per-run, but only
+    /// `turn`, `tool_call_count` and `write_operation_count` were reset, so
+    /// the ceiling was actually per-agent-*lifetime*. A long-lived agent
+    /// accumulated spend across runs until every new `run_task` aborted
+    /// immediately against a perfectly healthy provider.
+    fn begin_run_accounting(&mut self) {
+        self.turn = 0;
+        self.tool_call_count = 0;
+        self.write_operation_count = 0;
+        self.provider_attempts_spent = 0;
+    }
+
     pub async fn run_task(&mut self, task: &str) -> Result<String, String> {
         if self.emergency_stop.is_tripped() {
             let reason = self.emergency_stop.reason().unwrap_or_default();
@@ -968,9 +984,7 @@ impl AutonomousAgent {
         }
 
         *self.running.write().await = true;
-        self.turn = 0;
-        self.tool_call_count = 0;
-        self.write_operation_count = 0;
+        self.begin_run_accounting();
         self.task_started_at = Some(std::time::Instant::now());
         self.chat_session.clear();
 
@@ -1774,10 +1788,30 @@ N. Final step"#,
 
         let messages = self.chat_session.build_messages();
 
-        let response = self
-            .guarded_llm_chat(&messages, Some(&self.tool_schemas))
+        // Typed so the caller's error says what actually happened, and is not
+        // charged against the run-scoped attempt ceiling: one `ask` is one
+        // bounded provider sequence with no autonomous loop above it, and
+        // charging it would make a long interactive session brick after N
+        // questions — an availability bug, not a safety improvement.
+        let response = match self
+            .guarded_llm_chat_typed(&messages, Some(&self.tool_schemas))
             .await
-            .map_err(|e| format!("LLM error: {}", e))?;
+        {
+            Ok(resp) => resp,
+            Err((outcome, e)) => {
+                return Err(match outcome {
+                    ProviderOutcome::Exhausted { attempts } => format!(
+                        "LLM provider exhausted after {attempts} provider-level attempts: {e}"
+                    ),
+                    ProviderOutcome::Permanent => {
+                        format!("LLM provider rejected the request permanently: {e}")
+                    }
+                    ProviderOutcome::Retryable | ProviderOutcome::BreakerOpen => {
+                        format!("LLM error: {}", e)
+                    }
+                });
+            }
+        };
 
         let content = response.message.content.unwrap_or_default();
         self.chat_session.add_assistant_message(&content);
@@ -4072,5 +4106,54 @@ mod shared_attempt_budget_tests {
             "a ceiling below ~8 lets a single exhausted sequence end the run"
         );
         assert!(c.max_provider_attempts <= 64, "and it must still bound");
+    }
+}
+
+#[cfg(test)]
+mod run_accounting_tests {
+    use super::*;
+    use soul_llm::{LlmConfig, OllamaClient};
+
+    fn test_agent() -> AutonomousAgent {
+        AutonomousAgent::new(
+            OllamaClient::new(LlmConfig::default()),
+            AgentConfig::default(),
+        )
+    }
+
+    /// The attempt ceiling is documented as per-run, and P1-13-B's original
+    /// code did not reset it with the other per-run counters — making it
+    /// per-agent-lifetime in practice. A long-lived agent accumulated spend
+    /// across runs until every new run aborted immediately against a healthy
+    /// provider. This pins the reset so the documentation stays true.
+    #[test]
+    fn the_provider_attempt_ceiling_is_per_run_not_per_lifetime() {
+        let mut agent = test_agent();
+        agent.provider_attempts_spent = agent.config.max_provider_attempts;
+        agent.turn = 7;
+        agent.tool_call_count = 9;
+        agent.write_operation_count = 3;
+
+        agent.begin_run_accounting();
+
+        assert_eq!(
+            agent.provider_attempts_spent, 0,
+            "a new run must start with a fresh attempt budget"
+        );
+        assert_eq!(agent.turn, 0);
+        assert_eq!(agent.tool_call_count, 0);
+        assert_eq!(agent.write_operation_count, 0);
+    }
+
+    /// `consecutive_failures` is deliberately NOT reset per run: it feeds
+    /// strategy selection, which is supposed to remember that recent runs
+    /// went badly. Pinned so a future tidy-up does not fold it into the
+    /// per-run reset and quietly delete the agent's memory of failure.
+    #[test]
+    fn consecutive_failures_survives_a_new_run() {
+        let mut agent = test_agent();
+        agent.consecutive_failures = 2;
+        agent.begin_run_accounting();
+        assert_eq!(agent.consecutive_failures, 2);
     }
 }
