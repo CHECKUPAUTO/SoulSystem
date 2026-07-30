@@ -359,11 +359,20 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   the real one needed a live provider and breaker. `ProviderOutcome::classify`
   is now an extracted function both use — a drifted mirror of a *retry
   decision* passes while the decision is wrong.
-- **Residual (MED-009-B):** the second call site — the reflection step — still
-  uses the String-returning `guarded_llm_chat`, so a failure there is untyped
-  and uncharged. And the ceiling is per `run_task`, not shared across concurrent
-  runs, so K parallel agents can each spend the full budget against one
-  provider. Neither is a hot loop; both are uncoordinated spend.
+- **~~Residual (MED-009-B)~~ — CLOSED, and it found a defect in P1-13-B's own
+  code.** The ceiling was documented as per-run but `provider_attempts_spent`
+  was never reset with the other per-run counters, making it
+  per-agent-**lifetime**: a long-lived agent accumulated spend until every new
+  run aborted immediately against a healthy provider. The reset now lives in an
+  extracted `begin_run_accounting()` (testable without a live provider), with a
+  companion test pinning that `consecutive_failures` deliberately survives it —
+  strategy selection is supposed to remember that recent runs went badly.
+  `ask()` (previously misdescribed as "the reflection step") now uses the typed
+  path, and is deliberately **not** charged: one ask is one bounded provider
+  sequence with no loop above it, and charging it would brick a long
+  interactive session after N questions. **MED-009-C (design decision):** the
+  scope of a shared ceiling across concurrent runs/agents — per-provider token
+  bucket vs per-process — is not obvious enough to pick silently.
 
 ### ~~P1-9 Authenticate `src/api.rs`~~ — CLOSED (authentication only)
 
