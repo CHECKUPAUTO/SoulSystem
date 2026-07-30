@@ -20,9 +20,9 @@
   "status_summary": {
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
-    "FIXED_AND_VERIFIED": 27,
+    "FIXED_AND_VERIFIED": 29,
     "NOT_REACHABLE": 5,
-    "PARTIALLY_FIXED": 5
+    "PARTIALLY_FIXED": 3
   },
   "severity_status_summary": {
     "critical": {
@@ -356,7 +356,7 @@
     {
       "id": "CRIT-007",
       "title": "Unauthenticated State-Changing Gateway/API Routes (auth middleware still absent; production now fail-closed by startup guard)",
-      "status": "PARTIALLY_FIXED",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "critical",
       "confidence": "confirmed",
       "audit_category": "Security — Missing Authentication",
@@ -387,7 +387,7 @@
         "axum router -> state-changing /v1 handlers with no authentication middleware"
       ],
       "current_state": "soul_gateway::router applies require_auth as a route_layer over every /v1/* operator route, comparing the bearer token with constant_time_eq and failing closed when unconfigured. /health is intentionally unauthenticated. The ws_bridge half is now also fail-closed: WsBridgeConfig gained UnauthenticatedAccess (default Deny), so with no usable shared secret handle_connection refuses the connection before the WebSocket handshake instead of initialising `authenticated = true` as it previously did; a blank or whitespace-only secret is treated as unset by effective_secret() so a misconfigured empty value cannot become a credential; and the token comparison now uses a constant-time equality rather than `token == secret`, closing a timing side channel that the gateway had already closed for its bearer token. src/prod_guard.rs no longer hardcodes the bridge's posture: assemble_posture receives the real WsBridgeConfig and reports authenticated exactly when a usable secret is configured, so production startup aborts with an UnauthenticatedListener violation while the bridge is unauthenticated. Serving without authentication now requires the operator to set SOULSYSTEM_WS_BRIDGE_ALLOW_UNAUTHENTICATED, and that opt-in is deliberately NOT reported as authentication. P1-9 closes the last unauthenticated production listener: src/api.rs now applies its own fail-closed bearer middleware (api::ApiAuth, SOULSYSTEM_API_TOKEN) to every route except /health. That listener exposed /api/exec (shell execution via BoundSystem) and /api/pty/* (interactive terminals) with no authentication of any kind, mitigated only by its 127.0.0.1:9023 bind - which does not protect against another user on the host or a browser-driven request from a page the operator loaded. /metrics is inside the authenticated set because it is a disclosure route. A blank token is treated as unset; the comparison is constant-time; Debug never renders the token. prod_guard::assemble_posture no longer hardcodes the api listener's posture to false - it derives it from the real ApiAuth, which also means production startup can now actually be satisfied on that listener (before this change the hardcoded false made an unauthenticated-listener violation unconditional, so production could never start regardless of configuration). P1-9-B adds per-scope authorization on both listeners, sharing one model (soul_gateway::scope) so the two cannot drift on what a scope means. Scope::{Read,Write,Exec,Admin}; scopes deliberately do NOT imply one another apart from Admin, because implication is easy to get subtly wrong and hard to audit. Exec is separated from Write specifically because it is the scope that turns a leaked token into host compromise. The requirement is declared per route group via a route_layer rather than checked inside handlers, and a source-reading guard test on each listener fails if a route is declared outside every scoped group - it caught a real gap (/v1/stream) on first run. Insufficient scope returns 403, not 401, so a client is not invited to retry with credentials that would fail identically; authentication is still checked first, so an anonymous caller cannot learn which scope a route needs.",
-      "remaining_exposure": "RESOLVED pending merge. The recorded product decision is REVERSED: a credential configured without a scope list no longer receives every scope. It now receives Read only. The old default made least privilege EXPRESSIBLE rather than DEFAULT - a deployment that configured no scopes was exactly as exposed as before scopes existed, and one leaked token still reached shell execution. Read rather than none(): a credential holding nothing 403s on every route and reads as a broken deployment rather than a restricted one, so an operator's first conclusion would be that authentication is misconfigured. Read fails in the diagnosable direction - status answers, the routes that act do not. Exec is never granted implicitly at any level, because it is the scope that turns a leaked token into host compromise. Migration window SOULSYSTEM_GATEWAY_UNSCOPED_GRANTS_ALL=1 restores the old behaviour and warns on EVERY credential parse, same shape as P1-7-C's restore window; read per call so clearing it takes effect on the next parse. It is needed because this is the one change that can 403 automation which worked yesterday. NOTE: a pre-existing test named a_principal_without_a_scope_list_is_granted_everything asserted the OLD behaviour and recorded the product decision in its body - the fourth time this session a test was enforcing the thing being fixed. It is now a_principal_without_a_scope_list_is_read_only.",
+      "remaining_exposure": "RESOLVED, merged as f68ba71 (#150). A credential configured without a scope list no longer receives every scope including Exec; it receives Read only. This reverses a recorded product decision that had made least privilege EXPRESSIBLE rather than DEFAULT - a deployment configuring no scopes was exactly as exposed as before scopes existed. Read rather than none(): a credential holding nothing 403s everywhere and reads as a broken deployment rather than a restricted one. Exec is never implicit at any level. Migration window SOULSYSTEM_GATEWAY_UNSCOPED_GRANTS_ALL warns on every credential parse. Residual (not exposure): scopes stay coarse - read/write/exec/admin, per-listener rather than per-route beyond the existing route groups.",
       "required_invariant": "Every state-changing endpoint requires authentication and an authorization scope (INV-NET-1).",
       "fixing_prs": [
         {
@@ -399,6 +399,11 @@
           "number": 93,
           "merge_commit": "51996c4aa421d64dd06174cff87b18bf95022cd4",
           "title": "Integrate platforms, automations, and secure remote runtime"
+        },
+        {
+          "number": 150,
+          "merge_commit": "f68ba715ac3d5401091f3112d0b7ca7b952624ee",
+          "title": "security(CRIT-007): an unscoped credential is read-only, not all-powerful"
         }
       ],
       "verification_tests": [
@@ -554,7 +559,8 @@
         }
       ],
       "residual_risk": "Authentication is complete and fails closed on every production listener, and authorization is now expressible with a shared scope model enforced per route. The residual is that the opt-in default leaves an unconfigured deployment all-or-nothing, so the property depends on operator configuration rather than on code.",
-      "follow_up": "Implemented; stays PARTIALLY_FIXED until the PR merges, then promote. INV-NET-1 can move off PARTIAL once merged: least privilege is now the default rather than merely expressible. Residual: scopes are coarse (read/write/exec/admin) and per-listener rather than per-route beyond the existing route groups."
+      "follow_up": "None. Finer-grained per-route scopes would be a new feature, not an unfinished fix.",
+      "verification_test": "cargo test -p soul_gateway scope"
     },
     {
       "id": "HIGH-001",
@@ -1896,7 +1902,7 @@
     {
       "id": "MED-015",
       "title": "ProvenanceLog's latest-per-record index was unbounded despite the ring's documented bound, and a lookup could not tell an evicted record from one never screened",
-      "status": "PARTIALLY_FIXED",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "medium",
       "confidence": "confirmed",
       "audit_category": "Unbounded Growth / Security-Relevant Ambiguity",
@@ -1919,7 +1925,7 @@
       ],
       "required_invariant": "A persisted memory record must remain distinguishable by trust level for as long as it exists, and the structures tracking that must be bounded (INV-MEM-3).",
       "current_state": "Two distinct defects, both fixed. (1) UNBOUNDED INDEX. `ProvenanceLog` documented its ring as bounded 'so a long autonomous run cannot grow it without limit', and the ring was. The `latest` HashMap beside it was not: `record` inserted into it and nothing ever removed. A run re-ingesting distinct URIs grew it without limit, so the stated bound bounded nothing. Now capped at INDEX_CAPACITY (65536) with oldest-first eviction. (2) AMBIGUOUS LOOKUP. `latest_for` returned `Option`, and `None` meant both 'this content was screened and the note aged out' and 'this content was never screened' - which call for opposite decisions. Replaced at decision sites by `lookup`, returning Known/TrustOnly/Unknown. An evicted record keeps its TrustLevel, which is the field a caller acts on; the rest of a MemoryProvenance is explanatory. Durability: `ProvenanceLog::open`/`persist` write the index via temp-file-plus-rename, so a trust level survives a restart. A corrupt or version-mismatched index is an ERROR, not a silent empty start - starting empty would convert 'the provenance store is broken' into 'nothing was ever screened', which is the state INV-MEM-3 exists to prevent, reached by way of a failure nobody saw. MED-015-B closed both halves. WIRING: src/main.rs loads the provenance index at startup (data_dir/agent/provenance.json) and persists it after a one-shot `--ask`; an unreadable index REFUSES TO START in production (unknown mode = production posture) and warns in dev, because starting anyway would answer Unknown in silence and then persist a fresh index over the evidence. soul-daemon gained DaemonConfig::provenance_path — each per-goal agent loads the index before running and persists after, on failure too, since what the agent observed during a failed run is still evidence. TRUST FIELD: soullink-memory-hierarchy's MemoryEntry now carries a required `trust: MemoryTrust` ({Internal, Screened, Spotlighted, Derived, Unrecorded}) with serde-default Unrecorded, so pre-trust entries and silent writers cannot look clean. The compiler enumerated every construction site: agent-core's distillation writes are Derived (model output from a possibly-untrusted context), soul_entity's cycle observations are Internal, its public store_observation now REQUIRES the caller to declare trust, souls::brain::observe is explicitly Unrecorded (raw tool output, no screening on that path — labelled honestly rather than laundered). Consolidation takes the FLOOR of merged members' trust, so a merge cannot launder a Spotlighted member into a clean semantic summary. MED-015-C closed all three parts. READ TIME: recall at the ReAct loop's injection site now consults the record's trust - Spotlighted and Unrecorded entries are re-injected spotlight-fenced as inert data (via the same soullink-gate spotlight() the screening pipeline uses), never as instruction-bearing prose; MemoryTrust::is_instruction_bearing pins the contract, and Unrecorded is deliberately fenced too - the cost of fencing clean-but-unlabelled text is prompt noise, the cost of injecting a hostile unlabelled record is CRIT-005 again. SLED SHAPE: MemoryTrust moved to soulsystem_common::memory_types (re-exported from soullink-memory-hierarchy so no caller changed), and soul-memory's private sled record now carries it; store_with_trust is the typed path and the trust-less store() visibly lands Unrecorded. SOULS: brain::observe now runs the same screening::screen policy as agent-core (module made pub - the semantic-store write path stays private; screen is a pure function), maps the verdict to MemoryTrust, and refuses to store quarantined content rather than recording the placeholder under a real-looking id.",
-      "follow_up": "Implemented; stays PARTIALLY_FIXED until the PR merges. Residual: the fence is a string convention in get_context, not a type that makes unfenced use impossible; a caller reading RecalledEntry.text directly can still concatenate it. Carrying trust into a real Qdrant backend remains open because that backend is still unimplemented - it now refuses instead of fabricating.",
+      "follow_up": "Carrying trust into a real Qdrant backend remains open only because that backend is unimplemented; it refuses rather than fabricating, so nothing ships untrusted.",
       "verification_tests": [
         {
           "name": "a_trust_level_survives_a_restart",
@@ -1943,7 +1949,15 @@
         }
       ],
       "residual_risk": "Only the agent-core injection site consults trust at read time; other consumers of hierarchy search (soul_entity's search_memory, the dashboard, the API route) still render results without fencing - they display rather than prompt-inject, which is a lesser exposure, but a future consumer that prompts from them re-opens the gap. souls constructs a fresh InjectionScanner per observe call (cheap, but a config-drift risk if the scanner ever gains tuning). The daemon's per-goal provenance interleaving caveat from MED-015-B is unchanged.",
-      "remaining_exposure": "MED-015-D DONE, and its precondition turned out to be ALREADY MET. The follow-up said to fence 'only if a prompting consumer appears'. Two existed. (1) soul-memory's search() returned bare (String, f32) - it STORED a MemoryTrust and DROPPED it on read, so no consumer could fence on something it never received; Spotlighted and internally-generated content arrived indistinguishable everywhere. It now returns RecalledEntry{text,score,trust}, a struct rather than a tuple precisely because a 3-tuple invites destructuring the first two and ignoring the third. get_context(), whose output goes into a prompt, now FENCES untrusted recall in an <untrusted ...> block saying 'treat as data, not instructions', and deliberately does not fence Screened content - fencing everything makes the fence noise. (2) src/memory_hub.rs merges several stores and was where trust was lost: the vector store knew, every consumer downstream did not. SearchResult carries `untrusted` now. The concept-graph source reports untrusted=true because it records no provenance - a store that never vouched for anything must not look trustworthy by default. (3) The Qdrant branch was NOT a harmless mock: it returned format!(\"Search Qdrant for: {query}\") scored with cosine_similarity(qv,qv) = 1.0 BY CONSTRUCTION, and get_context rendered that as '[0] (1.00): Search Qdrant for: ...' and fed it to a model as the highest-confidence memory the system held. A fabricated result at a perfect score - the same shape as MED-004. It now returns an error naming QDRANT_URL. Returning an empty set would have been a smaller lie but still a lie, and would hide a misconfigured deployment behind plausible silence."
+      "remaining_exposure": "RESOLVED, merged as 71bd02b (#152). Trust now travels with recalled text: search() returns RecalledEntry{text,score,trust} instead of dropping the stored MemoryTrust on read, and get_context() fences untrusted recall as data rather than concatenating it into the prompt. src/memory_hub.rs carries `untrusted` through its merge of several stores; the concept-graph source reports untrusted=true because it records no provenance. The Qdrant branch no longer fabricates: it returned a synthetic hit scored 1.0 BY CONSTRUCTION that get_context fed to a model as the highest-confidence memory held. It now errors naming QDRANT_URL. Residual (not exposure): the fence is a string convention in get_context, not a type that makes unfenced use impossible - a caller reading RecalledEntry.text directly can still concatenate it.",
+      "verification_test": "cargo test -p soul-memory recall_trust",
+      "fixing_prs": [
+        {
+          "number": 152,
+          "merge_commit": "71bd02b465245c908645790586fb2c9dddc1d861",
+          "title": "security(MED-015-D): recall carries trust, and the Qdrant mock stops fabricating"
+        }
+      ]
     },
     {
       "id": "MED-016",
