@@ -138,6 +138,13 @@ pub struct EntityStats {
     pub cycles_succeeded: u64,
     pub cycles_failed: u64,
     pub goals_completed: u64,
+    /// Goals whose plan was walked but never dispatched to any executor.
+    ///
+    /// Kept separate from `goals_completed` on purpose: these two must not be
+    /// summed. An operator reading `goals_completed` is asking "is this thing
+    /// doing work", and counting simulated runs there answers yes when the
+    /// truthful answer is no.
+    pub goals_simulated: u64,
     pub goals_failed: u64,
     pub tools_executed: u64,
     pub code_artifacts_generated: u64,

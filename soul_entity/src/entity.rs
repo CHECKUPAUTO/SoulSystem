@@ -267,28 +267,45 @@ impl SoulEntity {
             let mut chaos_buf = [0.0f32; 1];
             self.subsystems.chaos_perturb(&mut chaos_buf);
 
-            // Simulation d'exécution d'étape.
-            let outcome = format!("[OK] {}", step);
+            // No step is executed here. Nothing dispatches this command to a
+            // shell, a tool or an executor — the loop only formats it.
+            //
+            // The outcome string therefore says so. It used to read "[OK]
+            // {step}", which is indistinguishable from a step that really ran
+            // and succeeded; that string is joined into `exec_result`, which
+            // is persisted to memory and interpolated into the LLM summary
+            // prompt below, so the fabrication did not stay local — the
+            // entity taught itself that work had been done.
+            let outcome = format!("[SIMULATED — not executed] {}", step);
             results.push(outcome.clone());
 
             self.events.publish(EntityEvent::StepExecuted {
                 command: step.clone(),
-                success: true,
+                // Not a failure, and not a success: nothing ran. `simulated`
+                // carries that; see the field's documentation.
+                success: false,
+                simulated: true,
                 ms: start.elapsed().as_millis() as u64,
                 ts: Utc::now(),
             });
 
             // Journaliser chaque étape.
-            self.subsystems
-                .journal_log(crate::subsystems::TAG_STEP, &format!("step {} ok", i));
+            self.subsystems.journal_log(
+                crate::subsystems::TAG_STEP,
+                &format!("step {i} simulated (not executed)"),
+            );
         }
 
         let mut goals = self.goals.lock();
         let goal = goals
             .get_mut(goal_id)
             .ok_or_else(|| format!("goal {goal_id} introuvable"))?;
-        goal.status = "completed".into();
-        self.stats.lock().goals_completed += 1;
+        // "simulated", not "completed". The plan was never dispatched, so a
+        // goal marked completed here would make the entity's own goal store
+        // disagree with reality — and `goals_completed` is a stat an operator
+        // reads to decide whether the thing is working.
+        goal.status = "simulated".into();
+        self.stats.lock().goals_simulated += 1;
 
         // Marquer comme fini dans l'orchestrateur.
         self.subsystems.orch_complete(stable_hash32(goal_id));
@@ -464,21 +481,45 @@ impl SoulEntity {
             let exec_result = self.execute_plan(&goal.id)?;
 
             // 5. Évaluer
+            // The score used to be a flat 0.9 with the feedback "Plan exécuté
+            // avec succès (simulation)" — a high confidence attached to work
+            // that never happened. Both values are persisted to memory and
+            // interpolated into the LLM summary prompt, so the fabrication
+            // became input to later reasoning rather than a one-off display
+            // string.
+            //
+            // 0.0 is not a claim of failure; it is the absence of evidence.
+            // Nothing was executed, so there is nothing to score, and a
+            // truthful reading of "how well did this go" is "unknown".
             let eval = Evaluation {
-                score: 0.9,
-                feedback: "Plan exécuté avec succès (simulation)".into(),
+                score: 0.0,
+                feedback: "Plan NON exécuté : simulation. Aucune étape n'a été \
+                           dispatchée vers un exécuteur, donc aucun résultat \
+                           n'est observé."
+                    .into(),
             };
+            // Same fabrication as the Decision below, on the event stream this
+            // time: 0.95 confidence in a "continue" reached without executing
+            // anything. WS clients read these events as the entity's live
+            // state.
             self.events.publish(EntityEvent::Decision {
                 action: "continue".into(),
-                confidence: 0.95,
+                confidence: 0.0,
                 ts: Utc::now(),
             });
 
             // 6. Décider
+            // "Objectif atteint" with confidence 0.95 was the same fabrication
+            // one layer up: archiving a goal as achieved on the strength of a
+            // simulation. The goal is still archived — leaving it open would
+            // spin the loop forever — but the recorded reason now matches what
+            // happened.
             let decision = Decision {
                 action: "archive".into(),
-                confidence: 0.95,
-                reasoning: "Objectif atteint".into(),
+                confidence: 0.0,
+                reasoning: "Archivé après simulation ; l'objectif n'a pas été \
+                            réellement exécuté."
+                    .into(),
             };
 
             // 7. Persister la décision

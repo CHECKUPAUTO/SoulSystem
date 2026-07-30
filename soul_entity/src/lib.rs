@@ -83,16 +83,74 @@ mod tests {
         assert_eq!(g2.status, "planned");
     }
 
+    /// `execute_plan` reports what it did, which is not execution (HIGH-006).
+    ///
+    /// This test previously asserted `[OK]`, `status == "completed"` and
+    /// `goals_completed >= 1` — it was pinning the fabrication in place. A
+    /// green suite was part of why the claim looked trustworthy.
     #[tokio::test]
-    async fn execute_plan_records_results() {
+    async fn execute_plan_reports_simulation_not_success() {
         let e = test_entity();
         let g = e.create_goal("Echo test", 5);
         e.plan(&g.id).unwrap();
         let r = e.execute_plan(&g.id).unwrap();
-        assert!(r.contains("[OK]"));
+
+        assert!(
+            r.contains("SIMULATED"),
+            "the result string must say nothing ran, got: {r}"
+        );
+        assert!(
+            !r.contains("[OK]"),
+            "\"[OK]\" is indistinguishable from a step that really succeeded"
+        );
+
         let g2 = e.get_goal(&g.id).unwrap();
-        assert_eq!(g2.status, "completed");
-        assert!(e.stats.lock().goals_completed >= 1);
+        assert_eq!(
+            g2.status, "simulated",
+            "a goal whose plan was never dispatched is not completed"
+        );
+
+        let stats = e.stats.lock();
+        assert!(stats.goals_simulated >= 1);
+        assert_eq!(
+            stats.goals_completed, 0,
+            "goals_completed answers \"is this doing work\" — a simulated run \
+             must not count toward it"
+        );
+    }
+
+    /// The evaluation persisted to memory must not claim a score it did not earn.
+    ///
+    /// This matters more than the display string: `eval` is serialized into
+    /// long-term memory and interpolated into the LLM summary prompt, so a
+    /// fabricated 0.9 became an input to later reasoning.
+    #[tokio::test]
+    async fn a_simulated_cycle_does_not_persist_a_confident_evaluation() {
+        let e = test_entity();
+        let g = e.create_goal("Echo test", 5);
+        e.plan(&g.id).unwrap();
+        let record = e.run_cycle().await.expect("cycle runs");
+
+        let score = record
+            .get("evaluation")
+            .and_then(|e| e.get("score"))
+            .and_then(|s| s.as_f64())
+            .expect("the cycle record carries an evaluation score");
+        assert_eq!(
+            score, 0.0,
+            "nothing was executed, so there is nothing to score — a non-zero \
+             value here is persisted to memory and fed to the LLM summary"
+        );
+
+        let feedback = record
+            .get("evaluation")
+            .and_then(|e| e.get("feedback"))
+            .and_then(|f| f.as_str())
+            .expect("the cycle record carries evaluation feedback");
+        assert!(
+            feedback.contains("NON exécuté"),
+            "feedback must state that nothing ran, got: {feedback}"
+        );
     }
 
     #[tokio::test]

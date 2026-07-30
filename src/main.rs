@@ -1489,7 +1489,37 @@ async fn main() -> Result<()> {
     }
 
     if cli.entity {
-        info!("▶ Mode entité autonome unifiée activé");
+        // HIGH-006: SoulEntity walks a plan but dispatches none of it. Nothing
+        // behind this flag executes a step — `execute_plan` formats each one
+        // and moves on — so an operator who starts it in production gets a
+        // process that reports activity and performs none.
+        //
+        // Refusing outright in production rather than warning: a warning on
+        // stderr is exactly what nobody reads in a service manager, and the
+        // failure mode here is silent inaction, which looks identical to
+        // working correctly until someone checks whether the work happened.
+        //
+        // `unwrap_or(true)` matches the provenance guard above: an
+        // unparseable SOULSYSTEM_ENV is treated as production, because the
+        // one thing worse than refusing to start is starting a simulator
+        // under a name that promises autonomy.
+        let production = soul_prod_guard::RuntimeMode::from_env()
+            .map(|m| m.is_production())
+            .unwrap_or(true);
+        if production {
+            return Err(anyhow::anyhow!(
+                "--entity est expérimental : SoulEntity SIMULE l'exécution des \
+                 plans (aucune étape n'est dispatchée vers un exécuteur) et \
+                 refuse donc de démarrer en production. Utilisez \
+                 SOULSYSTEM_ENV=development pour l'exécuter à des fins \
+                 d'évaluation."
+            ));
+        }
+        warn!(
+            "▶ Mode entité autonome unifiée (EXPÉRIMENTAL) — l'exécution des \
+             plans est SIMULÉE : aucune étape n'est réellement exécutée. Les \
+             statistiques rapportent goals_simulated, pas goals_completed."
+        );
         let entity_config = EntityConfig {
             name: "soulsystem".into(),
             llm: LlmConfig {

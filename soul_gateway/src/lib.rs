@@ -74,6 +74,20 @@ pub enum EntityEvent {
     StepExecuted {
         command: String,
         success: bool,
+        /// `true` when the step was **not actually run** — the outcome is
+        /// synthesised, not observed.
+        ///
+        /// `success` alone cannot express this. A simulated step is not a
+        /// failure, so reporting `success: false` would be equally untrue;
+        /// without a separate field the only options were to lie in one
+        /// direction or the other. A consumer that ignores this field is no
+        /// worse off than before, and one that cares can finally tell.
+        ///
+        /// `#[serde(default)]` keeps older payloads decodable: absent means
+        /// `false`, which is the correct reading for events emitted before
+        /// this distinction existed by any code that really did execute.
+        #[serde(default)]
+        simulated: bool,
         ms: u64,
         ts: DateTime<Utc>,
     },
