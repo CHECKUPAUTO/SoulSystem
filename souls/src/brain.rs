@@ -8,6 +8,7 @@
 //! - `soul-intrinsic-motivation`: curiosity-driven autonomous goal generation
 
 use anyhow::Result;
+use soul_agent_core::screening;
 use soul_error_unifier::ErrorUnifier;
 use soul_intrinsic_motivation::IntrinsicMotivation;
 use soullink_autonomy::metacognition::MetaCognition;
@@ -75,9 +76,34 @@ impl BrainMesh {
     /// Also updates the unified error tracker with prediction and goal errors.
     pub async fn observe(&self, input: &str, result: &str, success: bool) {
         let importance = if success { 0.7 } else { 0.3 };
+
+        // MED-015-C: this path used to write raw tool output with
+        // `MemoryTrust::Unrecorded`. It now runs the same screening policy as
+        // agent-core's own observation path, so the stored trust is a
+        // verdict, not an absence.
+        let scanner = soullink_gate::InjectionScanner::new();
+        let screened = screening::screen(&scanner, &format!("Input: {input} → Result: {result}"));
+        if !screened.trust().is_persistable() {
+            // Quarantined: the screened text is a placeholder, not the
+            // content. Storing it would record noise under a real-looking id.
+            tracing::warn!("brain observation quarantined by injection scanner; not stored");
+            return;
+        }
+        let trust = match screened.trust() {
+            soul_agent_core::provenance::TrustLevel::Trusted => {
+                soullink_memory_hierarchy::MemoryTrust::Internal
+            }
+            soul_agent_core::provenance::TrustLevel::Screened => {
+                soullink_memory_hierarchy::MemoryTrust::Screened
+            }
+            soul_agent_core::provenance::TrustLevel::Spotlighted
+            | soul_agent_core::provenance::TrustLevel::Quarantined => {
+                soullink_memory_hierarchy::MemoryTrust::Spotlighted
+            }
+        };
         let entry = MemoryEntry {
             id: uuid::Uuid::new_v4().to_string(),
-            text: format!("Input: {} → Result: {}", input, result),
+            text: screened.as_str().to_string(),
             created_at: chrono::Utc::now().to_rfc3339(),
             last_accessed: chrono::Utc::now().to_rfc3339(),
             access_count: 1,
@@ -87,11 +113,7 @@ impl BrainMesh {
             embedding: None,
             associations: vec![],
             metadata: std::collections::HashMap::new(),
-            // Deliberately Unrecorded: `input`/`result` carry raw tool output
-            // and no screening happens on this path. Labelling it anything
-            // stronger would vouch for content nothing inspected — routing
-            // this through a screening write path is the actual fix.
-            trust: soullink_memory_hierarchy::MemoryTrust::Unrecorded,
+            trust,
         };
         self.memory.store(entry, MemoryLayer::Episodic).await;
 

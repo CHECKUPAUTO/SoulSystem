@@ -6,6 +6,7 @@ license.workspace = true
 description = "SoulSystem — Hierarchical memory: episodic, semantic, working, consolidation"
 
 [dependencies]
+soulsystem-common = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

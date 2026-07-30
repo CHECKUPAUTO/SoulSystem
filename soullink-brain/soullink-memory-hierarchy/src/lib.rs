@@ -78,58 +78,7 @@ pub struct MemoryEntry {
     pub trust: MemoryTrust,
 }
 
-/// Trust carried *on the record itself*, so it survives wherever the record
-/// goes — recall, promotion between layers, persistence, export.
-///
-/// This is the store's own vocabulary, deliberately smaller than the screening
-/// pipeline's `TrustLevel`: quarantined content never reaches a store, so the
-/// store has no word for it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-pub enum MemoryTrust {
-    /// Operator-supplied or system-internal; never crossed an untrusted
-    /// boundary.
-    Internal,
-    /// Untrusted content that passed the injection scanner cleanly.
-    Screened,
-    /// Flagged by the scanner and fenced as inert data. Recall paths should
-    /// not re-inject it as instruction-bearing text.
-    Spotlighted,
-    /// Model-generated (distillation, reflection). Derived from a context
-    /// that may have contained untrusted material, so it inherits suspicion
-    /// rather than authority.
-    Derived,
-    /// The write path recorded nothing. This is the deserialization default
-    /// for pre-trust entries and the only honest label for a writer that
-    /// did not say — an unrecorded write must not look clean.
-    #[default]
-    Unrecorded,
-}
-
-impl MemoryTrust {
-    /// Where this level sits, higher = more trusted. Used only to take the
-    /// floor when records merge.
-    fn rank(self) -> u8 {
-        match self {
-            Self::Unrecorded => 0,
-            Self::Spotlighted => 1,
-            Self::Derived => 2,
-            Self::Screened => 3,
-            Self::Internal => 4,
-        }
-    }
-
-    /// The least-trusted level among `levels`.
-    ///
-    /// A record produced by merging others is only as trustworthy as its
-    /// least-trusted input: consolidation must not launder a Spotlighted
-    /// member into a clean-looking semantic summary.
-    pub fn floor_of(levels: impl IntoIterator<Item = MemoryTrust>) -> MemoryTrust {
-        levels
-            .into_iter()
-            .min_by_key(|t| t.rank())
-            .unwrap_or(MemoryTrust::Unrecorded)
-    }
-}
+pub use soulsystem_common::memory_types::MemoryTrust;
 
 /// Which memory layer a entry belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
