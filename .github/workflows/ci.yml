@@ -106,6 +106,32 @@ jobs:
           command: check
           arguments: --workspace
 
+  sbom:
+    name: SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Generates a CycloneDX SBOM for the workspace. This is the inventory
+      # `cargo deny` checks against: deny answers "is anything we depend on
+      # known-bad today", the SBOM answers "what exactly did this build
+      # contain" — which is the question asked after a CVE lands, about a
+      # binary that shipped weeks ago.
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked
+      - name: Generate SBOM
+        run: cargo cyclonedx --format json --all
+      # Uploaded as a build artifact rather than committed: an SBOM is a fact
+      # about one build, and a committed copy goes stale the moment a
+      # dependency resolves differently.
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: "**/*.cdx.json"
+          if-no-files-found: error
+
   msrv:
     name: MSRV (1.93.0)
     runs-on: ubuntu-latest

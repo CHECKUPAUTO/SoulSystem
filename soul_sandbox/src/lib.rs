@@ -1,3 +1,12 @@
+//! Dead code is denied here despite the workspace-wide `-A dead_code`
+//! (LOW-001). A source attribute is used rather than a `[lints]` table
+//! because the table does NOT win against RUSTFLAGS — verified, not assumed.
+//!
+//! The suppression exists for noise. In the sandbox it would hide the thing
+//! that matters: HIGH-008 was a dead `AutonomousAgent::executor` field that
+//! falsely implied a second sandboxing mechanism existed. An unused item in a
+//! crate whose job IS a protection usually means the protection is not wired.
+#![deny(dead_code)]
 //! # soul_sandbox — Sandbox d'exécution robuste
 //!
 //! Combine plusieurs couches de défense :
