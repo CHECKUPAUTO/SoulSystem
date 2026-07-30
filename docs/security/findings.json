@@ -18,8 +18,8 @@
   },
   "count": 41,
   "status_summary": {
-    "PARTIALLY_FIXED": 8,
-    "FIXED_AND_VERIFIED": 17,
+    "PARTIALLY_FIXED": 7,
+    "FIXED_AND_VERIFIED": 18,
     "CONFIRMED_CURRENT": 7,
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
@@ -37,11 +37,11 @@
       "DEFERRED_PRODUCT_DECISION": 1
     },
     "medium": {
-      "FIXED_AND_VERIFIED": 6,
+      "FIXED_AND_VERIFIED": 7,
       "FALSE_POSITIVE": 2,
       "CONFIRMED_CURRENT": 2,
       "NOT_REACHABLE": 3,
-      "PARTIALLY_FIXED": 4
+      "PARTIALLY_FIXED": 3
     },
     "low": {
       "DEFERRED_PRODUCT_DECISION": 1,
@@ -1943,11 +1943,9 @@
       "id": "MED-017",
       "title": "Redacting Display silently produced broken Authorization headers (\"Bearer [REDACTED]\")",
       "severity": "medium",
-      "status": "PARTIALLY_FIXED",
+      "status": "FIXED_AND_VERIFIED",
       "current_state": "SecretString implemented Display as the literal string [REDACTED]. Leak-proof, but it fails SILENTLY WHERE IT MATTERS: format!(\"Bearer {token}\") on a SecretString compiled cleanly and attached \"Bearer [REDACTED]\" as the credential. FOUR shipped sites did exactly that - soul_llm's OpenAI provider (every authenticated OpenAI-compatible request got 401), soul_llm's Ollama provider (auth_token), avid-scout's Bearer arm, and soul_api's Telegram URL (\"...bot[REDACTED]/sendMessage\") - authentication and notifications silently broken at runtime with no compile-time signal and no test coverage, since provider tests need live endpoints. FIX: impl Display for SecretString is REMOVED. Interpolating a secret is now a compile error; the author must choose .expose() for the real value or {:?} for the redacted form. A compile_fail doctest pins the absence. All four sites now use .expose() and the doctor-path test asserts the header carries the REAL value. MED-017-B audited ProtocolSecret's usage (only soullink-gateway's ws protocol structs, which serde-serialize it faithfully to the peer - no Display interpolation existed anywhere) and removed its Display the same way, with its own compile_fail doctest. For a type whose purpose is carrying the value faithfully, the redacting-Display failure mode was worse than SecretString's: the wire form would be corrupted while every log line looked correct. The footgun is removed before any site tripped it.",
-      "residual_risk": "None known in the two secret types themselves - neither implements Display and both absences are compile_fail-pinned. The class hazard remains as a pattern: any FUTURE type given a redacting Display reintroduces it, and only this finding's record warns against that.",
-      "remaining_exposure": "No known interpolation path; both compile_fail doctests and the four fixed sites' tests pin the fix.",
-      "follow_up": "Promote to FIXED_AND_VERIFIED with merge commits once MED-016-B-final and MED-017-B PRs are recorded.",
+      "follow_up": "None. The class hazard (a future type given a redacting Display) is recorded in SECURITY_INVARIANTS' INV-SEC-2 row.",
       "required_invariant": "A secret type must fail loudly, at compile time, when used where a plain string is expected - a redaction that silently replaces the value at runtime breaks the caller while looking safe (INV-SEC-2 corollary).",
       "reverified_against": "898f4721614a5a2b707641f717aced3fe9679261",
       "audit_category": "secret-handling",
@@ -1969,9 +1967,36 @@
         "TelegramClient::send_message"
       ],
       "verification_tests": [
-        "soulsystem-common compile_fail doctest on SecretString",
-        "doctor_applies_provider_auth_without_putting_it_in_the_url"
-      ]
+        {
+          "name": "SecretString interpolation is a compile error (compile_fail doctest)",
+          "command": "cargo test --doc -p soulsystem-common"
+        },
+        {
+          "name": "ProtocolSecret interpolation is a compile error (compile_fail doctest)",
+          "command": "cargo test --doc -p soulsystem-common"
+        },
+        {
+          "name": "doctor path attaches the REAL value from a typed secret",
+          "command": "cargo test -p soulsystem doctor_applies_provider_auth_without_putting_it_in_the_url"
+        },
+        {
+          "name": "attachment budget holds at 4 with the four fixed sites migrated",
+          "command": "cargo test -p soulsystem --test architecture_secret_types plaintext_authorization_sites_do_not_grow"
+        }
+      ],
+      "fixing_prs": [
+        {
+          "number": 127,
+          "merge_commit": "68614d7bddea86e02ec03da87ae180516e863f53",
+          "title": "security(MED-016-B final + MED-017): the \"plaintext\" sites were broken auth; remove the footgun"
+        },
+        {
+          "number": 129,
+          "merge_commit": "7c2eaac85fc6b2ffa5e5f3469405e7045a6d9e1a",
+          "title": "security(MED-017-B): remove ProtocolSecret's Display before anyone trips it"
+        }
+      ],
+      "residual_risk": "None in the two secret types: neither implements Display and both absences are compile_fail-pinned. The class hazard persists only as a pattern - any future type given a redacting Display reintroduces it - and is recorded on the INV-SEC-2 invariant row."
     },
     {
       "id": "LOW-001",
