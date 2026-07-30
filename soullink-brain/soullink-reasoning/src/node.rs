@@ -14,6 +14,16 @@ pub enum NodeStatus {
     Pruned,
     /// Currently being explored.
     Exploring,
+    /// Evaluation was attempted with an embedding that carries no information,
+    /// so no semantic judgement was possible (MED-004).
+    ///
+    /// Distinct from `Pending`, which means "not yet looked at", and from
+    /// `Pruned`, which is a real verdict. A constant embedding — every element
+    /// the same — has cosine similarity 1.0 against any other constant
+    /// embedding, so scoring it would mark every node `Accepted` with an
+    /// identical score and make pruning a no-op while still reporting numbers
+    /// that read like semantic judgements.
+    Unscored,
 }
 
 /// A single step in the Tree of Thoughts.

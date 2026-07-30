@@ -1730,13 +1730,23 @@ N. Final step"#,
                     }
                 }
 
-                // Evaluate using semantic loss (using embeddings if available, else fake)
-                // In production, use soullink-eval with real embeddings
-                let query_emb = vec![1.0_f32; 64]; // placeholder
-                let thought_emb = vec![1.0_f32; 64]; // placeholder
-                let _ = self
-                    .reasoning
-                    .evaluate_node(leaf_id, &query_emb, &thought_emb);
+                // MED-004: no embedding provider is wired here, so no semantic
+                // evaluation happens.
+                //
+                // This used to build `vec![1.0_f32; 64]` for both the query and
+                // the thought and score them against each other. Cosine
+                // similarity of two identical constant vectors is 1.0, so every
+                // node scored a perfect 1.0 regardless of content: nothing was
+                // ever pruned, `best_path` chose arbitrarily among equals, and
+                // the tree reported confident semantic scores it had not
+                // computed.
+                //
+                // Leaving nodes at their default status is the honest state.
+                // `evaluate_node` now refuses constant embeddings outright and
+                // marks such nodes `Unscored`, so a future caller cannot
+                // reintroduce this by passing placeholders — but the real fix
+                // is not to call it with fabricated input in the first place.
+                self.reasoning.mark_unscored(leaf_id);
 
                 self.turn += 1;
                 self.emit_event(AgentEvent::Thinking {
