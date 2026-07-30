@@ -215,10 +215,11 @@ impl MemoryHub {
 
         // 1. SoulMemory (vectoriel)
         if let Ok(hits) = self.vector.search(query, top_k).await {
-            for (text, score) in hits {
+            for hit in hits {
                 results.push(SearchResult {
-                    text,
-                    score,
+                    untrusted: hit.is_untrusted(),
+                    text: hit.text,
+                    score: hit.score,
                     source: "vector",
                 });
             }
@@ -232,6 +233,9 @@ impl MemoryHub {
                     text: r.label.clone(),
                     score: r.score,
                     source: "graph",
+                    // The concept graph carries no trust level, so it cannot
+                    // vouch for anything it returns.
+                    untrusted: true,
                 });
             }
         }
@@ -275,6 +279,18 @@ pub struct SearchResult {
     pub text: String,
     pub score: f32,
     pub source: &'static str,
+    /// Whether this text came from outside and was only spotlighted
+    /// (MED-015-D).
+    ///
+    /// Carried here because the hub merges results from several stores, and
+    /// the merge is where trust was previously lost: the vector store knew,
+    /// and every consumer downstream of this struct did not. A caller that
+    /// puts these into a prompt must fence the untrusted ones.
+    ///
+    /// Sources that cannot express trust report `true`. A store that has never
+    /// recorded provenance has not vouched for anything, and defaulting the
+    /// other way would let an unaudited path silently look trustworthy.
+    pub untrusted: bool,
 }
 
 fn classify_text(_text: &str, meta: &HashMap<String, String>) -> ConceptKind {
