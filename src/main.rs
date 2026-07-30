@@ -299,6 +299,17 @@ async fn main() -> Result<()> {
 
     let api_auth = soulsystem::api::ApiAuth::from_env();
 
+    // Which runtime the operator actually selected, so the production guard
+    // can refuse an experimental one.
+    //
+    // `soul_entity` is the simulated autonomy of HIGH-006: gated as
+    // experimental, never finished. The guard has always known how to refuse
+    // it — `GuardViolation::ExperimentalRuntimeInProduction` — but this call
+    // passed a hardcoded `None`, so the refusal could not fire for the only
+    // runtime it exists to catch. The guard's own test set the field by hand,
+    // which proves the guard and not the system.
+    let experimental_runtime = cli.entity.then(|| "soul_entity".to_string());
+
     prod_guard::enforce_startup_security(
         &cli.gateway_addr,
         &settings,
@@ -306,6 +317,7 @@ async fn main() -> Result<()> {
         gateway_tls.is_some(),
         &ws_bridge_config,
         &api_auth,
+        experimental_runtime,
     )?;
 
     // ── Bus central (file d'attente 256 messages) ──────────────────────────
