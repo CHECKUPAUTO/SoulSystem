@@ -45,6 +45,21 @@ pub enum LlmError {
     /// be met with an immediate strategy-level replan-and-retry, which is the
     /// uncoordinated behaviour MED-009 describes.
     RetriesExhausted { attempts: u32, last: Box<LlmError> },
+    /// This process's shared retry allowance for `provider` is spent
+    /// (MED-009-C).
+    ///
+    /// Deliberately distinct from [`Self::RetriesExhausted`]. That one says
+    /// *this request* tried its configured number of times; this one says the
+    /// process as a whole is already retrying against this provider as fast as
+    /// it is permitted to, so the request was not retried at all.
+    ///
+    /// Conflating them would report a global rate limit as one unlucky
+    /// request, and hide the fact an operator actually needs: the provider is
+    /// in trouble and every run is queueing behind it.
+    ProviderBudgetExhausted {
+        provider: String,
+        last: Box<LlmError>,
+    },
 }
 
 impl fmt::Display for LlmError {
@@ -84,6 +99,11 @@ impl fmt::Display for LlmError {
             Self::RetriesExhausted { attempts, last } => {
                 write!(f, "giving up after {attempts} attempts: {last}")
             }
+            Self::ProviderBudgetExhausted { provider, last } => write!(
+                f,
+                "shared retry budget for provider {provider} is spent; not \
+                 retried: {last}"
+            ),
         }
     }
 }
@@ -114,7 +134,10 @@ impl LlmError {
             | Self::Provider(_)
             | Self::Serialization(_)
             | Self::Unsupported(_)
-            | Self::RetriesExhausted { .. } => false,
+            | Self::RetriesExhausted { .. }
+            // Retrying is exactly what is rate-limited here, so treating this
+            // as retryable would defeat the ceiling it reports.
+            | Self::ProviderBudgetExhausted { .. } => false,
         }
     }
 

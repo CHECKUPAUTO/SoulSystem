@@ -117,6 +117,32 @@ impl LlmClient {
 
             match policy.decide(attempt, &error) {
                 RetryDecision::After(delay) => {
+                    // MED-009-C: this request's own policy permits a retry.
+                    // The shared per-provider budget decides whether the
+                    // process as a whole can afford one. Consulted here rather
+                    // than inside `decide` because `RetryPolicy` is a `Copy`
+                    // value describing a policy, while this is live shared
+                    // state — folding them together would make the policy's
+                    // decisions depend on invisible global state.
+                    let budget = crate::retry_budget::shared_for(
+                        self.provider.name(),
+                        &self.config.base_url,
+                    );
+                    if !budget.try_acquire() {
+                        tracing::warn!(
+                            operation = what,
+                            provider = self.provider.name(),
+                            attempt,
+                            error = %error,
+                            "shared retry budget for this provider is spent; \
+                             not retrying. The process is already retrying \
+                             against this provider as fast as it is allowed."
+                        );
+                        return Err(LlmError::ProviderBudgetExhausted {
+                            provider: self.provider.name().to_string(),
+                            last: Box::new(error),
+                        });
+                    }
                     tracing::warn!(
                         operation = what,
                         provider = self.provider.name(),
