@@ -197,6 +197,21 @@ impl ActionHistory {
 
 // ── Boucle cognitive ────────────────────────────────────────
 
+/// A heuristic control loop — **not** an LLM reasoner (LOW-006).
+///
+/// Every decision this type makes comes from substring matching on the
+/// context string plus the recorded historical success rate. That is a
+/// legitimate policy and it is cheap and deterministic, which are real
+/// virtues. What it is not is reasoning: it cannot generalise, it cannot
+/// decompose a goal it has no keyword for, and its confidence numbers are
+/// constants chosen per branch rather than estimates of anything.
+///
+/// The name says "cognitive", so this note exists to stop a reader inferring
+/// more than the code does.
+///
+/// In particular [`Self::create_plan`] performs **no decomposition at all**:
+/// it formats whatever step commands the caller already supplies. A caller
+/// with no steps to give gets an empty plan, not a generated one.
 pub struct CognitiveLoop {
     pub memory: WorkingMemory,
     pub history: ActionHistory,
@@ -398,6 +413,28 @@ mod tests {
             created_at: Utc::now(),
             status: GoalStatus::Active,
         }
+    }
+
+    /// `create_plan` formats supplied steps; it does not generate any.
+    ///
+    /// Pinned because the `--plan` CLI flag depended on the opposite
+    /// assumption: it called this with an empty slice and printed the result
+    /// as a plan for the goal (LOW-006). If decomposition is ever wired, this
+    /// test should fail and be rewritten — that is the point of it.
+    #[test]
+    fn create_plan_does_not_decompose_a_goal() {
+        let planner = CognitiveLoop::new();
+        let goal = make_goal("build a thing with many implied steps");
+
+        let plan = planner.create_plan(&goal, &[]);
+
+        assert!(
+            plan.steps.is_empty(),
+            "create_plan generated {} step(s) from an empty input; if real \
+             decomposition was added, --plan's empty-plan guard in main.rs \
+             needs revisiting",
+            plan.steps.len()
+        );
     }
 
     #[test]

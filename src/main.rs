@@ -83,7 +83,8 @@ struct Cli {
     #[arg(long)]
     ask: Option<String>,
 
-    /// Create a plan for a goal and exit
+    /// Format a plan for a goal and exit (no decomposition is wired: this
+    /// currently fails rather than emitting an empty plan — see LOW-006)
     #[arg(long)]
     plan: Option<String>,
 
@@ -1688,7 +1689,25 @@ async fn main() -> Result<()> {
             created_at: chrono::Utc::now(),
             status: soul_planner::GoalStatus::Active,
         };
+        // LOW-006: this used to call `create_plan(&goal, &[])` and print the
+        // result. `create_plan` performs no decomposition — it formats step
+        // commands the caller supplies — so passing an empty slice produced
+        // `{"steps": []}` and printed it as though it were a plan for the
+        // goal. A caller scripting against this got well-formed JSON
+        // describing nothing, with a zero exit status saying it worked.
+        //
+        // No goal decomposition is wired, so the honest answer is to say so
+        // and fail, not to emit an empty plan.
         let plan = autonomous.agent.planner.create_plan(&goal, &[]);
+        if plan.steps.is_empty() {
+            return Err(anyhow::anyhow!(
+                "--plan ne peut pas décomposer un objectif : aucune \
+                 décomposition n'est câblée (soul_planner::CognitiveLoop \
+                 formate des étapes fournies par l'appelant, il n'en génère \
+                 pas). Un plan vide a été produit pour « {goal_desc} » et \
+                 n'est pas affiché comme s'il s'agissait d'un plan valide."
+            ));
+        }
         match serde_json::to_string_pretty(&plan) {
             Ok(json) => println!("{}", json),
             Err(e) => eprintln!("Error serializing plan: {}", e),
