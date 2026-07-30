@@ -558,25 +558,27 @@ fn unsandboxed_arbitrary_command_sites_do_not_grow() {
         .filter(|(_, category, _)| *category == Category::UnsandboxedArbitraryCommand)
         .count();
 
-    assert!(
-        count <= UNSANDBOXED_ARBITRARY_BUDGET,
-        "{count} files are allowlisted as {} but the budget is \
-         {UNSANDBOXED_ARBITRARY_BUDGET}. These are known problems being tracked \
-         down, not a pattern to extend: route the new call through soul_sandbox \
-         instead. If a site was genuinely fixed, lower the budget in the same \
-         change.",
-        Category::UnsandboxedArbitraryCommand.as_str()
-    );
-
-    // Ratchet: if sites are fixed, the budget must come down with them, or it
-    // stops constraining anything.
-    assert!(
-        count >= UNSANDBOXED_ARBITRARY_BUDGET,
-        "only {count} files remain in {} but the budget is still \
-         {UNSANDBOXED_ARBITRARY_BUDGET}. Lower UNSANDBOXED_ARBITRARY_BUDGET to \
-         {count} so the ratchet keeps holding.",
-        Category::UnsandboxedArbitraryCommand.as_str()
-    );
+    // Expressed as an ordering rather than two `assert!`s. At a budget of 0
+    // the old `count >= BUDGET` was always true — `usize` has no value below
+    // zero — so the ratchet silently stopped constraining anything in that
+    // direction. Clippy caught it; the invariant is equality, so it says so.
+    match count.cmp(&UNSANDBOXED_ARBITRARY_BUDGET) {
+        std::cmp::Ordering::Greater => panic!(
+            "{count} files are allowlisted as {} but the budget is \
+             {UNSANDBOXED_ARBITRARY_BUDGET}. These are known problems being \
+             tracked down, not a pattern to extend: route the new call through \
+             soul_sandbox instead. If a site was genuinely fixed, lower the \
+             budget in the same change.",
+            Category::UnsandboxedArbitraryCommand.as_str()
+        ),
+        std::cmp::Ordering::Less => panic!(
+            "only {count} files remain in {} but the budget is still \
+             {UNSANDBOXED_ARBITRARY_BUDGET}. Lower UNSANDBOXED_ARBITRARY_BUDGET \
+             to {count} so the ratchet keeps holding.",
+            Category::UnsandboxedArbitraryCommand.as_str()
+        ),
+        std::cmp::Ordering::Equal => {}
+    }
 }
 
 /// The scan must actually reach the crates the allowlist talks about. If the
