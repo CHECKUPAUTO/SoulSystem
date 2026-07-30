@@ -213,19 +213,26 @@ const ALLOWED: &[(&str, Category, &str)] = &[
     ),
     (
         "soul-kernel/src/perception/mod.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "Perception probes shell out via `sh` alongside fixed-argv `df` and \
-         `systemctl` calls.",
-    ),
-    (
-        "soul_automation/src/lib.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "Automation steps run `sh` outside the sandbox.",
+        Category::HostControlFixedArgv,
+        "FIXED. Both `sh -c` probes are gone. The failed-login count is now \
+         `journalctl _COMM=sshd --no-pager` with the grep done in Rust, and \
+         the open-port probe is `ss -H -tln` parsed by \
+         `parse_listening_ports` — which is unit-tested against IPv6 and \
+         scoped-address shapes the old `awk` pipeline handled only by \
+         accident. What remains is read-only fixed argv: `df`, `systemctl \
+         is-active`, `journalctl`, `ss`.",
     ),
     (
         "soullink-brain/soullink-orchestrator/src/main.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "Runs `python3` against an orchestrator-supplied script.",
+        Category::HostControlFixedArgv,
+        "RECATEGORISED with a hardening, not rewritten. argv is fixed: \
+         `python3 <brain_dir>/brain_v12.py --brain <domain>`, where \
+         `brain_dir` is configuration and the script name is a literal. The \
+         only varying value is `domain`, constrained to \
+         `^[a-z][a-z0-9_]{1,31}$`. That check lived in `route_spawn`, \
+         separated from the spawn by a `tokio::spawn` boundary; it now also \
+         runs inside `spawn_brain_process`, so the guarantee holds at the \
+         spawn rather than depending on which caller reached it.",
     ),
     (
         "soul-kernel/src/parallel/mod.rs",
@@ -241,10 +248,15 @@ const ALLOWED: &[(&str, Category, &str)] = &[
     ),
     (
         "soul_gateway/src/providers/imessage.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "`osascript` for iMessage delivery, with message text reaching the \
-         AppleScript. macOS-only and disabled unless configured, but the \
-         quoting boundary is exactly the kind this guard exists to surface.",
+        Category::HostControlFixedArgv,
+        "RECATEGORISED with a hardening. The earlier note said message text \
+         reached the AppleScript across a quoting boundary; re-reading the \
+         code, there is no such boundary. The script is a literal that reads \
+         `item 1 of argv` / `item 2 of argv`, and both values are passed as \
+         separate argv elements after `--` — the parameterised form, not the \
+         interpolated one. What was genuinely unconstrained was the \
+         recipient, so `is_plausible_recipient` now refuses anything that is \
+         not an e-mail or phone number, and refuses rather than normalises.",
     ),
     // ── Present, no reachable caller ─────────────────────────────────────
     (
@@ -261,7 +273,7 @@ const ALLOWED: &[(&str, Category, &str)] = &[
 /// Pinned so the category cannot grow quietly. Lowering it as sites are fixed
 /// is the intended direction; raising it should require saying so out loud in a
 /// review.
-const UNSANDBOXED_ARBITRARY_BUDGET: usize = 4;
+const UNSANDBOXED_ARBITRARY_BUDGET: usize = 0;
 
 /// Patterns that indicate a process spawn.
 const SPAWN_PATTERNS: &[&str] = &[

@@ -734,6 +734,35 @@ async fn route_stimulate(State(state): State<AppState>, Json(body): Json<Value>)
     }))
 }
 
+/// Launch the brain interpreter for `domain`.
+///
+/// Fixed argv throughout: the program is `python3`, the script is
+/// `brain_v12.py` under the configured `brain_dir`, and the only varying
+/// value is `domain` — which is re-validated here.
+///
+/// The validation already ran in `route_spawn`. It runs again at the spawn
+/// itself because that is where the guarantee has to hold: a check in the
+/// caller protects the one path that exists today, while a check here
+/// protects every path there will ever be. The two were separated by a
+/// `tokio::spawn` boundary, which is exactly the kind of gap where a second
+/// caller gets added later without anyone noticing the check was elsewhere.
+fn spawn_brain_process(brain_dir: &str, domain: &str) -> std::io::Result<tokio::process::Child> {
+    if !validation::valid_brain_domain(domain) {
+        // Refuse rather than sanitise: a domain that fails the pattern is a
+        // bug or an attack, and quietly rewriting it into something that
+        // passes would launch a brain nobody asked for.
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("refusing to spawn: invalid brain domain {domain:?}"),
+        ));
+    }
+    Command::new("python3")
+        .arg(format!("{brain_dir}/brain_v12.py"))
+        .arg("--brain")
+        .arg(domain)
+        .spawn()
+}
+
 /// Spawn a new v12 brain — Phase 1 adds regex validation on `domain`.
 async fn route_spawn(State(state): State<AppState>, Json(body): Json<Value>) -> Json<Value> {
     let domain = body
@@ -773,11 +802,7 @@ async fn route_spawn(State(state): State<AppState>, Json(body): Json<Value>) -> 
 
     tokio::spawn(async move {
         info!("[SPAWN] launching Brain-{} on :{}", domain_c, port);
-        let result = Command::new("python3")
-            .arg(format!("{}/brain_v12.py", brain_dir))
-            .arg("--brain")
-            .arg(&domain_c)
-            .spawn();
+        let result = spawn_brain_process(&brain_dir, &domain_c);
 
         match result {
             Ok(_child) => {
