@@ -900,3 +900,140 @@ fn the_three_checks_cover_different_sets() {
          which is the point of not keying on field names"
     );
 }
+
+// ── Retention check (MED-016 / INV-SEC-2) ───────────────────────────────
+//
+// The attachment check above asks "where does a plaintext credential get
+// *sent*". This one asks "where does an exposed credential get *kept*".
+// They are different failure modes: soullink-security's verifier retained a
+// `HashSet<String>` of every secret its scan had touched, and no attachment
+// budget would ever have gone red on it, because nothing was attached — the
+// plaintext just sat there for the lifetime of the process.
+
+/// Sites that make an owned plaintext copy of an exposed secret, recorded so
+/// the set cannot grow. Each entry is (file, marker substring on the line).
+///
+/// The one current member: the settings TUI shows the stored API key as the
+/// editable "current value". Fixing that is a UI decision (mask it, or show
+/// a set/unset indicator), not a mechanical migration — recorded rather than
+/// silently fixed here.
+const RETAINED_EXPOSED_COPIES: &[(&str, &str)] =
+    &[("souls/src/config.rs", "k.expose().to_string()")];
+
+/// Line patterns that turn a borrowed `expose()` into an owned copy the
+/// caller can keep. A transient use — `format!` passed straight to a header,
+/// a digest update over `as_bytes()` — matches none of these.
+const RETENTION_PATTERNS: &[&str] = &[
+    ".expose().to_owned()",
+    ".expose().to_string()",
+    ".expose().as_bytes().to_vec()",
+];
+
+fn retention_sites() -> Vec<(String, usize, String)> {
+    let mut out = Vec::new();
+    for (file, rel) in scanned_files() {
+        let Ok(source) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let mut in_test_mod = false;
+        let mut test_depth: i32 = 0;
+        for (idx, raw) in source.lines().enumerate() {
+            let line = raw.trim();
+            if !in_test_mod && line.starts_with("#[cfg(test)]") {
+                in_test_mod = true;
+                test_depth = 0;
+                continue;
+            }
+            if in_test_mod {
+                test_depth += raw.matches('{').count() as i32;
+                test_depth -= raw.matches('}').count() as i32;
+                if test_depth <= 0 && raw.contains('}') {
+                    in_test_mod = false;
+                }
+                continue;
+            }
+            if !RETENTION_PATTERNS.iter().any(|p| line.contains(p)) {
+                continue;
+            }
+            // `Zeroizing::new(...)` is the sanctioned holder for an owned
+            // copy: it zeroes on drop, which is the entire point of not
+            // keeping a bare String. HIGH-001's fix uses exactly this.
+            if line.contains("Zeroizing::new(") {
+                continue;
+            }
+            out.push((rel.clone(), idx + 1, line.to_string()));
+        }
+    }
+    out
+}
+
+/// Every owned copy of an exposed secret is either zeroizing or recorded.
+///
+/// Two-way, like the other budgets: an unrecorded new copy fails, and a
+/// recorded copy that no longer exists fails too, so the list stays true.
+#[test]
+fn exposed_secrets_are_not_retained_as_plain_owned_strings() {
+    let sites = retention_sites();
+
+    for (rel, line_no, line) in &sites {
+        assert!(
+            RETAINED_EXPOSED_COPIES
+                .iter()
+                .any(|(file, marker)| rel == file && line.contains(marker)),
+            "{rel}:{line_no} makes an owned plaintext copy of an exposed \
+             secret:\n    {line}\nEither keep the typed value and expose at \
+             the point of use, wrap the copy in Zeroizing::new so it zeroes \
+             on drop, or store a digest if you only need equality. If the \
+             copy is genuinely necessary as plaintext, record it in \
+             RETAINED_EXPOSED_COPIES with a comment saying why."
+        );
+    }
+
+    for (file, marker) in RETAINED_EXPOSED_COPIES {
+        assert!(
+            sites
+                .iter()
+                .any(|(rel, _, line)| rel == file && line.contains(marker)),
+            "recorded retention site {file} ({marker}) no longer exists — \
+             remove its entry so the record stays true"
+        );
+    }
+
+    assert_eq!(
+        sites.len(),
+        RETAINED_EXPOSED_COPIES.len(),
+        "retention site count moved: expected {}, found {} — the two-way \
+         check above should have named the difference",
+        RETAINED_EXPOSED_COPIES.len(),
+        sites.len()
+    );
+}
+
+/// The matcher distinguishes keeping from using: an owned copy matches, a
+/// transient interpolation or digest read does not, and a zeroizing copy is
+/// sanctioned. Pins the boundary so nobody widens or narrows it blindly.
+#[test]
+fn the_retention_matcher_recognises_keeping_but_not_using() {
+    let kept = r#"let copy = secret.expose().to_owned();"#;
+    assert!(RETENTION_PATTERNS.iter().any(|p| kept.contains(p)));
+
+    let transient = r#"req.header("Authorization", format!("Bearer {}", t.expose()))"#;
+    assert!(
+        !RETENTION_PATTERNS.iter().any(|p| transient.contains(p)),
+        "attaching at the point of use is the attachment check's business"
+    );
+
+    let digest = r#"h.update(secret.expose().as_bytes());"#;
+    assert!(
+        !RETENTION_PATTERNS.iter().any(|p| digest.contains(p)),
+        "a digest read keeps nothing"
+    );
+
+    let zeroizing = r#"api_key: Zeroizing::new(api_key.expose().to_owned()),"#;
+    assert!(
+        RETENTION_PATTERNS.iter().any(|p| zeroizing.contains(p))
+            && zeroizing.contains("Zeroizing::new("),
+        "a zeroizing copy matches the pattern and is then sanctioned by the \
+         Zeroizing allowlist, not by failing to match"
+    );
+}

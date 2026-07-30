@@ -703,6 +703,19 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
 - **Still not covered:** credentials committed to non-Rust files. PR #116
   (separate work) found a real Telegram bot token in `configs/env/soullink.env`;
   no check here would have caught it, since all three scan `.rs` sources.
+- **A fourth check landed after tranche 2:**
+  `exposed_secrets_are_not_retained_as_plain_owned_strings`. The attachment
+  budget asks where a credential gets *sent*; this asks where an exposed one
+  gets *kept* — the gap the verify.rs `HashSet<String>` fell into, where the
+  plaintext of every scanned secret sat in memory for the process lifetime and
+  no attachment count would ever have moved. Owned copies of `expose()` are
+  pinned two-way; `Zeroizing::new` copies are sanctioned because zeroing on
+  drop is the point of not keeping a bare `String` (HIGH-001's own pattern).
+  One member site found and recorded: souls' settings TUI displays the stored
+  API key as the editable current value — a UI decision (mask vs set/unset),
+  tracked as **MED-016-C**, not a mechanical migration. The matcher is
+  line-based and cannot see a copy staged through an intermediate binding; it
+  narrows the gap, it does not close every retention path.
 
 ### P1-6 Memory provenance and trust metadata — DONE (INV-MEM-4 held; INV-MEM-3 partial)
 
