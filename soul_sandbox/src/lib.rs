@@ -23,6 +23,7 @@
 //! 6. **Journalisation** complète.
 
 pub mod cgroup;
+#[cfg(target_os = "linux")]
 pub mod egress;
 mod policy;
 #[cfg(target_os = "linux")]
@@ -215,8 +216,10 @@ pub struct Sandbox {
     /// `soul_tools` runs it under `spawn_blocking`, and a `Cell` field would
     /// make the whole type `!Sync`. Caught by the workspace build, which is
     /// the reason to run it rather than just the crate's own tests.
+    #[cfg(target_os = "linux")]
     egress_child_sock: std::sync::atomic::AtomicI32,
     /// Decisions the egress supervisor made during the last execution.
+    #[cfg(target_os = "linux")]
     egress_log: std::sync::Arc<std::sync::Mutex<Vec<crate::egress::EgressDecision>>>,
     policy: SandboxPolicy,
     history: Arc<Mutex<VecDeque<SandboxVerdict>>>,
@@ -226,7 +229,9 @@ pub struct Sandbox {
 impl Sandbox {
     pub fn new(policy: SandboxPolicy) -> Self {
         Self {
+            #[cfg(target_os = "linux")]
             egress_child_sock: std::sync::atomic::AtomicI32::new(-1),
+            #[cfg(target_os = "linux")]
             egress_log: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             policy,
             history: Arc::new(Mutex::new(VecDeque::new())),
@@ -626,7 +631,9 @@ impl Sandbox {
         // Egress supervision: a socketpair carries the seccomp listener from
         // the child back here. Created before the spawn because `pre_exec`
         // can only use a descriptor that already exists.
+        #[cfg(target_os = "linux")]
         let mut egress_parent: libc::c_int = -1;
+        #[cfg(target_os = "linux")]
         if self.policy.egress_policy.is_some() {
             let mut sv = [0 as libc::c_int; 2];
             let rc =
@@ -645,15 +652,19 @@ impl Sandbox {
         let spawned = command.spawn();
         // The child's copy is the child's to close; this end is done with it
         // either way.
-        let child_sock = self
-            .egress_child_sock
-            .swap(-1, std::sync::atomic::Ordering::SeqCst);
-        if child_sock >= 0 {
-            unsafe { libc::close(child_sock) };
+        #[cfg(target_os = "linux")]
+        {
+            let child_sock = self
+                .egress_child_sock
+                .swap(-1, std::sync::atomic::Ordering::SeqCst);
+            if child_sock >= 0 {
+                unsafe { libc::close(child_sock) };
+            }
         }
         let child = match spawned {
             Ok(c) => c,
             Err(e) => {
+                #[cfg(target_os = "linux")]
                 if egress_parent >= 0 {
                     unsafe { libc::close(egress_parent) };
                 }
@@ -661,6 +672,7 @@ impl Sandbox {
             }
         };
 
+        #[cfg(target_os = "linux")]
         if let Some(policy) = self.policy.egress_policy.clone() {
             // Fail-closed: no listener means no supervision, and continuing
             // would run the command with the full network while the caller

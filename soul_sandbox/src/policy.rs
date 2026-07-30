@@ -324,6 +324,12 @@ pub struct SandboxPolicy {
     /// execution fails rather than running with unrestricted network. An
     /// egress policy that silently stops applying is worse than none, because
     /// it is believed.
+    ///
+    /// Linux-only: the mechanism is `SECCOMP_RET_USER_NOTIF`, which has no
+    /// equivalent elsewhere. The field is absent rather than present-and-
+    /// ignored on other platforms — a policy that silently does nothing is
+    /// exactly what this module refuses to ship.
+    #[cfg(target_os = "linux")]
     pub egress_policy: Option<crate::egress::EgressPolicy>,
 
     /// Working directory for the child, or the parent's cwd if `None`.
@@ -355,6 +361,7 @@ impl Default for SandboxPolicy {
             pid_isolated: true,
             mount_isolated: true,
             hidden_paths: default_hidden_paths(),
+            #[cfg(target_os = "linux")]
             egress_policy: None,
             max_output_bytes: 2 * 1024 * 1024,
             resource_limits: ResourceLimits::default(),
