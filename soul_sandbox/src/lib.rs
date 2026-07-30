@@ -292,8 +292,6 @@ impl Sandbox {
             command.pre_exec(move || {
                 libc::setpgid(0, 0);
 
-                apply_resource_limits(&limits)?;
-
                 if let Some(ref procs) = cgroup_procs {
                     // Fail-closed: the leaf existed and had limits written at
                     // spawn time; if the child cannot enter it, running
@@ -459,6 +457,21 @@ impl Sandbox {
                         }
                     }
                 }
+
+                // Resource limits are applied here — after any PID-namespace
+                // fork, immediately before seccomp and exec.
+                //
+                // They used to be applied at the top of `pre_exec`, which put
+                // the sandbox's own scaffolding under them: with
+                // `pid_isolated`, the intermediate's `fork` was itself subject
+                // to the `RLIMIT_NPROC` just installed, so a caller setting an
+                // explicit process ceiling could fail with `EAGAIN` before the
+                // command ever ran. CI caught it on a shared-UID runner where
+                // the ceiling was already close.
+                //
+                // Bounding the command rather than the machinery that sets it
+                // up is the correct reading of INV-EXEC-4 either way.
+                apply_resource_limits(&limits)?;
 
                 if let Some(ref p) = profile {
                     // SECCOMP_SET_MODE_FILTER requires either CAP_SYS_ADMIN
