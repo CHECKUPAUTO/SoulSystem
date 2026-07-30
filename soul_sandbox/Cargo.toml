@@ -17,4 +17,5 @@ libc = "0.2"
 tracing = { workspace = true }
 
 [dev-dependencies]
+tempfile = { workspace = true }
 proptest = "1"
