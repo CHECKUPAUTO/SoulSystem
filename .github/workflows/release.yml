@@ -10,6 +10,10 @@ on:
 
 permissions:
   contents: write
+  # Required for cosign keyless signing: the job exchanges this OIDC token for
+  # a short-lived Sigstore certificate. There is no private key anywhere — the
+  # signer's identity *is* this workflow, which is what a verifier checks.
+  id-token: write
 
 jobs:
   build:
@@ -62,6 +66,59 @@ jobs:
           $hash = (Get-FileHash "$dist.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  $dist.zip" | Set-Content -NoNewline "$dist.zip.sha256"
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      # Sign every artifact, then prove the signature actually verifies — and
+      # prove that a tampered artifact does not.
+      #
+      # A signing step that is never verified drifts silently: the day the
+      # identity or the issuer changes, releases keep shipping with signatures
+      # nobody can check. The tamper probe is the part that makes this a test
+      # rather than a ceremony; without it, `verify-blob` passing proves only
+      # that we verified what we just signed.
+      - name: Sign and verify artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.archive }}" = "tar" ]; then
+            dist="soulsystem-${{ matrix.target }}.tar.gz"
+          else
+            dist="soulsystem-${{ matrix.target }}.zip"
+          fi
+
+          identity="^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/"
+          issuer="https://token.actions.githubusercontent.com"
+
+          for f in "$dist" "$dist.sha256"; do
+            cosign sign-blob --yes --bundle "$f.bundle" "$f"
+
+            cosign verify-blob \
+              --bundle "$f.bundle" \
+              --certificate-identity-regexp "$identity" \
+              --certificate-oidc-issuer "$issuer" \
+              "$f"
+            echo "verified: $f"
+          done
+
+          # Negative probe, run on every release rather than asserted once in a
+          # review: a byte-flipped copy must fail verification. If it passes,
+          # the signature is not binding the content and the release must not
+          # ship.
+          cp "$dist" tampered.bin
+          printf 'x' | dd of=tampered.bin bs=1 seek=0 conv=notrunc status=none
+          if cosign verify-blob \
+              --bundle "$dist.bundle" \
+              --certificate-identity-regexp "$identity" \
+              --certificate-oidc-issuer "$issuer" \
+              tampered.bin 2>/dev/null; then
+            echo "FATAL: a tampered artifact verified against the signature." >&2
+            echo "The signature is not binding the content; refusing to publish." >&2
+            exit 1
+          fi
+          echo "tamper probe: verification correctly refused the modified copy"
+          rm -f tampered.bin
+
       - name: Upload Unix release
         if: matrix.archive == 'tar'
         uses: softprops/action-gh-release@v2
@@ -69,6 +126,8 @@ jobs:
           files: |
             soulsystem-${{ matrix.target }}.tar.gz
             soulsystem-${{ matrix.target }}.tar.gz.sha256
+            soulsystem-${{ matrix.target }}.tar.gz.bundle
+            soulsystem-${{ matrix.target }}.tar.gz.sha256.bundle
 
       - name: Upload Windows release
         if: matrix.archive == 'zip'
@@ -77,3 +136,75 @@ jobs:
           files: |
             soulsystem-${{ matrix.target }}.zip
             soulsystem-${{ matrix.target }}.zip.sha256
+            soulsystem-${{ matrix.target }}.zip.bundle
+            soulsystem-${{ matrix.target }}.zip.sha256.bundle
+
+  # The SBOM ships with the release and is signed like everything else.
+  #
+  # An unsigned SBOM proves nothing about the binary it claims to describe:
+  # anyone can write a component list. Signing it with the same workflow
+  # identity is what ties the inventory to the build that produced it.
+  sbom:
+    name: SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked
+
+      - name: Generate SBOM
+        run: cargo cyclonedx --format json --all
+
+      # Collect into one file before signing. A `**/*.cdx.json` glob makes the
+      # upload action walk the whole repository and die on the first entry it
+      # cannot stat (EACCES on avid/scirust-autodiff) — the failure mode that
+      # already broke this job once in ci.yml.
+      - name: Collect SBOM
+        run: |
+          set -euo pipefail
+          mkdir -p sbom-out
+          find . -name '*.cdx.json' -not -path './sbom-out/*' -print0 2>/dev/null \
+            | xargs -0 -r -I{} cp {} sbom-out/
+          count=$(find sbom-out -name '*.cdx.json' | wc -l)
+          echo "collected $count SBOM file(s)"
+          # Fail loudly rather than signing an empty archive that would look
+          # like a complete, attested inventory.
+          test "$count" -gt 0
+          tar -czf soulsystem-sbom.tar.gz -C sbom-out .
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign and verify the SBOM
+        run: |
+          set -euo pipefail
+          identity="^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/"
+          issuer="https://token.actions.githubusercontent.com"
+
+          cosign sign-blob --yes --bundle soulsystem-sbom.tar.gz.bundle soulsystem-sbom.tar.gz
+          cosign verify-blob \
+            --bundle soulsystem-sbom.tar.gz.bundle \
+            --certificate-identity-regexp "$identity" \
+            --certificate-oidc-issuer "$issuer" \
+            soulsystem-sbom.tar.gz
+
+          cp soulsystem-sbom.tar.gz tampered.bin
+          printf 'x' | dd of=tampered.bin bs=1 seek=0 conv=notrunc status=none
+          if cosign verify-blob \
+              --bundle soulsystem-sbom.tar.gz.bundle \
+              --certificate-identity-regexp "$identity" \
+              --certificate-oidc-issuer "$issuer" \
+              tampered.bin 2>/dev/null; then
+            echo "FATAL: a tampered SBOM verified against the signature." >&2
+            exit 1
+          fi
+          rm -f tampered.bin
+
+      - name: Upload SBOM to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            soulsystem-sbom.tar.gz
+            soulsystem-sbom.tar.gz.bundle
