@@ -953,19 +953,20 @@ fn a_file_without_a_test_module_skips_nothing() {
 #[test]
 fn plaintext_authorization_sites_do_not_grow() {
     let sites = authorization_header_sites();
-    assert!(
-        sites.len() <= PLAINTEXT_AUTH_SITE_BUDGET,
-        "{} sites attach a credential to an Authorization header without \
-         .expose(), but the budget is {PLAINTEXT_AUTH_SITE_BUDGET}. A new one \
-         means a credential is travelling as a plain String: hold it in \
-         SecretString (or ProtocolSecret if it must serialize faithfully) and \
-         unwrap at the point of use. Sites: {sites:#?}",
-        sites.len()
-    );
-    assert!(
-        sites.len() >= PLAINTEXT_AUTH_SITE_BUDGET,
-        "only {} sites remain but the budget is still \
-         {PLAINTEXT_AUTH_SITE_BUDGET}. Lower it so the ratchet keeps holding.",
+    // A single equality rather than the `<=` / `>=` pair this used to be.
+    // Those two comparisons together already meant equality, and at a budget
+    // of zero `len() <= 0` and `len() >= 0` are absurd extreme comparisons
+    // that clippy denies outright. Stating the ratchet as equality says the
+    // same thing at every budget value, including this one.
+    assert_eq!(
+        sites.len(),
+        PLAINTEXT_AUTH_SITE_BUDGET,
+        "expected {PLAINTEXT_AUTH_SITE_BUDGET} plaintext Authorization \
+         site(s), found {}.\n\nIf the count GREW: a credential is travelling \
+         as a plain String. Hold it in SecretString (or ProtocolSecret if it \
+         must serialize faithfully) and unwrap at the point of use.\n\nIf the \
+         count SHRANK: good — lower the budget in the same change so the \
+         ratchet keeps holding.\n\nSites: {sites:#?}",
         sites.len()
     );
 }
