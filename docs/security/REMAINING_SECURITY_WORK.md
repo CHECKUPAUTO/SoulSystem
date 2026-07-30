@@ -307,7 +307,16 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   versus 86 without. That closes the reconnaissance half.
 
   A **filesystem-view policy** is still not implemented: nothing restricts
-  which paths the process can open. `SandboxPolicy` still expresses path
+  which paths the process can open. This was attempted and withdrawn, which
+  is worth recording: a `hidden_paths` policy covering credential locations
+  with empty read-only mounts was written, and a canary file stayed readable
+  inside the sandbox with the policy set. Tracing showed the mount block never
+  executed even though `unshare` returned 0, and the cause was not identified.
+  A policy field that names a boundary while enforcing nothing is the failure
+  mode this document exists to prevent, so it was reverted rather than shipped
+  with the tests it would have passed by accident. Note also that
+  `SENSITIVE_PATHS` cannot be reused as the list: it contains `/lib/` and
+  `/usr/lib/`, and covering those breaks every dynamically linked binary. `SandboxPolicy` still expresses path
   policy as string matching over the command line, and a real view needs
   `pivot_root` with the binary and its shared libraries bound in. The mount
   namespace is now present and useful for `/proc`; it is not yet a

@@ -390,10 +390,10 @@ impl Sandbox {
                                 // Detach mount propagation first, or the
                                 // `/proc` mount would travel back to the
                                 // host namespace.
-                                let none = b"none\0".as_ptr() as *const libc::c_char;
-                                let root = b"/\0".as_ptr() as *const libc::c_char;
-                                let proc_src = b"proc\0".as_ptr() as *const libc::c_char;
-                                let proc_dst = b"/proc\0".as_ptr() as *const libc::c_char;
+                                let none = c"none".as_ptr();
+                                let root = c"/".as_ptr();
+                                let proc_src = c"proc".as_ptr();
+                                let proc_dst = c"/proc".as_ptr();
                                 let _ = libc::mount(
                                     none,
                                     root,
