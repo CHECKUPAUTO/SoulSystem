@@ -52,6 +52,24 @@ pub const SHELL_BYPASS_TOKENS: &[(&str, ThreatKind)] = &[
 ];
 
 // Chemins sensibles — interdiction d'accès (en lecture ou écriture).
+/// Credential locations covered inside the sandbox by default.
+///
+/// Small and specific on purpose: every entry is somewhere secrets live and
+/// nowhere an ordinary command needs to read.
+pub fn default_hidden_paths() -> Vec<std::path::PathBuf> {
+    let mut paths: Vec<std::path::PathBuf> = ["/etc/shadow", "/etc/gshadow", "/etc/ssh"]
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect();
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        for dir in [".ssh", ".aws", ".gnupg"] {
+            paths.push(home.join(dir));
+        }
+    }
+    paths
+}
+
 pub const SENSITIVE_PATHS: &[&str] = &[
     "/etc/",
     "/etc",
@@ -275,6 +293,39 @@ pub struct SandboxPolicy {
     /// without a new PID namespace would show the same processes.
     pub mount_isolated: bool,
 
+    /// Paths made unreadable inside the sandbox's mount namespace.
+    ///
+    /// The first part of `SandboxPolicy` that is a *filesystem view* rather
+    /// than a string check. [`SENSITIVE_PATHS`] scans the command line, which
+    /// catches `cat /etc/shadow` and misses a program that opens the file
+    /// itself — the boundary was in the argument text, not the filesystem.
+    /// Each entry here is covered by an empty mount, so the contents are gone
+    /// regardless of who asks or how.
+    ///
+    /// Deliberately a short credential list rather than [`SENSITIVE_PATHS`]:
+    /// that constant contains `/lib/` and `/usr/lib/`, and covering those
+    /// breaks every dynamically linked binary. A view policy that cannot run
+    /// `ls` is one operators switch off.
+    ///
+    /// Requires [`Self::mount_isolated`] — without a mount namespace there is
+    /// nowhere to apply it that would not also affect the host.
+    pub hidden_paths: Vec<std::path::PathBuf>,
+
+    /// Destinations the sandboxed process may `connect(2)` to.
+    ///
+    /// `None` means this mechanism is off and [`Self::network_isolated`] is
+    /// the only network control — all-or-nothing. `Some(policy)` supervises
+    /// every `connect` and refuses anything the policy does not name, which is
+    /// what makes egress *per-host* rather than per-tool.
+    ///
+    /// Unlike the namespaces this is **fail-closed**: it needs only
+    /// `no_new_privs`, so it has no host-policy dependency to degrade around.
+    /// If a caller asks for an egress policy and it cannot be installed, the
+    /// execution fails rather than running with unrestricted network. An
+    /// egress policy that silently stops applying is worse than none, because
+    /// it is believed.
+    pub egress_policy: Option<crate::egress::EgressPolicy>,
+
     /// Working directory for the child, or the parent's cwd if `None`.
     ///
     /// Exists because callers that had one before they were sandboxed would
@@ -303,6 +354,8 @@ impl Default for SandboxPolicy {
             network_isolated: true,
             pid_isolated: true,
             mount_isolated: true,
+            hidden_paths: default_hidden_paths(),
+            egress_policy: None,
             max_output_bytes: 2 * 1024 * 1024,
             resource_limits: ResourceLimits::default(),
             working_dir: None,

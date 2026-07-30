@@ -306,37 +306,56 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   process cannot *enumerate* host processes — measured at 1 visible process
   versus 86 without. That closes the reconnaissance half.
 
-  A **filesystem-view policy** is still not implemented: nothing restricts
-  which paths the process can open. This was attempted and withdrawn, which
-  is worth recording: a `hidden_paths` policy covering credential locations
-  with empty read-only mounts was written, and a canary file stayed readable
-  inside the sandbox with the policy set. Tracing showed the mount block never
-  executed even though `unshare` returned 0, and the cause was not identified.
-  A policy field that names a boundary while enforcing nothing is the failure
-  mode this document exists to prevent, so it was reverted rather than shipped
-  with the tests it would have passed by accident. Note also that
-  `SENSITIVE_PATHS` cannot be reused as the list: it contains `/lib/` and
-  `/usr/lib/`, and covering those breaks every dynamically linked binary. `SandboxPolicy` still expresses path
-  policy as string matching over the command line, and a real view needs
-  `pivot_root` with the binary and its shared libraries bound in. The mount
-  namespace is now present and useful for `/proc`; it is not yet a
-  containment boundary for the filesystem, and the code says so where it
-  matters rather than implying otherwise.
+  A **filesystem-view policy** is now implemented, and the previous entry
+  here was wrong. It said the attempt failed with the cause "not identified".
+  The cause was mundane: `cargo fmt` had reflowed the anchor the scripted edit
+  targeted, the insertion silently matched nothing, and the loop was never in
+  the binary. The follow-on conclusion — "the mount does not return" — came
+  from debug traces that had also never been inserted. Absence of output was
+  read as evidence about the code when it was evidence about the
+  instrumentation.
 
-- **Part (4) is NOT DONE as per-host egress, deliberately.** Egress control
-  is per-tool and binary today: `network_isolated` either gives a tool the
-  host's network or none of it. `tests/architecture_network_egress.rs` now
-  pins the three opt-out sites by name and count, in both directions, and
-  requires each to state why it needs a network — so the exception cannot
-  grow quietly.
+  With the code actually present, `hidden_paths` enforces. Measured: a hidden
+  file reads **empty** inside the sandbox while the host copy stays
+  byte-identical; a hidden directory returns **Permission denied**; and the
+  same file without the policy is readable, so the tests measure the policy
+  rather than a path that never worked.
 
-  Restricting a tool to *specific* hosts needs nftables rules inside the
-  netns (privileged setup), a forced proxy (same redirect rules, or it is
-  advisory), or `SECCOMP_RET_USER_NOTIF` supervision of `connect(2)` — plain
+  This is what turns `SandboxPolicy`'s path handling from a command-line scan
+  into a filesystem boundary. `SENSITIVE_PATHS` still cannot serve as the
+  list — it contains `/lib/` and `/usr/lib/`, and covering those breaks every
+  dynamically linked binary — so `default_hidden_paths` is a short credential
+  list instead.
+
+- **Part (4) is DONE**, via `SECCOMP_RET_USER_NOTIF`. The kernel suspends the
+  target on `connect(2)` and hands a supervisor thread the arguments; the
+  supervisor reads the `sockaddr` out of `/proc/<pid>/mem`, re-checks
+  `NOTIF_ID_VALID` so a reused id cannot make the decision apply to a
+  different syscall, and either lets the call proceed or fails it with
+  `EACCES`.
+
+  This is the mechanism the earlier entry listed as one of three options and
+  described as out of reach. It is the one that works unprivileged: plain
   seccomp cannot inspect a `sockaddr` because BPF may not dereference
-  pointers. An `AllowedHosts` field that nothing enforced would look like the
-  missing control while providing none of it, which is the failure mode this
-  roadmap exists to avoid.
+  pointers, and the other two need privileged network setup.
+
+  Enforcement is destination **IP and port**. Hostnames are resolved once,
+  when the policy is built, so a name that later resolves elsewhere is denied
+  rather than silently allowed. Deny is the default, and a `sockaddr` the
+  supervisor cannot decode is refused rather than waved through.
+
+  Unlike the namespaces this is **fail-closed**: it needs only
+  `no_new_privs`, so there is no host-policy dependency to degrade around. A
+  caller that asks for an egress policy and cannot get a listener gets a
+  failed execution, not an unrestricted network.
+
+  Measured against a real local server: no policy reaches it, an allowing
+  policy reaches it identically, and both an empty policy and one naming a
+  different address fail with `(7) Couldn't connect`.
+
+  Residual, stated rather than implied: the hook is `connect(2)`, so
+  `sendto(2)` with a destination on an unconnected socket is not covered.
+
 - **Acceptance tests:** a fork bomb is contained without relying on a dedicated
   UID; a memory hog is killed by its own cgroup rather than by the host OOM
   killer; the sandboxed process sees only the paths its policy grants; a tool
