@@ -369,12 +369,8 @@ mod tests {
         let child = tree.add_child(root, "a").unwrap();
         let informative: Vec<f32> = (0..8).map(|i| i as f32).collect();
 
-        assert!(tree
-            .evaluate_node(child, &[0.0; 8], &informative)
-            .is_none());
-        assert!(tree
-            .evaluate_node(child, &informative, &[0.0; 8])
-            .is_none());
+        assert!(tree.evaluate_node(child, &[0.0; 8], &informative).is_none());
+        assert!(tree.evaluate_node(child, &informative, &[0.0; 8]).is_none());
         assert!(tree.evaluate_node(child, &[], &informative).is_none());
     }
 
