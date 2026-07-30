@@ -35,7 +35,9 @@ pub struct DiscordChannel {
     /// REST API base, e.g. `https://discord.com/api/v10`.
     pub api_base: String,
     /// Bot token (sent as `Authorization: Bot <token>`).
-    pub bot_token: Option<String>,
+    /// Held in `SecretString` so the token cannot reach a log line or a
+    /// `{:?}` render of the enclosing config (INV-SEC-2).
+    pub bot_token: Option<soulsystem_common::secrets::SecretString>,
     /// Application public key (hex) for verifying interaction signatures.
     pub public_key: Option<String>,
 }
@@ -61,7 +63,7 @@ impl DiscordChannel {
     pub fn configured(bot_token: impl Into<String>) -> Self {
         Self {
             enabled: true,
-            bot_token: Some(bot_token.into()),
+            bot_token: Some(soulsystem_common::secrets::SecretString::new(bot_token)),
             ..Self::new()
         }
     }
@@ -83,7 +85,7 @@ impl DiscordChannel {
         let client = soullink_core::http::shared_client();
         let resp = client
             .post(&url)
-            .header("Authorization", format!("Bot {token}"))
+            .header("Authorization", format!("Bot {}", token.expose()))
             .json(&serde_json::json!({ "content": content }))
             .timeout(std::time::Duration::from_secs(15))
             .send()

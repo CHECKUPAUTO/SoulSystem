@@ -135,7 +135,12 @@ impl OpenAIProvider {
             .pool_idle_timeout(config.pool_idle_timeout);
 
         let mut headers = reqwest::header::HeaderMap::new();
-        if let Ok(v) = reqwest::header::HeaderValue::from_str(&format!("Bearer {api_key}")) {
+        // `{api_key}` via the old redacting Display sent "Bearer [REDACTED]" —
+        // authentication was silently broken (MED-017). `expose()` is the
+        // deliberate unwrap at the point of use.
+        if let Ok(v) =
+            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", api_key.expose()))
+        {
             headers.insert(reqwest::header::AUTHORIZATION, v);
         }
         builder = builder.default_headers(headers);

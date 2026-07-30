@@ -10,6 +10,7 @@ publish = false
 default-run = "ccos"
 
 [dependencies]
+soulsystem-common = { workspace = true }
 # Async runtime + HTTP client are only needed by the LLM / eval / workspace
 # modules (Ollama HTTP client, async file scanning). They are gated behind the
 # `llm` feature so a consumer of the sync core (e.g. `ccos::event_log`) pulls

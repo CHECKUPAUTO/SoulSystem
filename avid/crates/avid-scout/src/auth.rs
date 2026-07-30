@@ -42,7 +42,9 @@ impl AuthMethod {
                 HeaderValue::from_str(&format!("Basic {creds}")).expect("valid header")
             }
             Self::Bearer { token } => {
-                HeaderValue::from_str(&format!("Bearer {token}")).expect("valid header")
+                // Was `{token}` via the redacting Display: sent "Bearer [REDACTED]"
+                // and authentication silently failed (MED-017).
+                HeaderValue::from_str(&format!("Bearer {}", token.expose())).expect("valid header")
             }
         }
     }

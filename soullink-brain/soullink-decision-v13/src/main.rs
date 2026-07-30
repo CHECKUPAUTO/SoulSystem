@@ -83,7 +83,9 @@ async fn main() {
         "⚡ Soul Decision Engine V13.5 — Rust Native | 10Hz | /state over HTTP (Zero-Disk)"
     );
 
-    let token = std::env::var("SOULLINK_INTERNAL_TOKEN").ok();
+    let token = std::env::var("SOULLINK_INTERNAL_TOKEN")
+        .ok()
+        .map(soulsystem_common::secrets::SecretString::new);
 
     let client = reqwest::Client::builder()
         .pool_max_idle_per_host(8)
@@ -103,7 +105,7 @@ async fn main() {
         // 1. Fetch brain stats
         let mut brain_req = client.get(SCIENCE_URL);
         if let Some(t) = &token {
-            brain_req = brain_req.bearer_auth(t);
+            brain_req = brain_req.bearer_auth(t.expose());
         }
         let brain: BrainStats = match brain_req.send().await {
             Ok(r) => r.json().await.unwrap_or_default(),
@@ -113,7 +115,7 @@ async fn main() {
         // 2. Fetch Guardian state (replaces JSON file read)
         let mut guardian_req = client.get(GUARDIAN_STATE_URL);
         if let Some(t) = &token {
-            guardian_req = guardian_req.bearer_auth(t);
+            guardian_req = guardian_req.bearer_auth(t.expose());
         }
         let g: GuardianState = match guardian_req.send().await {
             Ok(r) => r.json().await.unwrap_or_default(),

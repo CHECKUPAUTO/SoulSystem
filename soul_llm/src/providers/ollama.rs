@@ -89,7 +89,11 @@ impl OllamaProvider {
 
         if let Some(ref token) = config.auth_token {
             let mut headers = reqwest::header::HeaderMap::new();
-            if let Ok(v) = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}")) {
+            // Same [REDACTED] bug as the OpenAI provider (MED-017): the redacting
+            // Display made this header "Bearer [REDACTED]".
+            if let Ok(v) =
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token.expose()))
+            {
                 headers.insert(reqwest::header::AUTHORIZATION, v);
             }
             builder = builder.default_headers(headers);

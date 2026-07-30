@@ -589,6 +589,7 @@ async fn ask(prompt: &str) -> Option<String> {
         });
     }
     if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+        let key = soulsystem_common::secrets::SecretString::new(key);
         let base =
             std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com".into());
         let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
@@ -599,7 +600,7 @@ async fn ask(prompt: &str) -> Option<String> {
         });
         let resp = client
             .post(format!("{base}/v1/chat/completions"))
-            .bearer_auth(key)
+            .bearer_auth(key.expose())
             .json(&body)
             .send()
             .await

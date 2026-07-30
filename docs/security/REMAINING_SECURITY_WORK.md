@@ -712,6 +712,23 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
 - **Still not covered:** credentials committed to non-Rust files. PR #116
   (separate work) found a real Telegram bot token in `configs/env/soullink.env`;
   no check here would have caught it, since all three scan `.rs` sources.
+- **MED-016-B final (third tranche) — budget 12 → 4, and it found MED-017.**
+  Triaging the "remaining plaintext sites" showed four of them were not
+  hygiene but **silently broken authentication**: `SecretString`'s redacting
+  `Display` made `format!("Bearer {token}")` compile cleanly and send the
+  literal string `Bearer [REDACTED]` — soul_llm's OpenAI provider (every
+  authenticated request 401s), its Ollama provider, avid-scout's Bearer arm,
+  and soul_api's Telegram URL (`…/bot[REDACTED]/sendMessage`). No test could
+  see it; provider tests need live endpoints. `impl Display for SecretString`
+  is now **removed** — interpolation is a compile error, pinned by a
+  `compile_fail` doctest — and the four sites use `.expose()`. The lesson the
+  budget teaches: **a budget records that a site exists, not that anyone has
+  read it.** Three of these were counted for weeks as migration debt.
+  Remaining: the 4 test-fixture senders (whether to migrate them or teach this
+  check to skip test modules like the retention check does is a guard-design
+  choice); `ProtocolSecret` keeps the same redacting `Display` (**MED-017-B**);
+  soullink-guardian's bearer site sits in a non-member crate the workspace
+  cannot even build — it belongs to the standing non-member-trees decision.
 - **A fourth check landed after tranche 2:**
   `exposed_secrets_are_not_retained_as_plain_owned_strings`. The attachment
   budget asks where a credential gets *sent*; this asks where an exposed one
