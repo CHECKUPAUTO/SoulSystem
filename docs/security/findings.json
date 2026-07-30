@@ -2316,7 +2316,8 @@
         }
       ],
       "residual_risk": "--plan now fails instead of emitting an empty plan, so no caller can mistake {\"steps\":[]} for a decomposition. The flag is therefore non-functional rather than misleading — a deliberate trade. CognitiveLoop's keyword heuristics in evaluate_plan/decide are unchanged and still used by soul_entity; they are documented as heuristics rather than reasoning, which is a comment, not an enforced property.",
-      "follow_up": null
+      "follow_up": null,
+      "remaining_exposure": " | COST ESTIMATE CORRECTED (2026-07-30): the disposition record claimed soul_planner 'already holds an LLM client' and called this the cheapest of the three finish candidates. BOTH CLAIMS WERE WRONG, written from the crate's name and description rather than its manifest. soul_planner/Cargo.toml declares exactly three dependencies - uuid, chrono, serde. There is no LLM client and nothing in the crate reaches one. The gap is also wider than 'keyword matching instead of reasoning': create_plan performs NO decomposition, it formats step commands the caller already supplies, and the crate's own test create_plan_does_not_decompose_a_goal says so. Finishing LOW-006 therefore means adding an LLM dependency to a crate that has none, designing the decomposition prompt, handling its failure modes, and deciding what an unreachable model does to a plan. That is a feature, not a gap-fill. The decision stays 'finish'; the order changes - LOW-008 is now the cheapest of the three."
     },
     {
       "id": "LOW-007",

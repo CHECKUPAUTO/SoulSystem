@@ -64,12 +64,32 @@ reader can predict** — not that a placeholder is correctly refused.
 | Claims | Goal decomposition |
 | Actually does | Keyword matching, no LLM reasoning |
 | Neutralised | Yes — gated and labelled non-reasoning |
-| **Decision** | **Finish** — `soul_planner` already has LLM access |
+| **Decision** | **Finish** — cost corrected below, it is not the cheap one |
 | Decided by | repository owner, 2026-07-30 (adopted the recommendation as written) |
 
-The gap between what it does and what it could do is small: the planner crate
-already holds an LLM client. This is the cheapest of the three "finish"
-candidates.
+**Correction (2026-07-30).** This entry previously read: *"the planner crate
+already holds an LLM client. This is the cheapest of the three finish
+candidates."* **Both claims were wrong**, and they were written from the crate's
+name and description rather than from its manifest.
+
+`soul_planner/Cargo.toml` declares exactly three dependencies — `uuid`,
+`chrono`, `serde`. There is no LLM client, and nothing in the crate reaches
+one.
+
+The gap is also wider than "keyword matching instead of reasoning".
+`create_plan` performs **no decomposition at all**: it formats step commands
+the caller already supplies, and a caller with no steps gets an empty plan.
+The crate's own test says so —
+`create_plan_does_not_decompose_a_goal`.
+
+So finishing LOW-006 means: adding an LLM dependency to a crate that has
+none, designing the decomposition prompt, handling its failure modes, and
+deciding what an unreachable model should do to a plan. That is a feature,
+not a gap-fill, and it is **not** cheaper than LOW-008.
+
+The decision stays "finish". What changes is the estimate, and the order:
+LOW-008 is now the cheapest of the three, because native tool calling is
+integration against two documented APIs rather than a new capability.
 
 ---
 
@@ -169,8 +189,8 @@ reference for another. **Fix the tree first, then revisit this entry.**
 |---|---|---|
 | HIGH-006 | keep gated, review 2026-10-31 | none until the review date |
 | MED-004 | finish | needs a real embedding source; see the trap above |
-| LOW-006 | finish | cheapest of the three — `soul_planner` already holds an LLM client |
-| LOW-008 | finish | native tool calling for OpenAI and Anthropic |
+| LOW-006 | finish | **re-estimated**: needs a new LLM dependency and a decomposition design; not the cheap one |
+| LOW-008 | finish | now the cheapest — integration against two documented APIs |
 | MED-010 | **delete** | DONE — crate and manifest line removed together |
 | LOW-004 | defer | blocked on MED-017 — fix `soullink-node/scirust` first |
 
