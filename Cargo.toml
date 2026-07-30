@@ -153,6 +153,7 @@ members = [
     "crates/soul-shell",
     "crates/soul-dashboard",
     "crates/soul-cors",
+    "crates/soul-auth",
 
     # ── Bridges / integration ────────────────────────────────────────────
     "soul-bridge",
@@ -320,6 +321,7 @@ spinner = { path = "spinner" }
 terminal-stream = { path = "terminal-stream" }
 soulsystem-common = { path = "crates/soulsystem-common" }
 soul-cors = { path = "crates/soul-cors" }
+soul-auth = { path = "crates/soul-auth" }
 soul_sandbox = { path = "soul_sandbox" }
 soul-prod-guard = { path = "crates/soul-prod-guard" }
 ccos = { path = "ccos" }

@@ -196,17 +196,20 @@ const ALLOWED: &[(&str, Category, &str)] = &[
     // These are the P1-8 findings, not P1-8's approvals. See the module header.
     (
         "soul-kernel/src/action/mod.rs",
-        Category::UnsandboxedArbitraryCommand,
-        "`Action::ExecuteShell` was routed through `soul_sandbox` by P1-8-B and \
-         is no longer a bare spawn. The entry stays for the rest of the file: \
-         `OptimizeSystem` runs three fixed `sh -c` strings (`sync && echo 3 > \
-         /proc/sys/vm/drop_caches`, a `journalctl --vacuum-time`, a `find /tmp \
-         -delete`) that the sandbox would refuse outright, since they are \
-         shell composition and destructive-pattern matches. They take no \
-         caller input, so there is nothing to inject - but they are privileged \
-         host mutations that want rewriting as direct operations rather than \
-         shelling out. `RestartService`/`BlockIp`/`TuneGpuPower` are structured \
-         argv guarded by `is_safe_name`/`is_valid_ip`.",
+        Category::HostControlFixedArgv,
+        "RECATEGORISED by P1-8-B: this file no longer spawns a shell. \
+         `Action::ExecuteShell` was routed through `soul_sandbox` earlier, and \
+         `OptimizeSystem`'s three `sh -c` strings are now direct operations - \
+         `sync` and `journalctl --vacuum-time=7d` as fixed argv, the \
+         drop_caches redirection as a plain `fs::write` (a shell redirection \
+         into procfs is just a file write), and the `/tmp` sweep as fixed-argv \
+         `find`. `find` was kept deliberately rather than reimplemented: it \
+         does not follow symlinks and `-delete` implies `-depth`, and a \
+         symlink-escape bug in a hand-rolled recursive deleter running as root \
+         would be far worse than the shell it replaced. What remains is \
+         privileged host mutation with NO caller input - \
+         `RestartService`/`BlockIp`/`TuneGpuPower` are structured argv guarded \
+         by `is_safe_name`/`is_valid_ip`.",
     ),
     (
         "soul-kernel/src/perception/mod.rs",
@@ -258,7 +261,7 @@ const ALLOWED: &[(&str, Category, &str)] = &[
 /// Pinned so the category cannot grow quietly. Lowering it as sites are fixed
 /// is the intended direction; raising it should require saying so out loud in a
 /// review.
-const UNSANDBOXED_ARBITRARY_BUDGET: usize = 5;
+const UNSANDBOXED_ARBITRARY_BUDGET: usize = 4;
 
 /// Patterns that indicate a process spawn.
 const SPAWN_PATTERNS: &[&str] = &[
@@ -635,5 +638,74 @@ fn disk_telemetry_does_not_shell_out() {
     assert!(
         source.contains("statvfs"),
         "SelfHealer must read root disk usage via statvfs"
+    );
+}
+
+/// A file called `host-control-fixed-argv` must not spawn a shell.
+///
+/// Added by P1-8-B, because the category was a label with nothing behind it.
+/// `soul-kernel/src/action/mod.rs` moved into it by having its three `sh -c`
+/// strings rewritten as direct operations — but nothing stopped a later change
+/// from reintroducing a shell there while keeping the reassuring label.
+///
+/// "Fixed argv" means the callee and its arguments are chosen by this code.
+/// `sh -c "<string>"` hands a whole string to a parser, which is the property
+/// the category claims is absent. The distinction matters even when no caller
+/// input is involved: a shell brings globbing, word splitting and redirection,
+/// so what argv the callee finally sees is decided by the shell, not the
+/// program.
+#[test]
+fn files_labelled_fixed_argv_do_not_spawn_a_shell() {
+    const SHELL_SPAWNS: &[&str] = &[
+        r#"Command::new("sh")"#,
+        r#"Command::new("bash")"#,
+        r#"Command::new("zsh")"#,
+        r#"Command::new("/bin/sh")"#,
+        r#"Command::new("/bin/bash")"#,
+    ];
+
+    let root = repo_root();
+    let mut offenders: Vec<String> = Vec::new();
+
+    for (rel, category, _) in ALLOWED {
+        if *category != Category::HostControlFixedArgv {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(root.join(rel)) else {
+            continue; // absence is the allowlist-staleness test's job
+        };
+        for (index, line) in source.lines().enumerate() {
+            let code = line.trim();
+            if code.starts_with("//") || code.starts_with("///") {
+                continue;
+            }
+            if SHELL_SPAWNS.iter().any(|pattern| code.contains(pattern)) {
+                offenders.push(format!("{rel}:{}", index + 1));
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "these files are labelled {} but spawn a shell: {offenders:?}. Either \
+         the spawn is fixed argv and the shell is unnecessary, or the file \
+         belongs in {} — the label must not be the reassuring one by default.",
+        Category::HostControlFixedArgv.as_str(),
+        Category::UnsandboxedArbitraryCommand.as_str()
+    );
+}
+
+/// The guard above reads real files rather than passing on an empty set.
+#[test]
+fn the_fixed_argv_category_is_not_empty() {
+    let count = ALLOWED
+        .iter()
+        .filter(|(_, category, _)| *category == Category::HostControlFixedArgv)
+        .count();
+    assert!(
+        count >= 5,
+        "only {count} files are labelled {}; the shell check above would be \
+         nearly vacuous",
+        Category::HostControlFixedArgv.as_str()
     );
 }

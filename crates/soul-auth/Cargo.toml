@@ -1,0 +1,15 @@
+[package]
+name = "soul-auth"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+rust-version = "1.93"
+description = "SoulSystem — shared bearer-token authentication for every HTTP listener"
+
+[dependencies]
+# Deliberately no axum dependency, for the same reason soul-cors has none:
+# services here run on axum 0.7 and 0.8 alike. This crate deals in strings and
+# decisions; each service applies the decision with its own middleware.
+soul-prod-guard = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
