@@ -18,36 +18,32 @@
   },
   "count": 41,
   "status_summary": {
-    "PARTIALLY_FIXED": 7,
-    "FIXED_AND_VERIFIED": 20,
-    "CONFIRMED_CURRENT": 5,
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
-    "NOT_REACHABLE": 5
+    "FIXED_AND_VERIFIED": 25,
+    "NOT_REACHABLE": 5,
+    "PARTIALLY_FIXED": 7
   },
   "severity_status_summary": {
     "critical": {
-      "PARTIALLY_FIXED": 2,
-      "FIXED_AND_VERIFIED": 4
+      "FIXED_AND_VERIFIED": 4,
+      "PARTIALLY_FIXED": 2
     },
     "high": {
-      "FIXED_AND_VERIFIED": 6,
-      "PARTIALLY_FIXED": 2,
-      "CONFIRMED_CURRENT": 1,
-      "DEFERRED_PRODUCT_DECISION": 1
-    },
-    "medium": {
+      "DEFERRED_PRODUCT_DECISION": 1,
       "FIXED_AND_VERIFIED": 7,
-      "FALSE_POSITIVE": 2,
-      "CONFIRMED_CURRENT": 2,
-      "NOT_REACHABLE": 3,
-      "PARTIALLY_FIXED": 3
+      "PARTIALLY_FIXED": 2
     },
     "low": {
       "DEFERRED_PRODUCT_DECISION": 1,
-      "CONFIRMED_CURRENT": 2,
-      "FIXED_AND_VERIFIED": 3,
+      "FIXED_AND_VERIFIED": 5,
       "NOT_REACHABLE": 2
+    },
+    "medium": {
+      "FALSE_POSITIVE": 2,
+      "FIXED_AND_VERIFIED": 9,
+      "NOT_REACHABLE": 3,
+      "PARTIALLY_FIXED": 3
     }
   },
   "severity_summary": {
@@ -958,7 +954,7 @@
     {
       "id": "HIGH-006",
       "title": "SoulEntity Simulated Autonomy",
-      "status": "CONFIRMED_CURRENT",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "high",
       "confidence": "confirmed",
       "audit_category": "Architecture — Misleading Implementation",
@@ -981,10 +977,29 @@
       ],
       "reproducer": "Inspect soul_entity/src/entity.rs: the success feedback string is a compile-time constant containing '(simulation)' and is not derived from any executor result. Run the binary with --entity and observe plans reported successful without a corresponding tool invocation.",
       "required_invariant": "Placeholder/simulated features never return a successful status in production (INV-TRUTH-1).",
-      "fixing_prs": [],
-      "verification_tests": [],
-      "residual_risk": "An operator using --entity receives success reports for work that was never executed, which can mask failures and corrupt any downstream learning signal that consumes the outcome.",
-      "follow_up": "Implemented; status stays CONFIRMED_CURRENT until the PR merges. The remaining product question is unchanged and NOT answered here: whether SoulEntity should eventually dispatch plans to the real executor. This change makes the current behaviour honest and hard to misread, not autonomous."
+      "fixing_prs": [
+        {
+          "number": 138,
+          "merge_commit": "61c485facba55ca4af4d62e6aba954f35786dd39",
+          "title": "security(HIGH-006): stop reporting simulated autonomy as real work"
+        }
+      ],
+      "verification_tests": [
+        {
+          "name": "a simulated plan reports simulation rather than success",
+          "command": "cargo test -p soul_entity execute_plan_reports_simulation_not_success"
+        },
+        {
+          "name": "a simulated cycle persists no confident evaluation into long-term memory",
+          "command": "cargo test -p soul_entity a_simulated_cycle_does_not_persist_a_confident_evaluation"
+        },
+        {
+          "name": "the five fabrications cannot return, and --entity stays gated behind a non-production mode",
+          "command": "cargo test -p soulsystem --test architecture_simulated_execution"
+        }
+      ],
+      "residual_risk": "The entity no longer CLAIMS work it did not do, but it still does not do the work: execute_plan dispatches nothing. This is a truthfulness fix, not an autonomy feature. --entity refuses under production and warns otherwise, so the simulated path cannot run unannounced in a production process. The guard is string-level: it pins the specific fabrications that existed (success:true, [OK], score 0.9, confidence 0.95, goals_completed) and would not catch a NEW fabrication expressed differently.",
+      "follow_up": null
     },
     {
       "id": "HIGH-007",
@@ -1394,7 +1409,7 @@
     {
       "id": "MED-004",
       "title": "ToT node evaluation uses hardcoded placeholder embeddings, making scoring and pruning non-functional",
-      "status": "CONFIRMED_CURRENT",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "medium",
       "confidence": "confirmed",
       "audit_category": "Correctness — Placeholder Implementation",
@@ -1417,10 +1432,29 @@
       ],
       "reproducer": "Read the ToT branch in soul-agent-core/src/lib.rs: query_emb and thought_emb are both vec![1.0_f32; 64]. Their cosine similarity is identically 1.0, so evaluate_node returns the same score for every leaf and NodeStatus::Pruned is never selected on merit.",
       "required_invariant": "Reasoning-quality scores that drive pruning must be computed from real semantic embeddings, or the feature must not claim to prune on merit (INV-TRUTH-1).",
-      "fixing_prs": [],
-      "verification_tests": [],
-      "residual_risk": "Tree-of-Thoughts advertises semantic search but performs none; branch selection is effectively arbitrary while appearing principled, which can mislead operators and any evaluation built on it.",
-      "follow_up": "Implemented; status stays CONFIRMED_CURRENT until the PR merges. The product question is unchanged and NOT answered here: whether to wire a real embedding provider (soullink-eval or the configured provider) so ToT can prune meaningfully. Until then ToT explores without semantic pruning, which is now visible rather than disguised as working."
+      "fixing_prs": [
+        {
+          "number": 139,
+          "merge_commit": "efb7011005b16e4dcab05c9eab87ca328201edd1",
+          "title": "security(MED-004): refuse to score placeholder embeddings instead of faking it"
+        }
+      ],
+      "verification_tests": [
+        {
+          "name": "a constant embedding is refused rather than scored, and the node is left Unscored",
+          "command": "cargo test -p soullink-reasoning a_constant_embedding_is_refused_rather_than_scored"
+        },
+        {
+          "name": "an unscored tree yields no best path rather than an arbitrary one",
+          "command": "cargo test -p soullink-reasoning an_unscored_tree_yields_no_best_path"
+        },
+        {
+          "name": "no caller manufactures a constant vector as an embedding",
+          "command": "cargo test -p soulsystem --test architecture_placeholder_embeddings"
+        }
+      ],
+      "residual_risk": "Detection is variance-based: it rejects a vector whose elements are all equal. A FABRICATED but varying vector (random noise, a hash) would pass and be scored as though meaningful — the guard catches the placeholder pattern that existed, not dishonest input in general. ToT now explores without semantic pruning; that is visible rather than disguised, but it remains a capability gap until an embedding provider is wired.",
+      "follow_up": null
     },
     {
       "id": "MED-005",
@@ -1891,7 +1925,7 @@
     {
       "id": "MED-016",
       "title": "27 sites attach a credential to an Authorization header as a plain String, invisible to a guard that matches on struct field names",
-      "status": "CONFIRMED_CURRENT",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "medium",
       "confidence": "confirmed",
       "audit_category": "Credential Handling / Detection Gap",
@@ -1916,28 +1950,47 @@
       ],
       "required_invariant": "A credential must be held in a redacting type and unwrapped only at the point of use, whatever the holding variable is named (INV-SEC-2).",
       "current_state": "Confirmed and now VISIBLE, not fixed. P1-5-C added `plaintext_authorization_sites_do_not_grow`, which flags any value handed to `bearer_auth` or interpolated into a `Bearer`/`Bot`/`Token` header without `.expose()`. The check does not depend on naming at all: anything placed in an Authorization header IS a credential - that is what the header means - regardless of what the variable is called or whether it is a field, a parameter or a local. That is why it reached 27 sites the P1-5 field-name scan reported nothing about; MED-016-B has since migrated 8 of them, leaving 19. Only synergie's API currently does this correctly, via `token.expose()`. The budget is pinned two-way, so the set cannot grow and a fix must lower it. Verified negatively: adding one `bearer_auth(t)` call anywhere in a workspace member fails the test at 28. Not fixed in one change because migrating these means changing function signatures across a dozen crates; a flag day there would be churn rather than hardening, and the ratchet makes the exposure visible in the meantime. MED-016-B (first pass) migrated the two largest groups: soul_gateway's Slack/WhatsApp/Discord providers, whose tokens were `Option<String>` struct fields read from env, and avid-tui's five call sites, where one env-derived local was cloned into five async tasks. All eight now hold `SecretString` and call `.expose()` only at the header. `SecretString::is_empty` delegates to the inner value, so the providers' existing emptiness guards behave identically. The budget moved 27 -> 19 in the same change, and the ratchet's lower bound is what reported the new number: after the migration the test failed with 'only 19 sites remain but the budget is still 27'. Second pass (tranche 2) took the budget 19 -> 12: soullink-security's verify.rs (8 verifier functions), soullink-gateway's Slack and WhatsApp channels, its CLI `call` path and the OpenAI provider header. verify.rs was the instructive one - `Finding::secret` was ALREADY a SecretString, exposed at the dispatcher and passed as a plain `&str` into every verifier, so the type existed and was being discarded one frame too early. The verifiers now take `&SecretString` and expose only at the header or URL. The same file kept `checked: HashSet<String>` holding the EXPOSED text of every secret the scan had touched, purely to avoid double-checking; it now stores SHA-256 digests, which answer 'have I seen this' identically without retaining the credential. That was not one of the 27 counted sites - the scanner looks for Authorization attachment, not for retention - so it is a defect the guard could not have found. The retention check proposed after tranche 2 now exists: `exposed_secrets_are_not_retained_as_plain_owned_strings` scans for owned plaintext copies of exposed secrets (`.expose().to_owned()/.to_string()/.as_bytes().to_vec()`), sanctions copies wrapped in `Zeroizing::new` (they zero on drop - HIGH-001's own pattern), skips test modules, and pins the remainder two-way. It found exactly one member site: souls' settings TUI shows the stored API key as the editable 'current value' (souls/src/config.rs). That is recorded with a comment rather than silently fixed, because the fix is a UI decision - mask it or show set/unset - not a mechanical migration. A negative probe confirmed the check goes red on an unrecorded copy with file:line named. MED-016-B final pass took the budget 12 -> 4: soul_llm's OpenAI and Ollama providers, avid-scout's Bearer arm, ccos/eval.rs, soullink-decision-v13's two sites, the discord channel and src/main.rs's doctor chain (resolved_api_key is now SecretString from the moment of resolution, which also removed a plain non-zeroizing copy of the secret-store value). The 4 remaining sites are TEST-FIXTURE HELPERS (src/api.rs and soul_gateway test senders) interpolating literal test tokens; the guard deliberately has no test-module skip for this check, so they count. Whether to migrate them or teach the check to skip test modules (as the retention check does) is a guard-design choice, noted rather than decided in the same PR that lowers the count. MED-016-B is COMPLETE: PLAINTEXT_AUTH_SITE_BUDGET is now 0 - no production site attaches a credential to an Authorization header without unwrapping it from a secret type. The last 4 sites turned out not to be credentials at all: fixture senders inside #[cfg(test)] modules in soul_gateway/src/lib.rs and src/api.rs, building requests to an in-process axum router with literals like \"tok\". The path-based scaffolding filter could not see them because they live in ordinary src/ files. Rather than wrap test literals in SecretString - which would satisfy the scan while teaching readers the guard is about ceremony rather than credentials leaving the process - the scanner now understands #[cfg(test)] regions via cfg_test_line_numbers(), which finds the module END by brace depth. Over-skipping is the dangerous direction (a region wrongly treated as test hides real credentials), so cfg_test_regions_end_where_the_module_ends pins that boundary with a positive control asserting production code AFTER the module is still scanned. Because the budget is now 0, the repo scan finds nothing by design and can no longer double as its own liveness proof; the matcher was therefore extracted into line_attaches_plaintext_credential() used by BOTH the scan and its synthetic test, which previously carried a DUPLICATE copy that could have drifted into matching nothing while still passing. MED-016-C is COMPLETE: RETAINED_EXPOSED_COPIES is now empty. The souls settings TUI seeded its edit buffer with the stored API key; the dialog already masked what it rendered, so the plaintext was never on screen - it was resident in a plain String. The buffer now starts empty, an empty buffer on confirm means 'leave the key alone' (Ctrl+D deletes explicitly), and the buffer is zeroized on every exit path. Changing the confirm semantics was NOT optional: under the old 'empty deletes' rule an empty starting buffer would have made open-dialog-then-Enter silently destroy a working key.",
-      "follow_up": "Both remaining parts are implemented; status stays CONFIRMED_CURRENT until the PR merges, since FIXED_AND_VERIFIED requires a real merge commit. Promote afterwards.",
+      "follow_up": null,
       "verification_tests": [
         {
-          "name": "plaintext_authorization_sites_do_not_grow",
+          "name": "plaintext Authorization attachment sites do not grow (budget 0, asserted with assert_eq!)",
           "command": "cargo test -p soulsystem --test architecture_secret_types plaintext_authorization_sites_do_not_grow"
         },
         {
-          "name": "the_authorization_matcher_recognises_attachment_but_not_inspection",
-          "command": "cargo test -p soulsystem --test architecture_secret_types the_authorization_matcher_recognises_attachment_but_not_inspection"
+          "name": "exposed secrets are not retained as plain owned Strings (budget 0)",
+          "command": "cargo test -p soulsystem --test architecture_secret_types exposed_secrets_are_not_retained_as_plain_owned_strings"
         },
         {
-          "name": "the_three_checks_cover_different_sets",
-          "command": "cargo test -p soulsystem --test architecture_secret_types the_three_checks_cover_different_sets"
+          "name": "the #[cfg(test)] skip ends where the module ends, with a positive control that production code after it is still scanned",
+          "command": "cargo test -p soulsystem --test architecture_secret_types cfg_test_regions_end_where_the_module_ends"
         },
         {
-          "name": "clone_only_credential_holders_are_recorded_and_do_not_grow",
-          "command": "cargo test -p soulsystem --test architecture_secret_types clone_only_credential_holders_are_recorded_and_do_not_grow"
+          "name": "the shared matcher still recognises a plaintext credential (liveness proof, needed because at budget 0 the scan finds nothing by design)",
+          "command": "cargo test -p soulsystem --test architecture_secret_types the_matcher_still_recognises_a_plaintext_credential"
+        },
+        {
+          "name": "opening the API-key editor does not copy the key into the edit buffer",
+          "command": "cargo test -p souls opening_the_api_key_editor_does_not_copy_the_key"
+        },
+        {
+          "name": "confirming an empty buffer keeps the existing key (empty no longer means delete)",
+          "command": "cargo test -p souls confirming_an_empty_api_key_buffer_keeps_the_existing_key"
+        },
+        {
+          "name": "closing the editor clears the buffer",
+          "command": "cargo test -p souls closing_the_editor_clears_the_buffer"
         }
       ],
-      "residual_risk": "4 test-helper sites remain in the budget. soullink-guardian's ws_client bearer site exists but is in a NON-MEMBER crate the guard does not scan and the workspace cannot build standalone - it belongs to the standing non-member-trees decision. The Telegram token still lands in a URL path (soul_api and soullink-node), which no header check sees.",
+      "residual_risk": "Both budgets are 0 and asserted with assert_eq!, so a new plaintext site or retained copy fails CI. Limits: the scanner is line-based, so a credential assembled across lines or via a helper it cannot see is invisible to it. Skipping #[cfg(test)] regions is a deliberate trade — over-skipping would hide real sites, which is why the module end is found by brace depth and pinned by a positive control asserting production code AFTER the module is still scanned. The TUI change removes RESIDENT plaintext; it does not encrypt the key at rest in the config file, which is a separate concern.",
       "reachable_from": "Any outbound integration that authenticates: soul_gateway's Slack/WhatsApp/Discord providers, soullink-gateway's channel modules and OpenAI provider, soul_llm's OpenAI and Ollama providers, soullink-security's verify calls, avid-scout's auth, avid-tui's five API calls, ccos/eval, and src/main.rs. Each is reached whenever the corresponding integration is configured and used; none requires an attacker, because the exposure is the credential's in-process representation rather than a request an attacker sends.",
-      "reproducer": "cargo test -p soulsystem --test architecture_secret_types plaintext_authorization_sites_do_not_grow -- --nocapture\nprints all 27 sites with file and line. To confirm the check is live rather than vacuous, append `pub fn probe(c: reqwest::RequestBuilder, t: &str) -> reqwest::RequestBuilder { c.bearer_auth(t) }` to any workspace member's lib.rs and re-run: the test fails at 28 sites naming the new file."
+      "reproducer": "cargo test -p soulsystem --test architecture_secret_types plaintext_authorization_sites_do_not_grow -- --nocapture\nprints all 27 sites with file and line. To confirm the check is live rather than vacuous, append `pub fn probe(c: reqwest::RequestBuilder, t: &str) -> reqwest::RequestBuilder { c.bearer_auth(t) }` to any workspace member's lib.rs and re-run: the test fails at 28 sites naming the new file.",
+      "fixing_prs": [
+        {
+          "number": 137,
+          "merge_commit": "a7ac1c18e428c1425d2fce96cd0189de65cdc301",
+          "title": "security(MED-016): finish the credential migration — both budgets to zero"
+        }
+      ]
     },
     {
       "id": "MED-017",
@@ -2162,7 +2215,7 @@
     {
       "id": "LOW-006",
       "title": "soul_planner CognitiveLoop uses keyword matching, not LLM reasoning",
-      "status": "CONFIRMED_CURRENT",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "low",
       "confidence": "confirmed",
       "audit_category": "Correctness",
@@ -2186,10 +2239,21 @@
       ],
       "reproducer": "Run the binary with --plan '<multi-goal task>' and observe a Plan whose steps array is empty, because create_plan is called with an empty command slice and performs no LLM decomposition.",
       "required_invariant": "Reachable plan generation and action decisions derive from the configured LLM or an explicitly documented deterministic strategy, not substring matching (INV-PLAN-5).",
-      "fixing_prs": [],
-      "verification_tests": [],
-      "residual_risk": "The reachable damage is limited: run_react does its reasoning through the LLM and uses CognitiveLoop only for memory/history, so the keyword path is not load-bearing for the main agent loop. The --plan CLI surface still presents an empty plan as a result.",
-      "follow_up": "Implemented; status stays CONFIRMED_CURRENT until the PR merges. The product question is unchanged and NOT answered here: whether --plan should get LLM-backed goal decomposition. The dead src/autonomous_loop.rs half of this finding was already removed in #133."
+      "fixing_prs": [
+        {
+          "number": 140,
+          "merge_commit": "69075b419403c5a06247cfd7bcd910ec5ee179b8",
+          "title": "security(LOW-006): --plan refuses rather than printing an empty plan"
+        }
+      ],
+      "verification_tests": [
+        {
+          "name": "create_plan does not decompose a goal (fails by design if decomposition is ever wired, signalling that --plan's guard needs revisiting)",
+          "command": "cargo test -p soul_planner create_plan_does_not_decompose_a_goal"
+        }
+      ],
+      "residual_risk": "--plan now fails instead of emitting an empty plan, so no caller can mistake {\"steps\":[]} for a decomposition. The flag is therefore non-functional rather than misleading — a deliberate trade. CognitiveLoop's keyword heuristics in evaluate_plan/decide are unchanged and still used by soul_entity; they are documented as heuristics rather than reasoning, which is a comment, not an enforced property.",
+      "follow_up": null
     },
     {
       "id": "LOW-007",
@@ -2232,7 +2296,7 @@
     {
       "id": "LOW-008",
       "title": "soul_llm OpenAI/Anthropic providers lack native tool calling; chat() silently flattens tools to text",
-      "status": "CONFIRMED_CURRENT",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "low",
       "confidence": "confirmed",
       "audit_category": "Incomplete Implementation",
@@ -2258,10 +2322,25 @@
       ],
       "reproducer": "Read soul_llm/src/providers/openai.rs and anthropic.rs: neither request builder emits a tools/functions array, so tool schemas reach the model only as prose.",
       "required_invariant": "Providers advertising tool support use the provider's native tool-calling API, or the limitation is surfaced to the caller.",
-      "fixing_prs": [],
-      "verification_tests": [],
-      "residual_risk": "Tool-call parsing for these providers is text-based, so malformed or hallucinated tool invocations are more likely. Fail-closed dispatch (CRIT-002) means a hallucinated tool name cannot execute, which bounds the impact to reliability rather than security.",
-      "follow_up": "Implemented; status stays CONFIRMED_CURRENT until the PR merges. Not covered: streaming tool calls (generate_stream still text-only for both providers) and Anthropic's max_tokens on the chat path uses a fixed default because the chat signature carries no per-request override."
+      "fixing_prs": [
+        {
+          "number": 141,
+          "merge_commit": "d9164566442fca3546203bd5b2289fa72d617d08",
+          "title": "security(LOW-008): native tool calling for the OpenAI and Anthropic providers"
+        }
+      ],
+      "verification_tests": [
+        {
+          "name": "both providers override the flattening default and construct real ToolCalls",
+          "command": "cargo test -p soul_llm --test native_tool_calling openai_and_anthropic_override_the_flattening_default"
+        },
+        {
+          "name": "the two providers' tool shapes are pinned as non-interchangeable",
+          "command": "cargo test -p soul_llm --test native_tool_calling anthropic_and_openai_tool_shapes_are_not_interchangeable"
+        }
+      ],
+      "residual_risk": "Verified WITHOUT a live endpoint: the tests pin the wire shapes and that both providers override chat, not that a real API accepts the requests — a field name wrong in a way both the code and its test agree on would pass. First real use against each provider is the actual proof. NOT covered: streaming tool calls (generate_stream stays text-only for both) and Anthropic's chat path uses a fixed max_tokens because the chat signature carries no per-request override. The trait default still flattens for any OTHER provider that does not override it.",
+      "follow_up": null
     }
   ]
 }
