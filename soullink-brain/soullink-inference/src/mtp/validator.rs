@@ -398,7 +398,29 @@ mod tests {
         assert!(!r.all_accepted);
         assert_eq!(r.break_index, 1);
         assert_eq!(r.accepted_tokens, vec![5]);
-        assert_eq!(r.corrected_token, Some(99));
+
+        // `corrected_token` is SAMPLED from the main model's distribution
+        // (`sample_from_logits` with a thread rng), not taken as its argmax.
+        // Asserting `Some(99)` asserted the outcome of a random draw, and it
+        // failed in CI as `Some(0)` — which is not noise but the second-most
+        // likely token here: `make_logits` sets `logits[99] = 10.0` and
+        // `logits[(99 + 1) % 100] = logits[0] = 0.5`.
+        //
+        // Measured, not guessed: over 20000 runs the correction took 60
+        // distinct values. Softmax over those logits puts P(99) at about
+        // 0.9955, i.e. roughly one failure in 220 — often enough to redden an
+        // unrelated PR, rare enough to look like a mystery.
+        //
+        // So the assertion is on what the code actually guarantees: a
+        // rejection produces a correction, and it is a valid token id. Pinning
+        // the sampled value would only make the flake rarer, not absent.
+        let corrected = r
+            .corrected_token
+            .expect("a rejection must produce a correction");
+        assert!(
+            corrected < 100,
+            "the corrected token must be within the vocabulary, got {corrected}"
+        );
     }
 
     #[test]
