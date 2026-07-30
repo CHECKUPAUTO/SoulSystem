@@ -12,6 +12,7 @@ name = "soul-decision-v13"
 path = "src/main.rs"
 
 [dependencies]
+soulsystem-common = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

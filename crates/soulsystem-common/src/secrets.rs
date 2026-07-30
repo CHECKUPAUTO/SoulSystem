@@ -164,6 +164,12 @@ mod tests {
 /// does not stop someone writing `expose()` into a log line. It removes the
 /// *accidental* path, which is the one that actually happens.
 #[derive(Clone, Default, PartialEq, Eq, zeroize::ZeroizeOnDrop)]
+/// Interpolating a `SecretString` with `{}` must not compile (MED-017):
+///
+/// ```compile_fail
+/// let t = soulsystem_common::secrets::SecretString::new("tok");
+/// let _ = format!("Bearer {t}");
+/// ```
 pub struct SecretString(String);
 
 impl SecretString {
@@ -222,11 +228,16 @@ impl fmt::Debug for SecretString {
     }
 }
 
-impl fmt::Display for SecretString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(REDACTED)
-    }
-}
+// `Display` is deliberately NOT implemented for `SecretString`.
+//
+// It used to print `[REDACTED]`, which is leak-proof but fails *silently
+// where it matters*: `format!("Bearer {token}")` compiled cleanly and sent
+// the literal string "Bearer [REDACTED]" as the credential. Three providers
+// (soul_llm's OpenAI and Ollama, avid-scout's Bearer auth) shipped exactly
+// that bug — authentication broken at runtime with no compile-time signal
+// (MED-017). Without `Display`, interpolating a secret is a compile error,
+// and the author must choose: `.expose()` to attach the real value, or
+// `{:?}` for the redacted form.
 
 impl From<String> for SecretString {
     fn from(value: String) -> Self {
@@ -412,7 +423,6 @@ mod protocol_secret_tests {
             format!("{config:?}"),
             "Debug: same"
         );
-        assert_eq!(format!("{protocol}"), format!("{config}"), "Display: same");
         assert_ne!(
             serde_json::to_string(&protocol).unwrap(),
             serde_json::to_string(&config).unwrap(),
@@ -437,12 +447,6 @@ mod secret_string_tests {
             "Debug leaked part of the secret"
         );
         assert_eq!(rendered, REDACTED);
-    }
-
-    #[test]
-    fn display_never_renders_the_secret() {
-        let secret = SecretString::new(TOKEN);
-        assert_eq!(format!("{secret}"), REDACTED);
     }
 
     #[test]

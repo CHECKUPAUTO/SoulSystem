@@ -239,10 +239,16 @@ async fn main() -> Result<()> {
         return run_automation_command(action, &settings.paths.config_dir);
     }
 
-    let resolved_api_key = cli.api_key.clone().or_else(|| {
-        soulsystem_common::secrets::resolve_llm_secret(&cli.provider.to_string())
-            .map(|secret| secret.to_string())
-    });
+    // Typed at the moment of resolution: the previous `.to_string()` made a
+    // plain, non-zeroizing copy of the secret-store value (INV-SEC-2).
+    let resolved_api_key = cli
+        .api_key
+        .clone()
+        .map(soulsystem_common::secrets::SecretString::new)
+        .or_else(|| {
+            soulsystem_common::secrets::resolve_llm_secret(&cli.provider.to_string())
+                .map(|secret| soulsystem_common::secrets::SecretString::new(secret.as_str()))
+        });
     if cli.api_key.is_some() {
         warn!(
             "--api-key can be exposed through process listings; prefer `soulsystem secrets set llm/{}` or an environment variable",
@@ -251,7 +257,7 @@ async fn main() -> Result<()> {
     }
 
     if cli.doctor {
-        return run_doctor(&cli, &settings, resolved_api_key.as_deref()).await;
+        return run_doctor(&cli, &settings, resolved_api_key.as_ref()).await;
     }
 
     // ── Fail-closed production readiness guard ─────────────────────────────
@@ -1493,9 +1499,7 @@ async fn main() -> Result<()> {
                 temperature: 0.7,
                 http_timeout: Duration::from_secs(30),
                 connect_timeout: Duration::from_secs(5),
-                auth_token: resolved_api_key
-                    .clone()
-                    .map(soulsystem_common::secrets::SecretString::new),
+                auth_token: resolved_api_key.clone(),
                 max_tokens: 4096,
                 goal_token_budget: 50000,
                 tokens_per_minute_budget: 100000,
@@ -1792,7 +1796,7 @@ async fn main() -> Result<()> {
 async fn run_doctor(
     cli: &Cli,
     settings: &soulsystem::config::Settings,
-    api_key: Option<&str>,
+    api_key: Option<&soulsystem_common::secrets::SecretString>,
 ) -> Result<()> {
     let mut warnings = 0usize;
 
@@ -1865,7 +1869,7 @@ fn doctor_llm_request(
     client: &reqwest::Client,
     provider: soul_llm::ProviderKind,
     base_url: &str,
-    api_key: Option<&str>,
+    api_key: Option<&soulsystem_common::secrets::SecretString>,
 ) -> reqwest::RequestBuilder {
     use soul_llm::ProviderKind;
 
@@ -1876,7 +1880,7 @@ fn doctor_llm_request(
             let models_url = provider_models_url(base_url);
             let request = client.get(models_url);
             match api_key.filter(|key| !key.is_empty()) {
-                Some(key) => request.bearer_auth(key),
+                Some(key) => request.bearer_auth(key.expose()),
                 None => request,
             }
         }
@@ -1886,7 +1890,7 @@ fn doctor_llm_request(
                 .get(models_url)
                 .header("anthropic-version", "2023-06-01");
             match api_key.filter(|key| !key.is_empty()) {
-                Some(key) => request.header("x-api-key", key),
+                Some(key) => request.header("x-api-key", key.expose()),
                 None => request,
             }
         }
@@ -2172,13 +2176,18 @@ mod doctor_tests {
     #[test]
     fn doctor_applies_provider_auth_without_putting_it_in_the_url() {
         let client = reqwest::Client::new();
+        // Typed like production. This test is also the MED-017 regression
+        // pin for the doctor path: the header must carry the REAL value —
+        // a redacting Display interpolated here would have produced
+        // "Bearer [REDACTED]" and failed the assertions below.
+        let typed = soulsystem_common::secrets::SecretString::new("test-secret-value");
         let secret = "test-secret-value";
 
         let openai = doctor_llm_request(
             &client,
             ProviderKind::OpenAI,
             "https://api.openai.com",
-            Some(secret),
+            Some(&typed),
         )
         .build()
         .expect("valid OpenAI request");
@@ -2192,7 +2201,7 @@ mod doctor_tests {
             &client,
             ProviderKind::Anthropic,
             "https://api.anthropic.com/v1/",
-            Some(secret),
+            Some(&typed),
         )
         .build()
         .expect("valid Anthropic request");

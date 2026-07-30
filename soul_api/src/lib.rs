@@ -177,7 +177,11 @@ impl TelegramBot {
 
     pub async fn send_message(&self, chat_id: i64, text: &str) -> Result<(), ApiError> {
         if let Some(token) = &self.token {
-            let url = format!("https://api.telegram.org/bot{}/sendMessage", token);
+            // `{}` via the old redacting Display built "…/bot[REDACTED]/sendMessage"
+            // — Telegram notifications were silently broken (MED-017). The token
+            // still lands in a URL, which is its own exposure (URLs get logged);
+            // that pre-existing residue is MED-016's, not new here.
+            let url = format!("https://api.telegram.org/bot{}/sendMessage", token.expose());
             let client = reqwest::Client::new();
             let _ = client
                 .post(&url)
