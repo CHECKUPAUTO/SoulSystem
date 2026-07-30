@@ -122,6 +122,28 @@ jobs:
         run: cargo install cargo-cyclonedx --locked
       - name: Generate SBOM
         run: cargo cyclonedx --format json --all
+      # Collect into one directory before uploading.
+      #
+      # Uploading with a `**/*.cdx.json` glob makes upload-artifact walk the
+      # whole repository, and it dies on the first entry it cannot stat:
+      #   EACCES: permission denied, stat '.../avid/scirust-autodiff'
+      # The SBOMs had already been generated fine — only the upload's tree
+      # walk failed. Collecting first means the upload sees one flat
+      # directory and never touches the rest of the tree.
+      - name: Collect SBOMs
+        run: |
+          set -euo pipefail
+          mkdir -p sbom-out
+          # -print0/xargs -0 for paths with spaces; the 2>/dev/null suppresses
+          # the same unreadable-directory noise, and the count check below is
+          # what actually decides success.
+          find . -name '*.cdx.json' -not -path './sbom-out/*' -print0 2>/dev/null \
+            | xargs -0 -r -I{} cp {} sbom-out/
+          count=$(find sbom-out -name '*.cdx.json' | wc -l)
+          echo "collected $count SBOM file(s)"
+          # Fail loudly rather than uploading an empty artifact that looks
+          # like a passing SBOM job.
+          test "$count" -gt 0
       # Uploaded as a build artifact rather than committed: an SBOM is a fact
       # about one build, and a committed copy goes stale the moment a
       # dependency resolves differently.
@@ -129,7 +151,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sbom-cyclonedx
-          path: "**/*.cdx.json"
+          path: sbom-out/
           if-no-files-found: error
 
   msrv:
