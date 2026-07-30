@@ -5,6 +5,6 @@ edition = "2021"
 description = "Simulated quantum circuit inference for SciRust"
 
 [dependencies]
-scirust-symbolic = { path = "/root/scirust/scirust-symbolic" }
-scirust-autodiff = { path = "/root/scirust/scirust-autodiff" }
-scirust-inference = { path = "/root/scirust/scirust-inference" }
+scirust-symbolic = { path = "../scirust-symbolic" }
+scirust-autodiff = { path = "../scirust-autodiff" }
+scirust-inference = { path = "../scirust-inference" }

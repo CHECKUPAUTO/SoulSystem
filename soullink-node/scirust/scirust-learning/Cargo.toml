@@ -7,5 +7,5 @@ description = "Learning layer for SciRust: pattern memory, function approximatio
 publish = false
 
 [dependencies]
-scirust-symbolic = { path = "/root/scirust/scirust-symbolic" }
+scirust-symbolic = { path = "../scirust-symbolic" }
 ndarray = "0.15"
