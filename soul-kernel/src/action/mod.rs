@@ -36,22 +36,7 @@ impl Action {
             }
             Action::OptimizeSystem => {
                 info!("⚡ Optimizing system");
-                let cmds = vec![
-                    ("sync && echo 3 > /proc/sys/vm/drop_caches", "drop caches"),
-                    ("journalctl --vacuum-time=7d", "vacuum logs"),
-                    (
-                        "find /tmp -type f -atime +7 -delete 2>/dev/null || true",
-                        "cleanup /tmp",
-                    ),
-                ];
-                let mut results = Vec::new();
-                for (cmd, desc) in cmds {
-                    match Command::new("sh").args(["-c", cmd]).output() {
-                        Ok(o) if o.status.success() => results.push(format!("✅ {}", desc)),
-                        _ => results.push(format!("❌ {}", desc)),
-                    }
-                }
-                Ok(results.join(" | "))
+                Ok(optimize_system().join(" | "))
             }
             Action::CheckpointState => {
                 info!("💾 Checkpoint state");
@@ -236,6 +221,90 @@ impl Action {
                 }
             }
         }
+    }
+}
+
+/// The three maintenance operations behind [`Action::OptimizeSystem`],
+/// performed without a shell (P1-8-B).
+///
+/// These previously ran as three `sh -c` strings. No caller input reached
+/// them, so there was nothing to inject — the problem was the shell itself:
+/// it made this file an arbitrary-command site, and `soul_sandbox` would
+/// refuse the strings outright because shell composition and `-delete` match
+/// its destructive patterns. So the shell had to go, not the operations.
+///
+/// Each returns a sentence saying what actually happened. The old form
+/// reported a bare `❌` with the reason discarded, and the `/tmp` cleanup
+/// ended in `|| true`, so it reported `✅` even when `find` had failed —
+/// an operator reading the result could not tell maintenance from a no-op.
+fn optimize_system() -> Vec<String> {
+    vec![drop_caches(), vacuum_logs(), cleanup_tmp()]
+}
+
+/// `sync && echo 3 > /proc/sys/vm/drop_caches`, as two direct operations.
+///
+/// The `&&` ordering is preserved deliberately: `sync` flushes dirty pages
+/// first, and dropping caches before that would be pointless work rather than
+/// a correctness bug (drop_caches never discards dirty pages). The write is a
+/// plain `fs::write` — a shell redirection into procfs is just a file write.
+///
+/// Requires root. Unprivileged runs now report the actual `EACCES` instead of
+/// an anonymous `❌`.
+fn drop_caches() -> String {
+    match Command::new("sync").output() {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            return format!(
+                "❌ drop caches: sync failed: {}",
+                String::from_utf8_lossy(&o.stderr).trim()
+            )
+        }
+        Err(e) => return format!("❌ drop caches: cannot run sync: {e}"),
+    }
+
+    match std::fs::write("/proc/sys/vm/drop_caches", "3") {
+        Ok(()) => "✅ drop caches".to_string(),
+        Err(e) => format!("❌ drop caches: {e}"),
+    }
+}
+
+/// `journalctl --vacuum-time=7d` as fixed argv.
+fn vacuum_logs() -> String {
+    match Command::new("journalctl").arg("--vacuum-time=7d").output() {
+        Ok(o) if o.status.success() => "✅ vacuum logs".to_string(),
+        Ok(o) => format!(
+            "❌ vacuum logs: {}",
+            String::from_utf8_lossy(&o.stderr).trim()
+        ),
+        Err(e) => format!("❌ vacuum logs: cannot run journalctl: {e}"),
+    }
+}
+
+/// `find /tmp -type f -atime +7 -delete` as fixed argv.
+///
+/// Deliberately still `find`, rather than a hand-rolled directory walk. This
+/// deletes files recursively as root: `find` does not follow symlinks unless
+/// asked, and `-delete` implies `-depth`. A reimplementation would have to
+/// re-derive both properties, and a symlink-escape bug in a recursive deleter
+/// running as root is a far worse outcome than the one being fixed. Removing
+/// the *shell* is the security change; replacing a correct, well-tested
+/// traversal is not.
+///
+/// `find` exits non-zero when it could not remove something. The old form
+/// swallowed that with `2>/dev/null || true`; it is now reported.
+fn cleanup_tmp() -> String {
+    match Command::new("find")
+        .args(["/tmp", "-type", "f", "-atime", "+7", "-delete"])
+        .output()
+    {
+        Ok(o) if o.status.success() => "✅ cleanup /tmp".to_string(),
+        // Partial failure is expected on a shared /tmp: files owned by other
+        // users cannot be removed. Reported, not treated as fatal.
+        Ok(o) => format!(
+            "⚠️ cleanup /tmp: partial: {}",
+            String::from_utf8_lossy(&o.stderr).trim()
+        ),
+        Err(e) => format!("❌ cleanup /tmp: cannot run find: {e}"),
     }
 }
 
