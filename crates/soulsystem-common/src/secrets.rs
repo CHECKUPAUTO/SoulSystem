@@ -295,6 +295,12 @@ impl serde::Serialize for SecretString {
 /// If both are true of one struct, it is carrying a credential in a place that
 /// wants splitting, and neither type will save it.
 #[derive(Clone, Default, PartialEq, Eq, zeroize::ZeroizeOnDrop)]
+/// Interpolating a `ProtocolSecret` with `{}` must not compile (MED-017-B):
+///
+/// ```compile_fail
+/// let t = soulsystem_common::secrets::ProtocolSecret::new("tok");
+/// let _ = format!("device {t}");
+/// ```
 pub struct ProtocolSecret(String);
 
 impl ProtocolSecret {
@@ -331,11 +337,14 @@ impl fmt::Debug for ProtocolSecret {
     }
 }
 
-impl fmt::Display for ProtocolSecret {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(REDACTED)
-    }
-}
+// `Display` is deliberately NOT implemented for `ProtocolSecret`, for the
+// same reason as `SecretString` (MED-017): a redacting Display compiles
+// cleanly where a real value is needed and silently substitutes
+// "[REDACTED]" at runtime. For a type whose entire purpose is to carry the
+// value faithfully to a peer, that failure mode is even worse — the wire
+// form would be corrupted while every log line looked correct. The audit
+// found no interpolation site; this removes the footgun before one appears.
+// Interpolation is a compile error: use `.expose()` or `{:?}`.
 
 impl From<String> for ProtocolSecret {
     fn from(value: String) -> Self {
@@ -368,11 +377,12 @@ mod protocol_secret_tests {
 
     const TOKEN: &str = "dev-8c1f0a4b93e27d65";
 
+    /// Display no longer exists (MED-017-B) — that absence is pinned by the
+    /// `compile_fail` doctest on the type; Debug still redacts.
     #[test]
-    fn debug_and_display_still_redact() {
+    fn debug_still_redacts() {
         let secret = ProtocolSecret::new(TOKEN);
         assert_eq!(format!("{secret:?}"), REDACTED);
-        assert_eq!(format!("{secret}"), REDACTED);
     }
 
     #[test]
