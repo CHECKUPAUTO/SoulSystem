@@ -1,6 +1,9 @@
 use crate::error::{LlmError, Result};
 use crate::http::SendChecked;
-use crate::provider::LlmProvider;
+use crate::provider::{
+    ChatMessage, ChatResponse, ChatResponseMessage, ChatRole, LlmProvider, ToolCall,
+    ToolCallFunction, ToolSchema,
+};
 use crate::types::{
     EmbeddingResult, GenerateRequest, GenerateResult, ModelInfo, StreamChunk, TokenUsage,
 };
@@ -414,4 +417,189 @@ impl LlmProvider for OpenAIProvider {
             })
             .collect())
     }
+
+    /// Native tool calling (LOW-008).
+    ///
+    /// Overrides the trait default, which flattened tool schemas into prose
+    /// ("Available tools: - name: description") and then returned
+    /// `tool_calls: None` unconditionally. A caller could not distinguish "the
+    /// model chose not to call a tool" from "this provider cannot report tool
+    /// calls at all" — the two look identical, and only one of them means the
+    /// agent loop is working.
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        tools: Option<&[ToolSchema]>,
+    ) -> Result<ChatResponse> {
+        let openai_msgs: Vec<OpenAIChatMessage> = messages
+            .iter()
+            .map(|m| {
+                let role = match m.role {
+                    ChatRole::System => "system",
+                    ChatRole::User => "user",
+                    ChatRole::Assistant => "assistant",
+                    ChatRole::Tool => "tool",
+                };
+                OpenAIChatMessage {
+                    role: role.to_string(),
+                    content: Some(m.content.clone()),
+                    tool_calls: m.tool_calls.as_ref().map(|tcs| {
+                        tcs.iter()
+                            .map(|tc| OpenAIToolCallOut {
+                                id: tc.id.clone(),
+                                call_type: "function".to_string(),
+                                function: OpenAIToolCallFunctionOut {
+                                    name: tc.function.name.clone(),
+                                    arguments: tc.function.arguments.clone(),
+                                },
+                            })
+                            .collect()
+                    }),
+                    tool_call_id: m.tool_call_id.clone(),
+                }
+            })
+            .collect();
+
+        let openai_tools: Option<Vec<OpenAITool>> = tools.map(|ts| {
+            ts.iter()
+                .map(|t| OpenAITool {
+                    tool_type: "function".to_string(),
+                    function: OpenAIToolFunction {
+                        name: t.name.clone(),
+                        description: t.description.clone(),
+                        parameters: t.parameters.clone(),
+                    },
+                })
+                .collect()
+        });
+
+        let body = OpenAIToolChatRequest {
+            model: self.default_model.clone(),
+            messages: openai_msgs,
+            tools: openai_tools,
+            stream: false,
+        };
+
+        let resp: OpenAIToolChatResponse = self
+            .http
+            .post(format!("{}/v1/chat/completions", self.base_url))
+            .json(&body)
+            // Propagated as-is: send_checked already classified the status,
+            // and flattening a 429 into the catch-all variant would make it
+            // look permanent to the retry policy.
+            .send_checked()
+            .await?
+            .json()
+            .await
+            .map_err(|e| LlmError::Provider(format!("openai chat deserialize: {e}")))?;
+
+        let choice = resp
+            .choices
+            .into_iter()
+            .next()
+            .ok_or_else(|| LlmError::Provider("openai chat returned no choices".into()))?;
+
+        let tool_calls: Option<Vec<ToolCall>> = choice.message.tool_calls.map(|tcs| {
+            tcs.into_iter()
+                .map(|tc| ToolCall {
+                    // OpenAI supplies a stable id; keep it so a tool result
+                    // message can be correlated back via tool_call_id.
+                    id: tc.id,
+                    function: ToolCallFunction {
+                        name: tc.function.name,
+                        arguments: tc.function.arguments,
+                    },
+                })
+                .collect()
+        });
+
+        Ok(ChatResponse {
+            message: ChatResponseMessage {
+                content: choice.message.content,
+                tool_calls,
+            },
+        })
+    }
+}
+
+// ── OpenAI tool-calling wire types ───────────────────────────
+
+#[derive(Serialize)]
+struct OpenAIToolChatRequest {
+    model: String,
+    messages: Vec<OpenAIChatMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<OpenAITool>>,
+    stream: bool,
+}
+
+#[derive(Serialize)]
+struct OpenAIChatMessage {
+    role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<OpenAIToolCallOut>>,
+    /// Correlates a `role: "tool"` message with the call it answers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct OpenAIToolCallOut {
+    id: String,
+    #[serde(rename = "type")]
+    call_type: String,
+    function: OpenAIToolCallFunctionOut,
+}
+
+#[derive(Serialize)]
+struct OpenAIToolCallFunctionOut {
+    name: String,
+    arguments: String,
+}
+
+#[derive(Serialize)]
+struct OpenAITool {
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: OpenAIToolFunction,
+}
+
+#[derive(Serialize)]
+struct OpenAIToolFunction {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+struct OpenAIToolChatResponse {
+    choices: Vec<OpenAIToolChoice>,
+}
+
+#[derive(Deserialize)]
+struct OpenAIToolChoice {
+    message: OpenAIToolRespMessage,
+}
+
+#[derive(Deserialize)]
+struct OpenAIToolRespMessage {
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<OpenAIToolCallResp>>,
+}
+
+#[derive(Deserialize)]
+struct OpenAIToolCallResp {
+    id: String,
+    function: OpenAIToolCallFunctionResp,
+}
+
+#[derive(Deserialize)]
+struct OpenAIToolCallFunctionResp {
+    name: String,
+    #[serde(default)]
+    arguments: String,
 }
