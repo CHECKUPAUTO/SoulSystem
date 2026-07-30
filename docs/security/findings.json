@@ -20,9 +20,8 @@
   "status_summary": {
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
-    "FIXED_AND_VERIFIED": 31,
-    "NOT_REACHABLE": 5,
-    "PARTIALLY_FIXED": 1
+    "FIXED_AND_VERIFIED": 32,
+    "NOT_REACHABLE": 5
   },
   "severity_status_summary": {
     "critical": {
@@ -775,7 +774,7 @@
     {
       "id": "HIGH-003",
       "title": "soul_sandbox provides string-filtering + optional seccomp only, not OS-level isolation; reachable with no-seccomp default policy",
-      "status": "PARTIALLY_FIXED",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "high",
       "confidence": "confirmed",
       "audit_category": "Security — Insufficient Isolation",
@@ -801,7 +800,7 @@
         "soul_sandbox applied string filtering and an optional seccomp profile only; no OS-level isolation"
       ],
       "current_state": "Real OS-level controls now exist. seccomp is on by default (SandboxPolicy::default().seccomp_profile is Some(\"default\")) and fails closed: install_filter errors propagate out of pre_exec and abort the fork before exec. PR_SET_NO_NEW_PRIVS is set unconditionally first, so the filter installs for unprivileged callers, not only root. Output is bounded by max_output_bytes (2 MiB default) via read_capped, and the process group is killed on timeout. Network isolation via unshare(CLONE_NEWUSER|CLONE_NEWNET) is deliberately best-effort: on hosts where AppArmor restricts unprivileged user namespaces (Ubuntu 23.10+, GitHub Actions runners) it logs and continues rather than blocking all execution. P1-3 adds CPU, memory, file-descriptor, file-size and core bounds via setrlimit(2) in the same pre_exec seam (ResourceLimits; defaults RLIMIT_AS 4 GiB, RLIMIT_NOFILE 256, RLIMIT_CPU 60 s, RLIMIT_FSIZE 256 MiB, RLIMIT_CORE 0). Both the soft and the hard limit are lowered, so the child cannot raise its own soft limit back, and the desired value is clamped to the inherited hard limit so a tighter host ceiling is preserved rather than causing EPERM. This path is fail-closed: lowering an rlimit needs no privilege and has no host-policy dependency, so a failure aborts the fork before exec. setrlimit rather than cgroups because cgroup v2 requires root or a delegated subtree, which the unprivileged deployments this targets do not have. P1-12 part 1 landed: a cgroup v2 backend supplies pids.max (default 512 - contains a fork bomb without constraining ordinary builds) and opt-in memory.max when the host grants a delegated subtree via SOUL_SANDBOX_CGROUP_DIR. The leaf is created with limits written BEFORE spawn; the child moves itself in from pre_exec by writing '0' to cgroup.procs (moves the calling process - no window outside the limits) and entering the leaf is FAIL-CLOSED; the execute paths hold the leaf until after the wait so removal happens once the tree is reaped. Availability, or the typed reason for falling back to the P1-3 rlimits, is reported exactly once per process - a degraded bound that is reported is a decision someone can revisit. Detection probes leaf creation for real, so read-only mounts and undelegated dirs fail before an execution depends on them.",
-      "remaining_exposure": "ALL FOUR P1-12 PARTS NOW DONE (pending merge). PART 2 (PID namespace): CLONE_NEWPID double-fork; the intermediate mirrors the grandchild's exit status; PR_SET_PDEATHSIG plus a getppid() re-check because process groups do not span a PID namespace. The serious bug was found by MEASURING: the intermediate inherited Command::spawn's CLOEXEC status pipe, so spawn did not return until the command finished, and since the deadline is armed after spawn a 150ms timeout on `sleep 10` ran the full 10s and REPORTED SUCCESS. Fixed by closing inherited fds above stdio. PART 3 (filesystem view): DONE. hidden_paths covers credential locations with empty mounts inside the mount namespace - a hidden file reads EMPTY (bind /dev/null) while the host copy stays byte-identical, and a hidden directory returns Permission denied (tmpfs mode 000). This converts path handling from a command-line SCAN to a filesystem BOUNDARY: SENSITIVE_PATHS catches `cat /etc/shadow` and does nothing about a program that opens the file itself. SENSITIVE_PATHS cannot serve as the list - it contains /lib/ and /usr/lib/. PART 4 (per-host egress): DONE via SECCOMP_RET_USER_NOTIF. The kernel suspends the target on connect(2); a supervisor thread reads the sockaddr from /proc/pid/mem, re-checks NOTIF_ID_VALID against TOCTOU, and allows or fails with EACCES. Enforcement is destination IP+port; hostnames are resolved once when the policy is built, so a name that later resolves elsewhere is DENIED rather than silently allowed. Deny is the default and an undecodable sockaddr is refused rather than waved through. Unlike the namespaces this is FAIL-CLOSED - it needs only no_new_privs, so a caller that asks for an egress policy gets a failed execution rather than an unrestricted network if the listener cannot be installed. MEASURED end to end against a real local server: with no policy curl reaches it; with the destination allowed curl reaches it identically; with an empty policy and with a policy naming a DIFFERENT address, curl fails with (7) Couldn't connect. The three cases together are what make it a measurement rather than a demonstration.",
+      "remaining_exposure": "ALL FOUR P1-12 PARTS DONE, merged as a468b31 (#159). PART 2 (PID namespace): CLONE_NEWPID double-fork; the intermediate mirrors the grandchild's exit status; PR_SET_PDEATHSIG plus a getppid() re-check because process groups do not span a PID namespace. The serious bug was found by MEASURING: the intermediate inherited Command::spawn's CLOEXEC status pipe, so spawn did not return until the command finished, and since the deadline is armed after spawn a 150ms timeout on `sleep 10` ran the full 10s and REPORTED SUCCESS. Fixed by closing inherited fds above stdio. PART 3 (filesystem view): DONE. hidden_paths covers credential locations with empty mounts inside the mount namespace - a hidden file reads EMPTY (bind /dev/null) while the host copy stays byte-identical, and a hidden directory returns Permission denied (tmpfs mode 000). This converts path handling from a command-line SCAN to a filesystem BOUNDARY: SENSITIVE_PATHS catches `cat /etc/shadow` and does nothing about a program that opens the file itself. SENSITIVE_PATHS cannot serve as the list - it contains /lib/ and /usr/lib/. PART 4 (per-host egress): DONE via SECCOMP_RET_USER_NOTIF. The kernel suspends the target on connect(2); a supervisor thread reads the sockaddr from /proc/pid/mem, re-checks NOTIF_ID_VALID against TOCTOU, and allows or fails with EACCES. Enforcement is destination IP+port; hostnames are resolved once when the policy is built, so a name that later resolves elsewhere is DENIED rather than silently allowed. Deny is the default and an undecodable sockaddr is refused rather than waved through. Unlike the namespaces this is FAIL-CLOSED - it needs only no_new_privs, so a caller that asks for an egress policy gets a failed execution rather than an unrestricted network if the listener cannot be installed. MEASURED end to end against a real local server: with no policy curl reaches it; with the destination allowed curl reaches it identically; with an empty policy and with a policy naming a DIFFERENT address, curl fails with (7) Couldn't connect. The three cases together are what make it a measurement rather than a demonstration.",
       "required_invariant": "Process tools run under OS-level isolation with bounded resources and no network by default (INV-EXEC-2/3/4).",
       "fixing_prs": [
         {
@@ -813,6 +812,11 @@
           "number": 157,
           "merge_commit": "0ec864c49deef8a273602cbeccba74a6ae84eaef",
           "title": "security(P1-12 parts 2-3): PID and mount namespace isolation for the sandbox"
+        },
+        {
+          "number": 159,
+          "merge_commit": "a468b31a6fc6af0ea34633b0263df8e5c5bb4193",
+          "title": "security(HIGH-003): filesystem-view policy and per-host egress, both enforced"
         }
       ],
       "verification_tests": [
@@ -863,7 +867,8 @@
         }
       ],
       "residual_risk": "The cgroup bound applies only where the operator delegates a subtree; the common unprivileged host falls back to rlimits, which cannot bound a fork bomb on a shared UID - reported, not silent. The returned-Command helper path cannot anchor a leaf lifetime and runs without the cgroup bound (rlimits and seccomp still apply). The enforcement test self-skips where no delegated subtree exists, so CI exercises the fallback path for real and the enforcement path only on prepared hosts. PID namespaces (spawn-model restructure), mount namespaces (needs a filesystem-view policy first) and per-tool egress remain P1-12 parts 2-4.",
-      "follow_up": "Residual, stated rather than implied: enforcement hooks connect(2), so sendto(2) with a destination address on an unconnected socket is not covered; and the seccomp listener supervises the sandboxed process, not any privileged helper it might invoke. Neither is a gap in what the policy claims - the module documents both."
+      "follow_up": "Residual, stated rather than implied: enforcement hooks connect(2), so sendto(2) with a destination address on an unconnected socket is not covered; and the seccomp listener supervises the sandboxed process, not any privileged helper it might invoke. Neither is a gap in what the policy claims - the module documents both.",
+      "verification_test": "cargo test -p soul_sandbox --lib"
     },
     {
       "id": "HIGH-004",
