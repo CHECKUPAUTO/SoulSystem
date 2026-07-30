@@ -844,10 +844,18 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   `restore_runtime_strict` refuses that, but no production caller uses it.
   **Making it the default needs a migration window — a deployment decision, so
   it is being asked rather than assumed.**
-- **Backup qualification still covers only the CCOS three-file state
-  directory.** The provenance index added by P1-6-B is now a second durable
-  store with no backup/restore test, and `soul-memory` / `soullink-memory` /
-  `soullink-memory-hierarchy` have their own persistence with none either.
+- **~~Backup qualification~~ — extended to two of the four stores.** The
+  provenance index now has qualification tests: a restored backup answers **as
+  of the backup, not as of now** (a restore answering `Known` for a record made
+  after the backup would be fabricating provenance), and a corrupt backup is
+  refused rather than restored as an empty index — the empty and the corrupt
+  give identical `Unknown` answers, and only one of them is telling the truth.
+  `soul-memory`'s sled store has a **cold-copy** qualification: close, copy,
+  reopen, contents equal, and the restore is independent of the original. Cold
+  is part of the contract, not a shortcut — sled holds an in-flight log and a
+  live copy can tear; nothing claims hot backup works because nothing makes it
+  work. Still without qualification: `soullink-memory` and
+  `soullink-memory-hierarchy`.
 - **Acceptance tests:** strict restore is the default with a documented
   migration path; a backup/restore qualification covering the provenance index
   and at least one of the memory stores.

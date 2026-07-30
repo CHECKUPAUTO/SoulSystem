@@ -346,3 +346,87 @@ mod tests {
         assert_eq!(val.as_str().unwrap(), "qwen3:8b");
     }
 }
+
+#[cfg(test)]
+mod backup_qualification_tests {
+    use super::*;
+
+    /// Recursive copy, used as the backup mechanism under qualification.
+    fn copy_dir(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let dest = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_dir(&entry.path(), &dest);
+            } else {
+                std::fs::copy(entry.path(), &dest).unwrap();
+            }
+        }
+    }
+
+    fn goal(id: &str, desc: &str) -> PersistentGoal {
+        PersistentGoal {
+            id: id.into(),
+            description: desc.into(),
+            priority: 5,
+            status: GoalStatus::Active,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            parent_id: None,
+            children_ids: vec![],
+            result: None,
+        }
+    }
+
+    /// P1-7-C qualification: a **cold** copy of the store directory — taken
+    /// with the store closed — reopens with the same goals and config, and is
+    /// fully independent of the original.
+    ///
+    /// Cold is part of the contract, not a shortcut: sled holds an in-flight
+    /// log, and copying a *live* directory can capture a torn state. This
+    /// test qualifies the backup procedure "close, copy, reopen"; it
+    /// deliberately does not claim hot backup works, because nothing here
+    /// makes it work.
+    #[test]
+    fn a_cold_copy_restores_the_same_goals_and_is_independent() {
+        let live = tempfile::tempdir().unwrap();
+        let backup = tempfile::tempdir().unwrap();
+
+        {
+            let store = PersistentStore::open(live.path()).unwrap();
+            store.save_goal(&goal("g1", "first")).unwrap();
+            store.save_goal(&goal("g2", "second")).unwrap();
+            store
+                .save_config("model", &serde_json::json!("qwen3:8b"))
+                .unwrap();
+            // Store handle drops here: sled flushes on drop, so the copy
+            // below sees a complete, quiescent directory.
+        }
+
+        copy_dir(live.path(), backup.path());
+
+        let restored = PersistentStore::open(backup.path()).unwrap();
+        let mut goals = restored.load_all_goals().unwrap();
+        goals.sort_by(|a, b| a.id.cmp(&b.id));
+        assert_eq!(goals.len(), 2);
+        assert_eq!(goals[0].id, "g1");
+        assert_eq!(goals[1].description, "second");
+        assert_eq!(
+            restored.load_config("model").unwrap(),
+            Some(serde_json::json!("qwen3:8b"))
+        );
+
+        // Independence: writing to the restore must not touch the original.
+        restored.save_goal(&goal("g3", "only in backup")).unwrap();
+        drop(restored);
+
+        let original = PersistentStore::open(live.path()).unwrap();
+        assert_eq!(
+            original.load_all_goals().unwrap().len(),
+            2,
+            "a goal saved into the restored copy leaked into the original — \
+             the backup is not independent"
+        );
+    }
+}

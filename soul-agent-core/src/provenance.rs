@@ -910,3 +910,98 @@ mod durability_tests {
         let _ = std::fs::remove_file(&path);
     }
 }
+
+#[cfg(test)]
+mod backup_qualification_tests {
+    use super::*;
+
+    fn prov(uri: &str, trust: TrustLevel) -> MemoryProvenance {
+        MemoryProvenance {
+            source: MemorySource::ToolOutput {
+                tool: "read_file".into(),
+            },
+            trust,
+            store: MemoryStore::CausalGraph,
+            uri: uri.into(),
+            screening_score: 0,
+            persisted: true,
+            recorded_at: chrono::Utc::now(),
+        }
+    }
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join("soul_provenance_backup_tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join(name)
+    }
+
+    /// P1-7-C qualification: a file-copy backup of the index, restored,
+    /// answers exactly what the index answered when the backup was taken —
+    /// including *not* knowing what was recorded afterwards. A backup is a
+    /// point in time; a restore that answered `Known` for a record made
+    /// after the backup would be fabricating provenance.
+    #[test]
+    fn a_restored_backup_answers_as_of_the_backup_not_as_of_now() {
+        let live = temp_path("live.json");
+        let backup = temp_path("backup.json");
+        let _ = std::fs::remove_file(&live);
+        let _ = std::fs::remove_file(&backup);
+
+        let mut log = ProvenanceLog::open(&live, 64).unwrap();
+        log.record(prov("file:a.rs", TrustLevel::Screened));
+        log.record(prov("file:b.rs", TrustLevel::Spotlighted));
+        log.persist().unwrap();
+
+        std::fs::copy(&live, &backup).unwrap();
+
+        log.record(prov("file:c.rs", TrustLevel::Screened));
+        log.persist().unwrap();
+
+        let restored = ProvenanceLog::open(&backup, 64).unwrap();
+        assert!(matches!(
+            restored.lookup(MemoryStore::CausalGraph, "file:a.rs"),
+            ProvenanceLookup::Known(p) if p.trust == TrustLevel::Screened
+        ));
+        assert!(matches!(
+            restored.lookup(MemoryStore::CausalGraph, "file:b.rs"),
+            ProvenanceLookup::Known(p) if p.trust == TrustLevel::Spotlighted
+        ));
+        assert!(
+            matches!(
+                restored.lookup(MemoryStore::CausalGraph, "file:c.rs"),
+                ProvenanceLookup::Unknown
+            ),
+            "a record made after the backup must be Unknown in the restore — \
+             anything else fabricates provenance"
+        );
+
+        // And the live index still knows all three.
+        let live_log = ProvenanceLog::open(&live, 64).unwrap();
+        assert!(matches!(
+            live_log.lookup(MemoryStore::CausalGraph, "file:c.rs"),
+            ProvenanceLookup::Known(_)
+        ));
+
+        let _ = std::fs::remove_file(&live);
+        let _ = std::fs::remove_file(&backup);
+    }
+
+    /// A corrupt backup must refuse to open, not restore as an empty index.
+    /// An empty index and a corrupt one give the same `Unknown` answers, but
+    /// only one of them is telling the truth — the failure has to be loud at
+    /// restore time, when an operator can still go find a better copy.
+    #[test]
+    fn a_corrupt_backup_is_refused_not_restored_as_empty() {
+        let backup = temp_path("corrupt-backup.json");
+        std::fs::write(&backup, b"{ this is not an index").unwrap();
+
+        let err = ProvenanceLog::open(&backup, 64);
+        assert!(
+            err.is_err(),
+            "a corrupt backup opening as an empty index would silently \
+             answer Unknown for everything and look healthy doing it"
+        );
+
+        let _ = std::fs::remove_file(&backup);
+    }
+}
