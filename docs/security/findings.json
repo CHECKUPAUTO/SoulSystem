@@ -2200,7 +2200,7 @@
         "soul_integration_tests (package)"
       ],
       "original_reachable_path": [],
-      "current_state": "Unchanged. git ls-files integration_tests/ returns exactly one tracked file, integration_tests/Cargo.toml, with no src/ and no tests/. The manifest declares itself 'Integration tests for SoulSystem multi-crate workflows' but has no buildable target and is not a workspace member, so cargo test --workspace never runs it. A second copy exists under the excluded os-agents/ tree.",
+      "current_state": "Unchanged. git ls-files integration_tests/ returns exactly one tracked file, integration_tests/Cargo.toml, with no src/ and no tests/. The manifest declares itself 'Integration tests for SoulSystem multi-crate workflows' but has no buildable target and is not a workspace member, so cargo test --workspace never runs it. A second copy exists under the excluded os-agents/ tree. Both manifests are deleted. Evidence they were dead: cargo refused them outright ('no targets specified in the manifest' - no src/, no tests/, no [lib]/[[bin]]), neither appeared in any workspace members OR exclude list, and no other manifest referenced them. The harm was never a broken build - nothing built them. It was a FALSE ASSURANCE SIGNAL: a crate named soul_integration_tests, describing itself as 'Integration tests for SoulSystem multi-crate workflows' with 14 path dependencies, tells an auditor or a release checklist that integration coverage exists. tests/architecture_test_crates_contain_tests.rs now walks the WHOLE REPO (not just workspace members - the deleted crates were not members, so a members-only check would have been blind to exactly this) and fails any manifest naming itself a test crate while containing no source, tests or target section. Negative-probed: a bare probe manifest turns it red naming the file.",
       "reachable_from": [
         "none - not a workspace member and contains no compiled code"
       ],
@@ -2209,7 +2209,7 @@
       "fixing_prs": [],
       "verification_tests": [],
       "residual_risk": "No executable risk; the harm is false confidence that multi-crate integration coverage exists. Notably there is still no end-to-end integration test proving backup/restore (INV-PERSIST-2) or a full agent run.",
-      "follow_up": "Delete integration_tests/Cargo.toml, or populate the crate with real tests and add it to the workspace members."
+      "follow_up": "Status stays CONFIRMED_CURRENT until the PR merges - FIXED_AND_VERIFIED needs a real merge commit. Promote afterwards."
     },
     {
       "id": "LOW-008",
