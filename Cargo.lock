@@ -9855,6 +9855,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "soul_sandbox",
  "thiserror 1.0.69",
  "tokio",
  "tracing",

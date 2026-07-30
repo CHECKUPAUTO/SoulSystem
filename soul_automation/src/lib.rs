@@ -525,17 +525,30 @@ impl AutomationEngine {
         let mut results = Vec::new();
 
         for (task_id, command) in due {
-            let output = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(&command)
-                .output();
+            // INV-EXEC-1: scheduled task commands are caller-supplied and were
+            // handed straight to `sh -c`. They now go through the one approved
+            // executor, which refuses `sh` as a head binary, scans for threats
+            // and enforces a deadline.
+            //
+            // A refusal is reported as a failed task rather than swallowed:
+            // a schedule whose command the policy rejects must show up as a
+            // failure the operator can see, not as a task that silently never
+            // ran.
+            let verdict = soul_sandbox::Sandbox::new(soul_sandbox::SandboxPolicy::default())
+                .execute(&command);
 
-            match output {
-                Ok(output) => {
-                    let success = output.status.success();
-                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                    let msg = if success { stdout } else { stderr };
+            match verdict {
+                Ok(v) => {
+                    let success = v.allowed && v.exit_code == Some(0);
+                    let msg = if success {
+                        v.stdout
+                    } else if !v.allowed {
+                        format!("sandbox refused command: {}", v.reason)
+                    } else if v.timed_out {
+                        format!("timed out after {}ms", v.duration_ms)
+                    } else {
+                        v.stderr
+                    };
                     results.push((task_id, success, msg));
                 }
                 Err(e) => {

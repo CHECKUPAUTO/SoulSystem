@@ -12,3 +12,4 @@ tracing = "0.1"
 chrono = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 thiserror = "1"
+soul_sandbox = { path = "../soul_sandbox" }

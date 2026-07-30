@@ -328,34 +328,94 @@ impl SystemSnapshot {
         }
     }
 
+    /// Count sshd "Failed password" lines.
+    ///
+    /// Was `sh -c "journalctl _COMM=sshd | grep -c 'Failed password'"`. The
+    /// pipeline was fixed — no caller input reached it — but it still put a
+    /// shell on a production path, which is the thing INV-EXEC-1 is about. The
+    /// grep is a line count, so Rust does it and the shell goes away.
     async fn read_failed_logins() -> u32 {
-        match Command::new("sh")
-            .args(["-c", "journalctl _COMM=sshd | grep -c 'Failed password'"])
-            .output()
-            .await
-        {
-            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
-                .trim()
-                .parse::<u32>()
-                .unwrap_or(0),
-            _ => 0,
-        }
-    }
-
-    async fn read_open_ports() -> Vec<u16> {
-        match Command::new("sh")
-            .args([
-                "-c",
-                "ss -tlnp | grep LISTEN | awk '{print $4}' | awk -F: '{print $NF}' | sort -un",
-            ])
+        match Command::new("journalctl")
+            .args(["_COMM=sshd", "--no-pager"])
             .output()
             .await
         {
             Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
                 .lines()
-                .filter_map(|l| l.parse::<u16>().ok())
-                .collect(),
+                .filter(|l| l.contains("Failed password"))
+                .count() as u32,
+            _ => 0,
+        }
+    }
+
+    /// Listening TCP ports.
+    ///
+    /// Was a four-stage `sh -c` pipeline (`ss | grep | awk | awk | sort`).
+    /// `ss -H -tln` already emits only listening sockets, one per line, with
+    /// no header — so the whole pipeline collapses into parsing the local
+    /// address column here, and the shell goes away.
+    async fn read_open_ports() -> Vec<u16> {
+        match Command::new("ss").args(["-H", "-tln"]).output().await {
+            Ok(o) if o.status.success() => {
+                parse_listening_ports(&String::from_utf8_lossy(&o.stdout))
+            }
             _ => Vec::new(),
         }
+    }
+}
+
+/// Extract listening ports from `ss -H -tln` output.
+///
+/// Split out of [`read_open_ports`] so the parsing is testable without
+/// spawning anything — the shell pipeline it replaced could only ever be
+/// verified by running it.
+fn parse_listening_ports(stdout: &str) -> Vec<u16> {
+    let mut ports: Vec<u16> = stdout
+        .lines()
+        .filter_map(|line| {
+            // Local address is the 4th column: `LISTEN 0 128 <addr> <peer>`.
+            let addr = line.split_whitespace().nth(3)?;
+            // Takes the port from `0.0.0.0:22`, `[::]:22` and
+            // `127.0.0.53%lo:53` alike — the port is always last.
+            addr.rsplit_once(':')?.1.parse::<u16>().ok()
+        })
+        .collect();
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
+#[cfg(test)]
+mod listening_port_tests {
+    use super::parse_listening_ports;
+
+    /// Real `ss -H -tln` shapes, including the ones the old awk pipeline
+    /// handled only by accident.
+    #[test]
+    fn ports_are_parsed_from_v4_v6_and_scoped_addresses() {
+        let out = "\
+LISTEN 0      128          0.0.0.0:22         0.0.0.0:*
+LISTEN 0      128             [::]:22            [::]:*
+LISTEN 0      4096    127.0.0.53%lo:53         0.0.0.0:*
+LISTEN 0      511    [::ffff:127.0.0.1]:8080        *:*
+";
+        assert_eq!(parse_listening_ports(out), vec![22, 53, 8080]);
+    }
+
+    /// Duplicates collapse — the pipeline used `sort -un` for this.
+    #[test]
+    fn duplicate_ports_collapse() {
+        let out = "\
+LISTEN 0 128 0.0.0.0:22 0.0.0.0:*
+LISTEN 0 128    [::]:22    [::]:*
+";
+        assert_eq!(parse_listening_ports(out), vec![22]);
+    }
+
+    /// Junk must not panic and must not invent ports.
+    #[test]
+    fn malformed_lines_are_skipped_not_guessed() {
+        let out = "not a real line\nLISTEN 0 128\n\nLISTEN 0 128 0.0.0.0:443 0.0.0.0:*\n";
+        assert_eq!(parse_listening_ports(out), vec![443]);
     }
 }
