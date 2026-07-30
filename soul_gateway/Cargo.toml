@@ -9,6 +9,7 @@ keywords = ["gateway", "http", "websocket", "api", "opencawl", "tls", "cors", "a
 categories = ["web-programming", "async", "network-programming", "api"]
 
 [dependencies]
+soul-auth = { workspace = true }
 soul-cors = { workspace = true }
 soulsystem-common = { workspace = true }
 axum = { version = "0.7", features = ["ws", "json", "macros"] }

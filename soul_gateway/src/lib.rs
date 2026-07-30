@@ -357,15 +357,14 @@ impl GatewayAuth {
     }
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    let mut diff = (a.len() ^ b.len()) as u64;
-    for index in 0..a.len().max(b.len()) {
-        diff |= u64::from(
-            a.get(index).copied().unwrap_or_default() ^ b.get(index).copied().unwrap_or_default(),
-        );
-    }
-    diff == 0
-}
+/// Re-exported from `soul-auth` so the workspace has one constant-time
+/// comparison rather than one per service (MED-013-B).
+///
+/// This was the original implementation; `soul-auth` now owns it because
+/// `soullink-orchestrator` needed the same primitive, and a second copy is how
+/// one of them quietly stops being constant-time. The tests below still
+/// exercise it from here, which is what proves the move changed nothing.
+use soul_auth::constant_time_eq;
 
 /// `axum::middleware::from_fn_with_state` handler enforcing [`GatewayAuth`] on
 /// the routes it is layered over. Rejects with `401` when the bearer token is

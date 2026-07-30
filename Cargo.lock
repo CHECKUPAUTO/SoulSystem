@@ -9615,6 +9615,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "soul-auth"
+version = "0.1.0"
+dependencies = [
+ "soul-prod-guard",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "soul-bridge"
 version = "0.1.0"
 dependencies = [
@@ -10100,6 +10109,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "soul-auth",
  "soul-cors",
  "soulsystem-common",
  "subtle",
@@ -10884,6 +10894,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "soul-auth",
  "soul-cors",
  "soul_sandbox",
  "thiserror 2.0.18",
