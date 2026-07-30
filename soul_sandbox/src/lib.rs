@@ -417,9 +417,6 @@ impl Sandbox {
                                 libc::_exit(128 + libc::SIGKILL);
                             }
                             if got_mntns {
-                            } else {
-                            }
-                            if got_mntns {
                                 // Detach mount propagation first, or the
                                 // `/proc` mount would travel back to the
                                 // host namespace.
@@ -679,10 +676,9 @@ impl Sandbox {
             // believes it is confined.
             let listener = crate::egress::recv_fd(egress_parent).map_err(|e| {
                 unsafe { libc::close(egress_parent) };
-                SandboxError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("egress supervision could not start: {e}"),
-                ))
+                SandboxError::Io(std::io::Error::other(format!(
+                    "egress supervision could not start: {e}"
+                )))
             })?;
             unsafe { libc::close(egress_parent) };
             if let Ok(mut l) = self.egress_log.lock() {
@@ -2529,12 +2525,10 @@ mod namespace_isolation_tests {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().unwrap();
         std::thread::spawn(move || {
-            for stream in listener.incoming().take(8) {
-                if let Ok(mut s) = stream {
-                    let _ = s.write_all(
-                        b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nHELLO",
-                    );
-                }
+            for mut s in listener.incoming().take(8).flatten() {
+                let _ = s.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nHELLO",
+                );
             }
         });
 
