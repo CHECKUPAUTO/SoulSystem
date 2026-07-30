@@ -2252,7 +2252,7 @@
       "original_reachable_path": [
         "agent tool loop -> chat() with tools -> OpenAI/Anthropic providers flatten tool definitions into prompt text"
       ],
-      "current_state": "Unchanged. Only the Ollama provider implements native tool calling; the OpenAI and Anthropic providers do not send a tools/functions field, so tool definitions are flattened into prompt text and tool selection depends on the model following textual instructions.",
+      "current_state": "Unchanged. Only the Ollama provider implements native tool calling; the OpenAI and Anthropic providers do not send a tools/functions field, so tool definitions are flattened into prompt text and tool selection depends on the model following textual instructions. FIXED by implementing native tool calling for both providers - the one finding in this group where wiring the real thing was tractable rather than a research project, since soul_llm/src/providers/ollama.rs already had a working implementation to model on. The defect was not merely 'tools get flattened to text'. LlmProvider::chat's DEFAULT implementation flattens schemas into prose AND returns tool_calls: None UNCONDITIONALLY, so a caller could not distinguish 'the model considered the tools and called none' from 'this provider is structurally incapable of reporting a tool call'. Only one of those means the agent loop works, and they were reported identically. Any agent pointed at OpenAI or Anthropic silently lost every tool call. OpenAI: request carries a tools array; response tool_calls are decoded into ToolCall, preserving OpenAI's own call id so a subsequent tool-result message can correlate via tool_call_id. Anthropic: a genuine translation rather than a rename, because the protocol differs in kind - there is no tool_calls array; tool use arrives as tool_use blocks interleaved with text blocks in one content list, a result goes back as a tool_result block inside a USER message, and arguments are a JSON OBJECT on the wire versus OpenAI's JSON STRING. 'Make Anthropic work like OpenAI' fails in a way that looks exactly like the model never calling tools. soul_llm/tests/native_tool_calling.rs pins the shape difference, pins that an absent tool call is now a real answer rather than a default, and source-checks that both providers override chat - deliberately source-level, since the defect was an ABSENT override and absence is what a behavioural test cannot see without a live endpoint.",
       "reachable_from": [
         "soul-agent-core run_react -> guarded_llm_chat -> LlmClient::chat -> OpenAI/Anthropic provider"
       ],
@@ -2261,7 +2261,7 @@
       "fixing_prs": [],
       "verification_tests": [],
       "residual_risk": "Tool-call parsing for these providers is text-based, so malformed or hallucinated tool invocations are more likely. Fail-closed dispatch (CRIT-002) means a hallucinated tool name cannot execute, which bounds the impact to reliability rather than security.",
-      "follow_up": "Implement native tool calling for the OpenAI and Anthropic providers."
+      "follow_up": "Implemented; status stays CONFIRMED_CURRENT until the PR merges. Not covered: streaming tool calls (generate_stream still text-only for both providers) and Anthropic's max_tokens on the chat path uses a fixed default because the chat signature carries no per-request override."
     }
   ]
 }
