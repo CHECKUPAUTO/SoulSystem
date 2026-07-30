@@ -876,8 +876,15 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   reopen, contents equal, and the restore is independent of the original. Cold
   is part of the contract, not a shortcut — sled holds an in-flight log and a
   live copy can tear; nothing claims hot backup works because nothing makes it
-  work. Still without qualification: `soullink-memory` and
-  `soullink-memory-hierarchy`.
+  work. **All persisting stores are now qualified.**
+  `soullink-memory`'s sled graph got the same cold-copy qualification
+  (concepts, edges and weights survive; the restore is independent; the test
+  also caught that `open()` already loads the db, so a second `load_from_db`
+  double-inserts every node). And `soullink-memory-hierarchy` turned out to
+  have **no persistence at all** — in-memory `DashMap`s, working memory
+  documented as resetting on restart — so the premise that it "has its own
+  persistence" was wrong, and there is nothing to back up. Recorded rather
+  than left as a forever-open item.
 - **Acceptance tests:** strict restore is the default with a documented
   migration path; a backup/restore qualification covering the provenance index
   and at least one of the memory stores.

@@ -510,3 +510,84 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod backup_qualification_tests {
+    use super::*;
+    use crate::concept::{Concept, ConceptKind};
+    use crate::decay::DecayConfig;
+
+    fn copy_dir(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let dest = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_dir(&entry.path(), &dest);
+            } else {
+                std::fs::copy(entry.path(), &dest).unwrap();
+            }
+        }
+    }
+
+    /// P1-7-C qualification for the last unqualified durable store: a **cold**
+    /// copy of the graph's sled directory — taken after `persist()` and drop —
+    /// reopens with the same concepts, edges and vectors, and is independent
+    /// of the original.
+    ///
+    /// Cold is part of the contract, same as soul-memory's qualification:
+    /// sled holds an in-flight log and a live copy can capture a torn state.
+    /// Nothing here claims hot backup works, because nothing makes it work.
+    #[test]
+    fn a_cold_copy_restores_graph_and_edges_and_is_independent() {
+        let live = tempfile::tempdir().unwrap();
+        let backup = tempfile::tempdir().unwrap();
+
+        {
+            let graph = MemoryGraph::open(live.path(), DecayConfig::default()).unwrap();
+            graph
+                .insert(
+                    Concept::new("rust", ConceptKind::Skill),
+                    Some(vec![0.1, 0.2, 0.3]),
+                )
+                .unwrap();
+            graph
+                .insert(Concept::new("memory", ConceptKind::Skill), None)
+                .unwrap();
+            graph.link("rust", "memory", 0.8).unwrap();
+            graph.persist().unwrap();
+            // Drop closes sled; the directory is quiescent for the copy.
+        }
+
+        copy_dir(live.path(), backup.path());
+
+        // `open` loads the db itself; calling `load_from_db` again would
+        // double-insert every node — the first draft of this test proved it.
+        let restored = MemoryGraph::open(backup.path(), DecayConfig::default()).unwrap();
+        assert!(restored.get("rust").is_some());
+        assert!(restored.get("memory").is_some());
+        let neighbors = restored.neighbors("rust");
+        assert!(
+            neighbors
+                .iter()
+                .any(|(c, w)| c.label == "memory" && *w > 0.7),
+            "the edge must survive the restore with its weight"
+        );
+
+        // Independence: a concept inserted into the restore must not appear
+        // in the original.
+        restored
+            .insert(Concept::new("only-in-backup", ConceptKind::Skill), None)
+            .unwrap();
+        restored.persist().unwrap();
+        drop(restored);
+
+        let original = MemoryGraph::open(live.path(), DecayConfig::default()).unwrap();
+        assert!(
+            original.get("only-in-backup").is_none(),
+            "a write to the restored copy leaked into the original — the \
+             backup is not independent"
+        );
+        assert_eq!(original.len(), 2);
+    }
+}
