@@ -20,9 +20,9 @@
   "status_summary": {
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
-    "FIXED_AND_VERIFIED": 25,
+    "FIXED_AND_VERIFIED": 27,
     "NOT_REACHABLE": 5,
-    "PARTIALLY_FIXED": 7
+    "PARTIALLY_FIXED": 5
   },
   "severity_status_summary": {
     "critical": {
@@ -41,9 +41,9 @@
     },
     "medium": {
       "FALSE_POSITIVE": 2,
-      "FIXED_AND_VERIFIED": 9,
+      "FIXED_AND_VERIFIED": 11,
       "NOT_REACHABLE": 3,
-      "PARTIALLY_FIXED": 3
+      "PARTIALLY_FIXED": 1
     }
   },
   "severity_summary": {
@@ -387,7 +387,7 @@
         "axum router -> state-changing /v1 handlers with no authentication middleware"
       ],
       "current_state": "soul_gateway::router applies require_auth as a route_layer over every /v1/* operator route, comparing the bearer token with constant_time_eq and failing closed when unconfigured. /health is intentionally unauthenticated. The ws_bridge half is now also fail-closed: WsBridgeConfig gained UnauthenticatedAccess (default Deny), so with no usable shared secret handle_connection refuses the connection before the WebSocket handshake instead of initialising `authenticated = true` as it previously did; a blank or whitespace-only secret is treated as unset by effective_secret() so a misconfigured empty value cannot become a credential; and the token comparison now uses a constant-time equality rather than `token == secret`, closing a timing side channel that the gateway had already closed for its bearer token. src/prod_guard.rs no longer hardcodes the bridge's posture: assemble_posture receives the real WsBridgeConfig and reports authenticated exactly when a usable secret is configured, so production startup aborts with an UnauthenticatedListener violation while the bridge is unauthenticated. Serving without authentication now requires the operator to set SOULSYSTEM_WS_BRIDGE_ALLOW_UNAUTHENTICATED, and that opt-in is deliberately NOT reported as authentication. P1-9 closes the last unauthenticated production listener: src/api.rs now applies its own fail-closed bearer middleware (api::ApiAuth, SOULSYSTEM_API_TOKEN) to every route except /health. That listener exposed /api/exec (shell execution via BoundSystem) and /api/pty/* (interactive terminals) with no authentication of any kind, mitigated only by its 127.0.0.1:9023 bind - which does not protect against another user on the host or a browser-driven request from a page the operator loaded. /metrics is inside the authenticated set because it is a disclosure route. A blank token is treated as unset; the comparison is constant-time; Debug never renders the token. prod_guard::assemble_posture no longer hardcodes the api listener's posture to false - it derives it from the real ApiAuth, which also means production startup can now actually be satisfied on that listener (before this change the hardcoded false made an unauthenticated-listener violation unconditional, so production could never start regardless of configuration). P1-9-B adds per-scope authorization on both listeners, sharing one model (soul_gateway::scope) so the two cannot drift on what a scope means. Scope::{Read,Write,Exec,Admin}; scopes deliberately do NOT imply one another apart from Admin, because implication is easy to get subtly wrong and hard to audit. Exec is separated from Write specifically because it is the scope that turns a leaked token into host compromise. The requirement is declared per route group via a route_layer rather than checked inside handlers, and a source-reading guard test on each listener fails if a route is declared outside every scoped group - it caught a real gap (/v1/stream) on first run. Insufficient scope returns 403, not 401, so a client is not invited to retry with credentials that would fail identically; authentication is still checked first, so an anonymous caller cannot learn which scope a route needs.",
-      "remaining_exposure": "Per the recorded product decision, a credential configured without a scope list is granted every scope, so scopes are OPT-IN. This makes least privilege expressible, not default: a deployment that does not configure scopes is exactly as exposed as before, and one compromised unscoped token still yields full operator power including shell execution. The invariant therefore is not held by the mechanism existing - it is held only once a deployment narrows its tokens, which this repository cannot prove.",
+      "remaining_exposure": "RESOLVED pending merge. The recorded product decision is REVERSED: a credential configured without a scope list no longer receives every scope. It now receives Read only. The old default made least privilege EXPRESSIBLE rather than DEFAULT - a deployment that configured no scopes was exactly as exposed as before scopes existed, and one leaked token still reached shell execution. Read rather than none(): a credential holding nothing 403s on every route and reads as a broken deployment rather than a restricted one, so an operator's first conclusion would be that authentication is misconfigured. Read fails in the diagnosable direction - status answers, the routes that act do not. Exec is never granted implicitly at any level, because it is the scope that turns a leaked token into host compromise. Migration window SOULSYSTEM_GATEWAY_UNSCOPED_GRANTS_ALL=1 restores the old behaviour and warns on EVERY credential parse, same shape as P1-7-C's restore window; read per call so clearing it takes effect on the next parse. It is needed because this is the one change that can 403 automation which worked yesterday. NOTE: a pre-existing test named a_principal_without_a_scope_list_is_granted_everything asserted the OLD behaviour and recorded the product decision in its body - the fourth time this session a test was enforcing the thing being fixed. It is now a_principal_without_a_scope_list_is_read_only.",
       "required_invariant": "Every state-changing endpoint requires authentication and an authorization scope (INV-NET-1).",
       "fixing_prs": [
         {
@@ -554,7 +554,7 @@
         }
       ],
       "residual_risk": "Authentication is complete and fails closed on every production listener, and authorization is now expressible with a shared scope model enforced per route. The residual is that the opt-in default leaves an unconfigured deployment all-or-nothing, so the property depends on operator configuration rather than on code.",
-      "follow_up": "Optional hardening once operators have adopted scopes: have the production startup guard report, or refuse, a credential that holds Admin, converting the opt-in default into an explicit per-deployment acknowledgement."
+      "follow_up": "Implemented; stays PARTIALLY_FIXED until the PR merges, then promote. INV-NET-1 can move off PARTIAL once merged: least privilege is now the default rather than merely expressible. Residual: scopes are coarse (read/write/exec/admin) and per-listener rather than per-route beyond the existing route groups."
     },
     {
       "id": "HIGH-001",
@@ -1586,7 +1586,7 @@
     {
       "id": "MED-009",
       "title": "Inconsistent Retry Policy: fabricated tool success rates + strategy-less auto_repair",
-      "status": "PARTIALLY_FIXED",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "medium",
       "confidence": "confirmed",
       "audit_category": "Reliability — Error Handling",
@@ -1612,20 +1612,39 @@
       "required_invariant": "Retry policy is coherent across layers and driven by real outcome data.",
       "fixing_prs": [
         {
-          "number": 80,
-          "merge_commit": "ea52ce4c30b18ff2c5f4069f44f3262d8efdef65",
-          "title": "security(PR I): record actual tool outcome in planner history (fixes HIGH-009)"
+          "number": 145,
+          "merge_commit": "840d4d80b855e6da82129404913e3e37ca141e5d",
+          "title": "security(MED-009-C): shared per-provider retry ceiling"
         }
       ],
       "verification_tests": [
         {
-          "crate": "soul_agent_core",
-          "name": "tests::planner_history_records_actual_outcome_not_hardcoded_success",
-          "command": "cargo test -p soul_agent_core --lib planner_history_records_actual_outcome_not_hardcoded_success"
+          "name": "a fresh budget starts full and spends down to refusal",
+          "command": "cargo test -p soul_llm a_fresh_budget_starts_full_and_spends_down"
+        },
+        {
+          "name": "it refills at the configured rate (asserted on an injected clock, not by sleeping)",
+          "command": "cargo test -p soul_llm it_refills_at_the_configured_rate"
+        },
+        {
+          "name": "refill is capped at capacity, so idling does not bank an unbounded burst",
+          "command": "cargo test -p soul_llm refill_is_capped_at_capacity"
+        },
+        {
+          "name": "one provider's outage does not starve retries to another",
+          "command": "cargo test -p soul_llm different_providers_do_not_share_an_allowance"
+        },
+        {
+          "name": "the same endpoint resolves to one shared bucket",
+          "command": "cargo test -p soul_llm the_same_endpoint_resolves_to_one_shared_bucket"
+        },
+        {
+          "name": "the same provider name at a different URL is a different provider",
+          "command": "cargo test -p soul_llm the_same_name_at_a_different_url_is_a_different_provider"
         }
       ],
-      "residual_risk": "The ceiling is per run_task and per agent; K concurrent agents (or one agent's run_task racing nothing) can each spend the full budget against one provider. A cross-run or cross-agent shared ceiling remains a design decision - it needs a shared token-bucket or provider-side quota, and the right scope (per provider? per process?) is not obvious enough to pick silently.",
-      "follow_up": "MED-009-C implemented; MED-009 stays PARTIALLY_FIXED until the PR merges. Residual: the ceiling is per-process. Several PROCESSES retrying against one provider are still uncoordinated - bounding that needs shared state outside the process (Redis or the provider's own rate limits) and is a deployment decision, not a code fix.",
+      "residual_risk": "The ceiling is PER-PROCESS. Several processes retrying against one provider remain uncoordinated - bounding that needs shared state outside the process (Redis, or the provider's own rate limits) and is a deployment decision, not a code fix. The rate (2/sec sustained, capacity 20) is a compiled-in constant, not configurable, so a deployment that legitimately needs a higher sustained retry rate must patch it. Buckets are leaked deliberately and never reclaimed; that is bounded by the number of distinct provider endpoints, which configuration fixes. Only the retry path is bounded. First attempts are not, so a burst of NEW requests against a failing provider is still limited by the concurrency cap alone.",
+      "follow_up": null,
       "remaining_exposure": "RESOLVED by MED-009-C pending merge. The design question is answered: PER-PROVIDER TOKEN BUCKET, not a per-process counter. The resource under strain is the provider and it is the provider that is failing; a single global counter would let an Ollama outage consume the shared allowance and starve retries to Anthropic, turning one provider's bad day into a general degradation. Identity is name@base_url rather than name alone - two Ollama endpoints on different hosts are different providers, and sharing a ceiling would rate-limit a healthy one because its neighbour is down. A token bucket rather than a fixed counter because 'who resets the counter' has no good answer in a long-running process; a bucket refills on its own at the rate that is the actual thing being chosen (2/sec sustained, capacity 20 burst). Consulted in client.rs::with_retry AFTER RetryPolicy::decide permits a retry, not inside decide: RetryPolicy is a Copy value describing a policy, this is live shared state, and folding them together would make policy decisions depend on invisible global state. Denial produces a NEW typed error LlmError::ProviderBudgetExhausted, deliberately distinct from RetriesExhausted - that one says this request tried its three times, this one says the process is already retrying against the provider as fast as it is allowed and the request was not retried at all. It is is_retryable()==false, since retrying is exactly what is being limited. Note: the first design put the distinction in StopReason, and the compiler's exhaustiveness check rejected it because decide() can never produce that variant - the distinction belongs in LlmError, which is what callers observe. Tests use an injectable clock (try_acquire_at) so refill and capping are asserted deterministically without sleeping."
     },
     {
@@ -1763,7 +1782,7 @@
     {
       "id": "MED-013",
       "title": "POST /api/mesh/spawn turns an unauthenticated request body into a process, with argument injection into the spawned interpreter and no ceiling on how many",
-      "status": "PARTIALLY_FIXED",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "medium",
       "confidence": "confirmed",
       "audit_category": "Missing Authentication / Argument Injection / Resource Exhaustion",
@@ -1788,39 +1807,43 @@
       "current_state": "Partially fixed. Three defects were real and are fixed; a fourth is a deployment decision and is not. What was NOT wrong: this was never shell injection. argv was built from discrete `.arg()` calls and no shell was involved, so `;` and `$(...)` in `domain` were inert. Routing the joined string through `Sandbox::execute` - which is what 'route it through soul_sandbox' would literally mean - would have made this worse, because `build_command` splits on whitespace, so a domain containing a space would have become two argv elements where it had been one. (1) ARGUMENT INJECTION, fixed: `domain` was the value of `--brain`, so a domain of `--config=/etc/shadow` reaches brain_v12.py's argument parser as a flag, not a value. Now rejected twice independently - by `valid_domain`'s allowlist charset at the route, and by `SpawnSpec::value`, which refuses any caller-supplied argument beginning with `-`. (2) UNBOUNDED SPAWNING, fixed: every request forked an interpreter that nothing reaped or counted against a ceiling; `increment_spawn_count` fed a metrics endpoint and bounded nothing. Now capped at MAX_LIVE_BRAINS=16, and a brain that fails its health check has its process group killed rather than being left running. (3) NO ISOLATION, fixed: the child inherited privileges, fds, rlimits and network in full. Now spawned via the new `Sandbox::spawn_supervised`, which applies the same setpgid + setrlimit + seccomp pre_exec hook as every other sandboxed path. `network_isolated` is explicitly false and documented, because a brain exists to bind a port and answer on it - that is a real and deliberate reduction relative to the default policy, not an oversight. (4) NO AUTHENTICATION, NOT fixed: the route has no auth layer. soul_cors (P1-10) makes a browser's cross-origin call fail, but CORS is not authentication and stops nothing that is not a browser - curl reaches this route regardless. Whether this service should require a token is a deployment decision about how it is meant to be exposed, so it is recorded rather than answered. Also fixed in passing: the port search was `while used.contains(&port) { port += 1 }` on a u16 with no bound, which overflows past 65535 - a debug panic, or a release wrap to port 0, which means 'any free port' and would leave the health check polling the wrong one. And a `.unwrap()` on the reqwest client builder would have killed the supervising task, and with it the only handle to the child.",
       "verification_tests": [
         {
-          "name": "a_domain_that_looks_like_a_flag_is_rejected",
-          "command": "cargo test -p soullink-orchestrator-v3 a_domain_that_looks_like_a_flag_is_rejected"
+          "name": "the spawn route refuses a request with no token",
+          "command": "cargo test -p soullink-orchestrator-v3 spawn_rejects_a_request_with_no_token"
         },
         {
-          "name": "a_caller_supplied_value_that_looks_like_a_flag_is_refused",
-          "command": "cargo test -p soul_sandbox a_caller_supplied_value_that_looks_like_a_flag_is_refused"
+          "name": "the spawn route refuses a wrong token",
+          "command": "cargo test -p soullink-orchestrator-v3 spawn_rejects_a_wrong_token"
         },
         {
-          "name": "a_value_containing_spaces_stays_a_single_argument",
-          "command": "cargo test -p soul_sandbox a_value_containing_spaces_stays_a_single_argument"
+          "name": "reconnaissance routes (brains, metrics, status) are gated too",
+          "command": "cargo test -p soullink-orchestrator-v3 reconnaissance_routes_are_also_gated"
         },
         {
-          "name": "spawn_supervised_returns_without_waiting_and_kill_group_reaps",
-          "command": "cargo test -p soul_sandbox spawn_supervised_returns_without_waiting_and_kill_group_reaps"
+          "name": "an unrouted path answers 404 rather than 401",
+          "command": "cargo test -p soullink-orchestrator-v3 an_unknown_path_is_not_found_rather_than_unauthorized"
         },
         {
-          "name": "brain_policy_keeps_networking_but_not_the_other_protections",
-          "command": "cargo test -p soullink-orchestrator-v3 brain_policy_keeps_networking_but_not_the_other_protections"
+          "name": "an unconfigured gate rejects rather than admits",
+          "command": "cargo test -p soullink-orchestrator-v3 an_unconfigured_gate_rejects_rather_than_admits"
         },
         {
-          "name": "every_allowlist_entry_is_still_justified",
-          "command": "cargo test -p soulsystem --test architecture_process_execution every_allowlist_entry_is_still_justified"
+          "name": "the shared token comparison behaves as equality, including the prefix case a length check would short-circuit",
+          "command": "cargo test -p soul-auth constant_time_eq_agrees_with_equality"
+        },
+        {
+          "name": "an empty configured token is dropped rather than stored (it would authenticate an empty Bearer header)",
+          "command": "cargo test -p soul-auth an_empty_configured_token_is_dropped_rather_than_stored"
         }
       ],
-      "residual_risk": "The route remains unauthenticated, so any client that can reach the listener can spawn up to MAX_LIVE_BRAINS processes. The cap turns an unbounded host-level denial of service into a bounded one; it does not make the route safe to expose. The spawned brain keeps host networking by necessity.",
-      "follow_up": "MED-013-B implemented; MED-013 stays PARTIALLY_FIXED until the PR merges, then promote to FIXED_AND_VERIFIED with the real merge commit. Residual and unchanged: an authenticated caller can still spawn up to MAX_LIVE_BRAINS=16 processes, and the spawned brain keeps host networking because it exists to bind a port and answer on it.",
+      "residual_risk": "An AUTHENTICATED caller can still spawn up to MAX_LIVE_BRAINS=16 processes; this closes who may ask, not how much they may ask for. The spawned brain keeps host networking because it exists to bind a port and answer on it. Credentials are bearer tokens from the environment with no expiry, rotation or revocation - rotating means restarting with new values. There are no scopes on this listener: any valid token reaches every route including spawn, which is the correct shape for a service with one privileged route but means a read-only consumer cannot be issued a read-only credential. The startup refusal is keyed on SOULSYSTEM_ENV; a deployment that leaves it unset is treated as production and refuses, but one that sets development runs open by design.",
+      "follow_up": null,
       "required_invariant": "A request-reachable route must not spawn a process outside soul_sandbox, must not let caller-supplied text be parsed as an argument by the spawned program, and must bound how many processes a caller can create (INV-EXEC-1).",
       "remaining_exposure": "RESOLVED by MED-013-B pending merge. The route now requires a bearer token. New shared crate crates/soul-auth holds the ONE constant-time comparison in the workspace - copying soul_gateway's check into the orchestrator was the obvious move and the wrong one, because two copies of a comparison that must be constant-time is how one of them quietly stops being constant-time. soul_gateway was migrated to the shared primitive and its 104 tests stayed green, which is what proves the move changed nothing. The orchestrator uses its OWN env vars (SOULLINK_ORCHESTRATOR_TOKENS / _TOKEN), not the gateway's: sharing one token would mean a leaked dashboard credential also spawns processes here. enforce_startup REFUSES to boot in production with no credentials (unparseable SOULSYSTEM_ENV treated as production, matching the provenance guard); development warns once at startup and the gate still rejects every request, so the dev path is open to no one rather than to everyone. Auth is applied to the WHOLE surface via route_layer, not to /api/mesh/spawn alone: /api/mesh/brains and /metrics report which brains run on which ports, which is reconnaissance for the route that matters. route_layer rather than layer so an unrouted path answers 404, not 401 - a 401 everywhere tells a prober the service is listening and gated. Tested against the router main actually builds (build_router extracted for that reason - a test that reimplements the wiring proves the test's wiring works, not the service's). Negative-probed: removing the layer turns 4 tests red, restoring it returns 13 green.",
       "fixing_prs": [
         {
-          "number": 111,
-          "merge_commit": "1d6d4cb2db4b85124677b1ac6011cf1ff05dbe3f",
-          "title": "security(P1-8-B): sandbox the request-reachable spawn route, and add the argv API the sandbox was missing"
+          "number": 143,
+          "merge_commit": "61204713bd6d83c78938ac292dc69fbcf7bd6aea",
+          "title": "security(MED-013-B): authenticate the orchestrator's spawn route"
         }
       ]
     },

@@ -445,6 +445,36 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// Reopen a graph whose previous handle was just dropped.
+    ///
+    /// sled takes an exclusive OS lock on its directory and releases it when
+    /// the `Db` is dropped — but the drop runs a background flush, so the lock
+    /// can still be held for a moment after the value goes out of scope.
+    /// Reopening immediately therefore fails intermittently with
+    /// `WouldBlock` ("could not acquire lock"), which is what reddened CI on
+    /// unrelated PRs.
+    ///
+    /// Retrying briefly is the honest fix for a *test*: the race is in the
+    /// test's close-then-reopen timing, not in the graph. Production code that
+    /// reopens a store it just dropped would face the same race, which is why
+    /// this says so rather than hiding it behind a bare `unwrap`.
+    pub(super) fn reopen_after_drop(path: &std::path::Path) -> MemoryGraph {
+        let mut last = None;
+        for attempt in 0..50 {
+            match MemoryGraph::open(path, DecayConfig::default()) {
+                Ok(g) => return g,
+                Err(e) => {
+                    last = Some(e);
+                    std::thread::sleep(std::time::Duration::from_millis(10 * (attempt / 10 + 1)));
+                }
+            }
+        }
+        panic!(
+            "sled did not release its lock within ~2s: {}",
+            last.expect("at least one attempt failed")
+        );
+    }
+
     #[test]
     fn persistence_roundtrip() {
         let dir = TempDir::new().unwrap();
@@ -462,7 +492,7 @@ mod tests {
 
         // Reload
         {
-            let g2 = MemoryGraph::open(dir.path(), DecayConfig::default()).unwrap();
+            let g2 = reopen_after_drop(dir.path());
             let c = g2.get("rust").unwrap();
             assert_eq!(c.label, "rust");
             let nbrs = g2.neighbors("rust");
@@ -582,7 +612,10 @@ mod backup_qualification_tests {
         restored.persist().unwrap();
         drop(restored);
 
-        let original = MemoryGraph::open(live.path(), DecayConfig::default()).unwrap();
+        // Same close-then-reopen race as persistence_roundtrip: the handle
+        // opened on live.path() above was dropped, but sled may not have
+        // released the directory lock yet.
+        let original = super::tests::reopen_after_drop(live.path());
         assert!(
             original.get("only-in-backup").is_none(),
             "a write to the restored copy leaked into the original — the \
