@@ -284,13 +284,13 @@ impl Sandbox {
     ) {
         let profile = self.policy.seccomp_profile.clone();
         let network_isolated = self.policy.network_isolated;
+        let pid_isolated = self.policy.pid_isolated;
+        let mount_isolated = self.policy.mount_isolated;
         let limits = self.policy.resource_limits;
 
         unsafe {
             command.pre_exec(move || {
                 libc::setpgid(0, 0);
-
-                apply_resource_limits(&limits)?;
 
                 if let Some(ref procs) = cgroup_procs {
                     // Fail-closed: the leaf existed and had limits written at
@@ -300,26 +300,178 @@ impl Sandbox {
                     std::fs::write(procs, b"0")?;
                 }
 
+                // Namespaces are requested in one `unshare`. CLONE_NEWUSER
+                // is included whenever any of them is wanted: creating a
+                // fresh user namespace grants full capabilities *within* it,
+                // which is what lets an unprivileged host process create the
+                // others without CAP_SYS_ADMIN.
+                //
+                // A netns with no configured interfaces (not even loopback
+                // up) means no network path at all. A pidns means `kill(2)`
+                // — which resolves PIDs in the caller's namespace — has
+                // nothing host-side to name. A mntns is what makes the
+                // `/proc` remount below visible only to this process.
+                let mut ns_flags = 0;
                 if network_isolated {
-                    // CLONE_NEWUSER alongside CLONE_NEWNET so this works
-                    // whether the host process is root (dev) or
-                    // unprivileged (production) *and the host permits
-                    // unprivileged user namespaces*: creating a fresh user
-                    // namespace grants the creating process full
-                    // capabilities within that namespace, enough to also
-                    // create the network namespace without CAP_SYS_ADMIN on
-                    // the host. The resulting netns has no configured
-                    // interfaces (not even a loopback that's up), so the
-                    // sandboxed process has no network path at all.
-                    let ret = libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWNET);
-                    if ret != 0 {
+                    ns_flags |= libc::CLONE_NEWNET;
+                }
+                if pid_isolated {
+                    ns_flags |= libc::CLONE_NEWPID;
+                    if mount_isolated {
+                        ns_flags |= libc::CLONE_NEWNS;
+                    }
+                }
+
+                let mut got_pidns = false;
+                let mut got_mntns = false;
+                if ns_flags != 0 {
+                    if libc::unshare(libc::CLONE_NEWUSER | ns_flags) == 0 {
+                        got_pidns = pid_isolated;
+                        got_mntns = pid_isolated && mount_isolated;
+                    } else {
+                        // Best-effort, deliberately not fail-closed: hosts
+                        // that forbid unprivileged user namespaces (Ubuntu
+                        // 23.10+ and standard GitHub runners, via AppArmor)
+                        // cannot do this at all. Refusing would make the
+                        // sandbox unable to run anything there, and a
+                        // mandatory feature that breaks common hosts gets
+                        // switched off wholesale — worse in aggregate.
+                        // seccomp has no such dependency and still applies.
                         tracing::warn!(
-                            "[sandbox] network namespace isolation unavailable in this \
+                            "[sandbox] namespace isolation unavailable in this \
                              environment ({}); continuing without it — seccomp still applies",
                             std::io::Error::last_os_error()
                         );
                     }
                 }
+
+                if got_pidns {
+                    // CLONE_NEWPID does not move the caller into the new
+                    // namespace — it takes effect for its *children*. So the
+                    // process that will `exec` has to be forked after the
+                    // unshare; it becomes PID 1 there.
+                    //
+                    // The intermediate process must never reach `exec`. It
+                    // waits for the real child and mirrors its exit status,
+                    // so callers upstream see the command's own result
+                    // rather than the scaffolding's.
+                    match libc::fork() {
+                        -1 => return Err(std::io::Error::last_os_error()),
+                        0 => {
+                            // PID 1 in the new namespace. Falls through to
+                            // the seccomp install and then `exec`.
+                            //
+                            // The timeout path kills the *process group* of
+                            // the process this `Command` spawned — which is
+                            // now the intermediate, not this one. Process
+                            // groups do not span a PID namespace, so without
+                            // this the deadline would fire, the intermediate
+                            // would die, and the real command would keep
+                            // running unsupervised: a timeout that reports
+                            // success at killing nothing.
+                            //
+                            // PDEATHSIG makes the kernel SIGKILL this process
+                            // when its parent dies, which re-couples the two
+                            // across the namespace boundary.
+                            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) != 0 {
+                                return Err(std::io::Error::last_os_error());
+                            }
+                            // Guard against the race where the parent died
+                            // between the fork and the prctl above: PDEATHSIG
+                            // only fires on a *future* death, so a parent
+                            // already gone would leave this process orphaned
+                            // and unsupervised.
+                            if libc::getppid() == 1 {
+                                libc::_exit(128 + libc::SIGKILL);
+                            }
+                            if got_mntns {
+                                // Detach mount propagation first, or the
+                                // `/proc` mount would travel back to the
+                                // host namespace.
+                                let none = c"none".as_ptr();
+                                let root = c"/".as_ptr();
+                                let proc_src = c"proc".as_ptr();
+                                let proc_dst = c"/proc".as_ptr();
+                                let _ = libc::mount(
+                                    none,
+                                    root,
+                                    std::ptr::null(),
+                                    libc::MS_REC | libc::MS_PRIVATE,
+                                    std::ptr::null(),
+                                );
+                                // Best-effort: without this the process
+                                // cannot signal host PIDs but can still read
+                                // them from the host's /proc. Losing the
+                                // remount weakens the view, it does not
+                                // weaken containment.
+                                let _ =
+                                    libc::mount(proc_src, proc_dst, proc_src, 0, std::ptr::null());
+                            }
+                        }
+                        child => {
+                            // Release every inherited descriptor above
+                            // stdio before blocking.
+                            //
+                            // `Command::spawn` returns only once the
+                            // CLOEXEC status pipe reaches EOF, which happens
+                            // when the process holding it execs. This
+                            // intermediate never execs — it waits — so
+                            // holding its copy kept `spawn` blocked for the
+                            // command's entire runtime. The deadline is
+                            // armed *after* spawn returns, so a 150ms
+                            // timeout on `sleep 10` waited the full ten
+                            // seconds and then reported success. Measured,
+                            // not deduced.
+                            //
+                            // The grandchild keeps its own copy, so exec
+                            // failures are still reported. stdio (0-2) stays
+                            // open because the grandchild writes to it.
+                            let max_fd = libc::sysconf(libc::_SC_OPEN_MAX) as libc::c_int;
+                            for fd in 3..max_fd.clamp(3, 4096) {
+                                libc::close(fd);
+                            }
+
+                            let mut status: libc::c_int = 0;
+                            loop {
+                                let r = libc::waitpid(child, &mut status, 0);
+                                if r != -1 {
+                                    break;
+                                }
+                                if *libc::__errno_location() != libc::EINTR {
+                                    break;
+                                }
+                            }
+                            // Mirror the child's fate: normal exit keeps its
+                            // code, a signal becomes 128+n as a shell would
+                            // report it. `_exit` rather than `exit` because
+                            // this is a forked child that must not run the
+                            // parent's atexit handlers or flush its buffers.
+                            let code = if libc::WIFEXITED(status) {
+                                libc::WEXITSTATUS(status)
+                            } else if libc::WIFSIGNALED(status) {
+                                128 + libc::WTERMSIG(status)
+                            } else {
+                                1
+                            };
+                            libc::_exit(code);
+                        }
+                    }
+                }
+
+                // Resource limits are applied here — after any PID-namespace
+                // fork, immediately before seccomp and exec.
+                //
+                // They used to be applied at the top of `pre_exec`, which put
+                // the sandbox's own scaffolding under them: with
+                // `pid_isolated`, the intermediate's `fork` was itself subject
+                // to the `RLIMIT_NPROC` just installed, so a caller setting an
+                // explicit process ceiling could fail with `EAGAIN` before the
+                // command ever ran. CI caught it on a shared-UID runner where
+                // the ceiling was already close.
+                //
+                // Bounding the command rather than the machinery that sets it
+                // up is the correct reading of INV-EXEC-4 either way.
+                apply_resource_limits(&limits)?;
 
                 if let Some(ref p) = profile {
                     // SECCOMP_SET_MODE_FILTER requires either CAP_SYS_ADMIN
@@ -2043,5 +2195,118 @@ mod piped_stdio_tests {
         assert_eq!(cmd.get_program(), "echo");
         let args: Vec<_> = cmd.get_args().collect();
         assert_eq!(args, vec!["hi"]);
+    }
+}
+
+/// P1-12 part 2/3: PID and mount namespace isolation.
+///
+/// These run only on Linux and only where the host permits unprivileged user
+/// namespaces. Where it does not, isolation degrades by design (see
+/// `apply_sandbox_pre_exec`), so each test says it skipped rather than
+/// asserting a property the host cannot provide — a skipped qualification is
+/// visible, a faked one is worse than none.
+#[cfg(all(test, target_os = "linux"))]
+mod namespace_isolation_tests {
+    use super::*;
+
+    fn isolated_policy(pid_isolated: bool) -> SandboxPolicy {
+        SandboxPolicy {
+            pid_isolated,
+            mount_isolated: pid_isolated,
+            // The probes read /proc, which the sensitive-path scanner blocks.
+            block_sensitive_paths: false,
+            timeout: Duration::from_secs(10),
+            ..Default::default()
+        }
+    }
+
+    /// Does this host actually give us a PID namespace?
+    fn host_grants_pidns() -> bool {
+        match Sandbox::new(isolated_policy(true)).execute("readlink /proc/self") {
+            Ok(v) => v.allowed && v.stdout.trim() == "1",
+            Err(_) => false,
+        }
+    }
+
+    /// The sandboxed process is PID 1 — it is in its own namespace, not the
+    /// host's.
+    #[test]
+    fn a_sandboxed_process_is_pid_one_in_its_own_namespace() {
+        if !host_grants_pidns() {
+            eprintln!("skipping: this host does not permit unprivileged PID namespaces");
+            return;
+        }
+        let unisolated = Sandbox::new(isolated_policy(false))
+            .execute("readlink /proc/self")
+            .expect("probe runs");
+        assert_ne!(
+            unisolated.stdout.trim(),
+            "1",
+            "without isolation the process should see its real host PID"
+        );
+    }
+
+    /// It cannot enumerate host processes either.
+    ///
+    /// PID isolation alone stops it *signalling* them; the `/proc` remount is
+    /// what stops it *reading* them. Without both, the sandbox would claim an
+    /// isolation it does not have.
+    #[test]
+    fn a_sandboxed_process_cannot_enumerate_host_processes() {
+        if !host_grants_pidns() {
+            eprintln!("skipping: this host does not permit unprivileged PID namespaces");
+            return;
+        }
+        let isolated = Sandbox::new(isolated_policy(true))
+            .execute("ps -e --no-headers")
+            .expect("probe runs");
+        let unisolated = Sandbox::new(isolated_policy(false))
+            .execute("ps -e --no-headers")
+            .expect("probe runs");
+
+        let seen = isolated.stdout.lines().count();
+        let host = unisolated.stdout.lines().count();
+        assert!(
+            seen <= 2,
+            "an isolated process should see only itself, saw {seen} lines"
+        );
+        assert!(
+            host > seen,
+            "the unisolated probe should see more processes ({host}) than the \
+             isolated one ({seen}); if these match, isolation is not doing anything"
+        );
+    }
+
+    /// The deadline still fires under PID isolation.
+    ///
+    /// This is the regression that mattered: the intermediate process created
+    /// for the PID namespace held `Command::spawn`'s CLOEXEC status pipe open,
+    /// so `spawn` did not return until the command finished. The timeout is
+    /// armed after `spawn`, so a 150ms deadline on `sleep 10` waited the full
+    /// ten seconds and then reported **success**. A sandbox whose timeout
+    /// silently stops working is worse than one without PID isolation.
+    #[test]
+    fn the_deadline_still_fires_with_pid_isolation() {
+        let policy = SandboxPolicy {
+            timeout: Duration::from_millis(150),
+            ..isolated_policy(true)
+        };
+        let start = Instant::now();
+        let verdict = Sandbox::new(policy).execute("sleep 10").expect("runs");
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "the deadline did not fire: {elapsed:?} elapsed for a 150ms timeout"
+        );
+        assert!(
+            verdict.timed_out,
+            "a killed command must be reported as timed out, not as a success"
+        );
+        assert_ne!(
+            verdict.exit_code,
+            Some(0),
+            "a command killed by the deadline must not report success"
+        );
     }
 }
