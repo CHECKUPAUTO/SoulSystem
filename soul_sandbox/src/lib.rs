@@ -23,6 +23,8 @@
 //! 6. **Journalisation** complète.
 
 pub mod cgroup;
+#[cfg(target_os = "linux")]
+pub mod egress;
 mod policy;
 #[cfg(target_os = "linux")]
 mod seccomp;
@@ -207,6 +209,18 @@ fn cgroup_context_once() -> Result<&'static cgroup::CgroupContext, ()> {
 }
 
 pub struct Sandbox {
+    /// Child end of the egress fd-passing socket, set for the duration of one
+    /// spawn.
+    ///
+    /// Atomic rather than `Cell` because `Sandbox` is sent across threads —
+    /// `soul_tools` runs it under `spawn_blocking`, and a `Cell` field would
+    /// make the whole type `!Sync`. Caught by the workspace build, which is
+    /// the reason to run it rather than just the crate's own tests.
+    #[cfg(target_os = "linux")]
+    egress_child_sock: std::sync::atomic::AtomicI32,
+    /// Decisions the egress supervisor made during the last execution.
+    #[cfg(target_os = "linux")]
+    egress_log: std::sync::Arc<std::sync::Mutex<Vec<crate::egress::EgressDecision>>>,
     policy: SandboxPolicy,
     history: Arc<Mutex<VecDeque<SandboxVerdict>>>,
     history_max: usize,
@@ -215,6 +229,10 @@ pub struct Sandbox {
 impl Sandbox {
     pub fn new(policy: SandboxPolicy) -> Self {
         Self {
+            #[cfg(target_os = "linux")]
+            egress_child_sock: std::sync::atomic::AtomicI32::new(-1),
+            #[cfg(target_os = "linux")]
+            egress_log: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             policy,
             history: Arc::new(Mutex::new(VecDeque::new())),
             history_max: 200,
@@ -286,6 +304,20 @@ impl Sandbox {
         let network_isolated = self.policy.network_isolated;
         let pid_isolated = self.policy.pid_isolated;
         let mount_isolated = self.policy.mount_isolated;
+        // Child end of the socket used to hand the seccomp listener back to
+        // the parent. `-1` when no egress policy is configured.
+        let egress_sock = self
+            .egress_child_sock
+            .load(std::sync::atomic::Ordering::SeqCst);
+        // Encoded before the fork on purpose. Everything after `fork()` in
+        // `pre_exec` must be async-signal-safe, and allocating is not: the
+        // allocator lock may have been held by another thread at fork time.
+        let hidden: Vec<std::ffi::CString> = self
+            .policy
+            .hidden_paths
+            .iter()
+            .filter_map(|p| std::ffi::CString::new(p.as_os_str().as_encoded_bytes()).ok())
+            .collect();
         let limits = self.policy.resource_limits;
 
         unsafe {
@@ -406,6 +438,40 @@ impl Sandbox {
                                 // weaken containment.
                                 let _ =
                                     libc::mount(proc_src, proc_dst, proc_src, 0, std::ptr::null());
+
+                                // Cover each hidden path so its contents are
+                                // gone inside this namespace. Enforcement, not
+                                // a scan: `SENSITIVE_PATHS` inspects the
+                                // command line, so it catches `cat
+                                // /etc/shadow` and misses a program that opens
+                                // the file itself.
+                                //
+                                // A directory takes an empty tmpfs. A regular
+                                // file cannot host a filesystem mount, so it
+                                // is bind-covered with `/dev/null`, which
+                                // reads as empty.
+                                //
+                                // Per-path best effort: a path absent on this
+                                // host has nothing to hide, and refusing the
+                                // execution because one optional credential
+                                // directory is missing would make the policy
+                                // the reason commands stop working.
+                                let tmpfs = c"tmpfs".as_ptr();
+                                let opts = c"size=0,mode=000".as_ptr() as *const libc::c_void;
+                                let devnull = c"/dev/null".as_ptr();
+                                for path in &hidden {
+                                    let target = path.as_ptr();
+                                    if libc::mount(tmpfs, target, tmpfs, libc::MS_RDONLY, opts) != 0
+                                    {
+                                        let _ = libc::mount(
+                                            devnull,
+                                            target,
+                                            std::ptr::null(),
+                                            libc::MS_BIND,
+                                            std::ptr::null(),
+                                        );
+                                    }
+                                }
                             }
                         }
                         child => {
@@ -456,6 +522,23 @@ impl Sandbox {
                             libc::_exit(code);
                         }
                     }
+                }
+
+                // Egress supervision, installed before the main seccomp
+                // profile because a filter installed later cannot add a
+                // listener: `SECCOMP_FILTER_FLAG_NEW_LISTENER` must come from
+                // a filter this process installs, and filters stack.
+                //
+                // Fail-closed: if the caller asked for an egress policy and
+                // the listener cannot be installed or handed over, the child
+                // returns an error and never execs. Running the command with
+                // unrestricted network while the caller believes it is
+                // confined is the outcome this exists to prevent.
+                if egress_sock >= 0 {
+                    let listener = crate::egress::install_connect_listener()?;
+                    crate::egress::send_fd(egress_sock, listener)?;
+                    libc::close(listener);
+                    libc::close(egress_sock);
                 }
 
                 // Resource limits are applied here — after any PID-namespace
@@ -542,10 +625,69 @@ impl Sandbox {
             None
         };
 
+        // Egress supervision: a socketpair carries the seccomp listener from
+        // the child back here. Created before the spawn because `pre_exec`
+        // can only use a descriptor that already exists.
+        #[cfg(target_os = "linux")]
+        let mut egress_parent: libc::c_int = -1;
+        #[cfg(target_os = "linux")]
+        if self.policy.egress_policy.is_some() {
+            let mut sv = [0 as libc::c_int; 2];
+            let rc =
+                unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, sv.as_mut_ptr()) };
+            if rc != 0 {
+                return Err(SandboxError::Io(std::io::Error::last_os_error()));
+            }
+            egress_parent = sv[0];
+            self.egress_child_sock
+                .store(sv[1], std::sync::atomic::Ordering::SeqCst);
+        }
+
         #[cfg(unix)]
         self.apply_sandbox_pre_exec(&mut command, leaf.as_ref().map(|l| l.procs_path()));
 
-        let child = command.spawn()?;
+        let spawned = command.spawn();
+        // The child's copy is the child's to close; this end is done with it
+        // either way.
+        #[cfg(target_os = "linux")]
+        {
+            let child_sock = self
+                .egress_child_sock
+                .swap(-1, std::sync::atomic::Ordering::SeqCst);
+            if child_sock >= 0 {
+                unsafe { libc::close(child_sock) };
+            }
+        }
+        let child = match spawned {
+            Ok(c) => c,
+            Err(e) => {
+                #[cfg(target_os = "linux")]
+                if egress_parent >= 0 {
+                    unsafe { libc::close(egress_parent) };
+                }
+                return Err(SandboxError::Io(e));
+            }
+        };
+
+        #[cfg(target_os = "linux")]
+        if let Some(policy) = self.policy.egress_policy.clone() {
+            // Fail-closed: no listener means no supervision, and continuing
+            // would run the command with the full network while the caller
+            // believes it is confined.
+            let listener = crate::egress::recv_fd(egress_parent).map_err(|e| {
+                unsafe { libc::close(egress_parent) };
+                SandboxError::Io(std::io::Error::other(format!(
+                    "egress supervision could not start: {e}"
+                )))
+            })?;
+            unsafe { libc::close(egress_parent) };
+            if let Ok(mut l) = self.egress_log.lock() {
+                l.clear();
+            }
+            let log = std::sync::Arc::clone(&self.egress_log);
+            std::thread::spawn(move || crate::egress::supervise(listener, policy, log));
+        }
+
         let pid = child.id() as i32;
         Ok((child, pid, leaf))
     }
@@ -2274,6 +2416,175 @@ mod namespace_isolation_tests {
             host > seen,
             "the unisolated probe should see more processes ({host}) than the \
              isolated one ({seen}); if these match, isolation is not doing anything"
+        );
+    }
+
+    /// A hidden file reads as empty inside the sandbox, and the host copy is
+    /// untouched.
+    ///
+    /// This is the difference between a scan and a boundary: `SENSITIVE_PATHS`
+    /// inspects the command line, so it stops `cat /etc/shadow` and does
+    /// nothing about a program that opens the file itself.
+    #[test]
+    fn a_hidden_file_is_empty_inside_and_intact_outside() {
+        if !host_grants_pidns() {
+            eprintln!("skipping: this host does not permit unprivileged PID namespaces");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let secret = dir.path().join("credential");
+        std::fs::write(&secret, "SECRET").unwrap();
+
+        let policy = SandboxPolicy {
+            hidden_paths: vec![secret.clone()],
+            ..isolated_policy(true)
+        };
+        let verdict = Sandbox::new(policy)
+            .execute(&format!("cat {}", secret.display()))
+            .expect("runs");
+        assert!(
+            !verdict.stdout.contains("SECRET"),
+            "a hidden file must not be readable inside the sandbox, got {:?}",
+            verdict.stdout
+        );
+
+        // The cover is namespace-local: hiding a path from the sandbox must
+        // not destroy it for everyone else.
+        assert_eq!(
+            std::fs::read_to_string(&secret).unwrap(),
+            "SECRET",
+            "the host copy must be untouched"
+        );
+    }
+
+    /// A hidden directory denies access rather than exposing its contents.
+    #[test]
+    fn a_hidden_directory_denies_access() {
+        if !host_grants_pidns() {
+            eprintln!("skipping: this host does not permit unprivileged PID namespaces");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let secrets = dir.path().join("keys");
+        std::fs::create_dir(&secrets).unwrap();
+        std::fs::write(secrets.join("id_rsa"), "PRIVATE-KEY").unwrap();
+
+        let policy = SandboxPolicy {
+            hidden_paths: vec![secrets.clone()],
+            ..isolated_policy(true)
+        };
+        let verdict = Sandbox::new(policy)
+            .execute(&format!("cat {}/id_rsa", secrets.display()))
+            .expect("runs");
+        assert!(
+            !verdict.stdout.contains("PRIVATE-KEY"),
+            "a hidden directory must not expose its contents, got {:?}",
+            verdict.stdout
+        );
+        assert_ne!(
+            verdict.exit_code,
+            Some(0),
+            "the read must fail, not return empty silently"
+        );
+    }
+
+    /// Without the policy the same file is readable — so the tests above are
+    /// measuring the policy, not a path that never worked.
+    #[test]
+    fn the_same_file_is_readable_when_not_hidden() {
+        let dir = tempfile::tempdir().unwrap();
+        let secret = dir.path().join("credential");
+        std::fs::write(&secret, "SECRET").unwrap();
+
+        let policy = SandboxPolicy {
+            hidden_paths: vec![],
+            ..isolated_policy(true)
+        };
+        let verdict = Sandbox::new(policy)
+            .execute(&format!("cat {}", secret.display()))
+            .expect("runs");
+        assert!(
+            verdict.stdout.contains("SECRET"),
+            "control case: an unhidden file must be readable, got {:?}",
+            verdict.stdout
+        );
+    }
+
+    /// Egress is enforced per destination, not per tool.
+    ///
+    /// A local server stands in for a remote one. The three cases together are
+    /// what make this a measurement rather than a demonstration: the allowed
+    /// destination must behave exactly like no policy at all, and the denied
+    /// one must fail at `connect`.
+    #[test]
+    fn egress_permits_the_allowed_destination_and_refuses_others() {
+        use crate::egress::EgressPolicy;
+        use std::io::Write;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for mut s in listener.incoming().take(8).flatten() {
+                let _ = s.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nHELLO",
+                );
+            }
+        });
+
+        let run = |egress: Option<EgressPolicy>| {
+            let policy = SandboxPolicy {
+                // Sharing the host netns is the point: this restricts egress
+                // *without* removing the network, which is what the
+                // all-or-nothing namespace could not do.
+                network_isolated: false,
+                egress_policy: egress,
+                block_sensitive_paths: false,
+                timeout: Duration::from_secs(10),
+                ..Default::default()
+            };
+            Sandbox::new(policy).execute(&format!("curl -s --max-time 5 http://{addr}/"))
+        };
+
+        let Ok(baseline) = run(None) else {
+            eprintln!("skipping: curl unavailable or refused by policy on this host");
+            return;
+        };
+        if !baseline.stdout.contains("HELLO") {
+            eprintln!("skipping: the control case could not reach the local server");
+            return;
+        }
+
+        let allowed = run(Some(EgressPolicy::deny_all().allow_addr(addr))).expect("runs");
+        assert!(
+            allowed.stdout.contains("HELLO"),
+            "an allowed destination must be reachable, got {:?} / {:?}",
+            allowed.stdout,
+            allowed.stderr
+        );
+
+        let denied = run(Some(EgressPolicy::deny_all())).expect("runs");
+        assert!(
+            !denied.stdout.contains("HELLO"),
+            "a denied destination must not be reachable, got {:?}",
+            denied.stdout
+        );
+        assert_ne!(
+            denied.exit_code,
+            Some(0),
+            "a refused connection must surface as a failure, not a silent empty success"
+        );
+
+        // Allowing a *different* address must not allow this one — otherwise
+        // the policy would be "any policy means allow everything".
+        let elsewhere = run(Some(
+            EgressPolicy::deny_all().allow_addr("127.0.0.1:9".parse().unwrap()),
+        ))
+        .expect("runs");
+        assert!(
+            !elsewhere.stdout.contains("HELLO"),
+            "allowing one destination must not allow another, got {:?}",
+            elsewhere.stdout
         );
     }
 
