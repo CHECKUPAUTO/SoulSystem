@@ -153,6 +153,69 @@ fn rust_files_under(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// Line numbers (1-based) that fall inside a `#[cfg(test)]` module.
+///
+/// The path-based scaffolding filter cannot see these: a `#[cfg(test)] mod
+/// tests` lives inside an ordinary `src/lib.rs`, so by path it is production
+/// code. That blind spot is what kept four fixture senders on the plaintext
+/// budget — none of them a real credential, all of them building requests to
+/// an in-process axum router with literals like `"tok"`.
+///
+/// Skipping them is the honest fix rather than the convenient one: wrapping a
+/// test literal in `SecretString` would satisfy the scan while teaching future
+/// readers that the guard is about ceremony, when it is about credentials
+/// leaving the process.
+///
+/// The dangerous failure direction is over-skipping — a region marked as test
+/// that is really production hides exactly what this file exists to find. So
+/// the end of the module is found by brace depth rather than by assuming
+/// everything after the attribute is test code, and
+/// `cfg_test_regions_end_where_the_module_ends` pins that with a positive
+/// control. Under-skipping is safe: it can only make the budget assertion
+/// fail loudly.
+///
+/// Known limit: brace counting ignores braces inside string literals. A test
+/// module containing an unbalanced brace in a string would end the region
+/// early, which fails in the safe direction (more lines scanned, not fewer).
+fn cfg_test_line_numbers(text: &str) -> std::collections::HashSet<usize> {
+    let mut inside = std::collections::HashSet::new();
+    let lines: Vec<&str> = text.lines().collect();
+
+    let mut idx = 0;
+    while idx < lines.len() {
+        if !lines[idx].trim_start().starts_with("#[cfg(test)]") {
+            idx += 1;
+            continue;
+        }
+        // Walk forward to the brace that opens the module body.
+        let mut cursor = idx;
+        while cursor < lines.len() && !lines[cursor].contains('{') {
+            cursor += 1;
+        }
+        if cursor >= lines.len() {
+            break;
+        }
+        let mut depth = 0i32;
+        let start = idx;
+        while cursor < lines.len() {
+            let code = lines[cursor]
+                .split_once("//")
+                .map_or(lines[cursor], |(before, _)| before);
+            depth += code.matches('{').count() as i32;
+            depth -= code.matches('}').count() as i32;
+            cursor += 1;
+            if depth <= 0 {
+                break;
+            }
+        }
+        for line in start..cursor {
+            inside.insert(line + 1);
+        }
+        idx = cursor;
+    }
+    inside
+}
+
 fn is_test_or_build_scaffolding(rel: &str) -> bool {
     rel.ends_with("build.rs")
         || rel.contains("/tests/")
@@ -746,6 +809,32 @@ fn clone_only_credential_holders_are_recorded_and_do_not_grow() {
     );
 }
 
+/// Whether a line attaches a credential to an outbound request as plaintext.
+///
+/// **One definition, used by both the repo scan and its synthetic test.** That
+/// matters more now than it used to: with the budget at zero, the scan finds
+/// nothing by design, so the synthetic test is the only thing proving the
+/// matcher still recognises anything at all. When the test carried its own
+/// copy of this logic, the two could drift and leave a guard that silently
+/// matched nothing while passing.
+///
+/// A site is clean when the value goes through `.expose()` — held in
+/// `SecretString`/`ProtocolSecret` and deliberately unwrapped at the point of
+/// use. A bare identifier is plaintext travelling under whatever name it has.
+fn line_attaches_plaintext_credential(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.starts_with("//") || trimmed.starts_with("///") {
+        return false;
+    }
+    let attaches = line.contains(".bearer_auth(")
+        || line.contains("\"Bearer {")
+        || line.contains("\"Bot {")
+        || line.contains("\"Token {")
+        || (line.contains("AUTHORIZATION") && line.contains("format!"));
+    // `.expose()` is the deliberate unwrap of a secret type.
+    attaches && !line.contains(".expose()")
+}
+
 /// A site that attaches a credential to an outbound request.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct AuthSite {
@@ -772,21 +861,18 @@ fn authorization_header_sites() -> Vec<AuthSite> {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
+        let test_lines = cfg_test_line_numbers(&text);
         for (idx, raw) in text.lines().enumerate() {
             let line = raw.trim();
             if line.starts_with("//") || line.starts_with("///") {
                 continue;
             }
-            let attaches = line.contains(".bearer_auth(")
-                || line.contains("\"Bearer {")
-                || line.contains("\"Bot {")
-                || line.contains("\"Token {")
-                || (line.contains("AUTHORIZATION") && line.contains("format!"));
-            if !attaches {
+            // A fixture sender inside `#[cfg(test)]` is not a credential
+            // leaving the process; see `cfg_test_line_numbers`.
+            if test_lines.contains(&(idx + 1)) {
                 continue;
             }
-            // `.expose()` is the deliberate unwrap of a secret type.
-            if line.contains(".expose()") {
+            if !line_attaches_plaintext_credential(line) {
                 continue;
             }
             sites.push(AuthSite {
@@ -802,31 +888,85 @@ fn authorization_header_sites() -> Vec<AuthSite> {
 
 /// How many outbound credential-attachment sites still pass a plain value.
 ///
-/// Pinned two-way. This number is large because the check found what the
-/// name-based scan structurally could not: most of these are `&str` function
-/// parameters and locals, which no amount of matching on field names reaches.
-/// It is recorded rather than fixed in one change because migrating them means
-/// changing signatures across a dozen crates, and a flag day there would be
-/// churn rather than hardening.
-const PLAINTEXT_AUTH_SITE_BUDGET: usize = 4;
+/// Pinned two-way, and now zero: **no production site attaches a credential to
+/// an `Authorization` header without unwrapping it from a secret type.**
+///
+/// It began at 27. Twenty-three were migrated to `SecretString`/`ProtocolSecret`
+/// across three tranches — signature changes spanning a dozen crates, done
+/// incrementally because a flag day there would have been churn rather than
+/// hardening. The last four were never credentials at all: fixture senders
+/// inside `#[cfg(test)]` modules, building requests to an in-process axum
+/// router with literals like `"tok"`. The path-based scaffolding filter could
+/// not see them because they live in ordinary `src/lib.rs` files;
+/// `cfg_test_line_numbers` now can.
+///
+/// Zero is a claim worth defending. If this number ever rises, a credential is
+/// travelling as a plain `String` somewhere real.
+const PLAINTEXT_AUTH_SITE_BUDGET: usize = 0;
+
+/// Positive control for `cfg_test_line_numbers`.
+///
+/// The over-skip direction is the dangerous one — a region wrongly treated as
+/// test code hides production credentials from every other check in this file
+/// — so this pins where a region STOPS, not just where it starts. The
+/// `after_the_module` line is the assertion that matters.
+#[test]
+fn cfg_test_regions_end_where_the_module_ends() {
+    let src = r#"
+fn production_before() {}
+#[cfg(test)]
+mod tests {
+    fn nested() {
+        if true { let _ = 1; }
+    }
+}
+fn after_the_module() {}
+"#;
+    let inside = cfg_test_line_numbers(src);
+
+    // Lines are 1-based and the raw string starts with a newline, so line 2 is
+    // `fn production_before`.
+    assert!(
+        !inside.contains(&2),
+        "production code before the module must not be skipped"
+    );
+    assert!(inside.contains(&4), "the `mod tests` line itself is inside");
+    assert!(
+        inside.contains(&6),
+        "a nested braced block inside the module is still inside"
+    );
+    assert!(
+        !inside.contains(&9),
+        "production code AFTER the module must not be skipped — this is the \
+         over-skip direction that would hide real credentials"
+    );
+}
+
+/// A file with no test module has nothing skipped.
+#[test]
+fn a_file_without_a_test_module_skips_nothing() {
+    let src = "fn a() {}\nfn b() { let _ = 1; }\n";
+    assert!(cfg_test_line_numbers(src).is_empty());
+}
 
 /// Acceptance test 2 for P1-5-C: a check that does not depend on field naming.
 #[test]
 fn plaintext_authorization_sites_do_not_grow() {
     let sites = authorization_header_sites();
-    assert!(
-        sites.len() <= PLAINTEXT_AUTH_SITE_BUDGET,
-        "{} sites attach a credential to an Authorization header without \
-         .expose(), but the budget is {PLAINTEXT_AUTH_SITE_BUDGET}. A new one \
-         means a credential is travelling as a plain String: hold it in \
-         SecretString (or ProtocolSecret if it must serialize faithfully) and \
-         unwrap at the point of use. Sites: {sites:#?}",
-        sites.len()
-    );
-    assert!(
-        sites.len() >= PLAINTEXT_AUTH_SITE_BUDGET,
-        "only {} sites remain but the budget is still \
-         {PLAINTEXT_AUTH_SITE_BUDGET}. Lower it so the ratchet keeps holding.",
+    // A single equality rather than the `<=` / `>=` pair this used to be.
+    // Those two comparisons together already meant equality, and at a budget
+    // of zero `len() <= 0` and `len() >= 0` are absurd extreme comparisons
+    // that clippy denies outright. Stating the ratchet as equality says the
+    // same thing at every budget value, including this one.
+    assert_eq!(
+        sites.len(),
+        PLAINTEXT_AUTH_SITE_BUDGET,
+        "expected {PLAINTEXT_AUTH_SITE_BUDGET} plaintext Authorization \
+         site(s), found {}.\n\nIf the count GREW: a credential is travelling \
+         as a plain String. Hold it in SecretString (or ProtocolSecret if it \
+         must serialize faithfully) and unwrap at the point of use.\n\nIf the \
+         count SHRANK: good — lower the budget in the same change so the \
+         ratchet keeps holding.\n\nSites: {sites:#?}",
         sites.len()
     );
 }
@@ -854,16 +994,11 @@ fn the_authorization_matcher_recognises_attachment_but_not_inspection() {
         (r#"let x = 1;"#, false),
     ];
     for (line, expected) in cases {
-        let t = line.trim();
-        let is_comment = t.starts_with("//") || t.starts_with("///");
-        let attaches = !is_comment
-            && (line.contains(".bearer_auth(")
-                || line.contains("\"Bearer {")
-                || line.contains("\"Bot {")
-                || line.contains("\"Token {")
-                || (line.contains("AUTHORIZATION") && line.contains("format!")))
-            && !line.contains(".expose()");
-        assert_eq!(attaches, expected, "matcher disagreed on {line:?}");
+        assert_eq!(
+            line_attaches_plaintext_credential(line),
+            expected,
+            "matcher disagreed on {line:?}"
+        );
     }
 }
 
@@ -890,14 +1025,23 @@ fn the_three_checks_cover_different_sets() {
         !clone_files.is_empty(),
         "the Clone-only check must find the recorded holders, or it is not running"
     );
+    // The Authorization set is now empty, and that is the goal state rather
+    // than a broken scan. It cannot double as its own liveness proof any more,
+    // so liveness moved to two places that do not depend on the repo being
+    // dirty: `the_authorization_matcher_recognises_attachment_but_not_inspection`
+    // exercises the shared matcher against synthetic lines, and the assertion
+    // below proves the walk still reaches real files.
     assert!(
-        !auth_files.is_empty(),
-        "the Authorization check must find real sites, or it is not running"
+        auth_files.is_empty(),
+        "the Authorization check found plaintext sites: {auth_files:?}. The \
+         budget is zero because no production site should attach a credential \
+         without unwrapping it from a secret type."
     );
     assert!(
-        auth_files.difference(&clone_files).next().is_some(),
-        "the Authorization check must reach files the Clone-only check does not, \
-         which is the point of not keying on field names"
+        scanned_files().len() > 50,
+        "only {} files scanned; the walk is broken and every check in this \
+         file would pass vacuously",
+        scanned_files().len()
     );
 }
 
@@ -913,12 +1057,19 @@ fn the_three_checks_cover_different_sets() {
 /// Sites that make an owned plaintext copy of an exposed secret, recorded so
 /// the set cannot grow. Each entry is (file, marker substring on the line).
 ///
-/// The one current member: the settings TUI shows the stored API key as the
-/// editable "current value". Fixing that is a UI decision (mask it, or show
-/// a set/unset indicator), not a mechanical migration — recorded rather than
-/// silently fixed here.
-const RETAINED_EXPOSED_COPIES: &[(&str, &str)] =
-    &[("souls/src/config.rs", "k.expose().to_string()")];
+/// **Now empty.** The one member was the settings TUI, which seeded its edit
+/// buffer with the stored API key so the key could be edited in place. The
+/// dialog already masked what it rendered, so the plaintext was never on
+/// screen — it was resident in an ordinary `String`, which is what survives
+/// into a core dump or a swapped page.
+///
+/// The fix was to stop copying rather than to mask harder: the buffer now
+/// starts empty, an empty buffer on confirm means "leave the key alone"
+/// (Ctrl+D deletes explicitly), and the buffer is zeroized on every exit
+/// path. Changing the confirm semantics was not optional — under the old
+/// "empty deletes" rule, an empty starting buffer would have turned
+/// open-dialog-then-Enter into silent key destruction.
+const RETAINED_EXPOSED_COPIES: &[(&str, &str)] = &[];
 
 /// Line patterns that turn a borrowed `expose()` into an owned copy the
 /// caller can keep. A transient use — `format!` passed straight to a header,
