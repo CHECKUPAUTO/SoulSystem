@@ -19,8 +19,8 @@
   "count": 41,
   "status_summary": {
     "PARTIALLY_FIXED": 7,
-    "FIXED_AND_VERIFIED": 18,
-    "CONFIRMED_CURRENT": 7,
+    "FIXED_AND_VERIFIED": 19,
+    "CONFIRMED_CURRENT": 6,
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
     "NOT_REACHABLE": 5
@@ -45,8 +45,8 @@
     },
     "low": {
       "DEFERRED_PRODUCT_DECISION": 1,
-      "CONFIRMED_CURRENT": 4,
-      "FIXED_AND_VERIFIED": 1,
+      "CONFIRMED_CURRENT": 3,
+      "FIXED_AND_VERIFIED": 2,
       "NOT_REACHABLE": 2
     }
   },
@@ -2027,7 +2027,7 @@
     {
       "id": "LOW-002",
       "title": "Version inconsistency: root package 0.6.0 vs workspace.package 13.5.0",
-      "status": "CONFIRMED_CURRENT",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "low",
       "confidence": "confirmed",
       "audit_category": "Maintenance",
@@ -2057,16 +2057,23 @@
       "required_invariant": "The root binary package version and [workspace.package].version are identical, so every runtime surface reports one consistent version.",
       "verification_tests": [
         {
-          "name": "root package inherits the workspace version",
-          "command": "cargo test --test architecture_manifest_consistency"
+          "name": "root package inherits the workspace version (manifest text, not resolved metadata)",
+          "command": "cargo test --test architecture_manifest_consistency the_root_package_inherits_the_workspace_version"
         },
         {
-          "name": "guard fails when the inheritance is undone (negative probe)",
-          "command": "revert to a literal version, then cargo test --test architecture_manifest_consistency"
+          "name": "the workspace still declares a literal version to inherit (guards against a vacuous pass)",
+          "command": "cargo test --test architecture_manifest_consistency the_workspace_declares_a_version_to_inherit"
         }
       ],
-      "residual_risk": "None for the root package. Individual member crates that restate a literal version are not covered by this guard - it checks the root only, which is the one the shipped binary reports.",
-      "follow_up": "The fix is implemented and guarded (root [package] uses version.workspace = true; tests/architecture_manifest_consistency.rs pins the mechanism). Status stays CONFIRMED_CURRENT until that PR merges - FIXED_AND_VERIFIED requires a real merge commit, and a placeholder there would make the register lie about what has shipped. Promote in a docs pass afterwards."
+      "residual_risk": "None for the root package - the one whose number `soulsystem --version` reports. Individual member crates that restate a literal version are outside this guard's scope; extending it there is optional and low value.",
+      "follow_up": "None.",
+      "fixing_prs": [
+        {
+          "number": 133,
+          "merge_commit": "bd09053dca6679750237f813350afbee087dd309",
+          "title": "security(LOW-002/LOW-006): inherit the workspace version; delete the dead autonomous_loop"
+        }
+      ]
     },
     {
       "id": "LOW-003",
