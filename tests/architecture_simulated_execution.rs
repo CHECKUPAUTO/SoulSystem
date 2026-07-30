@@ -168,3 +168,89 @@ fn the_guard_reads_the_files_it_claims_to() {
     }
     assert!(Path::new(&repo_root().join("soul_entity/src/entity.rs")).exists());
 }
+
+// ── Disposition guard ────────────────────────────────────────────────────────
+//
+// The tests above pin the *fabrications* that HIGH-006 carried. These pin the
+// *decisions*: a feature that does less than its name says must have an owner,
+// a decision and a review date written down, or this file fails.
+//
+// A feature parked behind an "experimental" flag with nobody accountable is a
+// debt that reads like a capability. Six of them accumulated before anyone
+// asked what should happen to them.
+
+/// Features known to do less than their name suggests.
+///
+/// Each entry names the decision document section that covers it. Adding a
+/// simulated feature without a decision fails
+/// `every_simulated_feature_has_a_written_decision`.
+const SIMULATED_FEATURES: &[(&str, &str)] = &[
+    ("HIGH-006", "--entity, simulated SoulEntity autonomy"),
+    ("MED-004", "Tree-of-Thought placeholder embeddings"),
+    ("LOW-006", "--plan, keyword matching presented as planning"),
+    ("LOW-008", "soul_llm silently flattened tools to text"),
+    ("MED-010", "soul-wasm placeholder WASI host functions"),
+    ("LOW-004", "scirust-gpu-macros #[gpu] attribute"),
+];
+
+fn decision_doc() -> String {
+    std::fs::read_to_string(repo_root().join("docs/decisions/simulated-features.md"))
+        .expect("docs/decisions/simulated-features.md must exist — it is where the decisions live")
+}
+
+/// Every simulated feature is covered by the decision document.
+#[test]
+fn every_simulated_feature_has_a_written_decision() {
+    let doc = decision_doc();
+    for (id, subject) in SIMULATED_FEATURES {
+        assert!(
+            doc.contains(id),
+            "{id} ({subject}) is a simulated feature with no section in \
+             docs/decisions/simulated-features.md. Write the decision — what it \
+             claims, what it does, and whether it is finished, deleted or kept \
+             gated — rather than leaving it parked."
+        );
+    }
+}
+
+/// Every entry states a recommendation and an owner.
+///
+/// A decision document listing problems without saying who decides is a status
+/// report, and status reports do not resolve.
+#[test]
+fn every_decision_names_a_recommendation_and_an_owner() {
+    let doc = decision_doc();
+    for (id, _) in SIMULATED_FEATURES {
+        let section = doc
+            .split("\n## ")
+            .find(|s| s.starts_with(id))
+            .unwrap_or_else(|| panic!("{id} has no section"));
+        assert!(
+            section.contains("Recommendation"),
+            "{id} has no recommendation"
+        );
+        assert!(
+            section.contains("Decided by"),
+            "{id} names nobody accountable for the decision"
+        );
+    }
+}
+
+/// A feature marked for deletion must not still be referenced as a dependency.
+///
+/// Catches the half-done removal: the crate is gone from the manifest but the
+/// directory stays, or the reverse. Either leaves a reader believing something
+/// that is not true.
+#[test]
+fn a_feature_recommended_for_deletion_is_either_present_or_fully_gone() {
+    let root = repo_root();
+    let manifest = std::fs::read_to_string(root.join("Cargo.toml")).expect("root manifest");
+    let declared = manifest.contains("soul_wasm = { path = \"soul-wasm\" }");
+    let present = root.join("soul-wasm").is_dir();
+    assert_eq!(
+        declared, present,
+        "soul-wasm is half-removed: declared in the root manifest = {declared}, \
+         directory present = {present}. Remove both or neither — a dangling \
+         declaration and an orphan directory are each worse than the crate."
+    );
+}
