@@ -807,11 +807,16 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   is deliberately labelled `Unrecorded` rather than fixed:
   `souls::brain::observe` writes raw tool output with no screening on that
   path, and labelling it anything stronger would vouch for content nothing
-  inspected. What remains is **MED-015-C**: recall paths do not yet *consult*
-  trust (a `Spotlighted` record is retrievable exactly like an `Internal` one),
-  `soul-memory`'s sled record shape has no trust field, and the daemon's
-  per-goal load-modify-persist can lose (never corrupt) records under
-  concurrent goals.
+  inspected. **MED-015-C is now CLOSED** on all three parts: recall at the
+  agent's injection site fences `Spotlighted`/`Unrecorded` content as inert
+  data via the same `spotlight()` the screening pipeline uses; `MemoryTrust`
+  moved to `soulsystem-common` (re-exported from the hierarchy crate, so no
+  caller changed) and soul-memory's sled record carries it (`store_with_trust`
+  typed; the trust-less `store` visibly lands `Unrecorded`);
+  `souls::brain::observe` runs the real screening policy and refuses
+  quarantined content rather than recording the placeholder. Residual:
+  non-prompting recall consumers (dashboard, API) display without fencing; the
+  daemon's per-goal interleaving caveat stands.
 
 ### P1-7 Transactional multi-file persistence and backup/restore qualification — DONE (INV-PERSIST-2 held; INV-PERSIST-1 partial)
 

@@ -35,7 +35,11 @@ pub mod parallel;
 pub mod prioritization;
 pub mod provenance;
 pub mod router;
-mod screening;
+/// Public since MED-015-C so downstream writers (souls' brain mesh) can run
+/// the same screening policy instead of growing a drifting copy. What stays
+/// private is this crate's semantic-store *write path* — `screen` is a pure
+/// function and exposing it bypasses nothing.
+pub mod screening;
 pub mod strategy;
 pub mod traits;
 
@@ -1179,10 +1183,26 @@ impl AutonomousAgent {
                     let past: Vec<String> = memory_results
                         .iter()
                         .map(|e| {
-                            format!(
-                                "[{:?}] {} (importance: {:.2})",
-                                e.layer, e.text, e.importance
-                            )
+                            // Recall consults the record's trust (MED-015-C).
+                            // Spotlighted content was flagged and fenced once
+                            // already — re-injecting it as prose would un-fence
+                            // it; Unrecorded content is text nobody vouched
+                            // for. Both go back into the prompt spotlight-
+                            // fenced as inert data, not as instructions.
+                            if e.trust.is_instruction_bearing() {
+                                format!(
+                                    "[{:?}] {} (importance: {:.2})",
+                                    e.layer, e.text, e.importance
+                                )
+                            } else {
+                                format!(
+                                    "[{:?}] {} (importance: {:.2}, trust: {:?})",
+                                    e.layer,
+                                    spotlight(&e.text),
+                                    e.importance,
+                                    e.trust
+                                )
+                            }
                         })
                         .collect();
                     combined_context.push_str("\n\nRelevant past experiences:\n");

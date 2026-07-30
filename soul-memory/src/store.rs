@@ -17,6 +17,11 @@ struct MemoryEntry {
     metadata: HashMap<String, String>,
     #[serde(default = "default_importance")]
     importance: f32,
+    /// Trust carried on the record (INV-MEM-3). Pre-trust rows and writes
+    /// through the trust-less `store` deserialize/land as `Unrecorded` —
+    /// nobody vouched for them, and the field must not pretend otherwise.
+    #[serde(default)]
+    trust: soulsystem_common::memory_types::MemoryTrust,
 }
 
 fn default_importance() -> f32 {
@@ -107,6 +112,25 @@ impl SoulMemory {
         metadata: HashMap<String, String>,
         importance: f32,
     ) -> Result<()> {
+        // Callers of the trust-less API land as `Unrecorded` — visible in the
+        // record, not laundered by a friendlier default (INV-MEM-3).
+        self.store_with_trust(
+            text,
+            metadata,
+            importance,
+            soulsystem_common::memory_types::MemoryTrust::Unrecorded,
+        )
+        .await
+    }
+
+    /// Store with the caller's trust verdict carried on the record.
+    pub async fn store_with_trust(
+        &self,
+        text: &str,
+        metadata: HashMap<String, String>,
+        importance: f32,
+        trust: soulsystem_common::memory_types::MemoryTrust,
+    ) -> Result<()> {
         match &self.backend {
             Backend::Qdrant { url, collection } => {
                 let vector = self.embedder.embed(text);
@@ -125,6 +149,7 @@ impl SoulMemory {
                     vector,
                     metadata,
                     importance,
+                    trust,
                 };
                 let key = entry.id.to_string();
                 db.insert(key.as_bytes(), serde_json::to_vec(&entry)?)?;
@@ -313,5 +338,45 @@ mod tests {
         mem.store("Test avec NGramEmbedder", meta).await.unwrap();
         let results = mem.search("NGramEmbedder", 1).await.unwrap();
         assert_eq!(results.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod trust_on_sled_records_tests {
+    use super::*;
+    use soulsystem_common::memory_types::MemoryTrust;
+
+    /// A row written before the trust field existed reads back `Unrecorded`.
+    #[test]
+    fn a_pre_trust_row_deserializes_as_unrecorded() {
+        let old = r#"{"id":7,"text":"old row","vector":[0.1],"metadata":{}}"#;
+        let entry: MemoryEntry = serde_json::from_str(old).unwrap();
+        assert_eq!(entry.trust, MemoryTrust::Unrecorded);
+        assert_eq!(entry.importance, 1.0, "the existing default still applies");
+    }
+
+    /// The trust-less `store` lands `Unrecorded` — visible on the record, not
+    /// laundered by a friendlier default; the trust-aware path round-trips.
+    #[tokio::test]
+    async fn the_trustless_path_is_visible_and_the_typed_path_round_trips() {
+        let mem = SoulMemory::new_test().unwrap();
+
+        mem.store("untyped write", HashMap::new()).await.unwrap();
+        mem.store_with_trust("typed write", HashMap::new(), 0.9, MemoryTrust::Screened)
+            .await
+            .unwrap();
+
+        let Backend::LocalFallback { db, .. } = &mem.backend else {
+            panic!("new_test uses the sled fallback");
+        };
+        let mut seen = std::collections::HashMap::new();
+        for kv in db.iter() {
+            let (_, v) = kv.unwrap();
+            if let Ok(entry) = serde_json::from_slice::<MemoryEntry>(&v) {
+                seen.insert(entry.text.clone(), entry.trust);
+            }
+        }
+        assert_eq!(seen["untyped write"], MemoryTrust::Unrecorded);
+        assert_eq!(seen["typed write"], MemoryTrust::Screened);
     }
 }

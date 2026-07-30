@@ -30,6 +30,7 @@ soul-agent-core = { path = "../soul-agent-core", package = "soul_agent_core" }
 
 # SoulLink Brain — wired into autonomous entity
 soullink-memory-hierarchy = { path = "../soullink-brain/soullink-memory-hierarchy" }
+soullink-gate = { path = "../soullink-brain/soullink-gate" }
 soullink-reasoning = { path = "../soullink-brain/soullink-reasoning" }
 soullink-autonomy = { path = "../soullink-brain/soullink-autonomy" }
 soul-error-unifier = { path = "../soul-error-unifier" }
