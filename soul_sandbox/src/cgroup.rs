@@ -153,11 +153,33 @@ impl Drop for CgroupLeaf {
 mod tests {
     use super::*;
 
+    /// Serialises every test that touches `CGROUP_DIR_ENV`.
+    ///
+    /// The variable is process-global and cargo runs these tests concurrently
+    /// in one process, so without this they race: one test sets the variable
+    /// and another removes it before the first calls `detect()`.
+    ///
+    /// That is the failure seen intermittently in CI as
+    /// `soul_sandbox` 62 passed / 1 failed —
+    /// `a_bogus_dir_is_not_usable` got `NotConfigured` instead of
+    /// `NotUsable(_)` because a sibling had just cleared the variable it set.
+    /// Reproduced locally at roughly 1 run in 25.
+    ///
+    /// A comment previously claimed the tests serialised around the variable.
+    /// Nothing did — the claim was the whole defence.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Take the lock, ignoring poisoning: a panicking test must not turn one
+    /// failure into every sibling failing for an unrelated reason.
+    fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// The common host has no delegation: detection must fail with the typed
     /// reason, not panic and not pretend.
     #[test]
     fn detection_without_configuration_is_a_typed_absence() {
-        // Serialise around the env var to avoid racing sibling tests.
+        let _guard = env_guard();
         std::env::remove_var(CGROUP_DIR_ENV);
         assert_eq!(
             CgroupContext::detect().unwrap_err(),
@@ -170,6 +192,7 @@ mod tests {
     /// depends on it.
     #[test]
     fn a_bogus_dir_is_not_usable() {
+        let _guard = env_guard();
         let dir = tempfile::tempdir().unwrap();
         // No cgroup.controllers file inside a plain tempdir.
         std::env::set_var(CGROUP_DIR_ENV, dir.path());
@@ -184,6 +207,7 @@ mod tests {
     /// qualification is visible, a faked one is worse than none.
     #[test]
     fn a_delegated_subtree_creates_and_limits_a_leaf() {
+        let _guard = env_guard();
         let Ok(ctx) = CgroupContext::detect() else {
             eprintln!(
                 "skipping: no delegated cgroup subtree ({CGROUP_DIR_ENV} unset \
