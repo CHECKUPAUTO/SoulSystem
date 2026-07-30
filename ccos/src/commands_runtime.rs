@@ -241,7 +241,9 @@ pub(crate) async fn run_runtime(args: &[String]) -> i32 {
     );
 
     // Verify the persisted state restores cleanly.
-    match runtime.restore_runtime() {
+    // P1-7-C: strict by default. A directory with no manifest is refused
+    // unless SOULSYSTEM_ALLOW_LEGACY_RESTORE is set for the migration window.
+    match runtime.restore_runtime_default() {
         Ok(restored) => {
             println!(
                 "\n  ✓ runtime resumable: {} nodes, {} events, hash-chain valid",
