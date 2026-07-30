@@ -135,6 +135,11 @@ by someone who assumes it works. Git keeps the history if it is ever wanted.
 
 ---
 
+**Executed.** `soul-wasm/` and the `[workspace.dependencies]` line were removed
+in the same change, so the guard's "wholly present or wholly gone" assertion
+holds. `cargo check --workspace --all-targets` is clean afterwards: nothing
+depended on it, which is what the decision rested on.
+
 ## LOW-004 — `scirust-gpu-macros` `#[gpu]` attribute
 
 | | |
@@ -186,7 +191,7 @@ reference for another. **Fix the tree first, then revisit this entry.**
 | MED-004 | finish | needs a real embedding source; see the trap above |
 | LOW-006 | finish | **re-estimated**: needs a new LLM dependency and a decomposition design; not the cheap one |
 | LOW-008 | finish | now the cheapest — integration against two documented APIs |
-| MED-010 | **delete** | `soul-wasm` and its `[workspace.dependencies]` line, together |
+| MED-010 | **delete** | DONE — crate and manifest line removed together |
 | LOW-004 | defer | blocked on MED-017 — fix `soullink-node/scirust` first |
 
 The three "finish" items are scheduled work, not blockers: each is neutralised

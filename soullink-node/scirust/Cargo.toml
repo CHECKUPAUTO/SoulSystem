@@ -25,3 +25,15 @@ members = [
 ]
 exclude = ["scirust-rustc-driver"]
 resolver = "2"
+
+# Declared because `chronos-agent` and `scirust-inference` inherit these with
+# `{ workspace = true }`, and the section did not exist — every manifest in the
+# tree failed to parse with "error inheriting `serde` from workspace root".
+#
+# That was the second breakage here. The first was 50 dependency paths pointing
+# at `/root/scirust/…`, an absolute directory outside the repository. Neither
+# was ever caught because `soullink-node` sits in the root workspace's
+# `exclude` list, so CI never builds this tree.
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

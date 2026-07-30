@@ -416,7 +416,6 @@ ratatui = { workspace = true }
 soul_skills = { path = "soul-skills" }
 soul_compaction = { path = "soul-compaction" }
 soul_protocol = { path = "soul-protocol" }
-soul_wasm = { path = "soul-wasm" }
 soul_designtree = { path = "soul-designtree" }
 soul_inference = { path = "soul-inference" }
 soul_critique = { path = "soul-critique" }
