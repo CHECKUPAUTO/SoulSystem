@@ -31,6 +31,7 @@ pub mod legacy;
 pub mod provider;
 pub mod providers;
 pub mod retry;
+pub mod retry_budget;
 pub mod types;
 
 // Re-exports principaux
@@ -46,6 +47,7 @@ pub use legacy::{
 };
 pub use provider::LlmProvider;
 pub use retry::{RetryDecision, RetryPolicy, StopReason};
+pub use retry_budget::RetryBudget;
 pub use types::{
     EmbeddingResult, GenerateRequest, GenerateResult, LlmConfig, ModelInfo, ProviderKind,
     StreamChunk, TokenUsage,
