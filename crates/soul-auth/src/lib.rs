@@ -1,3 +1,12 @@
+//! Dead code is denied in this crate despite the workspace-wide `-A dead_code`
+//! (LOW-001). A source attribute is used rather than a `[lints]` table because
+//! the table does NOT win against RUSTFLAGS — verified, not assumed.
+//!
+//! The suppression exists for noise. Here it would hide the thing that matters:
+//! HIGH-008 was a dead `AutonomousAgent::executor` field that falsely implied a
+//! second sandboxing mechanism existed. In a crate whose job IS a protection,
+//! an unused item usually means the protection is not wired.
+#![deny(dead_code)]
 //! Shared bearer-token authentication for SoulSystem HTTP listeners.
 //!
 //! This crate exists because `soul_gateway` had the only working
