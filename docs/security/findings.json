@@ -19,8 +19,8 @@
   "count": 41,
   "status_summary": {
     "PARTIALLY_FIXED": 7,
-    "FIXED_AND_VERIFIED": 19,
-    "CONFIRMED_CURRENT": 6,
+    "FIXED_AND_VERIFIED": 20,
+    "CONFIRMED_CURRENT": 5,
     "DEFERRED_PRODUCT_DECISION": 2,
     "FALSE_POSITIVE": 2,
     "NOT_REACHABLE": 5
@@ -45,8 +45,8 @@
     },
     "low": {
       "DEFERRED_PRODUCT_DECISION": 1,
-      "CONFIRMED_CURRENT": 3,
-      "FIXED_AND_VERIFIED": 2,
+      "CONFIRMED_CURRENT": 2,
+      "FIXED_AND_VERIFIED": 3,
       "NOT_REACHABLE": 2
     }
   },
@@ -2194,7 +2194,7 @@
     {
       "id": "LOW-007",
       "title": "Two integration test crates (both named soul_integration_tests) contain a Cargo.toml but zero test source files",
-      "status": "CONFIRMED_CURRENT",
+      "status": "FIXED_AND_VERIFIED",
       "severity": "low",
       "confidence": "confirmed",
       "audit_category": "Quality",
@@ -2213,10 +2213,21 @@
       ],
       "reproducer": "git ls-files integration_tests/ returns only Cargo.toml. cargo build inside that directory fails with 'no targets specified in the manifest'.",
       "required_invariant": "A package that advertises itself as an integration-test crate contains at least one test target exercised by CI.",
-      "fixing_prs": [],
-      "verification_tests": [],
-      "residual_risk": "No executable risk; the harm is false confidence that multi-crate integration coverage exists. Notably there is still no end-to-end integration test proving backup/restore (INV-PERSIST-2) or a full agent run.",
-      "follow_up": "Status stays CONFIRMED_CURRENT until the PR merges - FIXED_AND_VERIFIED needs a real merge commit. Promote afterwards."
+      "fixing_prs": [
+        {
+          "number": 135,
+          "merge_commit": "0c4ce920e845a398928dc35005353891ebebbf6a",
+          "title": "security(LOW-007): delete two empty test crates, and guard the false-assurance pattern"
+        }
+      ],
+      "verification_tests": [
+        {
+          "name": "no manifest names itself a test crate while containing no tests (walks the whole repo, not just workspace members)",
+          "command": "cargo test --test architecture_test_crates_contain_tests"
+        }
+      ],
+      "residual_risk": "None for the specific pattern. The guard is deliberately scoped to manifests whose NAME claims tests: a targetless manifest that makes no such claim is cargo's problem to report the moment anything references it, whereas one advertising coverage it lacks misleads silently and forever precisely because nothing references it. A crate that contains a tests/ directory holding only trivial or ignored tests would still pass - the guard checks that tests EXIST, not that they assert anything meaningful.",
+      "follow_up": "None."
     },
     {
       "id": "LOW-008",
