@@ -3,6 +3,7 @@ name = "soulsystem-evolution"
 version = "0.3.0"
 edition = "2021"
 description = "SoulSystem Evolution System"
+license = "MIT"
 
 [dependencies]
 tokio = { workspace = true }
