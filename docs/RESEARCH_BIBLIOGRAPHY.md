@@ -1,7 +1,7 @@
 # Research Bibliography — Papers Useful to SoulSystem
 
 Status: curated 2026-06-15 via web search. Companion to
-`docs/RESEARCH_FRONTIER_2026.md` (the prioritized roadmap vs. OpenClaw /
+`docs/RESEARCH_FRONTIER_2026.md` (the prioritized roadmap for the agent runtime
 Hermes-Agent) — this is the broader reading list, ~55 papers mapped to the
 crate each one informs, with a one-line "how we'd apply it" note.
 

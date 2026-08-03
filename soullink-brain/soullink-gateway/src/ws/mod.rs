@@ -1,6 +1,6 @@
-//! WebSocket RPC server — a strict drop-in for the OpenClaw gateway protocol.
+//! WebSocket RPC server — a strict drop-in for the SoulSystem gateway protocol.
 //!
-//! ## Protocol (OpenClaw-compatible)
+//! ## Protocol (SoulSystem-compatible)
 //!
 //! 1. Client opens WebSocket, sends a `req` with `method: "connect"` carrying
 //!    `ConnectRequest` (protocol range + auth token).

@@ -7,7 +7,7 @@
 // page_fault, causal_intervene, causal_blame, etc.) comme des fonctions
 // async que les autres modules SoulSystem peuvent appeler.
 //
-// CCOS est aussi accessible depuis OpenClaw via MCP (config openclaw.json);
+// CCOS est aussi accessible depuis SoulSystem via MCP (config soulsystem.json);
 // ce bridge permet à SoulSystem d'y accéder nativement en Rust.
 
 use anyhow::{anyhow, Context, Result};

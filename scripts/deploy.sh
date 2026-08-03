@@ -5,11 +5,11 @@ set -e
 echo "🦞 Deploying SoulSystem..."
 
 # Backup current binaries
-sudo cp /usr/local/bin/openclaw-u /usr/local/bin/openclaw-u.bak.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+sudo cp /usr/local/bin/soulsystem-gateway-u /usr/local/bin/soulsystem-gateway-u.bak.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
 
-# Deploy OpenClaw-U
-sudo cp /root/SoulSystem/openclaw-u/target/release/openclaw-u /usr/local/bin/openclaw-u
-sudo systemctl restart openclaw-u
+# Deploy SoulSystem gateway
+sudo cp /root/SoulSystem/soulsystem-gateway/target/release/soulsystem-gateway /usr/local/bin/soulsystem-gateway-u
+sudo systemctl restart soulsystem-gateway-u
 
 # Deploy SoulLink binaries
 for binary in soullink-node soullink-monolith soullink-orchestrator; do
@@ -20,7 +20,7 @@ done
 
 # Restart services
 sudo systemctl restart sl13-monolith.service
-sudo systemctl restart openclaw-u.service
+sudo systemctl restart soulsystem-gateway-u.service
 
 echo "✅ SoulSystem deployed!"
 echo "Status:"

@@ -596,7 +596,7 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
     that never runs there and do nothing on the platform where it does. Needs a
     decision, not a migration.
 - **Decide what to do about the non-member trees.** `intel-integrations/`,
-  `openevolve/`, `backlog/`, `os-agents/`, `openclaw-evolution/`, `soul-rsi/`,
+  `openevolve/`, `backlog/`, `os-agents/`, `soulsystem-evolution/`, `soul-rsi/`,
   `jit-agentic-engine/`, `soullink-node/`, `turboquant/` and
   `scirust-chronos-agent/` hold a further **112 spawn sites** and are not
   workspace members, so `cargo build --workspace` never builds them and this
@@ -712,7 +712,7 @@ default and a dedicated UID or a cgroup remains an operational prerequisite.
   round-tripping the plaintext through those is the same leak in a different
   coat.
 - **Five structs migrated:** `WsBridgeConfig::shared_secret`,
-  `LlmConfig::auth_token`, `OpenclawConfig::auth_token`,
+  `LlmConfig::auth_token`, `AgentGatewayConfig::auth_token`,
   `DiscordWebhookBody::token` (an inbound webhook body is exactly what gets
   logged when parsing fails), and — the one that matters most —
   **soullink-security's scanner `Finding::secret`**, which derived `Debug` *and*

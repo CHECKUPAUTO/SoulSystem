@@ -1,7 +1,7 @@
 //! GET /api/models — list available models across all providers.
 //!
 //! Returns a flat list of model IDs with their provider metadata.
-//! This matches the OpenClaw gateway `/api/models` endpoint used by
+//! This matches the SoulSystem gateway `/api/models` endpoint used by
 //! front-end clients to populate model pickers.
 
 use axum::{

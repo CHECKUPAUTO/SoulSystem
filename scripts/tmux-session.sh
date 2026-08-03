@@ -9,7 +9,7 @@ SESSION="soulsystem"
 CCOS_BIN="${CCOS_CMD:-}"
 OLLAMA_ENDPOINT="${OLLAMA_ENDPOINT:-http://127.0.0.1:11434}"
 OCTA_BIN="${OCTASOMA_CMD:-}"
-OCTA_STORE="${OCTASOMA_STORE:-${HOME:-$REPO_ROOT}/.openclaw/workspace/octasoma/octasoma.mem}"
+OCTA_STORE="${OCTASOMA_STORE:-${HOME:-$REPO_ROOT}/.soulsystem/workspace/octasoma/octasoma.mem}"
 
 # Detect architecture
 ARCH=$(uname -m)
@@ -67,11 +67,11 @@ tmux send-keys -t "$SESSION:0" \
      CCOS_WORKSPACE=/tmp/ccos-soulsystem.ccos \
      ${SOUL_BIN_Q}" Enter
 
-# Window 1: gateway (Debian only — uses node-based openclaw)
-if command -v openclaw &>/dev/null; then
+# Window 1: gateway (Debian only — uses npm-distributed soulsystem-gateway)
+if command -v soulsystem-gateway &>/dev/null; then
     tmux new-window -t "$SESSION" -n "gateway"
     tmux send-keys -t "$SESSION:1" \
-        "openclaw gateway --port 18890" Enter
+        "soulsystem-gateway --port 18890" Enter
 fi
 
 # Window 2: monitor/logs

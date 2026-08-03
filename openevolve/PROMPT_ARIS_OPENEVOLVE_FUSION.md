@@ -85,7 +85,7 @@ aris-evolve/
 - [ ] ARIS fusionne les résultats via Pareto
 
 ### 3.2 Cross-repo embedding
-- [ ] Indexer tout `/root` (AVID + SoulLink + OpenClaw + OpenEvolve) dans ruvector.db
+- [ ] Indexer tout `/root` (AVID + SoulLink + SoulSystem + OpenEvolve) dans ruvector.db
 - [ ] Commande `aris search "health_check"` → trouve la définition + tous les appelants
 
 ### 3.3 Meta-evolution

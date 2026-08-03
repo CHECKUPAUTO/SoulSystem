@@ -139,10 +139,6 @@ skip = [
     { name = "itertools" },
     { name = "tokio-tungstenite" },
     { name = "rand" },
-    { name = "hyper" },
-    { name = "h2" },
-    { name = "reqwest" },
-    { name = "base64" },
 ]
 # Allow duplicates where version difference is acceptable — these crates
 # have many versions in the graph due to transitive deps via multiple major

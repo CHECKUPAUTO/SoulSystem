@@ -1,0 +1,193 @@
+---
+title: Updating SoulSystem
+sidebarTitle: Updating
+description: How to update SoulSystem to the latest version
+---
+
+Keep SoulSystem up to date for the latest features and security patches.
+
+## Check Current Version
+
+```bash
+soulsystem --version
+# soulsystem 0.13.0
+```
+
+## Update by Installation Method
+
+<Tabs>
+  <Tab title="Linux (Shell Script)">
+    ```bash
+    # Re-run the install script (updates in place)
+    curl -fsSL https://install.soulsystem.ai | bash
+
+    # Verify update
+    soulsystem --version
+    ```
+  </Tab>
+
+  <Tab title="Ubuntu/Debian (APT)">
+    ```bash
+    sudo apt update
+    sudo apt upgrade soulsystem
+    ```
+  </Tab>
+
+  <Tab title="macOS (Homebrew)">
+    ```bash
+    brew update
+    brew upgrade soulsystem
+    ```
+  </Tab>
+
+  <Tab title="Docker">
+    ```bash
+    # Pull latest image
+    docker pull nearai/soulsystem:latest
+
+    # Recreate container
+    docker stop soulsystem
+    docker rm soulsystem
+    docker run -d --name soulsystem ...
+
+    # Or with docker compose
+    docker compose pull
+    docker compose up -d
+    ```
+  </Tab>
+
+  <Tab title="From Source">
+    ```bash
+    cd /path/to/soulsystem
+    git pull origin main
+    cargo build --release
+    sudo cp target/release/soulsystem /usr/local/bin/
+    ```
+  </Tab>
+</Tabs>
+
+## Post-Update Steps
+
+### 1. Review Changelog
+
+Check what changed in the new version:
+
+```bash
+# View changelog (if installed from source)
+cat /usr/local/share/soulsystem/CHANGELOG.md
+
+# Or online
+open https://github.com/nearai/soulsystem/releases
+```
+
+### 2. Run Migrations
+
+Database migrations run automatically on startup, but verify:
+
+```bash
+soulsystem run
+# Look for: "Running migrations..." in logs
+```
+
+### 3. Restart Service
+
+If running as a service:
+
+```bash
+# systemd (Linux)
+sudo systemctl restart soulsystem
+
+# launchd (macOS)
+launchctl unload ~/Library/LaunchAgents/ai.soulsystem.service.plist
+launchctl load ~/Library/LaunchAgents/ai.soulsystem.service.plist
+
+# Homebrew
+brew services restart soulsystem
+```
+
+## Downgrading
+
+If you need to rollback:
+
+```bash
+# Linux/macOS shell script
+# Download specific version
+curl -fsSL https://install.soulsystem.ai | bash -s -- --version 0.12.0
+
+# Docker
+docker pull nearai/soulsystem:v0.12.0
+```
+
+<Warning>
+Downgrading may require manual database rollback if migrations were applied. Always backup before updating.
+</Warning>
+
+## Automatic Updates
+
+### systemd Timer (Linux)
+
+```bash
+sudo tee /etc/systemd/system/soulsystem-update.service <<EOF
+[Unit]
+Description=SoulSystem Update Check
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'curl -fsSL https://install.soulsystem.ai | bash'
+EOF
+
+sudo tee /etc/systemd/system/soulsystem-update.timer <<EOF
+[Unit]
+Description=Run SoulSystem update check daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo systemctl enable --now soulsystem-update.timer
+```
+
+## Troubleshooting Updates
+
+<AccordionGroup>
+  <Accordion title="Update fails with permission denied" icon="lock">
+    ```bash
+    # Fix permissions
+    sudo chown -R $USER:$USER ~/.local/bin/soulsystem
+
+    # Or update with sudo
+    sudo curl -fsSL https://install.soulsystem.ai | bash
+    ```
+  </Accordion>
+
+  <Accordion title="Database migration fails" icon="database">
+    1. Stop SoulSystem
+    2. Backup database
+    3. Run with debug logging: `RUST_LOG=debug soulsystem run`
+    4. Check specific migration error
+  </Accordion>
+
+  <Accordion title="Service won't start after update" icon="x-circle">
+    ```bash
+    # Check logs
+    sudo journalctl -u soulsystem -n 50
+
+    # Verify binary
+    which soulsystem
+    soulsystem --version
+
+    # Reinstall if corrupted
+    curl -fsSL https://install.soulsystem.ai | bash
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+- Check the [Changelog](/reference/changelog) for new features
+- Review [Security](/security) updates
+- See [Troubleshooting](/help/troubleshooting) if issues occur

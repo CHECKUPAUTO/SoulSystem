@@ -173,7 +173,7 @@ class ZeroBotAgent:
         # ── 4. Auto-store results in SoulSystem/AVID memory ──────
         # Après chaque analyse, les résultats sont persistés dans la
         # mémoire partagée pour que les autres composants puissent les
-        # consommer (AVID, OpenClaw, autres agents).
+        # consommer (AVID, SoulSystem, autres agents).
         if not filter_result.blocked and len(output) > 100:
             # Tag simple pour retrouver l'analyse
             binary_tag = "unknown"

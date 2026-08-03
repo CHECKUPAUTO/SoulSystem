@@ -36,8 +36,8 @@ impl Default for MemorySuggestConfig {
     fn default() -> Self {
         Self {
             data_dir: PathBuf::from("/var/lib/soulsystem/data"),
-            memory_path: PathBuf::from("/root/.openclaw/workspace/MEMORY.md"),
-            apply_script_path: PathBuf::from("/root/.openclaw/workspace/apply_memory_updates.sh"),
+            memory_path: PathBuf::from("/root/.soulsystem/workspace/MEMORY.md"),
+            apply_script_path: PathBuf::from("/root/.soulsystem/workspace/apply_memory_updates.sh"),
             auto_approve_threshold: 0.95,
         }
     }

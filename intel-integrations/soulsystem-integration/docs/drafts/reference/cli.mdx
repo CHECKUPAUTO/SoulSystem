@@ -1,0 +1,396 @@
+---
+title: CLI Reference
+sidebarTitle: CLI
+description: Command-line interface reference
+---
+
+Complete reference for the `soulsystem` CLI.
+
+## Global Options
+
+```bash
+soulsystem [OPTIONS] [COMMAND]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-c, --config <FILE>` | Path to config file |
+| `--no-onboard` | Skip auto-onboarding |
+| `-v, --verbose` | Enable verbose logging |
+| `-h, --help` | Print help |
+| `-V, --version` | Print version |
+
+## Commands
+
+### run
+
+Start the SoulSystem agent.
+
+```bash
+soulsystem run [OPTIONS]
+```
+
+Starts the agent with all configured channels. This is the main command for normal operation.
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--no-tui` | Disable TUI, use HTTP only |
+
+**Examples:**
+
+```bash
+# Start normally
+soulsystem run
+
+# Start without TUI
+soulsystem run --no-tui
+
+# With verbose logging
+RUST_LOG=soulsystem=debug soulsystem run
+```
+
+### onboard
+
+Run the interactive setup wizard.
+
+```bash
+soulsystem onboard [OPTIONS]
+```
+
+Configures database, LLM, channels, and security settings.
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--skip-auth` | Skip authentication steps |
+| `--channels-only` | Configure only channels |
+
+**Examples:**
+
+```bash
+# Full wizard
+soulsystem onboard
+
+# Skip auth (use existing)
+soulsystem onboard --skip-auth
+
+# Add new channel
+soulsystem onboard --channels-only
+```
+
+### config
+
+Manage configuration settings.
+
+```bash
+soulsystem config <SUBCOMMAND>
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List all settings |
+| `get <KEY>` | Get a specific setting |
+| `set <KEY> <VALUE>` | Set a setting |
+| `delete <KEY>` | Delete a setting |
+
+**Examples:**
+
+```bash
+# List all settings
+soulsystem config list
+
+# Get LLM backend
+soulsystem config get llm.backend
+
+# Set model
+soulsystem config set llm.model claude-sonnet-4
+
+# Delete setting (reset to default)
+soulsystem config delete llm.model
+```
+
+### tool
+
+Manage tools.
+
+```bash
+soulsystem tool <SUBCOMMAND>
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List installed tools |
+| `install <PATH>` | Install a tool |
+| `remove <NAME>` | Remove a tool |
+| `run <NAME>` | Run a tool |
+
+**Examples:**
+
+```bash
+# List tools
+soulsystem tool list
+
+# Install from file
+soulsystem tool install ./my-tool.wasm
+
+# Remove tool
+soulsystem tool remove my-tool
+```
+
+### registry
+
+Manage the tool registry.
+
+```bash
+soulsystem registry <SUBCOMMAND>
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List available tools |
+| `search <QUERY>` | Search for tools |
+| `install <NAME>` | Install from registry |
+| `update` | Update registry index |
+
+**Examples:**
+
+```bash
+# List available tools
+soulsystem registry list
+
+# Search
+soulsystem registry search calendar
+
+# Install
+soulsystem registry install google-calendar
+```
+
+### mcp
+
+Manage MCP (Model Context Protocol) servers.
+
+```bash
+soulsystem mcp <SUBCOMMAND>
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List MCP servers |
+| `add <URL>` | Add an MCP server |
+| `remove <NAME>` | Remove an MCP server |
+
+**Examples:**
+
+```bash
+soulsystem mcp list
+soulsystem mcp add http://localhost:3000/sse
+```
+
+### memory
+
+Manage workspace memory.
+
+```bash
+soulsystem memory <SUBCOMMAND>
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List documents |
+| `read <PATH>` | Read a document |
+| `write <PATH>` | Write a document |
+| `search <QUERY>` | Search memory |
+| `tree` | Show memory tree |
+
+**Examples:**
+
+```bash
+# List documents
+soulsystem memory list
+
+# Write a document
+echo "My note" | soulsystem memory write notes/idea.md
+
+# Search
+soulsystem memory search "project idea"
+```
+
+### pairing
+
+Manage channel pairing.
+
+```bash
+soulsystem pairing <SUBCOMMAND>
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `list <CHANNEL>` | List pending requests |
+| `approve <CHANNEL> <CODE>` | Approve a pairing request |
+
+**Examples:**
+
+```bash
+# List Telegram pending
+soulsystem pairing list telegram
+
+# Approve
+soulsystem pairing approve telegram ABC12345
+
+# List as JSON
+soulsystem pairing list telegram --json
+```
+
+### service
+
+Manage system service.
+
+```bash
+soulsystem service <SUBCOMMAND>
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `install` | Install service |
+| `uninstall` | Remove service |
+| `start` | Start service |
+| `stop` | Stop service |
+| `status` | Check service status |
+
+**Examples:**
+
+```bash
+# Install
+soulsystem service install
+
+# Check status
+soulsystem service status
+
+# Control
+sudo systemctl start soulsystem  # Linux
+brew services start soulsystem   # macOS
+```
+
+### doctor
+
+Run diagnostics.
+
+```bash
+soulsystem doctor [OPTIONS]
+```
+
+Checks:
+- Database connectivity
+- LLM provider access
+- Docker availability
+- Tunnel detection
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output as JSON |
+| `--fix` | Attempt to fix issues |
+
+**Example:**
+
+```bash
+soulsystem doctor
+soulsystem doctor --json
+```
+
+### status
+
+Show current status.
+
+```bash
+soulsystem status [OPTIONS]
+```
+
+Shows:
+- Version
+- Configuration
+- Database status
+- LLM backend
+- Channels
+
+**Example:**
+
+```bash
+soulsystem status
+```
+
+### completion
+
+Generate shell completion scripts.
+
+```bash
+soulsystem completion <SHELL>
+```
+
+**Shells:** `bash`, `zsh`, `fish`, `powershell`
+
+**Example:**
+
+```bash
+# Bash
+soulsystem completion bash > /etc/bash_completion.d/soulsystem
+
+# Zsh
+soulsystem completion zsh > /usr/local/share/zsh/site-functions/_soulsystem
+```
+
+## Environment Variables
+
+CLI behavior can be modified with environment variables:
+
+```bash
+# Config directory
+export SOULSYSTEM_BASE_DIR=/custom/path
+
+# Skip onboarding
+export ONBOARD_COMPLETED=true
+
+# Logging
+export RUST_LOG=soulsystem=debug
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | General error |
+| `2` | Invalid arguments |
+| `3` | Configuration error |
+| `4` | Database error |
+| `5` | Network error |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="settings" href="/setup/configuration">
+    Environment variable reference
+  </Card>
+
+  <Card title="Troubleshooting" icon="tool" href="/help/troubleshooting">
+    Common issues and solutions
+  </Card>
+</CardGroup>

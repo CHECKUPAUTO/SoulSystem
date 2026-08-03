@@ -1,6 +1,6 @@
 //! # soul_gateway — Surface de contrôle HTTP/WebSocket
 //!
-//! Inspiré du gateway openclaw (style `/v1/chat/completions`,
+//! Inspiré du gateway SoulSystem (style `/v1/chat/completions`,
 //! `/tools/invoke`, sessions, hooks). Expose l'entité autonome via :
 //!
 //! - `POST /v1/ask`            — question au LLM

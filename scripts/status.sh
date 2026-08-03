@@ -28,8 +28,8 @@ else
 fi
 
 echo ""
-echo "=== OpenClaw Gateway ==="
-GW=$(ps aux | grep "openclaw.*gateway" | grep -v grep | awk '{print $2}')
+echo "=== SoulSystem Gateway ==="
+GW=$(ps aux | grep "soulsystem-gateway" | grep -v grep | awk '{print $2}')
 if [ -n "$GW" ]; then
     echo "RUNNING (PID=$GW)"
 else

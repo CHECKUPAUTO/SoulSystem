@@ -2,10 +2,10 @@
 name = "soul_gateway"
 version = "0.1.0"
 edition = "2021"
-description = "HTTP/WS API gateway for autonomous entity control with OpenClaw-compatible interface, TLS, and CORS support"
+description = "HTTP/WS API gateway for autonomous entity control with SoulSystem-compatible interface, TLS, and CORS support"
 license = "MIT"
 repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
-keywords = ["gateway", "http", "websocket", "api", "opencawl", "tls", "cors", "axum"]
+keywords = ["gateway", "http", "websocket", "api", "tls", "cors", "axum"]
 categories = ["web-programming", "async", "network-programming", "api"]
 
 [dependencies]

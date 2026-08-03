@@ -54,12 +54,12 @@ miniconda3/
 *.log
 *.tmp
 
-# Archived Famille B (OpenClaw)
+# Archived Famille B (SoulSystem)
 soullink-deploy/
-openclaw-config-parser/
-openclaw-session-store/
-openclaw-agent-pipeline/
-openclaw-gateway/
-openclaw-core/
-openclaw-homeosync/
+soulsystem-config-parser/
+soulsystem-session-store/
+soulsystem-agent-pipeline/
+soulsystem-gateway/
+soulsystem-core/
+soulsystem-homeosync/
 dragon_hatchling_core/

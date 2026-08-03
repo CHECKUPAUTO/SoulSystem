@@ -1,4 +1,4 @@
-//! Gateway RPC method registry — matches the OpenClaw gateway protocol.
+//! Gateway RPC method registry — matches the SoulSystem gateway protocol.
 //!
 //! Each RPC method is a registered handler in a string-keyed registry.
 //! Methods are grouped by category (health, config, sessions, etc.).

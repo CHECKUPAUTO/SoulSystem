@@ -167,7 +167,7 @@ pub async fn llm_decide(
 
 fn load_security_guidance() -> String {
     // 1. Env var override
-    if let Ok(val) = std::env::var("OPENCLAW_SECURITY_GUIDANCE") {
+    if let Ok(val) = std::env::var("SOULSYSTEM_SECURITY_GUIDANCE") {
         let trimmed = val.trim().to_string();
         if !trimmed.is_empty() {
             return trimmed;
@@ -176,7 +176,7 @@ fn load_security_guidance() -> String {
 
     // 2. File-based guidance
     let paths = [
-        "/root/.openclaw/security-guidance.md",
+        "/root/.soulsystem/security-guidance.md",
         "/opt/soulsystem/config/security-guidance.md",
         "/etc/soulsystem/security-guidance.md",
     ];

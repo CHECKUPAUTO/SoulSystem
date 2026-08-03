@@ -3,7 +3,7 @@ name = "soullink-gate"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
-description = "Approval gate for tool execution with persistent permissions (IronClaw-inspired)"
+description = "Approval gate for tool execution with persistent permissions (SoulSystem Integration-inspired)"
 
 [dependencies]
 async-trait = { workspace = true }

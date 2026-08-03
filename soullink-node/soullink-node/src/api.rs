@@ -2127,7 +2127,7 @@ pub(crate) fn port_to_name(port: u16) -> String {
 
 
 // ═══════════════════════════════════════════════════════════════
-// OPENCLAW ORCHESTRATE
+// SOULSYSTEM ORCHESTRATE
 // ═══════════════════════════════════════════════════════════════
 
 #[derive(Debug, Deserialize)]
@@ -2135,15 +2135,15 @@ pub(crate) struct OrchestrateRequest {
     goal: String,
     #[serde(default)]
     context: Option<String>,
-    #[serde(default = "default_openclaw_url")]
-    openclaw_url: String,
+    #[serde(default = "default_soulsystem_url")]
+    soulsystem_url: String,
 }
 
-fn default_openclaw_url() -> String {
+fn default_soulsystem_url() -> String {
     "http://localhost:9020".into()
 }
 
-/// POST /api/orchestrate — Delegue un objectif a OpenClaw pour planification + execution.
+/// POST /api/orchestrate — Delegue un objectif a SoulSystem pour planification + execution.
 pub(crate) async fn handle_orchestrate(
     State(brain): State<SharedBrain>,
     Json(req): Json<OrchestrateRequest>,
@@ -2170,7 +2170,7 @@ pub(crate) async fn handle_orchestrate(
         "soullink_node": node,
         "soullink_neurons": neuron_count,
         "soullink_stress": stress,
-        "openclaw_url": req.openclaw_url,
+        "soulsystem_url": req.soulsystem_url,
         "context": full_context,
         "pipeline": [
             "1. Planner: decompose goal into steps",
@@ -2181,7 +2181,7 @@ pub(crate) async fn handle_orchestrate(
             "6. Memory: store in layers",
             "7. Output: structured JSON result"
         ],
-        "message": format!("Goal delegated to OpenClaw: {}", req.goal)
+        "message": format!("Goal delegated to SoulSystem: {}", req.goal)
     });
 
     (StatusCode::OK, Json(result))

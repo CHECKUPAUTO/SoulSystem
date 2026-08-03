@@ -28,8 +28,8 @@ stale_after_days   = 14
 roots = [
     "/root/soullink-brain",
     "/root/soullink-organs",
-    "/root/openclaw-cre",
-    "/root/.openclaw/workspace",
+    "/root/soulsystem-gateway",
+    "/root/.soulsystem/workspace",
     "/root/openevolve",
     "/mnt/nvme_secondary/system_root/AVID",
     "/root/aris",

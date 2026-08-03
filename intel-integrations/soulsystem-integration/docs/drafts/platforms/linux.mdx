@@ -1,0 +1,321 @@
+---
+title: Linux
+sidebarTitle: Linux
+description: Running SoulSystem on Linux with systemd, GNOME Keyring, and UFW
+---
+
+SoulSystem runs natively on Linux with full support for systemd service management, GNOME Keyring for secure key storage, and UFW/fail2ban for host hardening.
+
+## Installation
+
+### Shell Script (Recommended)
+
+```bash
+curl -fsSL https://install.soulsystem.ai | bash
+```
+
+Installs to `~/.local/bin/soulsystem`. Add to PATH if not already present:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Package Manager (Ubuntu / Debian)
+
+```bash
+curl -fsSL https://repo.soulsystem.ai/gpg | sudo gpg --dearmor -o /usr/share/keyrings/soulsystem.gpg
+echo "deb [signed-by=/usr/share/keyrings/soulsystem.gpg] https://repo.soulsystem.ai stable main" \
+  | sudo tee /etc/apt/sources.list.d/soulsystem.list
+
+sudo apt update && sudo apt install soulsystem
+```
+
+### Cargo (Build from Source)
+
+```bash
+cargo install soulsystem
+```
+
+Requires Rust 1.78+. Install Rust via [rustup.rs](https://rustup.rs).
+
+---
+
+## systemd Service
+
+Run SoulSystem as a managed background service that restarts on failure and launches on boot.
+
+### Unit File
+
+Create `/etc/systemd/system/soulsystem.service`:
+
+```ini
+[Unit]
+Description=SoulSystem AI Assistant
+Documentation=https://docs.soulsystem.ai
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=soulsystem
+Group=soulsystem
+EnvironmentFile=/etc/soulsystem/soulsystem.env
+ExecStart=/usr/local/bin/soulsystem run
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/soulsystem /home/soulsystem/.soulsystem
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=soulsystem
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Environment File
+
+Create `/etc/soulsystem/soulsystem.env` (mode 640, owned by root:soulsystem):
+
+```bash
+sudo mkdir -p /etc/soulsystem
+sudo touch /etc/soulsystem/soulsystem.env
+sudo chmod 640 /etc/soulsystem/soulsystem.env
+sudo chown root:soulsystem /etc/soulsystem/soulsystem.env
+```
+
+Example contents:
+
+```bash
+DATABASE_BACKEND=libsql
+LLM_BACKEND=nearai
+NEARAI_SESSION_TOKEN=sess_xxx
+GATEWAY_ENABLED=true
+GATEWAY_HOST=127.0.0.1
+GATEWAY_PORT=3000
+GATEWAY_AUTH_TOKEN=change_this_to_a_random_secret
+RUST_LOG=soulsystem=info
+```
+
+### Enable and Start
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now soulsystem
+
+# Verify
+sudo systemctl status soulsystem
+```
+
+---
+
+## GNOME Keyring Integration
+
+SoulSystem uses the system keyring to store the encryption master key for secrets. On GNOME-based desktops, this is GNOME Keyring.
+
+### Install libsecret
+
+```bash
+# Ubuntu / Debian
+sudo apt install gnome-keyring libsecret-tools
+
+# Fedora
+sudo dnf install gnome-keyring libsecret
+
+# Arch
+sudo pacman -S gnome-keyring libsecret
+```
+
+### Store the Master Key Manually (optional)
+
+SoulSystem handles this automatically on first run, but you can pre-seed the key:
+
+```bash
+secret-tool store \
+  --label="SoulSystem Master Key" \
+  application soulsystem \
+  key master
+```
+
+Retrieve it later:
+
+```bash
+secret-tool lookup application soulsystem key master
+```
+
+### Headless / Server Environments
+
+GNOME Keyring requires a D-Bus session. On headless servers, use the environment variable fallback instead:
+
+```bash
+SOULSYSTEM_MASTER_KEY=<base64-encoded-32-byte-key>
+```
+
+Generate a secure key:
+
+```bash
+openssl rand -base64 32
+```
+
+<Warning>
+The environment variable approach exposes the key in process listings. Use the keyring on desktop systems. On servers, prefer a secrets manager (Vault, AWS Secrets Manager) and inject at startup.
+</Warning>
+
+---
+
+## UFW Firewall Rules
+
+Restrict access to the Web Gateway so only local processes can reach it.
+
+```bash
+# Allow SSH (do this first to avoid locking yourself out)
+sudo ufw allow 22/tcp
+
+# Block port 3000 from external access
+sudo ufw deny in on eth0 to any port 3000
+
+# If you need access from a specific trusted IP only
+# sudo ufw allow from 192.168.1.100 to any port 3000
+
+# Enable UFW
+sudo ufw enable
+sudo ufw status verbose
+```
+
+<Note>
+If you expose SoulSystem via a reverse proxy (Caddy, nginx), the proxy listens on 443 and forwards to 127.0.0.1:3000 internally. Port 3000 never needs to be public-facing. See [VPS Hardening](/platforms/vps) for the full reverse proxy setup.
+</Note>
+
+---
+
+## fail2ban Configuration
+
+Protect against repeated authentication failures against the Web Gateway.
+
+Create `/etc/fail2ban/filter.d/soulsystem.conf`:
+
+```ini
+[Definition]
+failregex = ^.*401 Unauthorized.*from <HOST>.*$
+            ^.*auth.*failed.*<HOST>.*$
+ignoreregex =
+```
+
+Create `/etc/fail2ban/jail.d/soulsystem.conf`:
+
+```ini
+[soulsystem]
+enabled  = true
+port     = 3000
+filter   = soulsystem
+logpath  = /var/log/soulsystem/access.log
+maxretry = 5
+bantime  = 3600
+findtime = 600
+action   = ufw
+```
+
+Reload fail2ban:
+
+```bash
+sudo systemctl reload fail2ban
+sudo fail2ban-client status soulsystem
+```
+
+---
+
+## Viewing Logs
+
+```bash
+# Follow live logs
+journalctl -u soulsystem -f
+
+# Last 100 lines
+journalctl -u soulsystem -n 100
+
+# Logs from the past hour
+journalctl -u soulsystem --since "1 hour ago"
+
+# With debug output (set RUST_LOG=soulsystem=debug in env file first)
+journalctl -u soulsystem -f --output=short-precise
+
+# Export to file
+journalctl -u soulsystem --since today > soulsystem-today.log
+```
+
+---
+
+## AppArmor Profile (Optional)
+
+An AppArmor profile can constrain SoulSystem's filesystem and network access at the kernel level.
+
+Create `/etc/apparmor.d/usr.local.bin.soulsystem`:
+
+```
+#include <tunables/global>
+
+/usr/local/bin/soulsystem {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+
+  # Binary
+  /usr/local/bin/soulsystem mr,
+
+  # Config and data
+  /home/soulsystem/.soulsystem/** rw,
+  /var/lib/soulsystem/** rw,
+  /etc/soulsystem/soulsystem.env r,
+
+  # Keyring
+  /run/user/*/keyring/** rw,
+
+  # Docker socket (for sandbox)
+  /var/run/docker.sock rw,
+
+  # Network
+  network tcp,
+  network udp,
+
+  # Deny everything else
+  deny /etc/shadow r,
+  deny /root/** rw,
+}
+```
+
+Load the profile:
+
+```bash
+sudo apparmor_parser -r /etc/apparmor.d/usr.local.bin.soulsystem
+sudo aa-status | grep soulsystem
+```
+
+<Note>
+The AppArmor profile is optional. SoulSystem's own sandbox (Docker containers with dropped capabilities) provides defense-in-depth regardless of whether AppArmor is configured.
+</Note>
+
+---
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="VPS Hardening" icon="shield" href="/platforms/vps">
+    UFW, Caddy, fail2ban, and SSH hardening for public-facing deployments
+  </Card>
+  <Card title="Docker Compose" icon="layers" href="/platforms/docker-compose">
+    Production deployment with PostgreSQL and named volumes
+  </Card>
+  <Card title="Logging" icon="file-text" href="/ops/logging">
+    RUST_LOG levels, journalctl, and cost tracking
+  </Card>
+</CardGroup>

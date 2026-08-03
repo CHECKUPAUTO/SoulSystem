@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use rand::prelude::*;
-use crate::openclaw_shim::MHCBlock;
+use crate::soulsystem_shim::MHCBlock;
 use rayon::prelude::*;
 use tracing::{info, warn};
 use crate::neuron::Neuron;

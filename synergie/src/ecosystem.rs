@@ -111,7 +111,7 @@ fn derive_tags(dir: &Path, name: &str, kind: &ProjectKind) -> Vec<String> {
     let path_lower = dir.to_string_lossy().to_lowercase();
     for hint in [
         "soullink",
-        "openclaw",
+        "soulsystem",
         "cortex",
         "avid",
         "aris",

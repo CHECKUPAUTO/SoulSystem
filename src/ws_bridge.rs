@@ -1,6 +1,6 @@
 //! Bridge WebSocket pour la plateforme unifiee Telegram.
 //!
-//! Permet a openclaw-gateway (Node.js) de communiquer avec SoulSystem
+//! Permet a soulsystem-gateway de communiquer avec SoulSystem
 //! via WebSocket, evitant les conflits de token Telegram (409 Conflict).
 //!
 //! Architecture:

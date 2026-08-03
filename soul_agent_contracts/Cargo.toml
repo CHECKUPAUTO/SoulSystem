@@ -1,0 +1,19 @@
+[package]
+name = "soul_agent_contracts"
+version = "0.1.0"
+edition = "2021"
+description = "Agent loop contracts, skill registry, and memory host integration for SoulSystem"
+license = "MIT"
+repository = "https://github.com/Memorithm/SoulSystem"
+keywords = ["agent-loop", "skills", "memory", "registry", "integration", "contracts"]
+categories = ["machine-learning", "embedded", "api"]
+
+[dependencies]
+soulsystem-common = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["v4"] }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

@@ -1,6 +1,6 @@
 //! Encrypted secret store with AES-256-GCM + HKDF-SHA256 per-secret key derivation.
 //!
-//! Ported from IronClaw's secrets module. Each secret has its own salt,
+//! Ported from SoulSystem Integration's secrets module. Each secret has its own salt,
 //! so identical plaintexts produce different ciphertexts.
 //!
 //! # Key Derivation

@@ -29,7 +29,7 @@ mod metabolism;
 mod python_bridge;
 mod governance_bridge;
 mod chronos_bridge;
-mod openclaw_shim;
+mod soulsystem_shim;
 pub use neuron::Neuron;
 pub use synapse::Synapse;
 pub use brain_module::BrainModule;

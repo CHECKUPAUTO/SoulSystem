@@ -1,5 +1,5 @@
 //! Domain allowlist for network access control.
-//! Ported from IronClaw sandbox/proxy/allowlist.rs.
+//! Ported from SoulSystem Integration sandbox/proxy/allowlist.rs.
 //!
 //! Supports exact matches and wildcard patterns like `*.example.com`.
 

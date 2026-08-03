@@ -1,4 +1,4 @@
-//! ANSI color palette — Lobster theme matching OpenClaw gateway.
+//! ANSI color palette — Lobster theme matching SoulSystem gateway.
 
 /// Lobster-inspired ANSI true-color palette.
 pub struct Theme;

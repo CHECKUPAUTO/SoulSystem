@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use crate::cron::{CronScheduler, CronTask};
 use crate::event_store::PersistentEventStore;
-use crate::facade::OpenClawFacade;
+use crate::facade::AgentFacade;
 use crate::subsystems::Subsystems;
 use crate::types::*;
 
@@ -38,7 +38,7 @@ pub struct SoulEntity {
     pub sandbox: Arc<Sandbox>,
     pub memory: Arc<LongTermMemory>,
     pub hierarchical_memory: Arc<HierarchicalMemory>,
-    pub openclaw: Arc<OpenClawFacade>,
+    pub agent: Arc<AgentFacade>,
     pub skill_library: Arc<tokio::sync::RwLock<Vec<soul_skills::Skill>>>,
     pub events: PersistentEventStore,
     pub sub_agents: Arc<SubAgentManager>,
@@ -117,7 +117,7 @@ impl SoulEntity {
             sandbox,
             memory,
             hierarchical_memory,
-            openclaw: Arc::new(OpenClawFacade::new()),
+            agent: Arc::new(AgentFacade::new()),
             skill_library,
             events: event_store,
             sub_agents,
@@ -688,8 +688,8 @@ impl SoulEntity {
             "code_artifacts": self.code_artifacts.lock().len(),
             "sandbox_history": self.sandbox.history_len(),
             "stats": *self.stats.lock(),
-            "openclaw_hooks": self.openclaw.hook_count(),
-            "openclaw_skills": self.openclaw.skill_count(),
+            "agent_hooks": self.agent.hook_count(),
+            "agent_skills": self.agent.skill_count(),
             "subsystems": {
                 "journal_active": subs.journal.is_some(),
                 "journal_records": journal_records,

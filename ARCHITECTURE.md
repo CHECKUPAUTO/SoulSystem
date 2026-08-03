@@ -28,7 +28,7 @@ Le cœur autonome fonctionnel est constitué d'une dizaine de crates fortement i
 │    ├─ soul_tools      ── async shell + file ops + registry │
 │    ├─ soul_sandbox    ── whitelist + sandbox + timeout       │
 │    ├─ soul_persistence── Sled KV + lineage                  │
-│    ├─ soul_openclaw   ── skill/hook facade                 │
+│    ├─ soul_agent_contracts ── agent contract/skill facade   │
 │    └─ subsystems      ── journal, forge, orchestrator, ...  │
 │  soul_repl       ── REPL conversationnel                   │
 └─────────────────────────────────────────────────────────────┘
@@ -69,7 +69,7 @@ cargo build --bin soulsystem
 # Tests du cœur autonome (rapides)
 cargo test --lib -p soul_agent_core -p soul_entity -p soul_llm \
            -p soul_tools -p soul_planner -p soul_repl \
-           -p soul_persistence -p soul_sandbox -p soul_gateway -p soul_openclaw
+           -p soul_persistence -p soul_sandbox -p soul_gateway -p soul_agent_contracts
 
 # Tests workspace complets — certains crates sont lents/temps réel
 # (avid-security, turboquant, neural_clinical_console, etc.)

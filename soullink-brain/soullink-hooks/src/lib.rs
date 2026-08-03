@@ -1,6 +1,6 @@
 //! Lifecycle hooks for intercepting and transforming SoulLink operations.
 //!
-//! Ported from IronClaw's hook system. 6 interception points:
+//! Ported from SoulSystem Integration's hook system. 6 interception points:
 //! - **BeforeInbound** — Before processing inbound message
 //! - **BeforeToolCall** — Before executing a tool
 //! - **BeforeOutbound** — Before sending outbound response

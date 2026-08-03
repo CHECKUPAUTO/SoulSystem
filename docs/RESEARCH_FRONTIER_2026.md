@@ -1,45 +1,29 @@
-# Research Frontier 2026 — Surpassing OpenClaw and Hermes-Agent
+# Research Frontier 2026
 
 Status: research map, 2026-06. Companion to `docs/RECURSIVE_SELF_IMPROVEMENT.md`
 (the RSI lineage) and `docs/COGNITIVE_ARCHITECTURE.md` (the 7-module design).
 
-This document names the systems SoulSystem is measured against, states where it
-already wins and where it must catch up, and maps concrete recent papers onto
-specific crates with a prioritized roadmap. Every paper has a link and a "how we
-apply it / which crate" note — the goal is actionable, not a reading list.
+This document maps concrete recent papers onto specific crates with a
+prioritized roadmap. Every paper has a link and a "how we apply it / which
+crate" note — the goal is actionable, not a reading list.
 
 ---
 
-## 1. The two benchmarks
+## 1. Where SoulSystem already leads
 
-**OpenClaw** — an open-source multi-channel agent *gateway*: conversational AI
-across Telegram/Discord/Slack/Signal/WhatsApp/iMessage, multi-provider LLM
-routing (OpenAI, Anthropic, Ollama, OpenRouter, LM Studio), self-healing
-(auto-retry, exponential backoff, provider fallback, health probes). Its moat is
-**breadth of channels + robust routing**. This is exactly what `soullink-gateway`
-must match to retire the Node.js gateway (see §6).
-
-**Hermes-Agent** (Nous Research, Feb 2026) — a persistent, on-device autonomous
-agent: agent-curated memory with periodic "nudges", cross-session recall with LLM
-summarization, **autonomous skill creation and skill self-improvement during
-use**, model-agnostic. Its moat is **persistent memory + self-evolving skills**.
-
-**Where SoulSystem already leads.** Hermes improves skills "during use" with no
-hard validation gate; SoulSystem's `soul-rsi` is a Darwin-Gödel-Machine loop that
-admits a change **only when it empirically compiles and passes tests**
-(`soul-rsi/src/evaluator.rs` `CargoEvaluator`). That empirical gate is a
-correctness moat Hermes lacks. `soul-cognition` adds honesty invariants
-(provenance + Level-2 confirmation) neither competitor enforces. The task is to
-keep those moats and close the routing/memory/skill-induction gaps below.
+SoulSystem's `soul-rsi` is a Darwin-Gödel-Machine loop that admits a change
+**only when it empirically compiles and passes tests** (`soul-rsi/src/evaluator.rs`
+`CargoEvaluator`). That empirical gate is a correctness moat. `soul-cognition`
+adds honesty invariants (provenance + Level-2 confirmation). The task is to keep
+those moats and close the routing/memory/skill-induction gaps below.
 
 ---
 
-## 2. Multi-provider routing — to beat OpenClaw's gateway
+## 2. Multi-provider routing
 
 Target crates: `avid-model-router`, `soullink-gateway/src/provider`,
 `soullink-moe`.
 
-OpenClaw routes heuristically ("intelligent model-based provider selection").
 The literature shows learned, cost-aware routing beats heuristics by ~2× cost at
 equal quality, and predictive routing avoids paying for the strong model first.
 
@@ -53,8 +37,7 @@ equal quality, and predictive routing avoids paying for the strong model first.
 | LLMRouterBench | https://arxiv.org/abs/2601.07206 | Adopt as the offline eval harness so router changes are measured, not asserted. |
 
 **Moat play:** make routing decisions themselves `soul-rsi`-improvable — the
-router is a function the system can evolve and validate on LLMRouterBench, which
-no competitor does.
+router is a function the system can evolve and validate on LLMRouterBench.
 
 **Implemented (first slice).** `avid-model-router::learned` adds a learned,
 cost-aware router over the existing `ModelProfile` fleet:
@@ -74,7 +57,7 @@ train on logged gateway outcomes.
 
 ---
 
-## 3. Agent memory — to beat Hermes's persistent memory
+## 3. Agent memory
 
 Target crates: `soul-cognition` (`memory.rs`), `soullink-memory-hierarchy`,
 `soul-memory`.
@@ -94,18 +77,17 @@ extract/update so memory stays consistent over long horizons.
 
 **Moat play:** memory writes carry **provenance** (`soul-cognition`); applying
 Mem0-style updates while preserving Observed/Deduced/Hypothetical tags gives
-consistency *and* honesty — Hermes has neither guarantee.
+consistency *and* honesty.
 
 ---
 
-## 4. Self-improving skills — to beat Hermes's skill self-improvement
+## 4. Self-improving skills
 
 Target crates: `soul-skills`, `soul-rsi`, `soul-automodify`.
 
-Hermes creates and refines skills during use. The Voyager lineage shows the right
-shape — an ever-growing library of executable-code skills with self-verification
-— and 2025/26 work adds **validation-gated** retention, which aligns perfectly
-with our empirical gate.
+The Voyager lineage shows the right shape — an ever-growing library of
+executable-code skills with self-verification — and 2025/26 work adds
+**validation-gated** retention, which aligns perfectly with our empirical gate.
 
 | Paper | Link | Apply to SoulSystem |
 |-------|------|---------------------|
@@ -116,8 +98,7 @@ with our empirical gate.
 | RL for Self-Improving Agent with Skill Library (SAGE) | https://arxiv.org/abs/2512.17102 | When a reward signal exists, GRPO-style RL over the skill library. |
 
 **Moat play:** unify `soul-skills` + `soul-rsi` so every induced skill is an
-archived `Variant` admitted only on empirical pass — Hermes refines skills with no
-such gate, so it can regress silently; we cannot.
+archived `Variant` admitted only on empirical pass — no silent regression.
 
 ---
 
@@ -126,8 +107,8 @@ such gate, so it can regress silently; we cannot.
 Target crates: `soul-subagents`, `soullink-senate`, `soullink-orchestrator`,
 `soullink-reasoning`/`soullink-inference`.
 
-Neither competitor emphasizes *verified* orchestration. This is open space to
-take a durable lead on reliability (production SLAs).
+Verified orchestration is open space to take a durable lead on reliability
+(production SLAs).
 
 | Paper | Link | Apply to SoulSystem |
 |-------|------|---------------------|
@@ -145,26 +126,25 @@ take a durable lead on reliability (production SLAs).
 
 ## 6. The gateway parity track (the concrete blocker)
 
-Surpassing OpenClaw starts with *matching* it: `soullink-gateway` must become a
-strict functional copy of the Node.js `openclaw-gateway` (same CLI options, same
-endpoints, same channels) so we can cut over. A precise gap analysis between
-`openclaw-gateway/` (Node) and `soullink-brain/soullink-gateway/` (Rust) is the
-immediate next work item; the routing research in §2 then makes the Rust gateway
-*better*, not just equal. Tracked separately in the gateway parity worklog.
+`soullink-gateway` must become a strict functional copy of the npm-distributed
+`soulsystem-gateway` (same CLI options, same endpoints, same channels) so we can
+cut over. A precise gap analysis between `soulsystem-gateway/` and
+`soullink-brain/soullink-gateway/` (Rust) is the immediate next work item; the
+routing research in §2 then makes the Rust gateway *better*, not just equal.
+Tracked separately in the gateway parity worklog.
 
 ---
 
 ## 7. Prioritized roadmap
 
-1. **Gateway parity** (§6) — unblocks cutover from the Node gateway. *Blocking.*
+1. **Gateway parity** (§6) — unblocks cutover from the old gateway binary. *Blocking.*
 2. **Learned cost-aware routing** (§2, RouteLLM + LLMRouterBench) — measurable
-   win over OpenClaw, and itself `soul-rsi`-improvable.
+   win, and itself `soul-rsi`-improvable.
 3. **Skill induction under the empirical gate** (§4, SEVerA + Voyager) — turns
-   `soul-skills` + `soul-rsi` into a self-evolving, *validated* skill library that
-   structurally beats Hermes.
+   `soul-skills` + `soul-rsi` into a self-evolving, *validated* skill library.
 4. **Memory consistency with provenance** (§3, Mem0 + reflective management) —
    long-horizon memory that is both consistent and honest.
-5. **Verified orchestration** (§5) — the reliability moat neither competitor has.
+5. **Verified orchestration** (§5) — the reliability moat.
 
 The through-line: SoulSystem's differentiator is **empirical validation + honesty
 invariants**. Every borrowed technique above is routed through the `soul-rsi`

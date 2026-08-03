@@ -1,11 +1,11 @@
-//! WebSocket protocol — a **strict functional copy** of the OpenClaw gateway
-//! wire protocol (`openclaw-gateway/src/protocol.rs`), so this gateway is a
-//! drop-in replacement for the Node-distributed OpenClaw binary.
+//! WebSocket protocol — a **strict functional copy** of the SoulSystem gateway
+//! wire protocol (`soulsystem-gateway/src/protocol.rs`), so this gateway is a
+//! drop-in replacement for the Node-distributed SoulSystem binary.
 //!
 //! Frame model (discriminated by `type`): `req` / `res` / `event`. The
 //! handshake is a `req` with `method: "connect"`; the server replies with a
 //! `res` whose payload is a `hello-ok`. This crate additionally dispatches a
-//! superset of RPC methods (chat, completion, providers.list, …) which OpenClaw
+//! superset of RPC methods (chat, completion, providers.list, …) which SoulSystem
 //! clients simply never call — strict compatibility is preserved on the frames
 //! and the handshake.
 
@@ -13,10 +13,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use soulsystem_common::secrets::ProtocolSecret;
 
-/// Negotiated protocol version. Must match the OpenClaw reference exactly.
+/// Negotiated protocol version. Must match the SoulSystem reference exactly.
 pub const PROTOCOL_VERSION: u16 = 3;
 
-// Error codes — identical to the OpenClaw reference.
+// Error codes — identical to the SoulSystem reference.
 pub const ERR_INVALID_PARAMS: &str = "INVALID_PARAMS";
 pub const ERR_UNSUPPORTED_PROTOCOL: &str = "UNSUPPORTED_PROTOCOL";
 pub const ERR_AUTH_REQUIRED: &str = "AUTH_REQUIRED";
@@ -45,7 +45,7 @@ pub struct RequestFrame {
 }
 
 /// RPC response frame: `{ id, ok, ...payload | ...error }` (flattened, matching
-/// the OpenClaw reference exactly — no `null` payload/error fields on the wire).
+/// the SoulSystem reference exactly — no `null` payload/error fields on the wire).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseFrame {
     pub id: String,
@@ -114,7 +114,7 @@ pub struct PolicyInfo {
 
 impl Default for PolicyInfo {
     fn default() -> Self {
-        // Identical to the OpenClaw reference defaults.
+        // Identical to the SoulSystem reference defaults.
         Self {
             heartbeat_interval_ms: 30_000,
             max_message_size: 65_536,
@@ -182,7 +182,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn frame_type_tags_match_openclaw() {
+    fn frame_type_tags_match_soulsystem() {
         let req = WsMessage::Req(RequestFrame {
             id: "1".into(),
             method: "connect".into(),

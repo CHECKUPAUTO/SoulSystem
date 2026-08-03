@@ -355,7 +355,7 @@ fi
 # SECTION 7: Gateway
 #=============================================================================
 echo -e "${YELLOW}══════════════════════════════════════════════════════════${NC}"
-echo -e "${YELLOW} SECTION 7: OpenClaw Gateway${NC}"
+echo -e "${YELLOW} SECTION 7: SoulSystem Gateway${NC}"
 echo -e "${YELLOW}══════════════════════════════════════════════════════════${NC}"
 
 GW_PORT="${GW_PORT:-18890}"
@@ -370,7 +370,7 @@ GW_PID=$(ps aux | grep "[o]penclaw" | awk '{print $2}' | head -1)
 [ -n "$GW_PID" ] && pass "gateway:process (PID=$GW_PID)" || warn "gateway:process (not running, may be starting)"
 
 # 7.3 Gateway version
-GW_VER=$(openclaw --version 2>/dev/null || echo "?")
+GW_VER=$(soulsystem-gateway --version 2>/dev/null || echo "?")
 [ "$GW_VER" != "?" ] && pass "gateway:version ($GW_VER)" || warn "gateway:version unknown"
 
 #=============================================================================

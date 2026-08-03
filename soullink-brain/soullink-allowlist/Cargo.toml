@@ -3,7 +3,7 @@ name = "soullink-allowlist"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
-description = "Domain allowlist with wildcard matching for network access control (IronClaw-inspired)"
+description = "Domain allowlist with wildcard matching for network access control (SoulSystem Integration-inspired)"
 
 [dependencies]
 serde = { workspace = true }

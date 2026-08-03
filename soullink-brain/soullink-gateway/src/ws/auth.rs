@@ -1,5 +1,5 @@
-//! Connect-handshake authentication — strict replica of the OpenClaw gateway
-//! `AuthManager` (see `openclaw-gateway/src/auth.rs`).
+//! Connect-handshake authentication — strict replica of the SoulSystem gateway
+//! `AuthManager` (see `soulsystem-gateway/src/auth.rs`).
 //!
 //! A static operator token (from `GATEWAY_TOKEN` / `--token`) authenticates
 //! `connect`; on success the gateway mints a 30-day device token that is
@@ -47,7 +47,7 @@ impl AuthManager {
     }
 
     /// True when a static operator token is configured. When false the gateway
-    /// runs open (matching OpenClaw's warn-and-allow posture).
+    /// runs open (matching SoulSystem's warn-and-allow posture).
     pub fn requires_token(&self) -> bool {
         self.config_token.is_some()
     }

@@ -1,4 +1,4 @@
-//! Clap CLI definition — all subcommands mirroring OpenClaw gateway-cli.
+//! Clap CLI definition — all subcommands mirroring SoulSystem gateway-cli.
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]

@@ -1,5 +1,5 @@
 //! AES-256-GCM encryption with per-secret HKDF-SHA256 key derivation.
-//! Ported from IronClaw secrets/crypto.rs.
+//! Ported from SoulSystem Integration secrets/crypto.rs.
 //!
 //! `master_key` and every key/plaintext derived from it are held in
 //! zeroizing wrappers (INV-SEC-1, see `docs/security/SECURITY_INVARIANTS.md`):

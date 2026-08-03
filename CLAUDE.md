@@ -93,7 +93,6 @@ SoulSystem is a Rust monorepo (~100+ workspace crates) forming an autonomous dig
 - `soul-webfetch` — web fetching
 - `soul-compaction` — memory compaction
 - `soul-protocol` — protocol definitions
-- `soul-wasm` — WASM runtime
 - `soul-designtree` — design tree
 - `soul-inference` — inference engine
 - `soul-critique` — critique/reflection

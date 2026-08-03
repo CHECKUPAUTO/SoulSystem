@@ -21,7 +21,7 @@ pub mod metabolism;
 pub mod python_bridge;
 pub mod governance_bridge;
 pub mod chronos_bridge;
-pub mod openclaw_shim;
+pub mod soulsystem_shim;
 pub mod health;
 pub mod autonomy;
 pub mod self_modify;

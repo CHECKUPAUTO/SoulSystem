@@ -12,7 +12,7 @@ Model routing for SoulSystem / AVID. Two layers:
    cost-aware selection and uncertainty-based escalation. See
    `docs/RESEARCH_FRONTIER_2026.md` §2.
 
-The learned layer is the one that lets SoulSystem beat OpenClaw's heuristic
+The learned layer is the one that lets SoulSystem beat SoulSystem's own heuristic
 provider selection on cost at equal quality.
 
 ## How the learned router decides

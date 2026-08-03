@@ -1,0 +1,27 @@
+[Unit]
+Description=SoulSystem Evolution System
+After=network.target ollama.service
+Requires=ollama.service
+
+[Service]
+Type=simple
+User=soulsystem
+Group=soulsystem
+WorkingDirectory=/opt/soulsystem
+ExecStart=/opt/soulsystem/target/release/soulsystem
+Restart=on-failure
+RestartSec=10
+Environment=RUST_LOG=info
+
+# Limites de ressources
+LimitNOFILE=65535
+MemoryMax=4G
+
+# Sécurité
+ProtectSystem=strict
+ReadWritePaths=/opt/soulsystem/data
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

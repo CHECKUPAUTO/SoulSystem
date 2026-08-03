@@ -1,0 +1,19 @@
+[Unit]
+Description=SoulSystem Gateway v0.4.0 — Autonomous Agent Kernel (Niveau 8.0)
+After=network.target onaeu.service soullink-orchestrator.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/soulsystem-gateway-u
+Restart=always
+RestartSec=5
+User=root
+WorkingDirectory=/root/soulsystem-gateway
+StandardOutput=journal
+StandardError=journal
+Environment=RUST_LOG=info
+Environment=OLLAMA_HOST=http://127.0.0.1:11434
+
+[Install]
+WantedBy=multi-user.target

@@ -2,10 +2,10 @@
 name = "soul_entity"
 version = "0.1.0"
 edition = "2021"
-description = "Autonomous digital entity aggregating LLM, planner, tools, sandbox, persistence, OpenClaw, and cognitive subsystems"
+description = "Autonomous digital entity aggregating LLM, planner, tools, sandbox, persistence, agent contracts, and cognitive subsystems"
 license = "MIT"
-repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
-keywords = ["entity", "autonomous", "digital", "llm", "planner", "tools", "sandbox", "persistence", "opencawl"]
+repository = "https://github.com/Memorithm/SoulSystem"
+keywords = ["entity", "autonomous", "digital", "llm", "planner", "tools", "sandbox", "persistence"]
 categories = ["machine-learning", "embedded", "os"]
 
 [dependencies]
@@ -14,7 +14,7 @@ soul_planner = { path = "../soul_planner" }
 soul_tools = { path = "../soul_tools" }
 soul_sandbox = { path = "../soul_sandbox" }
 soul_persistence = { path = "../soul_persistence" }
-soul_openclaw = { path = "../soul_openclaw" }
+soul_agent_contracts = { path = "../soul_agent_contracts" }
 soul_gateway = { path = "../soul_gateway" }
 soul_agent_core = { path = "../soul-agent-core" }
 soul_subagents = { path = "../soul-subagents" }

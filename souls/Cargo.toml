@@ -2,10 +2,10 @@
 name = "souls"
 version = "0.1.0"
 edition = "2021"
-description = "Main SoulSystem binary: autonomous entity with HTTP/WS gateway, REPL, clinical console, and OpenClaw skills"
+description = "Main SoulSystem binary: autonomous entity with HTTP/WS gateway, REPL, clinical console, and agent skills"
 license = "MIT"
-repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
-keywords = ["soulsystem", "autonomous", "entity", "gateway", "repl", "clinical", "opencawl", "cli"]
+repository = "https://github.com/Memorithm/SoulSystem"
+keywords = ["soulsystem", "autonomous", "entity", "gateway", "repl", "clinical", "cli"]
 categories = ["machine-learning", "embedded", "command-line-utilities"]
 
 [lib]
@@ -21,7 +21,7 @@ soul_entity = { path = "../soul_entity" }
 soul_gateway = { path = "../soul_gateway" }
 soul_llm = { path = "../soul_llm" }
 soul_sandbox = { path = "../soul_sandbox" }
-soul_openclaw = { path = "../soul_openclaw" }
+soul_agent_contracts = { path = "../soul_agent_contracts" }
 soul_repl = { path = "../soul_repl" }
 soul_telemetry = { path = "../soul_telemetry" }
 soul-bridge = { path = "../soul-bridge" }

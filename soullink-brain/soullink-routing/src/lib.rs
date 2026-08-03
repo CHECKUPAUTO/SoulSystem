@@ -1,6 +1,6 @@
 //! Smart LLM routing with 13-dimension complexity scoring.
 //!
-//! Ported from IronClaw's `smart_routing.rs` for SoulLink's organ mesh.
+//! Ported from SoulSystem Integration's `smart_routing.rs` for SoulLink's organ mesh.
 //! Routes requests to cheap or primary models based on task complexity,
 //! with pattern overrides for fast-path routing.
 

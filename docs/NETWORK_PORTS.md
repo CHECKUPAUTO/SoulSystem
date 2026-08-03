@@ -18,4 +18,4 @@
 | 9786 | Chronos | Timeline & planning |
 | 11434 | Ollama | LLM server |
 | 11435 | TurboQuant | Ollama proxy + watch |
-| 18890 | OpenClaw Gateway | Agent gateway |
+| 18890 | SoulSystem Gateway | Agent gateway |

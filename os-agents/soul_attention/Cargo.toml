@@ -1,9 +1,0 @@
-[package]
-name = "soul_attention"
-version = "0.1.0"
-edition = "2021"
-description = "Attention mechanism implementation with key-value caching for transformer-style cognitive processing"
-license = "MIT"
-repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
-keywords = ["attention", "transformer", "key-value-cache", "cognitive", "mechanism"]
-categories = ["machine-learning", "neuroscience", "embedded"]

@@ -1,6 +1,6 @@
 //! Leak Detector — Aho-Corasick multi-pattern secret scanning at organ boundaries.
 //!
-//! Ported from IronClaw's `ironclaw_safety/src/leak_detector.rs` (1499 LOC).
+//! Ported from SoulSystem Integration's `soulsystem_safety/src/leak_detector.rs` (1499 LOC).
 //!
 //! Scans data at TWO boundaries:
 //!   1. Before outbound requests (prevent exfiltration)

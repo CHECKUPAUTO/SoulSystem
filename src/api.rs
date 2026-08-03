@@ -1,4 +1,4 @@
-//! API HTTP REST — Interface pour les agents OpenClaw.
+//! API HTTP REST — Interface pour les agents SoulSystem.
 //!
 //! Expose les capacités de SoulSystem via HTTP, y compris les endpoints mémoire.
 

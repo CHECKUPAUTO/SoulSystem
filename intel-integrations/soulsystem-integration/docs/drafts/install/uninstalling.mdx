@@ -1,0 +1,123 @@
+---
+title: Uninstalling SoulSystem
+sidebarTitle: Uninstalling
+description: Completely remove SoulSystem from your system
+---
+
+How to completely remove SoulSystem from your system.
+
+## Stop SoulSystem
+
+```bash
+# If running in terminal
+Ctrl+C
+
+# If running as a service
+sudo systemctl stop soulsystem   # systemd
+brew services stop soulsystem    # Homebrew
+```
+
+## Remove Binary
+
+<Tabs>
+  <Tab title="Linux/macOS">
+    ```bash
+    # Remove binary
+    rm ~/.local/bin/soulsystem
+
+    # Or if installed system-wide
+    sudo rm /usr/local/bin/soulsystem
+    ```
+  </Tab>
+
+  <Tab title="Ubuntu/Debian (APT)">
+    ```bash
+    sudo apt remove soulsystem
+    sudo apt autoremove
+    ```
+  </Tab>
+
+  <Tab title="macOS (Homebrew)">
+    ```bash
+    brew uninstall soulsystem
+    brew untap soulsystem-ai/tap
+    ```
+  </Tab>
+
+  <Tab title="Docker">
+    ```bash
+    # Stop and remove container
+    docker stop soulsystem
+    docker rm soulsystem
+
+    # Remove image
+    docker rmi nearai/soulsystem:latest
+    ```
+  </Tab>
+</Tabs>
+
+## Remove Data
+
+<Warning>
+This permanently deletes all SoulSystem data including conversations, memory, and settings. This cannot be undone.
+</Warning>
+
+```bash
+# Remove data directory
+rm -rf ~/.soulsystem
+
+# Remove service files
+sudo rm -f /etc/systemd/system/soulsystem.service
+sudo systemctl daemon-reload
+
+# Remove launchd service (macOS)
+rm -f ~/Library/LaunchAgents/ai.soulsystem.service.plist
+
+# Remove logs
+sudo rm -rf /var/log/soulsystem
+```
+
+## Remove PostgreSQL Database
+
+If you used PostgreSQL:
+
+```bash
+# Remove database (optional)
+sudo -u postgres psql <<EOF
+DROP DATABASE soulsystem;
+DROP USER soulsystem;
+EOF
+```
+
+## Verify Removal
+
+```bash
+# Check binary removed
+which soulsystem
+# Should return nothing
+
+# Check data removed
+ls -la ~/.soulsystem
+# Should return: No such file or directory
+
+# Check service removed
+sudo systemctl status soulsystem
+# Should return: Unit soulsystem.service could not be found
+```
+
+## Partial Removal
+
+To keep your data but remove the binary:
+
+```bash
+# Just remove binary
+rm ~/.local/bin/soulsystem
+
+# Data remains at ~/.soulsystem/
+# Reinstall later and your data will be intact
+```
+
+## Next Steps
+
+- [Install SoulSystem](/install) again if needed
+- Your data can be restored if you kept `~/.soulsystem/`
