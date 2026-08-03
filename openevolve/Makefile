@@ -71,7 +71,7 @@ run-quick: build-all
 
 run-t430: build-all
 	$(BINARY) \
-		--config configs/openclaw_t430.toml \
+		--config configs/soulsystem_t430.toml \
 		--program examples/my_task/src/solution.rs \
 		--evaluator $(EVAL_BIN)
 

@@ -18,7 +18,7 @@ use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
 use ndarray::{Array1, Array2};
 
-use crate::openclaw_shim::{
+use crate::soulsystem_shim::{
     CSAConfig, HCAConfig,
     HybridAttention, HybridAttentionConfig,
     MHCBlock, MHCConfig,

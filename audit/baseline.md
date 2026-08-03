@@ -26,7 +26,7 @@
 | `soul_sandbox/src/lib.rs` | 1 255 | 🔴 God object — à décomposer |
 | `soul_entity/src/entity.rs` | 613 | 🔴 God object — à décomposer |
 | `soul_entity/src/subsystems.rs` | 554 | 🔴 God object — à décomposer |
-| `soul_openclaw/src/lib.rs` | 535 | 🔴 God object — à décomposer |
+| `soul_agent_contracts/src/lib.rs` | 535 | 🔴 God object — à décomposer |
 | `soul_orchestrator/src/orchestrator.rs` | 501 | 🔴 God object — à décomposer |
 | `soul_gateway/src/lib.rs` | 448 | 🟡 Approche god object |
 | `soul_scheduler/tests/scheduler_tests.rs` | 415 | 🟡 Tests volumineux |
@@ -50,7 +50,7 @@
 
 | Crate | Dépendances inutilisées |
 |---|---|
-| `soul_openclaw` | `async-trait` |
+| `soul_agent_contracts` | `async-trait` |
 | `soul_planner` | `serde_json` |
 | `neural_metacognition` | `parking_lot` |
 | `soul_tools` | `serde_json` |
@@ -115,7 +115,7 @@
 souls (binaire unifié)
   → soul_entity (agrégat central)
     → soul_llm, soul_planner, soul_tools, soul_sandbox, soul_persistence
-    → soul_openclaw, soul_gateway, soul_journal, soul_forge
+    → soul_agent_contracts, soul_gateway, soul_journal, soul_forge
     → 12 subsystems historiques (neural_*, ontological_*, ecosystem_*)
 ```
 

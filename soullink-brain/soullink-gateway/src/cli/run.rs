@@ -225,7 +225,7 @@ pub async fn run_cmd(opts: RunOpts) -> std::process::ExitCode {
     };
 
     // ── Phase 5: HTTP server (health + API + metrics) ──────────────────
-    // OpenClaw-compatible env: `PORT` overrides --port, `GATEWAY_TOKEN`
+    // SoulSystem-compatible env: `PORT` overrides --port, `GATEWAY_TOKEN`
     // supplies the operator token when --token is not given.
     let effective_port = std::env::var("PORT")
         .ok()
@@ -241,7 +241,7 @@ pub async fn run_cmd(opts: RunOpts) -> std::process::ExitCode {
 
     // Resolve the bind host: `--bind` (or the `GATEWAY_BIND` env, which wins)
     // maps loopback/local → 127.0.0.1 and all/any/public/0.0.0.0 → 0.0.0.0
-    // (the latter matches the OpenClaw reference, which binds 0.0.0.0). Any
+    // (the latter matches the SoulSystem reference, which binds 0.0.0.0). Any
     // other value is used verbatim as the host.
     let bind_spec = std::env::var("GATEWAY_BIND").unwrap_or_else(|_| opts.bind.clone());
     let bind_host = match bind_spec.trim().to_lowercase().as_str() {
@@ -262,7 +262,7 @@ pub async fn run_cmd(opts: RunOpts) -> std::process::ExitCode {
         let auth_clone = auth.clone();
         let api_state_clone = ApiState::new(provider_registry.clone());
 
-        // OpenClaw-compatible `/status` endpoint.
+        // SoulSystem-compatible `/status` endpoint.
         let status_store = ws_store.clone();
         let status_port = effective_port;
         let app = axum::Router::new()

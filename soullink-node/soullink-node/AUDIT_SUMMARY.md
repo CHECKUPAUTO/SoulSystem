@@ -11,7 +11,7 @@
 ### 2. Critical Bug Fixes
 - **brain.rs:384**: Replaced `.unwrap()` with `?` operator to prevent runtime panic when module doesn't exist
 - **api.rs**: Fixed double mutable borrow by using `std::mem::take` pattern
-- **openclaw-core/Cargo.toml**: Added missing `serde_json` dependency
+- **soulsystem-core/Cargo.toml**: Added missing `serde_json` dependency
 - **ssm_cortex.rs**: Removed duplicate `impl SsmCortex` blocks
 - **hotload.rs**: Removed orphaned `std::mem::forget(lib)` that caused libloading leak
 

@@ -5,7 +5,7 @@
 // pairs, et le Cortex supervise l'ensemble.
 //
 // Ce bridge expose CERVO aux autres modules SoulSystem et à
-// OpenClaw via le MCP server dédié.
+// SoulSystem via le MCP server dédié.
 
 use std::sync::Arc;
 use std::time::Duration;

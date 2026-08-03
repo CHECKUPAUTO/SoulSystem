@@ -21,7 +21,7 @@ This audit reveals that the SoulSystem monorepo is **IN EXCEPTIONAL STATE** afte
    - `TrtError::FfiNotImplemented` for unimplemented FFI bridges
    - Clear error messages guiding users to fallback to Ollama
 
-2. **WhatsApp Cloud API Gateway**: Implemented full Meta Business Platform integration in `openclaw-gateway/src/providers/whatsapp.rs`
+2. **WhatsApp Cloud API Gateway**: Implemented full Meta Business Platform integration in `soulsystem-gateway/src/providers/whatsapp.rs`
 
 3. **Self-Repair System**: Implemented real autonomous self-repair system:
    - `analyzer.rs`: Real `syn`-based analysis for todo markers, dead_code, unsafe patterns
@@ -37,7 +37,7 @@ This audit reveals that the SoulSystem monorepo is **IN EXCEPTIONAL STATE** afte
 
 After thorough analysis, **NO ACTUAL RUNTIME PANICS** were found in source code:
 
-1. **ironclaw/src/llm/reasoning.rs**: 11 `panic!()` calls are legitimate runtime assertions for edge cases
+1. **soulsystem-integration/src/llm/reasoning.rs**: 11 `panic!()` calls are legitimate runtime assertions for edge cases
 2. **soul-agent-core/src/lib.rs**: 12 `panic!()` calls are expected pattern matching (compiler guarantees)
 3. **soullink-brain/soullink-gate/src/lib.rs**: 5 `panic!()` calls are exhaustive pattern matching
 4. **All other panic!() calls**: Properly guarded by `#[cfg(test)]` or are legitimate runtime checks
@@ -113,7 +113,7 @@ Completely implemented:
 
 ### ✅ PROPER IMPLEMENTATIONS
 
-1. **ironclaw self-repair**: Real autonomous repair system
+1. **soulsystem-integration self-repair**: Real autonomous repair system
 2. **soul_llm session management**: Robust thread-safe session handling
 3. **soul_planner goal decomposition**: LLM-powered task planning
 4. **soul_tools async operations**: Permission-gated file/shell operations

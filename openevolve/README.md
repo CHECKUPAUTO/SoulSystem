@@ -73,8 +73,8 @@ src/
 
 configs/
 ├── default.toml
-├── openclaw_t430.toml
-└── openclaw_t430_quick.toml
+├── soulsystem_t430.toml
+└── soulsystem_t430_quick.toml
 
 examples/my_task/
 ├── Cargo.toml
@@ -117,7 +117,7 @@ openevolve --check          # vérifie les prérequis
 openevolve --quick
 openevolve --print-config
 openevolve --list-checkpoints
-openevolve -c configs/openclaw_t430.toml -i 500
+openevolve -c configs/soulsystem_t430.toml -i 500
 ```
 
 ### Dashboard live

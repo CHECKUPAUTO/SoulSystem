@@ -1,6 +1,6 @@
-//! SynapseHook — OpenClaw message → mesh injection + memory ingestion.
+//! SynapseHook — SoulSystem message → mesh injection + memory ingestion.
 //!
-//! When a message arrives through OpenClaw:
+//! When a message arrives through SoulSystem:
 //! 1. Compute "surge" from message length/urgency
 //! 2. POST to orchestrator /api/mesh/reinforce (inject momentum)
 //! 3. POST to orchestrator /api/memory/ingest (store in MemoryGraph)
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
 
-/// A message received from OpenClaw.
+/// A message received from SoulSystem.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SynapseMessage {
     pub text: String,
@@ -30,7 +30,7 @@ pub struct SynapseResult {
     pub ingest_sent: bool,
 }
 
-/// The synapse hook — processes OpenClaw messages into neural stimuli.
+/// The synapse hook — processes SoulSystem messages into neural stimuli.
 pub struct SynapseHook {
     orchestrator_url: String,
     client: reqwest::Client,
@@ -51,7 +51,7 @@ impl SynapseHook {
         }
     }
 
-    /// Process a message from OpenClaw.
+    /// Process a message from SoulSystem.
     ///
     /// 1. Compute surge (emotional intensity) from message content
     /// 2. Inject surge into the Reasoning node via AutonomyPulse

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use soul_agent_contracts::AgentLoopConfig;
 use soul_llm::LlmConfig;
-use soul_openclaw::AgentLoopConfig;
 use soul_sandbox::{SandboxPolicy, SandboxVerdict};
 use std::path::PathBuf;
 use std::time::Duration;

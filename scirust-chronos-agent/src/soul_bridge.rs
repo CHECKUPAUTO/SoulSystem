@@ -8,12 +8,12 @@
 //
 //   - PUSH : à intervalles réguliers, envoie les prototypes sémantiques
 //     nouvellement consolidés vers SoulSystem via POST /memory/store.
-//     Ces prototypes deviennent visibles aux autres clients (OpenClaw, etc.)
+//     Ces prototypes deviennent visibles aux autres clients (SoulSystem, etc.)
 //     via le bus d'événements et le ws_bridge.
 //
 //   - PULL : récupère des souvenirs partagés via POST /memory/search.
 //     Permet à ChronosAgent d'enrichir son contexte avec des souvenirs
-//     stockés par d'autres composants du système (OpenClaw, sync script).
+//     stockés par d'autres composants du système (SoulSystem, sync script).
 //
 // CE QU'IL NE FAIT PAS (DESIGN INTENTIONNEL)
 //

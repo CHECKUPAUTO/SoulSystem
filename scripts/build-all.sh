@@ -4,9 +4,9 @@ set -e
 
 echo "🦞 Building SoulSystem..."
 
-# Build OpenClaw-U
-echo "🔧 Building OpenClaw-U..."
-cd /root/SoulSystem/openclaw-u
+# Build SoulSystem gateway
+echo "🔧 Building SoulSystem gateway..."
+cd /root/SoulSystem/soulsystem-gateway
 cargo build --release
 
 # Build soullink-organs

@@ -18,10 +18,10 @@ pub mod config;
 
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use soul_agent_contracts::{Skill, SkillVersion};
 use soul_entity::{EntityConfig, SoulEntity};
 use soul_gateway::{serve as serve_gateway, GatewayState};
 use soul_llm::{LlmConfig, ProviderKind};
-use soul_openclaw::{Skill, SkillVersion};
 use soul_sandbox::SandboxPolicy;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -246,7 +246,7 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
             ..Default::default()
         },
         sandbox_policy,
-        loop_config: soul_openclaw::AgentLoopConfig::default(),
+        loop_config: soul_agent_contracts::AgentLoopConfig::default(),
         autonomous_tick: Duration::from_millis(cli.tick_ms),
         memory_path: cli.memory.clone(),
         max_goal_history: 100,
@@ -256,22 +256,22 @@ async fn run(_cli: Cli) -> anyhow::Result<()> {
     let entity = Arc::new(SoulEntity::new(entity_config).map_err(|e| anyhow::anyhow!("{e}"))?);
     info!("entité {} initialisée", name);
 
-    entity.openclaw.skills.install(Skill::new(
+    entity.agent.skills.install(Skill::new(
         "system_info",
         SkillVersion::new(1, 0, 0),
         "Récupère les informations système de base",
     ));
-    entity.openclaw.skills.install(Skill::new(
+    entity.agent.skills.install(Skill::new(
         "list_dir",
         SkillVersion::new(1, 0, 0),
         "Liste le contenu d'un répertoire",
     ));
-    entity.openclaw.skills.install(Skill::new(
+    entity.agent.skills.install(Skill::new(
         "read_file",
         SkillVersion::new(1, 0, 0),
         "Lit un fichier texte",
     ));
-    info!("skills initialisées: {}", entity.openclaw.skill_count());
+    info!("skills initialisées: {}", entity.agent.skill_count());
 
     entity.create_goal("Vérifier l'état initial du système", 5);
     info!("goal de démarrage créé");

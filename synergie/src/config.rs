@@ -215,8 +215,8 @@ impl Default for Config {
             roots: vec![
                 PathBuf::from("/root/soullink-brain"),
                 PathBuf::from("/root/soullink-organs"),
-                PathBuf::from("/root/openclaw-cre"),
-                PathBuf::from("/root/.openclaw/workspace"),
+                PathBuf::from("/root/soulsystem-gateway"),
+                PathBuf::from("/root/.soulsystem/workspace"),
                 PathBuf::from("/root/openevolve"),
                 PathBuf::from("/mnt/nvme_secondary/system_root/AVID"),
                 PathBuf::from("/root/aris"),

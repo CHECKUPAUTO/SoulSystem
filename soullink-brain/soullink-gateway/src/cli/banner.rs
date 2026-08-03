@@ -3,7 +3,7 @@ use crate::cli::theme::{is_rich_tty, style_bold, style_header, style_info, style
 
 static BANNER_EMITTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-/// Lobster ASCII art (50 columns wide), adapted from OpenClaw banner.ts.
+/// Lobster ASCII art (50 columns wide), adapted from SoulSystem banner.ts.
 pub const LOBSTER_ASCII: &[&str] = &[
     "▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄",
     "██░▄▄▄░██░▄▄░██░▄▄▄██░▀██░██░▄▄▀██░████░▄▄▀██░███░██",

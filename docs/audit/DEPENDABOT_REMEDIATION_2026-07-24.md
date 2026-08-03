@@ -8,13 +8,13 @@ behind `main`, which made the Check, Clippy, Test, and MSRV jobs fail.
 
 - Root workspace: upgraded the Avid TUI stack so `lru` is no longer vulnerable,
   and upgraded Teloxide so `serde_with` resolves to a patched release.
-- `openclaw-gateway`: repaired its standalone manifest, selected Rustls instead
+- `soulsystem-gateway`: repaired its standalone manifest, selected Rustls instead
   of native TLS, and updated `rustls-webpki`, `quinn-proto`, and `rand`.
 - `os-agents`: repaired stale SciRust paths and updated OpenTelemetry,
   Prometheus, protobuf, and `crossbeam-epoch`.
 - `scirust-trading`: repaired missing workspace dependencies and updated
   `quinn-proto` and `quick-xml`.
-- IronClaw architecture video: updated the npm lockfile and ESLint dependency;
+- SoulSystem Integration architecture video: updated the npm lockfile and ESLint dependency;
   `npm audit` reports zero vulnerabilities.
 
 `cargo audit` reports no security vulnerabilities in the four committed Rust
@@ -34,7 +34,7 @@ is currently available.
 
 The replacement PR runs the repository's exact Format, Check, Clippy, Test,
 `cargo-deny`, GPU/CUDA, and Rust 1.93 MSRV commands. Focused checks also cover
-`openclaw-gateway` and the upgraded `soul_telemetry` package.
+`soulsystem-gateway` and the upgraded `soul_telemetry` package.
 
 Two older source-level defects remain outside the CI and Dependabot scope:
 `scirust-trading-engine/src/shadow.rs` contains an unmatched closing brace, and

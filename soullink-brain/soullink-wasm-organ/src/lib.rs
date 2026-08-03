@@ -1,6 +1,6 @@
 //! WASM Organ Sandbox Interface for SoulLink Neural Mesh.
 //!
-//! Ported from IronClaw's WASM sandbox architecture. Each organ runs in
+//! Ported from SoulSystem Integration's WASM sandbox architecture. Each organ runs in
 //! an isolated sandbox with resource limits, network policies, and
 //! capability-based permissions.
 //!
@@ -47,7 +47,7 @@ impl std::fmt::Display for OrganId {
 }
 
 // ---------------------------------------------------------------------------
-// Organ Policy (from IronClaw's sandbox/proxy/policy.rs)
+// Organ Policy (from SoulSystem Integration's sandbox/proxy/policy.rs)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,7 +167,7 @@ pub enum OrganCapability {
 }
 
 // ---------------------------------------------------------------------------
-// Organ Health (from IronClaw's sandbox/detect.rs)
+// Organ Health (from SoulSystem Integration's sandbox/detect.rs)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

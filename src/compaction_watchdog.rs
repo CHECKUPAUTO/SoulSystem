@@ -1,7 +1,7 @@
-//! CompactionWatchdog — Interception et maîtrise des compactions OpenClaw.
+//! CompactionWatchdog — Interception et maîtrise des compactions du système.
 //!
 //! # Problème
-//! OpenClaw force des compactions bien avant la limite de 1M tokens du modèle,
+//! Le runtime force des compactions bien avant la limite de 1M tokens du modèle,
 //! causant une perte brutale du contexte et une dégradation en cascade.
 //!
 //! # Solution

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== AVID + OpenClaw — Install ==="
+echo "=== AVID + SoulSystem — Install ==="
 
 # ── System dependencies ────────────────────────────────────────────────
 echo "[1/4] Installing system packages..."

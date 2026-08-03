@@ -31,3 +31,6 @@ openevolve*/output/
 *.env
 !*.env.example
 !.env.example
+
+# Session/tooling local state
+.commandcode/

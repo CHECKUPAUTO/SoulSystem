@@ -39,7 +39,7 @@ fi
 
 MODE="${1:-server}"
 
-echo "=== AVID + OpenClaw ($MODE) ==="
+echo "=== AVID + SoulSystem ($MODE) ==="
 echo "Port: ${AVID_PORT:-8088}"
 echo "Home: $AVID_HOME"
 echo "Ollama: $OLLAMA_URL ($OLLAMA_MODEL)"

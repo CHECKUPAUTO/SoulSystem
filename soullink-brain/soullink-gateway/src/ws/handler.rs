@@ -1,6 +1,6 @@
 //! WebSocket connection handler — manages the per-connection lifecycle.
 //!
-//! Flow (OpenClaw-compatible): upgrade → `req{method:"connect"}` → `res{hello-ok}`
+//! Flow (SoulSystem-compatible): upgrade → `req{method:"connect"}` → `res{hello-ok}`
 //! → further `req` frames → `res`/`event` → close.
 
 use std::sync::Arc;
@@ -105,7 +105,7 @@ pub async fn handle_connection(
 }
 
 /// Route a single text message. Only `req` frames are client-originated; on a
-/// malformed frame we mirror the OpenClaw reference and silently ignore it.
+/// malformed frame we mirror the SoulSystem reference and silently ignore it.
 async fn handle_message(
     ws: &mut WebSocket,
     state: &mut ConnState,
@@ -139,7 +139,7 @@ async fn handle_message(
     Ok(())
 }
 
-/// Strict OpenClaw `connect` handshake: validate protocol range and token,
+/// Strict SoulSystem `connect` handshake: validate protocol range and token,
 /// create a session, mint a device token, reply with `hello-ok`.
 async fn handle_connect(
     ws: &mut WebSocket,

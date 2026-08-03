@@ -4,7 +4,7 @@
 //! - **Pulse**: 1Hz Hamiltonian evolution (Nesterov momentum + potential energy)
 //! - **Afferent**: Hardware senses (GPU temp → neural turbulence)
 //! - **DreamCycle**: Periodic random walk on MemoryGraph (semantic reinforcement)
-//! - **Synapse**: OpenClaw message hook → mesh injection + memory ingestion
+//! - **Synapse**: SoulSystem message hook → mesh injection + memory ingestion
 //! - **Preservation**: Self-preservation instinct — danger detection + auto-defense
 //! - **Metacognition**: Self-model, introspection, capability awareness
 //! - **ErrorMetrics**: Global error calculation for adaptive learning

@@ -1,4 +1,4 @@
-# Intel + IronClaw Integrations for SoulLink
+# Intel Integrations for SoulLink
 
 ## Repositories cloned for integration
 
@@ -7,7 +7,7 @@
 | ScalableVectorSearch | svs/ | Headers + libsvs_x86_objects.a (AVX2+AVX-512) |
 | oneDNN | onednn/ | Headers + libdnnl.a (AVX2) |
 | Orpheus-TTS | orpheus/ | Source (model gated, needs HF token) |
-| IronClaw | ironclaw/ | OpenClaw-inspired Rust implementation |
+| SoulSystem Integration | soulsystem-integration/ | Rust agent integration implementation |
 
 ## Rust Crates
 
@@ -18,4 +18,4 @@
 
 - E5-2699 v3 = Broadwell (AVX2, not AVX-512)
 - SVS and oneDNN use Haswell/AVX2 codepaths
-- IronClaw: WASM sandbox, pgvector, defense-in-depth, OpenClaw in Rust
+- SoulSystem Integration: WASM sandbox, pgvector, defense-in-depth, agent runtime in Rust

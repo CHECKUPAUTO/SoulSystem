@@ -1,6 +1,6 @@
 # JIT Skills Templates
 
-This directory contains guides for AI agents (like OpenClaw) to generate compatible high-performance Rust skills.
+This directory contains guides for AI agents to generate compatible high-performance Rust skills.
 
 ## Generation Rules
 1. **Crate Type**: Must be `cdylib`.

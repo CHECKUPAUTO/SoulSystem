@@ -85,7 +85,7 @@ members = [
     "soul-daemon",
     "soul-memory",
     "soul_persistence",
-    "soul_openclaw",
+    "soul_agent_contracts",
     "soul_gateway",
     "soul_repl",
     "soul-subagents",
@@ -179,6 +179,7 @@ members = [
     "soullink-orchestrator-standalone",
     "soulsystem-mesh",
     "soulsystem-multiagent",
+    "soulsystem-evolution",
     "brain-system-rs",
     "agent-registry",
     "bridge-integration-tests",
@@ -222,9 +223,8 @@ exclude = [
     "soul-neural",
     "soullink-node",
     "turboquant",
-    "os-agents",
     "intel-integrations",
-    "openclaw-gateway",
+    "soulsystem-gateway",
     "scirust-trading",
     "neural-store",
     "jit-agentic-engine",
@@ -422,7 +422,7 @@ soul_critique = { path = "soul-critique" }
 soul_entity = { path = "soul_entity" }
 soul_gateway = { path = "soul_gateway" }
 soul_persistence = { path = "soul_persistence" }
-soul_openclaw = { path = "soul_openclaw" }
+soul_agent_contracts = { path = "soul_agent_contracts" }
 soul_orchestrator = { path = "soul_orchestrator" }
 soul_evolution = { path = "soul_evolution" }
 soul_forge = { path = "soul_forge" }

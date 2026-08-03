@@ -55,7 +55,7 @@ Crate exclue du workspace racine : `os-agents/` (duplicate sub-workspace).
 ### P2 — Sandbox sans backend container/VM
 
 - `soul_sandbox` = whitelist + timeout + seccomp-BPF.
-- OpenClaw supporte Docker/SSH/Modal ; Hermes 5 backends.
+- Autres runtimes supportent Docker/SSH/Modal et 5 backends de sandbox.
 - Conséquence : exécution toujours sur le host, même pour des commandes non sensibles.
 - Fichiers : `soul_sandbox/src/policy.rs`, `soul_sandbox/src/lib.rs`.
 
@@ -86,7 +86,7 @@ Crate exclue du workspace racine : `os-agents/` (duplicate sub-workspace).
 6. **Signal/iMessage** (P2) — si API/liaison système disponible.
 7. **MCP integration** (P3) — brancher `soul-mcp` à `soul_tools`.
 8. **Browser/webfetch tools** (P3) — ajouter à `soul_tools` et au ReAct loop.
-9. **Migration OpenClaw** (P3) — parser config OpenClaw et importer modèle/tokens/MEMORY.md.
+9. **Migration de configuration** (P3) — parser une config existante et importer modèle/tokens/MEMORY.md.
 10. **Validation empirique des skills** (P3) — fermer la boucle `soul-rsi` pour valider chaque skill induite.
 
 ## 5. Métriques à suivre

@@ -9,7 +9,7 @@ use soullink_gateway::cli::run::{run_cmd, RunOpts};
 use soullink_gateway::cli::status::{status_cmd, StatusOpts};
 
 fn main() -> std::process::ExitCode {
-    // OpenClaw-compatible: honor the `WORKERS` env (clamped 1..=64) for the
+    // SoulSystem-compatible: honor the `WORKERS` env (clamped 1..=64) for the
     // tokio runtime instead of a compile-time fixed thread count.
     let workers = std::env::var("WORKERS")
         .ok()

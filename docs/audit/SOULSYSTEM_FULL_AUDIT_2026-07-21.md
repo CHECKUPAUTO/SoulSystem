@@ -63,7 +63,7 @@ The audit inspected:
 | Category | Count | Notes |
 |----------|-------|-------|
 | Workspace member entries (Cargo.toml) | ~172 | Under `[workspace] members = [...]` |
-| Excluded from workspace, present on disk | ~13 | OctaCore, soul-neural, soullink-node/, turboquant/, os-agents/, intel-integrations/, openclaw-gateway/, neural-store/, jit-agentic-engine/, soul-project/, avid crates, turbovec/ |
+| Excluded from workspace, present on disk | ~13 | OctaCore, soul-neural, soullink-node/, turboquant/, os-agents/, intel-integrations/, soulsystem-gateway/, neural-store/, jit-agentic-engine/, soul-project/, avid crates, turbovec/ |
 | Library crates (estimated) | ~120 | Majority of workspace members |
 | Binary crates (estimated) | 56+ | From Cargo.toml [[bin]] entries and crate targets |
 | Feature flags | 11+ | dev, gpu, ed25519, avid, brain_system, soul_neural, organs, mesh, services, openevolve, synergie |
@@ -90,8 +90,8 @@ Crates present on disk but NOT in the workspace `members` list:
 - `soullink-node/`
 - `turboquant/`
 - `os-agents/` (contains souls, soul_evolution, soul_sandbox, semantic_firewall, ccos — all duplicated from workspace versions)
-- `intel-integrations/ironclaw/`
-- `openclaw-gateway/`
+- `intel-integrations/soulsystem-integration/`
+- `soulsystem-gateway/`
 - `neural-store/`
 - `jit-agentic-engine/`
 - `soul-project/`
@@ -862,19 +862,19 @@ All values below are **initial engineering targets** requiring measurement. They
 
 ---
 
-## 19. OpenClaw and Hermes-Agent Comparison
+## 19. Maturity assessment
 
-| Capability | SoulSystem (Current) | OpenClaw | Hermes-Agent |
-|------------|---------------------|----------|-------------|
-| Installation | `curl`, `npm`, `cargo` (3 methods) | `curl` pipe | `pip install` |
-| Canonical CLI | None — 3+ runtimes | Single `openclaw` | `hermes` |
-| Sandboxing | String-level filter + unconnected bubblewrap | Container sandbox | Docker |
-| Approval gate | Exists but dispatch bypasses it via misclassification | Required for dangerous ops | Required |
-| Network authentication | None on most endpoints | Required and documented | Required and documented |
-| Security documentation | Claims unconnected features | Documented and verified | Documented and verified |
-| Operational maturity | Pre-production | Production-ready | Production-ready |
+| Capability | SoulSystem (Current) |
+|------------|---------------------|
+| Installation | `curl`, `npm`, `cargo` (3 methods) |
+| Canonical CLI | None — 3+ runtimes |
+| Sandboxing | String-level filter + unconnected bubblewrap |
+| Approval gate | Exists but dispatch bypasses it via misclassification |
+| Network authentication | None on most endpoints |
+| Security documentation | Claims unconnected features |
+| Operational maturity | Pre-production |
 
-**Verdict:** SoulSystem is not currently a production competitor to OpenClaw or Hermes-Agent. It has more ambitious scope (neural mesh, scientific computing, causal memory) but lacks the basic runtime coherence, security enforcement, and documentation that the competitors provide.
+**Verdict:** SoulSystem has more ambitious scope (neural mesh, scientific computing, causal memory) but lacks the basic runtime coherence, security enforcement, and documentation required for production.
 
 ---
 
@@ -1309,13 +1309,10 @@ The following items could not be fully verified during this static audit:
 
 ## 28. Final Decision
 
-### 1. Is SoulSystem currently a production-ready competitor to OpenClaw?
+### 1. Is SoulSystem currently production-ready?
 **NO.** Lacks runtime coherence, has incorrect permission classification, unsandboxed tool dispatch, no authenticated endpoints by default.
 
-### 2. Is SoulSystem currently a production-ready competitor to Hermes-Agent?
-**NO.** Lacks tool ecosystem maturity, documentation, production stability.
-
-### 3. What is genuinely implemented?
+### 2. What is genuinely implemented?
 `scirust-core` (45K LOC ML framework), `scirust-simd` (SIMD dispatch), `soul-agent-core::AutonomousAgent` (real ReAct loop with circuit breaker, gate, injection scanner), `soul_persistence` (provenance), `soul_journal` (WAL), `ccos` (causal memory), `soullink-circuit`/`soullink-gate` (security), `soul-protocol` (A2A), `soul-mcp` (MCP), `bound-system` (bubblewrap), SoulLink neural mesh (40+ crates), `soul-gateway` (HTTP/WS surface), `soul-repl` (TUI).
 
 ### 4. What is genuinely differentiated?

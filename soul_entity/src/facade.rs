@@ -1,23 +1,23 @@
 use parking_lot::Mutex;
-use soul_openclaw::{AgentContext, AgentEvent, HookHub, LogHook, SkillRegistry};
+use soul_agent_contracts::{AgentContext, AgentEvent, HookHub, LogHook, SkillRegistry};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// ── Facade openclaw : hooks + skills (intégré à l'entité) ────
+// ── Facade d'agent : hooks + skills (intégré à l'entité) ────
 
-pub struct OpenClawFacade {
+pub struct AgentFacade {
     pub hooks: HookHub,
     pub skills: SkillRegistry,
     pub contexts: Mutex<HashMap<String, AgentContext>>,
 }
 
-impl Default for OpenClawFacade {
+impl Default for AgentFacade {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl OpenClawFacade {
+impl AgentFacade {
     pub fn new() -> Self {
         let hooks = HookHub::new();
         hooks.register(Arc::new(LogHook));

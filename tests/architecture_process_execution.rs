@@ -15,8 +15,8 @@
 //! category and a reason, or it fails this test.
 //!
 //! **What is deliberately out of scope.** Directories that are not workspace
-//! members — `intel-integrations/ironclaw`, `openevolve`, `backlog`,
-//! `os-agents`, `openclaw-evolution`, `soul-rsi`, `jit-agentic-engine`,
+//! members — `intel-integrations/soulsystem-integration`, `openevolve`, `backlog`,
+//! `soul-rsi`, `jit-agentic-engine`,
 //! `soullink-node`, `turboquant`, `scirust-chronos-agent` — carry a further 112
 //! spawn sites. They are not built by `cargo build --workspace`, so this guard
 //! says nothing about them, and neither should anyone reading it. Claiming
@@ -116,6 +116,14 @@ const ALLOWED: &[(&str, Category, &str)] = &[
         Category::SandboxImplementation,
         "soul-kernel's own confinement path (copy-in, build, run). Separate \
          from soul_sandbox because soul-kernel ships as its own binary.",
+    ),
+    (
+        "soulsystem-evolution/src/sandbox.rs",
+        Category::SandboxImplementation,
+        "soulsystem-evolution's own confinement path: compiles and runs \
+         evolved agent code in a per-agent temp dir with a hard timeout and \
+         cleanup. Separate from soul_sandbox because soulsystem-evolution is \
+         a standalone crate that evolved code compiles and executes.",
     ),
     // ── Host control, fixed argv ─────────────────────────────────────────
     (

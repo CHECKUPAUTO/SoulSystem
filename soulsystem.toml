@@ -9,4 +9,4 @@ shared_secret = ""
 
 # SoulSystem ne poll PAS Telegram
 # Il fournit des services (terminal, skills) via WS et HTTP API
-# Telegram est géré exclusivement par OpenClaw Gateway
+# Telegram est géré exclusivement par SoulSystem Gateway

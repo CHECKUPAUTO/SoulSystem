@@ -15,10 +15,10 @@ use clap::{Parser, Subcommand};
 mod automation;
 mod prod_guard;
 mod setup_tui;
+use soul_agent_contracts::{Skill, SkillVersion};
 use soul_entity::{EntityConfig, SoulEntity};
 use soul_gateway::{serve_with_tls as serve_gateway, GatewayAuth, GatewayState, TlsConfig};
 use soul_llm::LlmConfig;
-use soul_openclaw::{Skill, SkillVersion};
 use soul_sandbox::SandboxPolicy;
 use soulsystem::bound_system::BoundSystem;
 use soulsystem::bus::Bus;
@@ -392,7 +392,7 @@ async fn main() -> Result<()> {
         watchdog_clone.run().await;
     });
 
-    // Surveiller le trigger de compaction (écrit par OpenClaw ou processus externe)
+    // Surveiller le trigger de compaction (écrit par SoulSystem ou processus externe)
     let watchdog_trigger = watchdog.clone();
     let bus_trigger = bus.clone();
     tokio::spawn(async move {
@@ -561,11 +561,11 @@ async fn main() -> Result<()> {
         data_dir: settings.paths.data_dir.clone(),
         memory_path: PathBuf::from(
             std::env::var("SOULLINK_MEMORY_PATH")
-                .unwrap_or_else(|_| "/root/.openclaw/workspace/MEMORY.md".into()),
+                .unwrap_or_else(|_| "/root/.soulsystem/workspace/MEMORY.md".into()),
         ),
         apply_script_path: PathBuf::from(
             std::env::var("SOULLINK_APPLY_SCRIPT")
-                .unwrap_or_else(|_| "/root/.openclaw/workspace/apply_memory_updates.sh".into()),
+                .unwrap_or_else(|_| "/root/.soulsystem/workspace/apply_memory_updates.sh".into()),
         ),
         auto_approve_threshold: 0.95,
     };
@@ -677,7 +677,7 @@ async fn main() -> Result<()> {
         info!("TemporalIndex: souscripteur d'événements actif");
     }
 
-    // ── API HTTP REST (pour agents OpenClaw) ─────────────────────────────
+    // ── API HTTP REST (pour agents SoulSystem) ─────────────────────────────
     let bound_system_api = Arc::new(BoundSystem::new(BoundSystem::default_whitelist()));
     let metrics_registry = soulsystem::metrics::init();
     let bridge_store =
@@ -741,7 +741,7 @@ async fn main() -> Result<()> {
         });
         info!("Clawd Telegram bot demarre");
     } else {
-        info!("Clawd Telegram bot: SKIP (pas de TELEGRAM_BOT_TOKEN) — utilise OpenClaw Gateway");
+        info!("Clawd Telegram bot: SKIP (pas de TELEGRAM_BOT_TOKEN) — utilise SoulSystem Gateway");
     }
 
     // ── Modules actifs ─────────────────────────────────────────────────────
@@ -1551,7 +1551,7 @@ async fn main() -> Result<()> {
                 ..Default::default()
             },
             sandbox_policy: SandboxPolicy::default(),
-            loop_config: soul_openclaw::AgentLoopConfig::default(),
+            loop_config: soul_agent_contracts::AgentLoopConfig::default(),
             autonomous_tick: Duration::from_millis(750),
             memory_path: Some(soulsystem::config::Settings::new()?.paths.data_dir.clone()),
             max_goal_history: 100,
@@ -1568,17 +1568,17 @@ async fn main() -> Result<()> {
             loaded_skills,
             skills_dir.display()
         );
-        entity.openclaw.skills.install(Skill::new(
+        entity.agent.skills.install(Skill::new(
             "system_info",
             SkillVersion::new(1, 0, 0),
             "Récupère les informations système de base",
         ));
-        entity.openclaw.skills.install(Skill::new(
+        entity.agent.skills.install(Skill::new(
             "list_dir",
             SkillVersion::new(1, 0, 0),
             "Liste le contenu d'un répertoire",
         ));
-        entity.openclaw.skills.install(Skill::new(
+        entity.agent.skills.install(Skill::new(
             "read_file",
             SkillVersion::new(1, 0, 0),
             "Lit un fichier texte",

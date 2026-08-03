@@ -1,9 +1,0 @@
-[package]
-name = "neural_graph_compiler"
-version = "0.1.0"
-edition = "2021"
-description = "DAG compiler with Kahn's topological sort for neural execution graphs; detects cycles and produces valid execution order"
-license = "MIT"
-repository = "https://github.com/CHECKUPAUTO/OS-AGENTS"
-keywords = ["dag", "topological-sort", "kahn", "graph-compiler", "neural"]
-categories = ["algorithms", "machine-learning", "embedded"]

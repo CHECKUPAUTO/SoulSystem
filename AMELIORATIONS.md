@@ -70,7 +70,7 @@ forges/forge-bridge
 
 **Effort : 4 heures. Économie : -2 crates.**
 
-### 1.5 Fusionner openclaw-evolution + openevolve
+### 1.5 Fusionner soulsystem-evolution + openevolve
 
 Deux crates d'évolution distincts. Lequel est actif ? Si les deux le sont, fusionner. Si un est mort, le supprimer.
 

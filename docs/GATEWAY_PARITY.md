@@ -1,22 +1,22 @@
-# Gateway Parity — soullink-gateway ⇄ openclaw-gateway
+# Gateway Parity — soullink-gateway ⇄ soulsystem-gateway
 
 Status: worklog, 2026-06. Goal: make `soullink-brain/soullink-gateway` a strict
-functional drop-in for the Node-distributed `openclaw-gateway` so we can retire
-the OpenClaw binary we still run in production.
+functional drop-in for the npm-distributed `soulsystem-gateway` so we can retire
+the old gateway binary we still run in production.
 
-The "Node gateway" is actually a Rust binary distributed via an npm
-installer wrapper (`openclaw-gateway/npm/cli.js` installs the binary built from
-`openclaw-gateway/src/*.rs`). The reference contract is therefore those Rust
+The "npm gateway" is actually a Rust binary distributed via an npm
+installer wrapper (`soulsystem-gateway/npm/cli.js` installs the binary built from
+`soulsystem-gateway/src/*.rs`). The reference contract is therefore those Rust
 sources, not JavaScript.
 
 ---
 
 ## 1. Root cause of the incompatibility
 
-`soullink-gateway/src/ws/protocol.rs` *claimed* to "match the OpenClaw gateway
+`soullink-gateway/src/ws/protocol.rs` *claimed* to "match the reference gateway
 protocol" but did not. The divergences that prevented cutover:
 
-| Aspect | OpenClaw reference | soullink (before) | Status |
+| Aspect | Reference gateway | soullink (before) | Status |
 |--------|--------------------|--------------------|--------|
 | Frame `type` tags | `req` / `res` / `event` (lowercase, `#[serde(rename)]`) | `Connect`/`HelloOk`/`Req`/`Res`/`Event` (PascalCase variant names) | **fixed** |
 | Handshake | `req{method:"connect"}` → `res{payload: hello-ok}` | top-level `Connect` frame → `HelloOk` frame | **fixed** |
@@ -36,7 +36,7 @@ protocol" but did not. The divergences that prevented cutover:
 ## 2. What this change implements (strict parity)
 
 - **`ws/protocol.rs`** — rewritten as a strict replica of
-  `openclaw-gateway/src/protocol.rs`: `req`/`res`/`event` frames, flattened
+  `soulsystem-gateway/src/protocol.rs`: `req`/`res`/`event` frames, flattened
   `res`, `PROTOCOL_VERSION = 3`, `ConnectRequest`/`HelloOk`/`PolicyInfo`/`Role`
   with the exact reference fields, error-code constants, and `error_response`/
   `success_response`/`event` builders. Wire-format unit tests assert the
@@ -47,9 +47,9 @@ protocol" but did not. The divergences that prevented cutover:
   validated (protocol range, token) and answered with a `res` carrying
   `hello-ok`; pre-auth non-connect methods get `AUTH_REQUIRED`. The richer RPC
   method set (chat, completion, providers.list, models.list, …) is preserved as
-  a **superset** — OpenClaw clients never call those, so compatibility holds.
+  a **superset** — reference clients never call those, so compatibility holds.
 - **`cli/run.rs`** — honors `PORT` (overrides `--port`) and `GATEWAY_TOKEN`
-  (operator token) for OpenClaw-style env invocation, adds the `/status`
+  (operator token) for reference-style env invocation, adds the `/status`
   endpoint (`{version, sessions, port}`), and threads the `AuthManager` into the
   WS handler.
 
@@ -64,7 +64,7 @@ These are additive and do not block the protocol drop-in:
 
 1. **Channel providers** *(remaining)* — the reference exposes `ENABLE_TELEGRAM`
    / `ENABLE_WHATSAPP` with `TELEGRAM_TOKEN` / `WHATSAPP_SESSION`; the WhatsApp
-   and webhook providers (`openclaw-gateway/src/providers/{whatsapp,webhook}.rs`)
+   and webhook providers (`soulsystem-gateway/src/providers/{whatsapp,webhook}.rs`)
    need equivalents alongside the existing Telegram long-poll loop.
 2. **Bind host** — **done.** `--bind` (and the `GATEWAY_BIND` env, which wins)
    resolves `loopback`/`local` → `127.0.0.1` and `all`/`any`/`public`/`0.0.0.0`
@@ -77,6 +77,6 @@ These are additive and do not block the protocol drop-in:
    advertised; the server should also *enforce* idle-timeout and heartbeat per
    the policy.
 
-Once (1) and (4) land, the OpenClaw binary can be retired. The routing upgrades
+Once (1) and (4) land, the old gateway binary can be retired. The routing upgrades
 in `docs/RESEARCH_FRONTIER_2026.md` §2 then make the Rust gateway *better* than
 the reference, not merely equal.

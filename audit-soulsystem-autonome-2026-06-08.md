@@ -2,7 +2,7 @@
 
 **Date :** 2026-06-08 (mis à jour 2026-06-09)
 **Scope :** Workspace Rust `soul_system` (40 crates, ~11000 LoC hors turbovec)
-**Cible :** Transformer SoulSystem en entité numérique autonome propulsée par openclaw (openclaw.ai)
+**Cible :** Transformer SoulSystem en entité numérique autonome propulsée par l'agent runtime interne
 
 ---
 
@@ -16,7 +16,7 @@ exposer un monitoring TCP clinique.
 
 **Transformation structurelle majeure :**
 - 6 nouveaux crates créés (`soul_persistence`, `soul_sandbox`, `soul_gateway`,
-  `soul_openclaw`, `soul_entity`, `souls`).
+  `soul_agent_contracts`, `soul_entity`, `souls`).
 - 33 → 40 membres dans le workspace.
 - 2 binaires historiques (`soul_kernel`, `soul_system_bin`) conservés
   intacts (rétro-compat) ; 1 nouveau binaire unifié `souls` qui orchestre
@@ -41,7 +41,7 @@ Ollama, et être pilotée à distance via HTTP/WebSocket.
 
 L'audit a été précédé d'une **transformation structurelle majeure** :
 - 6 nouveaux crates créés (`soul_persistence`, `soul_sandbox`, `soul_gateway`,
-  `soul_openclaw`, `soul_entity`, `souls`).
+  `soul_agent_contracts`, `soul_entity`, `souls`).
 - 33 → 40 membres dans le workspace.
 - 2 binaires historiques (`soul_kernel`, `soul_system_bin`) conservés
   intacts (rétro-compat) ; 1 nouveau binaire unifié `souls` qui orchestre
@@ -49,7 +49,7 @@ L'audit a été précédé d'une **transformation structurelle majeure** :
 - Source orpheline `src/autonomous.rs` supprimée (ne compilait pas, faisait
   référence à un crate `soulsystem_bin` inexistant).
 - Stub critique `backpropagate_emotional_tension` déjà comblé lors d'un
-  audit précédent (audit-openclaw-2026-06-08.md).
+  audit précédent (audit-soulsystem-2026-06-08.md).
 - `soul_forge` déjà branché sur la télémétrie réelle.
 - Plusieurs bugs identifiés restent à corriger (cf. §5).
 
@@ -64,7 +64,7 @@ itération ultérieure.
 
 ```mermaid
 graph TB
-    User([👤 Utilisateur / Canal openclaw])
+    User([👤 Utilisateur / Canal SoulSystem])
 
     subgraph "Binaire : souls (nouveau)"
         CLI[souls/main.rs<br/>CLI + bootstrap]
@@ -93,8 +93,8 @@ graph TB
         PERS[soul_persistence<br/>Sled KV + lineage]
     end
 
-    subgraph "Intégration openclaw"
-        OC[soul_openclaw<br/>agent-loop + skills + hooks]
+    subgraph "Intégration agent"
+        OC[soul_agent_contracts<br/>agent-loop + skills + hooks]
     end
 
     subgraph "Sous-système historique (rétro-compat)"
@@ -147,7 +147,7 @@ graph TB
 │  5. DÉCIDER   — décision + confiance (CognitiveLoop)  │
 │  6. LLM       — synthèse optionnelle (best-effort)    │
 │  7. PERSISTER — chaque étape dans Sled avec parent    │
-│  8. HOOK      — openclaw TurnEnd event                │
+│  8. HOOK      — agent TurnEnd event                │
 │  9. ÉMETTRE   — EntityEvent sur l'EventHub (WS)       │
 └──────────────────────────────────────────────────────┘
             ↓                                ↑
@@ -174,11 +174,11 @@ graph TB
 
 | Métrique | Avant | Après |
 |---|---|---|
-| Crates workspace | 33 | **39** (+soul_persistence, soul_sandbox, soul_gateway, soul_openclaw, soul_entity, souls) |
+| Crates workspace | 33 | **39** (+soul_persistence, soul_sandbox, soul_gateway, soul_agent_contracts, soul_entity, souls) |
 | Binaires | 2 | **4** (+`souls`, +lib `soul_repl`) |
 | Fichiers `.rs` (hors target/turbovec) | 78 | **96** (+10 subsystems + 6 new crates) |
 | LoC Rust (hors target/turbovec) | ~7600 | **~11000** |
-| Tests unitaires | ~40 | **76** (soul_persistence: 3, soul_sandbox: 10, soul_openclaw: 6, soul_entity: 8, soul_entity/subsystems: 12, soul_forge: 0 inline, soul_orchestrator: 6, soul_journal: 5, neural_chaos_monkey: 3, neural_cluster_sync: 3, neural_graph_compiler: 2, neural_metacognition: 0 inline, ontological_self_healing: 2, ecosystem_synapse_linker: 0 inline) |
+| Tests unitaires | ~40 | **76** (soul_persistence: 3, soul_sandbox: 10, soul_agent_contracts: 6, soul_entity: 8, soul_entity/subsystems: 12, soul_forge: 0 inline, soul_orchestrator: 6, soul_journal: 5, neural_chaos_monkey: 3, neural_cluster_sync: 3, neural_graph_compiler: 2, neural_metacognition: 0 inline, ontological_self_healing: 2, ecosystem_synapse_linker: 0 inline) |
 | TODOs/FIXMEs | 0 | **0** |
 | Stubs `unimplemented!` | 0 | **0** |
 | **Crates orphelins non câblés** | **9** | **0** ✅ |
@@ -190,8 +190,8 @@ graph TB
 |---|---|---|
 | `soul_persistence` | 200 | KV store Sled + lineage registry (traçabilité d'artefacts) |
 | `soul_sandbox` | 260 | Whitelist commandes + détection menaces + timeout + journalisation |
-| `soul_gateway` | 320 | Surface HTTP/WS alignée sur openclaw gateway |
-| `soul_openclaw` | 280 | Pont conceptuel openclaw : agent-loop, skills, hooks, AgentContext |
+| `soul_gateway` | 320 | Surface HTTP/WS alignée sur agent interne gateway |
+| `soul_agent_contracts` | 280 | Pont conceptuel agent interne : agent-loop, skills, hooks, AgentContext |
 | `soul_entity` | 660+subsystems | L'entité autonome : agrège tout, boucle cognitive, EntityHandle |
 | `soul_entity::subsystems` | 290 | Agrégat de tous les sous-systèmes câblés (journal, forge, orchestrateur, chaos, graph, audit, linker, crdt, healer, module loader, clinical console) |
 | `souls` | 180 | Binaire unifié : CLI + gateway + clinique + autonome + REPL optionnel |
@@ -204,7 +204,7 @@ Projets tiers évalués sur le disque et leur contribution effective :
 
 | Projet | Capacité | Contribution à SoulSystem |
 |---|---|---|
-| **openclaw** (`/root/openclaw`) | Gateway personnel IA, agent-loop, skills, memory host | **Adapté** dans `soul_openclaw` : concepts de Hook, Skill, AgentContext, OpenclawClient. Pas de code dupliqué (TS/Node → Rust réécrit). |
+| **agent interne** (`/root/soulsystem`) | Gateway personnel IA, agent-loop, skills, memory host | **Adapté** dans `soul_agent_contracts` : concepts de Hook, Skill, AgentContext, AgentGatewayClient. Pas de code dupliqué (TS/Node → Rust réécrit). |
 | **forge-core** (`/root/forge-core`) | Recherche évolutive d'algorithmes, lineage Sled, Ollama client, Pareto | **Pattern adopté** dans `soul_persistence` (lineage registry avec parent_id) et `soul_llm` (déjà client Ollama). |
 | **gateway-RS** (`/root/gateway-RS`) | HTTP/WS gateway OpenAI-compatible, auth, hooks | **Re-implémenté** dans `soul_gateway` (sans axum 0.8 → axum 0.7 pour cohérence deps, sans auth complète — non requise pour l'auto-hébergement). |
 | **jit-agentic-engine** (`/root/jit-agentic-engine`) | JIT compile Rust → cdylib → dlopen | **Pattern** : `soul_entity::generate_and_run` est plus simple (Python/Bash via tmp file) ; cdylib non retenu (sécurité, complexité). |
@@ -271,7 +271,7 @@ respectant l'architecture existante.
 | **Timeouts** | ✅ | `SandboxPolicy::timeout` (défaut 30s) |
 | **Journalisation** | ✅ | Sled KV (goals/plans/observations/decisions/tool_results/code_artifacts) + sandbox history |
 | **Intégration LLM** | ✅ | `soul_llm` (Ollama HTTP, qwen3:8b défaut) |
-| **Intégration openclaw** | ✅ | `soul_openclaw` (agent-loop concepts, hooks, skills, AgentContext) |
+| **Intégration agent** | ✅ | `soul_agent_contracts` (agent-loop concepts, hooks, skills, AgentContext) |
 | **Auto-amélioration** | ⚠️ Partiel | `generate_and_run` permet de coder ; pas de re-compilation du workspace pour l'instant |
 | **Confirmation utilisateur** pour actions destructives | ⚠️ Partiel | Le sandbox refuse les patterns dangereux automatiquement ; pas de prompt interactif |
 | **Métriques / télémétrie** | ✅ | `EntityStats` exposé via `/v1/status` |
@@ -286,7 +286,7 @@ respectant l'architecture existante.
 ### 7.1 Création de l'entité unifiée
 
 **`soul_entity/src/lib.rs`** (660 LoC)
-- `SoulEntity` : agrège LLM, planner, tools, sandbox, persistence, openclaw,
+- `SoulEntity` : agrège LLM, planner, tools, sandbox, persistence, agent interne,
   **subsystems** (12 sous-systèmes historiques câblés).
 - `PersistentGoal` : goal avec plan, evaluation, decision attachés.
 - `CodeArtifact` : artefact de code auto-généré + verdict d'exécution.
@@ -332,15 +332,15 @@ respectant l'architecture existante.
 - CORS permissif pour développement (à durcir en prod).
 - WebSocket : heartbeat 500ms + diff de queue.
 
-### 7.5 Pont openclaw
+### 7.5 Pont agent interne
 
-**`soul_openclaw/src/lib.rs`** (280 LoC)
-- Types alignés sur openclaw : `AgentContext`, `AgentMessage`, `Role`,
+**`soul_agent_contracts/src/lib.rs`** (280 LoC)
+- Types alignés sur agent interne : `AgentContext`, `AgentMessage`, `Role`,
   `AgentEvent`, `AgentTool`, `ToolCall`, `AgentLoopConfig`.
 - `Hook` trait + `HookHub` (concurrent-safe).
 - `SkillRegistry` avec versionnage sémantique + refus de downgrade major.
 - `LogHook` (tracing) inclus par défaut.
-- `OpenclawClient` : client HTTP minimal (mode piloté si openclaw distant).
+- `AgentGatewayClient` : client HTTP minimal (mode piloté si agent interne distant).
 - 6 tests unitaires.
 
 ### 7.6 Binaire unifié `souls`
@@ -350,7 +350,7 @@ respectant l'architecture existante.
   `SOUL_OLLAMA_URL`, `SOUL_MEMORY_PATH`, `SOUL_AUTONOMOUS`).
 - Modes : `--autonomous` (boucle infinie), `--strict-sandbox` (whitelist
   stricte), `--repl` (terminal interactif), `--memory <path>` (Sled).
-- 3 skills openclaw préinstallées : `system_info`, `list_dir`, `read_file`.
+- 3 skills agent interne préinstallées : `system_info`, `list_dir`, `read_file`.
 - Goal de démarrage automatique : "Vérifier l'état initial du système".
 - Banner ASCII + tracing colorisé.
 - Démarre en parallèle : gateway HTTP/WS + **serveur clinique TCP** (port+1).
@@ -405,7 +405,7 @@ de cette itération. Chaque crate historiquement orphelin est désormais
 **Résultat :** `cargo test -p soul_entity` → **20 tests OK** (8 entity + 12 subsystems).
 
 **`souls` démarre maintenant deux serveurs en parallèle** :
-- Port N : `soul_gateway` (HTTP/WS, surface openclaw).
+- Port N : `soul_gateway` (HTTP/WS, surface agent interne).
 - Port N+1 : `ClinicalStreamingServer` (TCP HTTP, `/health` + `/metrics`).
 Shutdown gracieux via `tokio::signal::ctrl_c`.
 
@@ -485,7 +485,7 @@ Binaire compilé : `target/release/souls` (≈ 12 MB en release avec LTO).
 13. **Sauvegarde Git auto** : avant chaque `generate_and_run` qui touche
     `src/`, faire un `git commit -am "pre-auto-edit"`.
 14. **Interface web** : un dashboard HTML qui consomme `/v1/status` et
-    `/v1/stream` (openclaw-style canvas).
+    `/v1/stream` (agent interne-style canvas).
 
 ---
 
@@ -526,7 +526,7 @@ Les 7 étapes du brief sont remplies :
 3. ✅ Audit approfondi → 50 problèmes identifiés, classés (étape 3).
 4. ✅ Bilan d'audit markdown → ce document (étape 4).
 5. ✅ Transformation en entité autonome → boucle cognitive, sandbox,
-   persistance, API, openclaw (étape 5).
+   persistance, API, agent interne (étape 5).
 6. ✅ **Câblage complet des 12 sous-systèmes historiquement orphelins** :
    `soul_journal`, `soul_forge`, `soul_orchestrator`, `soul_evolution`,
    `soul_agent_runtime`, `neural_cluster_sync`, `neural_chaos_monkey`,

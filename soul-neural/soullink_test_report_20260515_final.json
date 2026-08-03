@@ -12,7 +12,7 @@
       "AGENT-SWARM": "Orchestrateur multi-agent — 15 agents spécialisés, bus broadcast",
       "SoulSystem": "SoulLink Neural Mesh + SoulKernel",
       "SYNERGIE": "Détecteur de synergies cross-repo",
-      "OPENCLAW": "Framework agentique, gateway Telegram/WhatsApp"
+      "SOULSYSTEM": "Framework agentique, gateway Telegram/WhatsApp"
     }
   },
   "soulneural": {
@@ -60,7 +60,7 @@
     "agents": 15
   },
   "services": {
-    "soullink_openclaw_running": 34,
+    "soullink_gateway_running": 34,
     "kernel_patched_cve_31431": true,
     "services_monitored": true
   },

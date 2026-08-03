@@ -1,5 +1,5 @@
 //! Approval gate for tool execution.
-//! Ported from IronClaw gate/approval.rs.
+//! Ported from SoulSystem Integration gate/approval.rs.
 //!
 //! Three execution modes:
 //! - **Interactive** — Requires human approval for dangerous operations

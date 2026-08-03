@@ -28,7 +28,7 @@ is what we add.
 
 | Level | Description | SoulSystem status |
 |-------|-------------|-------------------|
-| 1. Software self-improvement | AI writes/improves code in its own environment | ✅ `openevolve`, `openclaw-evolution`, `soul_tools` |
+| 1. Software self-improvement | AI writes/improves code in its own environment | ✅ `openevolve`, `soulsystem-evolution`, `soul_tools` |
 | 2. Architecture self-improvement | AI proposes better model architectures | 🟡 `soullink-brain` HNN, `forge-core` (generic), NAS-style search not yet wired |
 | 3. Learning self-improvement | AI changes its own training/objectives/optimizers | 🟡 `soullink-trainer`, `soul-critique` (Reflexion), `soul_planner` |
 | 4. Full RSI | AI designs, trains, and deploys its successor unattended | ⛔ not reached — and deliberately gated by the build+test validation wall in `soul_rsi` |
@@ -45,7 +45,7 @@ audited step.
 | Capability | Component | Status |
 |------------|-----------|--------|
 | LLM-guided code evolution (AlphaEvolve-style) | `openevolve/` | **wired** — CLI `evolve` + server on :8460 |
-| Open-ended agent evolution loop | `openclaw-evolution/` | **wired** — `run_forever()` cycle |
+| Open-ended agent evolution loop | `soulsystem-evolution/` | **wired** — `run_forever()` cycle |
 | Generic multi-objective evolutionary engine (NSGA-II) | `forges/forge-core/` | **library** — `Domain` trait, `Engine::run`, `Checkpoint` |
 | ReAct agent w/ memory distillation + skill crystallization | `soul-agent-core/` | **wired** — used by `soul-daemon` |
 | Self-critique / Reflexion | `soul-critique/` | **wired** — `quick_critique` in agent loop |
@@ -155,7 +155,7 @@ Legend of the **SoulSystem** column: which component embodies the idea.
 22. Zhou et al. (2023) — *Large Language Models Are Human-Level Prompt Engineers (APE).* → `soulsystem-gepa`. <https://arxiv.org/abs/2211.01910>
 23. Romera-Paredes et al. (2024) — *FunSearch: Mathematical discoveries from program search with LLMs (Nature).* → `openevolve`. <https://www.nature.com/articles/s41586-023-06924-6>
 24. Novikov et al. (2025) — *AlphaEvolve: A coding agent for scientific and algorithmic discovery.* → `openevolve` (direct analogue). <https://arxiv.org/abs/2506.13131>
-25. Lehman et al. (2022) — *Evolution through Large Models (ELM).* → `openclaw-evolution`. <https://arxiv.org/abs/2206.08896>
+25. Lehman et al. (2022) — *Evolution through Large Models (ELM).* → `soulsystem-evolution`. <https://arxiv.org/abs/2206.08896>
 
 ### Agents that plan / reflect / use tools
 26. Yao et al. (2022) — *ReAct: Synergizing Reasoning and Acting in Language Models.* → `soul-agent-core` (ReAct loop). <https://arxiv.org/abs/2210.03629>
@@ -183,7 +183,7 @@ Legend of the **SoulSystem** column: which component embodies the idea.
 ### Evolutionary computation / open-endedness
 43. Holland (1992) — *Adaptation in Natural and Artificial Systems.* → `forge-core` GA. <https://mitpress.mit.edu/9780262581110/>
 44. Stanley & Lehman (2015) — *Why Greatness Cannot Be Planned: The Myth of the Objective.* → `soul_rsi::Archive` novelty bonus. <https://link.springer.com/book/10.1007/978-3-319-15524-1>
-45. Lehman et al. (2020) — *The Surprising Creativity of Digital Evolution.* → `openclaw-evolution` (sandbox guards). <https://arxiv.org/abs/1803.03453>
+45. Lehman et al. (2020) — *The Surprising Creativity of Digital Evolution.* → `soulsystem-evolution` (sandbox guards). <https://arxiv.org/abs/1803.03453>
 46. Mouret & Clune (2015) — *Illuminating search spaces by mapping elites (MAP-Elites).* → `soul_rsi` quality-diversity selection. <https://arxiv.org/abs/1504.04909>
 47. Stanley & Miikkulainen (2002) — *Evolving Neural Networks through Augmenting Topologies (NEAT).* <https://doi.org/10.1162/106365602320169811>
 

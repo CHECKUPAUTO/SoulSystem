@@ -1,14 +1,14 @@
-//! Python Bridge — Bidirectional bridge between Python OpenClaw 2026 and Rust SoulLink.
+//! Python Bridge — Bidirectional bridge between Python SoulSystem 2026 and Rust SoulLink.
 //!
 //! Correction 4: Exposes a unified HTTP endpoint so Python modules
-//! (openclaw_core.py, darwin_engine.py, mem0_graph.py, etc.) can
+//! (soulsystem_core.py, darwin_engine.py, mem0_graph.py, etc.) can
 //! query and control the Rust brain instead of directly hitting Ollama.
 
 use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-/// Requête provenant du Python (openclaw_core.py, darwin_engine.py, etc.)
+/// Requête provenant du Python (soulsystem_core.py, darwin_engine.py, etc.)
 #[derive(Debug, Deserialize)]
 pub struct PythonRequest {
     pub module: String, // "darwin_engine", "mem0_graph", etc.

@@ -14,7 +14,7 @@ pub mod types;
 // Re-exports
 pub use entity::SoulEntity;
 pub use event_store::PersistentEventStore;
-pub use facade::OpenClawFacade;
+pub use facade::AgentFacade;
 pub use subsystems::{
     Subsystems, TAG_DECISION, TAG_ERROR, TAG_EVOLVE, TAG_FORGE, TAG_GOAL, TAG_HEAL, TAG_PLAN,
     TAG_STEP,
@@ -24,8 +24,8 @@ pub use types::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soul_agent_contracts::AgentLoopConfig;
     use soul_llm::LlmConfig;
-    use soul_openclaw::AgentLoopConfig;
     use soul_sandbox::SandboxPolicy;
     use std::time::Duration;
 

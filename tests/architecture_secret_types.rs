@@ -512,7 +512,7 @@ fn the_migrated_structs_use_the_secret_type() {
         ("src/ws_bridge.rs", "shared_secret: Option<SecretString>"),
         ("soul_llm/src/types.rs", "auth_token: Option<SecretString>"),
         (
-            "soul_openclaw/src/lib.rs",
+            "soul_agent_contracts/src/lib.rs",
             "auth_token: Option<SecretString>",
         ),
     ] {
