@@ -107,6 +107,10 @@ name = "ccos-memory-runtime"
 allow = ["PolyForm-Noncommercial-1.0.0"]
 name = "scirust-multivariate"
 
+[[licenses.exceptions]]
+allow = ["PolyForm-Noncommercial-1.0.0"]
+name = "soul_rsi"
+
 [licenses.private]
 # Crates marked `publish = false` (never published to crates.io) are
 # internal-only — license compliance for external redistribution doesn't
