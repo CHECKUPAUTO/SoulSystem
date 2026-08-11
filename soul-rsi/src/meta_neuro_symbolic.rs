@@ -303,9 +303,9 @@ impl Default for MetaNsLoss {
 /// # Zero-allocation contract
 ///
 /// This function allocates nothing: it only reads `traces` and writes into
-/// `out`. `#[deny(clippy::alloc_in_loop)]` is attached so any future
-/// allocation inside the evaluation loop is a compile error, not a review
-/// comment.
+/// `out`. The evaluation loop touches only `[f64; N]` buffers — any change
+/// that introduces a `Vec`, `Box` or other heap allocation here is a review
+/// blocker.
 ///
 /// # Example
 ///
@@ -328,7 +328,6 @@ impl Default for MetaNsLoss {
 /// assert_eq!(out.scored, 1);
 /// ```
 #[inline]
-#[deny(clippy::alloc_in_loop)]
 pub fn compute_meta_ns_loss(config: &MetaNSConfig, traces: &TraceBuffer, out: &mut MetaNsLoss) {
     out.reward_loss = 0.0;
     out.kl_loss = 0.0;
@@ -464,9 +463,8 @@ mod tests {
         }
         let v = NoUnsafe;
         assert!(
-            v.validate("ctx", "fn f() { let x = 1; }")
+            !v.validate("ctx", "fn f() { let x = 1; }")
                 .violated_constraint
-                == false
         );
         let bad = v.validate("ctx", "fn f() { unsafe { g() } }");
         assert!(bad.violated_constraint);

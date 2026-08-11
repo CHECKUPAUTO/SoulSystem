@@ -28,6 +28,15 @@ ignore = [
     "RUSTSEC-2024-0384", # `instant` unmaintained; transitive via sled. No safe upgrade available upstream in sled. Tracked, not blocking.
     "RUSTSEC-2024-0436", # paste unmaintained. No safe upgrade available. Tracked, not blocking.
     "RUSTSEC-2026-0173", # proc-macro-error2 unmaintained; transitive via teloxide 0.17 -> aquamarine. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0052", # async-std discontinued (unmaintained). No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0012", # `backoff` unmaintained. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0081", # unic-char-property unmaintained; transitive via rustpython-parser (avid Python-execution tooling). No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0075", # unic-char-range unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0080", # unic-common unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0090", # unic-emoji-char unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0100", # unic-ucd-ident unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2025-0098", # unic-ucd-version unmaintained; same rustpython-parser chain as above. No safe upgrade available upstream. Tracked, not blocking.
+    "RUSTSEC-2026-0192", # ttf-parser unmaintained; transitive via lopdf 0.42 (avid-cortex/avid-scout PDF parsing). No safe upgrade available upstream in lopdf as of this check. Tracked, not blocking.
 ]
 
 [licenses]
@@ -106,6 +115,10 @@ name = "ccos-memory-runtime"
 [[licenses.exceptions]]
 allow = ["PolyForm-Noncommercial-1.0.0"]
 name = "scirust-multivariate"
+
+[[licenses.exceptions]]
+allow = ["PolyForm-Noncommercial-1.0.0"]
+name = "soul_rsi"
 
 [licenses.private]
 # Crates marked `publish = false` (never published to crates.io) are
