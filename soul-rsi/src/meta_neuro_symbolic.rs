@@ -462,9 +462,10 @@ mod tests {
             }
         }
         let v = NoUnsafe;
-        assert!(!v
-            .validate("ctx", "fn f() { let x = 1; }")
-            .violated_constraint);
+        assert!(
+            !v.validate("ctx", "fn f() { let x = 1; }")
+                .violated_constraint
+        );
         let bad = v.validate("ctx", "fn f() { unsafe { g() } }");
         assert!(bad.violated_constraint);
         assert_eq!(bad.score, -10.0);
