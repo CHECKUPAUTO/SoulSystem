@@ -9,22 +9,20 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-rkyv:
+  diagnose-rkyv-feature:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Identify reverse dependency for vulnerable rkyv
+      - name: Trace rkyv feature activation
         shell: bash
         run: |
-          set -u
-          echo '=== cargo tree -i rkyv@0.7.46 ==='
-          cargo tree -i rkyv@0.7.46 --workspace
+          set -euo pipefail
+          echo '=== rkyv reverse dependencies, all targets ==='
+          cargo tree -i rkyv@0.7.46 --target all
           echo
-          echo '=== constrained update probe: rkyv 0.7.46 -> 0.8.17 ==='
-          set +e
-          cargo update -p rkyv@0.7.46 --precise 0.8.17
-          rc=$?
-          set -e
-          echo "cargo update probe exit code: $rc"
-          exit 0
+          echo '=== rust_decimal feature provenance, all targets ==='
+          cargo tree -e features -i rust_decimal@1.42.1 --target all
+          echo
+          echo '=== rkyv feature provenance, all targets ==='
+          cargo tree -e features -i rkyv@0.7.46 --target all
