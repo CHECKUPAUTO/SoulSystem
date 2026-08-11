@@ -9,20 +9,27 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-rkyv-feature:
+  prune-stale-rkyv:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Trace rkyv feature activation
+      - name: Re-resolve rust_decimal and inspect lockfile
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== rkyv reverse dependencies, all targets ==='
-          cargo tree -i rkyv@0.7.46 --target all
+          echo '=== before ==='
+          grep -n -A4 -B1 'name = "rkyv"' Cargo.lock || true
+          cargo update -p rust_decimal@1.42.1 --precise 1.42.1
           echo
-          echo '=== rust_decimal feature provenance, all targets ==='
-          cargo tree -e features -i rust_decimal@1.42.1 --target all
+          echo '=== after ==='
+          grep -n -A4 -B1 'name = "rkyv"' Cargo.lock || true
           echo
-          echo '=== rkyv feature provenance, all targets ==='
-          cargo tree -e features -i rkyv@0.7.46 --target all
+          echo '=== diff ==='
+          git diff -- Cargo.lock
+          echo
+          echo '=== resolved graph check ==='
+          if cargo tree --target all | grep -Eq '(^| )rkyv v0\.7\.46([[:space:]]|$)'; then
+            echo 'ERROR: vulnerable rkyv is active in the resolved graph'
+            exit 1
+          fi
