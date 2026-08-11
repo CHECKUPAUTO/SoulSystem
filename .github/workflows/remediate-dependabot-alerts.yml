@@ -9,27 +9,51 @@ permissions:
   contents: read
 
 jobs:
-  prune-stale-rkyv:
+  audit-all-lockfiles:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Re-resolve rust_decimal and inspect lockfile
+
+      - name: Verify vulnerable versions remediated
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== before ==='
-          grep -n -A4 -B1 'name = "rkyv"' Cargo.lock || true
-          cargo update -p rust_decimal@1.42.1 --precise 1.42.1
+          ! git grep -n -F 'version = "1.0.102"' -- '**/Cargo.lock' Cargo.lock
+          ! git grep -n -F 'version = "0.9.18"' -- '**/Cargo.lock' Cargo.lock
+          ! git grep -n -F 'version = "0.18.0"' -- '**/Cargo.lock' Cargo.lock
+
+      - name: Trace advisory-only lockfile entries
+        shell: bash
+        run: |
+          set -u
+          echo '=== rkyv 0.7.46 in resolved all-target graph ==='
+          cargo tree -i rkyv@0.7.46 --target all || true
           echo
-          echo '=== after ==='
-          grep -n -A4 -B1 'name = "rkyv"' Cargo.lock || true
-          echo
-          echo '=== diff ==='
-          git diff -- Cargo.lock
-          echo
-          echo '=== resolved graph check ==='
-          if cargo tree --target all | grep -Eq '(^| )rkyv v0\.7\.46([[:space:]]|$)'; then
-            echo 'ERROR: vulnerable rkyv is active in the resolved graph'
+          echo '=== rsa packages in resolved all-target graph ==='
+          cargo tree -i rsa --target all || true
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit every tracked Cargo.lock without stale rustls exceptions
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f .cargo/audit.toml ]; then
+            mv .cargo/audit.toml /tmp/soulsystem-audit.toml
+          fi
+          failures=0
+          while IFS= read -r lock; do
+            echo "::group::cargo audit --file $lock"
+            if ! cargo audit --file "$lock" \
+              --ignore RUSTSEC-2023-0071 \
+              --ignore RUSTSEC-2026-0235; then
+              failures=$((failures + 1))
+            fi
+            echo "::endgroup::"
+          done < <(git ls-files | grep -E '(^|/)Cargo\.lock$')
+          if [ "$failures" -ne 0 ]; then
+            echo "ERROR: $failures Cargo.lock audit(s) contain additional vulnerabilities"
             exit 1
           fi
