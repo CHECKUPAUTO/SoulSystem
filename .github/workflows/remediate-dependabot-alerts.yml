@@ -1,0 +1,104 @@
+name: Temporary Dependabot remediation
+
+on:
+  push:
+    branches:
+      - fix/ci-red-pr169
+
+permissions:
+  contents: write
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch vulnerable versions in committed Cargo lockfiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          replacements = {
+              "anyhow": (
+                  'name = "anyhow"\nversion = "1.0.102"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"',
+                  'name = "anyhow"\nversion = "1.0.103"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"',
+              ),
+              "crossbeam-epoch": (
+                  'name = "crossbeam-epoch"\nversion = "0.9.18"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"',
+                  'name = "crossbeam-epoch"\nversion = "0.9.20"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f"',
+              ),
+              "lru": (
+                  'name = "lru"\nversion = "0.18.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "8a860605968fce16869fd239cf4237a82f3ac470723415db603b0e8b6c8d4fb9"',
+                  'name = "lru"\nversion = "0.18.2"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "5d2f2f9b4ba7e6b24d95e7e899329d35be83bcded72c8540cdd5368932d1d90a"',
+              ),
+          }
+
+          tracked = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
+          lockfiles = [Path(p) for p in tracked if p == "Cargo.lock" or p.endswith("/Cargo.lock")]
+          counts = {name: 0 for name in replacements}
+
+          for path in lockfiles:
+              text = path.read_text()
+              original = text
+              for name, (old, new) in replacements.items():
+                  n = text.count(old)
+                  if n:
+                      text = text.replace(old, new)
+                      counts[name] += n
+                      print(f"patched {name}: {path} ({n})")
+              if text != original:
+                  path.write_text(text)
+
+          print("replacement counts:", counts)
+          if counts["anyhow"] == 0:
+              raise SystemExit("expected at least one anyhow 1.0.102 occurrence")
+          if counts["crossbeam-epoch"] == 0:
+              raise SystemExit("expected at least one crossbeam-epoch 0.9.18 occurrence")
+
+          stale = []
+          for path in lockfiles:
+              text = path.read_text()
+              for name, (old, _new) in replacements.items():
+                  if old in text:
+                      stale.append(f"{path}: {name}")
+          if stale:
+              raise SystemExit("stale vulnerable package blocks remain:\n" + "\n".join(stale))
+          PY
+          git diff --check
+          git diff -- '*Cargo.lock'
+
+      - name: Commit remediated lockfiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- '**/Cargo.lock' Cargo.lock 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No lockfile changes to commit"
+            exit 0
+          fi
+          git commit -m "fix(security): patch vulnerable Rust lockfiles"
+          git push origin HEAD:fix/ci-red-pr169
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit every committed Cargo lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r lock; do
+            dir="$(dirname "$lock")"
+            echo "::group::cargo audit $lock"
+            (cd "$dir" && cargo audit)
+            echo "::endgroup::"
+          done < <(git ls-files | grep -E '(^|/)Cargo\.lock$')
