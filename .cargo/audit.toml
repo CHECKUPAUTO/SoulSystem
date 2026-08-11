@@ -1,15 +1,15 @@
 # cargo-audit configuration
 # Run: cargo audit
 #
-# Suppressed advisories:
-# - RUSTSEC-2023-0071 (rsa): Marvin Attack — no fixed version available (transitive dep)
-# - RUSTSEC-2026-0098/0099/0104 (rustls-webpki): Transitive via tokio-tungstenite 0.24 
-#   used by soul-mcp/soul-protocol/soul-browser. Requires major refactor to upgrade.
+# RUSTSEC-2026-0235 (rkyv): rust_decimal 1.42.1, the latest stable release,
+# declares rkyv ^0.7.46 as an optional dependency. SoulSystem does not enable
+# rust_decimal's `rkyv` or `rkyv-safe` features, so cargo-deny does not resolve
+# rkyv in the active workspace graph. RustSec only provides a fix in rkyv
+# >=0.8.17, while rust_decimal 1.42.1 still pins the unsupported 0.7 line.
+# Do not enable those rust_decimal features. Remove this exception when a stable
+# rust_decimal release no longer locks rkyv 0.7.x.
 
 [advisories]
 ignore = [
-    "RUSTSEC-2023-0071",  # rsa — no fix available
-    "RUSTSEC-2026-0098",  # rustls-webpki name constraints URI (transitive)
-    "RUSTSEC-2026-0099",  # rustls-webpki name constraints wildcard (transitive)
-    "RUSTSEC-2026-0104",  # rustls-webpki CRL parsing panic (transitive)
+    "RUSTSEC-2026-0235",
 ]
