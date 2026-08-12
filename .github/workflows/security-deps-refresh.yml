@@ -29,6 +29,7 @@ jobs:
             @remotion/transitions@4.0.501 \
             remotion@4.0.501
           npm install --save-dev --save-exact @remotion/eslint-config-flat@4.0.501
+          npm audit fix
           npm audit
           npm run lint
           npm run build
@@ -47,5 +48,5 @@ jobs:
           git add \
             intel-integrations/soulsystem-integration/docs/architecture-video/package.json \
             intel-integrations/soulsystem-integration/docs/architecture-video/package-lock.json
-          git commit -m 'chore(deps): refresh Remotion security dependencies'
+          git commit -m 'chore(deps): refresh npm security dependencies'
           git push origin HEAD:chore/security-deps-refresh-2026-08-12
