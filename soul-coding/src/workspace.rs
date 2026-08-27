@@ -87,6 +87,7 @@ impl WorkspaceContext {
 
         let requested = Path::new(relative);
         let candidate = self.worktree.join(requested);
+        self.validate_symlink_components(&requested, relative)?;
         let mut existing = candidate.clone();
         let mut tail: Vec<OsString> = Vec::new();
 
@@ -120,6 +121,48 @@ impl WorkspaceContext {
         }
 
         Ok(resolved)
+    }
+
+    /// Check symlink components before looking for the nearest existing
+    /// parent. `Path::exists()` returns false for a broken symlink, so a
+    /// missing-target link would otherwise be mistaken for an ordinary new
+    /// path and a later write could escape the worktree.
+    fn validate_symlink_components(
+        &self,
+        requested: &Path,
+        display_path: &str,
+    ) -> Result<(), WorkspaceError> {
+        let mut current = self.worktree.clone();
+
+        for component in requested.components() {
+            let Component::Normal(name) = component else {
+                continue;
+            };
+            current.push(name);
+
+            match fs::symlink_metadata(&current) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    let canonical = fs::canonicalize(&current).map_err(|_| {
+                        WorkspaceError::OutsideWorktree(display_path.to_string())
+                    })?;
+                    if !canonical.starts_with(&self.worktree) {
+                        return Err(WorkspaceError::OutsideWorktree(
+                            display_path.to_string(),
+                        ));
+                    }
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) => {
+                    return Err(WorkspaceError::Io {
+                        path: display_path.to_string(),
+                        detail: error.to_string(),
+                    });
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -243,6 +286,22 @@ mod tests {
             context.resolve_path("linked/secret.txt"),
             Err(WorkspaceError::OutsideWorktree(_))
         ));
+        assert!(matches!(
+            context.resolve_path("linked/new.txt"),
+            Err(WorkspaceError::OutsideWorktree(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_broken_symlink_before_a_new_file_can_escape() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let link = root.path().join("linked");
+        std::os::unix::fs::symlink(outside.path().join("missing"), &link).unwrap();
+
+        let context = context(root.path());
+
         assert!(matches!(
             context.resolve_path("linked/new.txt"),
             Err(WorkspaceError::OutsideWorktree(_))
