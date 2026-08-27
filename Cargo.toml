@@ -75,6 +75,7 @@ members = [
     "souls",
     "soul_entity",
     "soul-agent-core",
+    "soul-coding",
     "soul_llm",
     "soul_planner",
     "soul_tools",
