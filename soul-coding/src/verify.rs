@@ -41,11 +41,7 @@ where
         Self { runner }
     }
 
-    pub fn verify(
-        &self,
-        task: &TaskSpec,
-        workspace: &WorkspaceContext,
-    ) -> VerificationReport {
+    pub fn verify(&self, task: &TaskSpec, workspace: &WorkspaceContext) -> VerificationReport {
         let checks = task
             .acceptance
             .iter()
