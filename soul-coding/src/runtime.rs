@@ -119,13 +119,9 @@ mod tests {
     #[test]
     fn failed_verification_is_not_reported_as_completed() {
         let dir = tempfile::tempdir().unwrap();
-        let context = crate::workspace::WorkspaceContext::new(
-            dir.path(),
-            dir.path(),
-            "base",
-            "session",
-        )
-        .unwrap();
+        let context =
+            crate::workspace::WorkspaceContext::new(dir.path(), dir.path(), "base", "session")
+                .unwrap();
         let runner = FakeRunner {
             output: Arc::new(CommandOutput {
                 stdout: String::new(),
