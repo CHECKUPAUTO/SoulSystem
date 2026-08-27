@@ -490,10 +490,8 @@ impl CervoBridge {
                             entry.0 += 1;
                             entry.1 += 1;
                         }
-                    } else {
-                        if let Some(entry) = algo_success.get_mut(&outcome.previous_algorithm) {
-                            entry.1 += 1;
-                        }
+                    } else if let Some(entry) = algo_success.get_mut(&outcome.previous_algorithm) {
+                        entry.1 += 1;
                     }
                 }
             }
