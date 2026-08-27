@@ -11,6 +11,11 @@
 unmaintained = "all"
 unsound = "all"
 ignore = [
+    # h2 0.3.27 remains transitive through the legacy actix/hyper-0.14
+    # compatibility graph and has no patched 0.3 release. The h2 0.4 branch
+    # is pinned to 0.4.19 in Cargo.lock. Keep this exception explicit until
+    # the legacy HTTP stack is removed; do not use it for new dependencies.
+    "RUSTSEC-2026-0258",
     # rustls-webpki/rsa advisories previously ignored here no longer match
     # anything in the current dependency graph (cargo-deny reports them as
     # stale "advisory-not-detected" warnings) — removed rather than kept as
