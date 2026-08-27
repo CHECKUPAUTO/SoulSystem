@@ -219,7 +219,8 @@ fn decode_hex(s: &str) -> Option<Vec<u8>> {
             _ => None,
         }
     };
-    for pair in bytes.chunks_exact(2) {
+    let (pairs, _) = bytes.as_chunks::<2>();
+    for pair in pairs {
         let hi = nibble(pair[0])?;
         let lo = nibble(pair[1])?;
         out.push((hi << 4) | lo);
