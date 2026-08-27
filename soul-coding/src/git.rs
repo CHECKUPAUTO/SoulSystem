@@ -43,7 +43,7 @@ where
 
     pub fn status(&self) -> Result<Vec<crate::contract::ChangedPath>, GitError> {
         let output = self.run_git(
-            &self.context.worktree().to_path_buf(),
+            self.context.worktree(),
             CommandSpec::new("git")?
                 .flag("-C")
                 .value(self.context.worktree().display().to_string())
@@ -59,7 +59,7 @@ where
         let status = self.status()?;
         let status_bytes = serialize_paths(&status);
         let diff = self.run_git(
-            &self.context.worktree().to_path_buf(),
+            self.context.worktree(),
             CommandSpec::new("git")?
                 .flag("-C")
                 .value(self.context.worktree().display().to_string())
