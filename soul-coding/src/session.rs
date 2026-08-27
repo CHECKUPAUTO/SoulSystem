@@ -10,12 +10,15 @@ use crate::contract::{TaskResult, TaskSpec, TaskStatus};
 use crate::workspace::{WorkspaceContext, WorkspaceError};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use soul_llm::provider::ChatMessage;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use thiserror::Error;
 
 pub const SESSION_SCHEMA_VERSION: u32 = 1;
+const MAX_CONVERSATION_MESSAGES: usize = 256;
+const MAX_CONVERSATION_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionRecord {
@@ -25,6 +28,11 @@ pub struct SessionRecord {
     pub turns: usize,
     pub tool_calls: usize,
     pub write_operations: usize,
+    /// The bounded provider-independent transcript needed to resume a model
+    /// loop without silently discarding its prior context. It is stored with
+    /// mode 0600 and is never treated as a credential channel.
+    #[serde(default)]
+    pub conversation: Vec<ChatMessage>,
     pub last_status: Option<TaskStatus>,
     pub last_result: Option<TaskResult>,
     pub created_at: DateTime<Utc>,
@@ -41,6 +49,7 @@ impl SessionRecord {
             turns: 0,
             tool_calls: 0,
             write_operations: 0,
+            conversation: Vec::new(),
             last_status: None,
             last_result: None,
             created_at: now,
@@ -72,6 +81,39 @@ impl SessionRecord {
     pub fn record_result(&mut self, result: TaskResult) {
         self.last_status = Some(result.status.clone());
         self.last_result = Some(result);
+        self.touch();
+    }
+
+    pub fn conversation(&self) -> &[ChatMessage] {
+        &self.conversation
+    }
+
+    /// Replace the resumable transcript with a bounded copy. The first
+    /// message is retained as the system prompt and the newest messages are
+    /// preferred when the context exceeds the persistence budget.
+    pub fn record_conversation(&mut self, messages: &[ChatMessage]) {
+        let mut retained = Vec::new();
+        let mut bytes = 0usize;
+
+        if let Some(first) = messages.first() {
+            bytes = message_size(first);
+            retained.push(first.clone());
+        }
+
+        let mut newest = Vec::new();
+        for message in messages.iter().skip(1).rev() {
+            let size = message_size(message);
+            if retained.len() + newest.len() >= MAX_CONVERSATION_MESSAGES
+                || bytes.saturating_add(size) > MAX_CONVERSATION_BYTES
+            {
+                break;
+            }
+            bytes = bytes.saturating_add(size);
+            newest.push(message.clone());
+        }
+        newest.reverse();
+        retained.extend(newest);
+        self.conversation = retained;
         self.touch();
     }
 
@@ -206,6 +248,23 @@ impl SessionStore {
 
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 
+fn message_size(message: &ChatMessage) -> usize {
+    let calls = message.tool_calls.as_ref().map_or(0, |calls| {
+        calls.iter().fold(0usize, |total, call| {
+            total
+                .saturating_add(call.id.len())
+                .saturating_add(call.function.name.len())
+                .saturating_add(call.function.arguments.len())
+        })
+    });
+    message
+        .content
+        .len()
+        .saturating_add(message.tool_call_id.as_deref().map_or(0, str::len))
+        .saturating_add(calls)
+        .saturating_add(64)
+}
+
 fn validate_session_id(session_id: &str) -> Result<(), SessionError> {
     if session_id.trim().is_empty() {
         return Err(SessionError::InvalidSessionId(session_id.to_string()));
@@ -268,6 +327,7 @@ mod tests {
         assert_eq!(loaded.turns, 3);
         assert_eq!(loaded.tool_calls, 1);
         assert_eq!(loaded.write_operations, 1);
+        assert!(loaded.conversation().is_empty());
         assert_eq!(
             store.path("session-1").unwrap().extension().unwrap(),
             "json"

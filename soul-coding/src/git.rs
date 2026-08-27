@@ -7,6 +7,7 @@ use crate::workspace::{WorkspaceContext, WorkspaceError};
 use sha2::{Digest, Sha256};
 use soul_sandbox::SandboxPolicy;
 use std::fs;
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 use thiserror::Error;
@@ -66,13 +67,20 @@ where
                 .flag("diff")
                 .flag("--no-ext-diff")
                 .flag("--no-color")
-                .flag("--binary"),
+                .flag("--binary")
+                .flag("HEAD"),
         )?;
         let diff = ensure_output_success("git diff", diff)?;
 
         let mut hasher = Sha256::new();
         hasher.update(status_bytes);
         hasher.update(diff.stdout.as_bytes());
+        for changed in &status {
+            hash_path_state(&mut hasher, &self.context, &changed.path)?;
+            if let ChangeKind::Renamed { from } = &changed.kind {
+                hash_path_state(&mut hasher, &self.context, from)?;
+            }
+        }
         let diff_hash = format!("sha256:{:x}", hasher.finalize());
 
         ChangeSet::new(status, Some(diff_hash)).map_err(GitError::Contract)
@@ -278,6 +286,67 @@ fn serialize_paths(paths: &[crate::contract::ChangedPath]) -> Vec<u8> {
         bytes.push(0);
     }
     bytes
+}
+
+fn hash_path_state(
+    hasher: &mut Sha256,
+    context: &WorkspaceContext,
+    relative: &str,
+) -> Result<(), GitError> {
+    let resolved = context.resolve_path(relative)?;
+    let candidate = context.worktree().join(relative);
+    hasher.update(b"path\0");
+    hasher.update(relative.as_bytes());
+    hasher.update(b"\0");
+
+    match fs::symlink_metadata(&candidate) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            hasher.update(b"symlink\0");
+            let target = fs::read_link(&candidate).map_err(|error| GitError::Io {
+                path: relative.to_string(),
+                detail: error.to_string(),
+            })?;
+            hasher.update(target.to_string_lossy().as_bytes());
+            hash_resolved_file(hasher, &resolved)?;
+        }
+        Ok(metadata) if metadata.is_file() => {
+            hasher.update(b"file\0");
+            hash_resolved_file(hasher, &resolved)?;
+        }
+        Ok(metadata) => {
+            hasher.update(b"other\0");
+            hasher.update(metadata.len().to_le_bytes());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            hasher.update(b"missing\0");
+        }
+        Err(error) => {
+            return Err(GitError::Io {
+                path: relative.to_string(),
+                detail: error.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn hash_resolved_file(hasher: &mut Sha256, path: &Path) -> Result<(), GitError> {
+    let mut file = fs::File::open(path).map_err(|error| GitError::Io {
+        path: path.display().to_string(),
+        detail: error.to_string(),
+    })?;
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| GitError::Io {
+            path: path.display().to_string(),
+            detail: error.to_string(),
+        })?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(())
 }
 
 #[derive(Debug, Error)]

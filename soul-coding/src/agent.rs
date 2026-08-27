@@ -103,23 +103,32 @@ impl CodingAgent {
     ) -> Result<TaskResult, AgentError> {
         let runtime = CodingRuntime::new(self.check_runner.clone());
         let mut session = self.load_or_create_session(task, workspace)?;
-        self.save_session(&mut session)?;
-        let mut messages = vec![ChatMessage {
-            role: ChatRole::System,
-            content: system_prompt(),
-            tool_calls: None,
-            tool_call_id: None,
-        }];
-        messages.push(ChatMessage {
-            role: ChatRole::User,
-            content: task_prompt(task),
-            tool_calls: None,
-            tool_call_id: None,
-        });
+        let mut messages = session
+            .as_ref()
+            .filter(|record| !record.conversation().is_empty())
+            .map(|record| record.conversation().to_vec())
+            .unwrap_or_else(|| {
+                vec![
+                    ChatMessage {
+                        role: ChatRole::System,
+                        content: system_prompt(),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    },
+                    ChatMessage {
+                        role: ChatRole::User,
+                        content: task_prompt(task),
+                        tool_calls: None,
+                        tool_call_id: None,
+                    },
+                ]
+            });
+        self.save_conversation(&mut session, &messages)?;
 
         let started = Instant::now();
         let mut tool_calls = session.as_ref().map_or(0, |record| record.tool_calls);
         let mut write_operations = session.as_ref().map_or(0, |record| record.write_operations);
+        let turn_offset = session.as_ref().map_or(0, |record| record.turns);
 
         for turn in 0..self.config.max_turns {
             if started.elapsed() >= self.config.max_wall_clock {
@@ -133,11 +142,12 @@ impl CodingAgent {
                     ),
                 );
             }
+            let current_turn = turn_offset.saturating_add(turn);
             if let Some(record) = session.as_mut() {
-                record.record_turn(turn);
+                record.record_turn(current_turn);
             }
-            self.save_session(&mut session)?;
-            self.emit(CodingAgentEvent::TurnStarted { turn });
+            self.save_conversation(&mut session, &messages)?;
+            self.emit(CodingAgentEvent::TurnStarted { turn: current_turn });
 
             let response = tokio::time::timeout(
                 self.config.model_call_timeout,
@@ -158,6 +168,7 @@ impl CodingAgent {
                 tool_calls: (!calls.is_empty()).then_some(calls.clone()),
                 tool_call_id: None,
             });
+            self.save_conversation(&mut session, &messages)?;
 
             if !calls.is_empty() {
                 for call in calls {
@@ -190,6 +201,7 @@ impl CodingAgent {
                         success: result.success,
                     });
                     messages.push(tool_message(&call, &result));
+                    self.save_conversation(&mut session, &messages)?;
                     if write_operations > self.config.max_write_operations {
                         return self.finish_session(
                             &mut session,
@@ -224,6 +236,7 @@ impl CodingAgent {
                 tool_calls: None,
                 tool_call_id: None,
             });
+            self.save_conversation(&mut session, &messages)?;
         }
 
         let result = runtime.verify_workspace(task, workspace)?;
@@ -292,6 +305,17 @@ impl CodingAgent {
             store.save(record)?;
         }
         Ok(())
+    }
+
+    fn save_conversation(
+        &self,
+        session: &mut Option<SessionRecord>,
+        messages: &[ChatMessage],
+    ) -> Result<(), AgentError> {
+        if let Some(record) = session.as_mut() {
+            record.record_conversation(messages);
+        }
+        self.save_session(session)
     }
 
     fn finish_session(

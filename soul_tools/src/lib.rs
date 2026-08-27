@@ -14,10 +14,14 @@
 
 use serde::{Deserialize, Serialize};
 use soul_sandbox::{Sandbox, SandboxPolicy, SandboxVerdict};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
+
+const MAX_TOOL_FILE_READ_BYTES: usize = 4 * 1024 * 1024;
+const MAX_TOOL_FILE_WRITE_BYTES: usize = 8 * 1024 * 1024;
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -740,11 +744,17 @@ pub fn dispatch_tool_in(
             let requested = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let policy = FsPolicy::new(root).map_err(|e| e.to_string())?;
             let path = policy.resolve_read(requested).map_err(|e| e.to_string())?;
-            std::fs::read_to_string(&path).map_err(|e| e.to_string())
+            read_file_capped(&path, MAX_TOOL_FILE_READ_BYTES)
         }
         ToolId::WriteFile => {
             let requested = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            if content.len() > MAX_TOOL_FILE_WRITE_BYTES {
+                return Err(format!(
+                    "file content exceeds the {} byte tool limit",
+                    MAX_TOOL_FILE_WRITE_BYTES
+                ));
+            }
             let policy = FsPolicy::new(root).map_err(|e| e.to_string())?;
             let path = policy.resolve_write(requested).map_err(|e| e.to_string())?;
             atomic_write(&path, content.as_bytes()).map_err(|e| e.to_string())?;
@@ -879,13 +889,31 @@ pub fn execute_tool(tool: &Tool, args: &str) -> std::result::Result<String, Stri
 // `FsPolicy` (see `dispatch_tool_in`) — never on a caller-supplied string.
 
 fn patch_file(path: &Path, old: &str, new: &str) -> Result<String, String> {
-    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let content = read_file_capped(path, MAX_TOOL_FILE_READ_BYTES)?;
     if !content.contains(old) {
         return Err(format!("pattern not found in {}", path.display()));
     }
     let updated = content.replacen(old, new, 1);
+    if updated.len() > MAX_TOOL_FILE_WRITE_BYTES {
+        return Err(format!(
+            "patched file exceeds the {} byte tool limit",
+            MAX_TOOL_FILE_WRITE_BYTES
+        ));
+    }
     atomic_write(path, updated.as_bytes()).map_err(|e| e.to_string())?;
     Ok(format!("patched {}", path.display()))
+}
+
+fn read_file_capped(path: &Path, max_bytes: usize) -> Result<String, String> {
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::with_capacity(max_bytes.min(8192));
+    file.take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > max_bytes {
+        return Err(format!("file exceeds the {max_bytes} byte tool read limit"));
+    }
+    String::from_utf8(bytes).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

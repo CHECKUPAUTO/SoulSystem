@@ -14,8 +14,9 @@ The current slice provides:
   justified.
 - CodingAgent is the single provider-agnostic loop: model turn, typed tool
   calls, bounded budgets, and verifier finalization.
-- SessionStore persists task/worktree identity, budgets, and final evidence;
-  `--resume --session-id ...` reopens an interrupted detached worktree.
+- SessionStore persists task/worktree identity, bounded conversation context,
+  budgets, and final evidence; `--resume --session-id ...` reopens an
+  interrupted detached worktree without silently losing the prior transcript.
 - The `soul-coding` binary provides one command-line entry point for Ollama,
   OpenAI, and Anthropic configurations without putting API keys in arguments.
 - CodingFeedback records accepted, rejected, and manually edited artifacts for
@@ -25,10 +26,12 @@ The crate intentionally does not implement Command Code's proprietary
 taste-1 model. It records auditable feedback events that can later feed a
 transparent, project-scoped preference system.
 
-Persistent resumable sessions, provider-independent session storage, richer
-typed tools, and subagent orchestration remain follow-up slices. The current
-binary is therefore a usable coding harness foundation, not yet a drop-in
-replacement for a mature product such as Cline, OpenCode, or Command Code.
+This is the canonical coding runtime for the repository. The existing general
+autonomy, daemon, browser, and MCP runtimes remain adapters or follow-up
+migrations; they are not duplicated inside this loop. Subagent orchestration
+and optional browser/MCP adapters remain explicit follow-up slices. The current
+binary is a usable coding harness foundation, not a drop-in replacement for a
+mature product such as Cline, OpenCode, or Command Code.
 
 Example:
 
