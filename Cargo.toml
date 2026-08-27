@@ -321,6 +321,7 @@ soulsystem-common = { path = "crates/soulsystem-common" }
 soul-cors = { path = "crates/soul-cors" }
 soul-auth = { path = "crates/soul-auth" }
 soul_sandbox = { path = "soul_sandbox" }
+soul-coding = { path = "soul-coding" }
 soul-prod-guard = { path = "crates/soul-prod-guard" }
 ccos = { path = "ccos" }
 octasoma = { path = "octasoma" }
@@ -403,6 +404,7 @@ soul_tools = { path = "soul_tools" }
 soul_repl = { path = "soul_repl" }
 soul_daemon = { path = "soul-daemon" }
 soul_sandbox = { path = "soul_sandbox" }
+soul-coding = { workspace = true }
 soul_browser = { path = "soul-browser" }
 soul_subagents = { path = "soul-subagents" }
 soul_goaltree = { path = "soul-goaltree" }
