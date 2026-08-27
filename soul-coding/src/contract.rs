@@ -320,6 +320,30 @@ impl TaskResult {
         )
     }
 
+    /// Preserve the evidence collected during verification when a task cannot
+    /// be declared complete. A failed check is still useful to a resuming
+    /// session; dropping it would force the next attempt to guess what
+    /// happened.
+    pub fn inconclusive_with_evidence(
+        task_id: impl Into<String>,
+        summary: impl Into<String>,
+        reason: impl Into<String>,
+        changes: ChangeSet,
+        checks: Vec<CheckResult>,
+        session_id: Option<String>,
+    ) -> Self {
+        Self {
+            task_id: task_id.into(),
+            status: TaskStatus::Inconclusive,
+            summary: summary.into(),
+            changes: Some(changes),
+            checks,
+            session_id,
+            failure_reason: Some(reason.into()),
+            finished_at: Utc::now(),
+        }
+    }
+
     fn non_completed(
         task_id: impl Into<String>,
         status: TaskStatus,
