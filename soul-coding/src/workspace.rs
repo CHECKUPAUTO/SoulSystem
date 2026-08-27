@@ -87,7 +87,7 @@ impl WorkspaceContext {
 
         let requested = Path::new(relative);
         let candidate = self.worktree.join(requested);
-        self.validate_symlink_components(&requested, relative)?;
+        self.validate_symlink_components(requested, relative)?;
         let mut existing = candidate.clone();
         let mut tail: Vec<OsString> = Vec::new();
 
