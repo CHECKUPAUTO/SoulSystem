@@ -154,6 +154,7 @@ impl SessionStore {
 
     pub fn load(&self, session_id: &str) -> Result<Option<SessionRecord>, SessionError> {
         let path = self.path(session_id)?;
+        validate_session_storage(&self.root, &path)?;
         let data = match fs::read_to_string(&path) {
             Ok(data) => data,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -177,11 +178,8 @@ impl SessionStore {
         self.validate_record(record.workspace.session_id(), record)?;
         record.touch();
         let path = self.path(record.workspace.session_id())?;
-        let parent = path.parent().expect("session path has a parent");
-        fs::create_dir_all(parent).map_err(|error| SessionError::Io {
-            path: parent.display().to_string(),
-            detail: error.to_string(),
-        })?;
+        let parent = ensure_session_directories(&self.root)?;
+        validate_session_storage(&self.root, &path)?;
 
         let data = serde_json::to_vec_pretty(record)
             .map_err(|error| SessionError::Serialize(error.to_string()))?;
@@ -276,10 +274,75 @@ fn validate_session_id(session_id: &str) -> Result<(), SessionError> {
     }
 }
 
+fn ensure_session_directories(root: &Path) -> Result<PathBuf, SessionError> {
+    let soul = root.join(".soul");
+    ensure_directory(&soul)?;
+    let sessions = soul.join("sessions");
+    ensure_directory(&sessions)?;
+    Ok(sessions)
+}
+
+fn ensure_directory(path: &Path) -> Result<(), SessionError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(SessionError::UnsafePath(path.display().to_string()))
+        }
+        Ok(metadata) if metadata.is_dir() => Ok(()),
+        Ok(_) => Err(SessionError::NotDirectory(path.display().to_string())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(path).map_err(|error| SessionError::Io {
+                path: path.display().to_string(),
+                detail: error.to_string(),
+            })
+        }
+        Err(error) => Err(SessionError::Io {
+            path: path.display().to_string(),
+            detail: error.to_string(),
+        }),
+    }
+}
+
+fn validate_session_storage(root: &Path, path: &Path) -> Result<(), SessionError> {
+    let soul = root.join(".soul");
+    let sessions = soul.join("sessions");
+    for directory in [&soul, &sessions] {
+        match fs::symlink_metadata(directory) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(SessionError::UnsafePath(directory.display().to_string()))
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(SessionError::NotDirectory(directory.display().to_string()))
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(SessionError::Io {
+                    path: directory.display().to_string(),
+                    detail: error.to_string(),
+                })
+            }
+        }
+    }
+
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(SessionError::UnsafePath(path.display().to_string()))
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(SessionError::Io {
+            path: path.display().to_string(),
+            detail: error.to_string(),
+        }),
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum SessionError {
     #[error("session root is not a directory: {0}")]
     NotDirectory(String),
+    #[error("session storage path must not be a symlink: {0}")]
+    UnsafePath(String),
     #[error("invalid session id: {0}")]
     InvalidSessionId(String),
     #[error("session schema version {0} is not supported")]
@@ -384,5 +447,37 @@ mod tests {
             .unwrap()
             .content
             .contains("299"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn session_storage_rejects_symlinked_directories() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join(".soul")).unwrap();
+
+        let store = SessionStore::new(root.path()).unwrap();
+        assert!(matches!(
+            store.load("session-1"),
+            Err(SessionError::UnsafePath(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn session_storage_rejects_symlinked_session_files() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join(".soul/sessions")).unwrap();
+        let target = outside.path().join("secret.json");
+        fs::write(&target, "not a session").unwrap();
+        std::os::unix::fs::symlink(&target, root.path().join(".soul/sessions/session-1.json"))
+            .unwrap();
+
+        let store = SessionStore::new(root.path()).unwrap();
+        assert!(matches!(
+            store.load("session-1"),
+            Err(SessionError::UnsafePath(_))
+        ));
     }
 }

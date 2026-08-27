@@ -159,7 +159,6 @@ impl CodingAgent {
             self.save_conversation(&mut session, &messages)?;
             self.emit(CodingAgentEvent::TurnStarted { turn: current_turn });
             compact_context(&mut messages);
-            compact_context(&mut messages);
 
             let response = tokio::time::timeout(
                 self.config.model_call_timeout,

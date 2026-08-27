@@ -117,8 +117,24 @@ impl GitWorkspace<SandboxCommandRunner> {
         validate_session_id(&session_id)?;
 
         let worktree = root.join(".soul").join("worktrees").join(&session_id);
-        if !worktree.is_dir() {
-            return Err(GitError::WorktreeNotFound(worktree.display().to_string()));
+        require_managed_parent(&root, &worktree)?;
+        match fs::symlink_metadata(&worktree) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(GitError::UnsafePath(worktree.display().to_string()))
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(GitError::WorktreeNotFound(worktree.display().to_string()))
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(GitError::WorktreeNotFound(worktree.display().to_string()))
+            }
+            Err(error) => {
+                return Err(GitError::Io {
+                    path: worktree.display().to_string(),
+                    detail: error.to_string(),
+                })
+            }
         }
         let context = WorkspaceContext::new(&root, &worktree, base_revision, session_id)
             .map_err(GitError::Workspace)?;
@@ -157,18 +173,21 @@ impl GitWorkspace<SandboxCommandRunner> {
         validate_session_id(&session_id)?;
 
         let worktree = root.join(".soul").join("worktrees").join(&session_id);
-        if worktree.exists() {
-            return Err(GitError::WorktreeAlreadyExists(
-                worktree.display().to_string(),
-            ));
-        }
-        fs::create_dir_all(worktree.parent().expect("worktree has a parent")).map_err(|error| {
-            GitError::Io {
-                path: worktree.display().to_string(),
-                detail: error.to_string(),
+        ensure_managed_parent(&root)?;
+        match fs::symlink_metadata(&worktree) {
+            Ok(_) => {
+                return Err(GitError::WorktreeAlreadyExists(
+                    worktree.display().to_string(),
+                ))
             }
-        })?;
-
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(GitError::Io {
+                    path: worktree.display().to_string(),
+                    detail: error.to_string(),
+                })
+            }
+        }
         let runner = SandboxCommandRunner::new(SandboxPolicy {
             working_dir: Some(root.clone()),
             ..policy
@@ -201,6 +220,59 @@ fn validate_session_id(session_id: &str) -> Result<(), GitError> {
     match (components.next(), components.next()) {
         (Some(Component::Normal(_)), None) => Ok(()),
         _ => Err(GitError::InvalidSessionId(session_id.to_string())),
+    }
+}
+
+fn ensure_managed_parent(root: &Path) -> Result<(), GitError> {
+    let soul = root.join(".soul");
+    ensure_directory(&soul)?;
+    ensure_directory(&soul.join("worktrees"))
+}
+
+fn require_managed_parent(root: &Path, worktree: &Path) -> Result<(), GitError> {
+    let soul = root.join(".soul");
+    require_directory(&soul)?;
+    require_directory(&soul.join("worktrees"))?;
+    if !worktree.starts_with(soul.join("worktrees")) {
+        return Err(GitError::UnsafePath(worktree.display().to_string()));
+    }
+    Ok(())
+}
+
+fn ensure_directory(path: &Path) -> Result<(), GitError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(GitError::UnsafePath(path.display().to_string()))
+        }
+        Ok(metadata) if metadata.is_dir() => Ok(()),
+        Ok(_) => Err(GitError::NotDirectory(path.display().to_string())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(path).map_err(|error| GitError::Io {
+                path: path.display().to_string(),
+                detail: error.to_string(),
+            })
+        }
+        Err(error) => Err(GitError::Io {
+            path: path.display().to_string(),
+            detail: error.to_string(),
+        }),
+    }
+}
+
+fn require_directory(path: &Path) -> Result<(), GitError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(GitError::UnsafePath(path.display().to_string()))
+        }
+        Ok(metadata) if metadata.is_dir() => Ok(()),
+        Ok(_) => Err(GitError::NotDirectory(path.display().to_string())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(GitError::WorktreeNotFound(path.display().to_string()))
+        }
+        Err(error) => Err(GitError::Io {
+            path: path.display().to_string(),
+            detail: error.to_string(),
+        }),
     }
 }
 
@@ -365,6 +437,8 @@ pub enum GitError {
     NotDirectory(String),
     #[error("Git workspace already exists: {0}")]
     WorktreeAlreadyExists(String),
+    #[error("Git managed path must not be a symlink: {0}")]
+    UnsafePath(String),
     #[error("Git worktree was not found for session: {0}")]
     WorktreeNotFound(String),
     #[error("Git base revision cannot be empty")]
@@ -463,5 +537,32 @@ mod tests {
         let second = workspace.change_set().unwrap().diff_hash;
 
         assert_ne!(first, second);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_worktree_parent_rejects_symlinked_storage() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join(".soul")).unwrap();
+
+        assert!(matches!(
+            ensure_managed_parent(root.path()),
+            Err(GitError::UnsafePath(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_worktree_parent_rejects_symlinked_worktrees_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join(".soul")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join(".soul/worktrees")).unwrap();
+
+        assert!(matches!(
+            ensure_managed_parent(root.path()),
+            Err(GitError::UnsafePath(_))
+        ));
     }
 }
