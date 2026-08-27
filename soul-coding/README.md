@@ -12,6 +12,10 @@ The current slice provides:
 - GitWorkspace collects porcelain status and a reproducible diff hash.
 - Verifier and CodingRuntime preserve check evidence when completion is not
   justified.
+- CodingAgent is the single provider-agnostic loop: model turn, typed tool
+  calls, bounded budgets, and verifier finalization.
+- The `soul-coding` binary provides one command-line entry point for Ollama,
+  OpenAI, and Anthropic configurations without putting API keys in arguments.
 - CodingFeedback records accepted, rejected, and manually edited artifacts for
   a future preference-learning layer.
 
@@ -19,6 +23,19 @@ The crate intentionally does not implement Command Code's proprietary
 taste-1 model. It records auditable feedback events that can later feed a
 transparent, project-scoped preference system.
 
-The model adapter, persistent sessions, typed coding tools, and the single
-canonical ReAct loop are the next slices. Until that work lands, this crate
-does not claim to be a complete autonomous coding client.
+Persistent resumable sessions, provider-independent session storage, richer
+typed tools, and subagent orchestration remain follow-up slices. The current
+binary is therefore a usable coding harness foundation, not yet a drop-in
+replacement for a mature product such as Cline, OpenCode, or Command Code.
+
+Example:
+
+```text
+cargo run -p soul-coding -- \
+  --repo . \
+  --prompt "Fix the failing parser" \
+  --check 'tests=cargo test -p my-crate'
+```
+
+`--check` values are persisted as shell-free, whitespace-separated argv. Use
+one `--check NAME=COMMAND` per required acceptance check.

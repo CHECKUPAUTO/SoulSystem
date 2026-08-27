@@ -2149,6 +2149,19 @@ impl Sandbox {
                 return Err(SandboxError::NotWhitelisted(program.clone()));
             }
         }
+        let normalized = normalize(&argv.join(" "));
+        for (pattern, kind) in FORBIDDEN_PATTERNS {
+            if normalized.contains(pattern) {
+                return Err(SandboxError::Forbidden(format!("{kind:?} ({pattern})")));
+            }
+        }
+        if self.policy.block_shell_bypass {
+            for (token, kind) in SHELL_BYPASS_TOKENS {
+                if normalized.contains(token) {
+                    return Err(SandboxError::Forbidden(format!("{kind:?} ({token})")));
+                }
+            }
+        }
         if self.policy.block_sensitive_paths {
             for argument in argv.iter().skip(1) {
                 if let Some(path) = SENSITIVE_PATHS

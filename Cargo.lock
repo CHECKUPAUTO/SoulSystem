@@ -9451,12 +9451,18 @@ name = "soul-coding"
 version = "13.5.0"
 dependencies = [
  "chrono",
+ "clap",
  "serde",
  "serde_json",
  "sha2",
+ "soul_llm",
  "soul_sandbox",
+ "soul_tools",
+ "soullink-gate",
+ "soulsystem-common",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
  "uuid",
 ]
 
