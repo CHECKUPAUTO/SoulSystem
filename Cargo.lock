@@ -9453,6 +9453,8 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "sha2",
+ "soul_sandbox",
  "tempfile",
  "thiserror 2.0.18",
  "uuid",
