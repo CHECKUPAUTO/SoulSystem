@@ -92,6 +92,13 @@ impl CodingAgent {
         self.session_store = Some(store);
     }
 
+    /// Enable terminal approvals for critical operations when the agent was
+    /// created in interactive mode. Embedded callers can configure a custom
+    /// handler through their own [`CodingToolExecutor`] instead.
+    pub fn enable_interactive_approval_prompt(&mut self) {
+        self.tools = self.tools.clone().with_interactive_prompt();
+    }
+
     pub fn tools(&self) -> &CodingToolExecutor {
         &self.tools
     }

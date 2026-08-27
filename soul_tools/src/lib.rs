@@ -963,6 +963,35 @@ mod compat_tests {
         );
     }
 
+    #[test]
+    fn read_file_is_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("large.txt"),
+            vec![b'x'; MAX_TOOL_FILE_READ_BYTES + 1],
+        )
+        .unwrap();
+
+        let error =
+            dispatch_tool_in("read_file", json!({"path": "large.txt"}), dir.path()).unwrap_err();
+        assert!(error.contains("tool read limit"));
+    }
+
+    #[test]
+    fn write_file_is_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = dispatch_tool_in(
+            "write_file",
+            json!({
+                "path": "large.txt",
+                "content": "x".repeat(MAX_TOOL_FILE_WRITE_BYTES + 1)
+            }),
+            dir.path(),
+        )
+        .unwrap_err();
+        assert!(error.contains("tool limit"));
+    }
+
     // ── CRIT-004: filesystem confinement adversarial tests ──────────────
 
     #[test]

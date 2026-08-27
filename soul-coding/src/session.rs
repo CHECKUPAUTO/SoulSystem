@@ -306,6 +306,7 @@ pub enum SessionError {
 mod tests {
     use super::*;
     use crate::contract::{CheckSpec, TaskSpec};
+    use soul_llm::provider::{ChatMessage, ChatRole};
 
     #[test]
     fn save_and_load_round_trip_keeps_resume_identity() {
@@ -346,5 +347,42 @@ mod tests {
             store.path("nested/session"),
             Err(SessionError::InvalidSessionId(_))
         ));
+    }
+
+    #[test]
+    fn conversation_keeps_system_prompt_and_newest_context_within_bounds() {
+        let dir = tempfile::tempdir().unwrap();
+        let task = TaskSpec::new(
+            "continue the implementation",
+            vec![CheckSpec::required("unit", "cargo test", 30).unwrap()],
+        )
+        .unwrap();
+        let workspace = WorkspaceContext::new(dir.path(), dir.path(), "base", "session-1").unwrap();
+        let mut record = SessionRecord::new(task, workspace);
+        let mut messages = vec![ChatMessage {
+            role: ChatRole::System,
+            content: "system".into(),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+        for index in 0..300 {
+            messages.push(ChatMessage {
+                role: ChatRole::User,
+                content: format!("message-{index}"),
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
+
+        record.record_conversation(&messages);
+
+        assert!(record.conversation().len() <= 256);
+        assert_eq!(record.conversation().first().unwrap().content, "system");
+        assert!(record
+            .conversation()
+            .last()
+            .unwrap()
+            .content
+            .contains("299"));
     }
 }

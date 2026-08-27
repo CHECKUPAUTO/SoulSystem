@@ -54,11 +54,11 @@ struct Args {
     #[arg(long, default_value = "ollama")]
     provider: String,
 
-    /// Provider model name. Defaults to the provider config default.
+    /// Provider model name. Required for OpenAI and Anthropic.
     #[arg(long)]
     model: Option<String>,
 
-    /// Provider base URL. Defaults to the provider config default.
+    /// Provider host base URL. OpenAI/Anthropic accept an optional trailing /v1.
     #[arg(long)]
     base_url: Option<String>,
 
@@ -92,6 +92,9 @@ impl ModeArg {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let provider: ProviderKind = args.provider.parse()?;
+    if provider != ProviderKind::Ollama && args.model.is_none() {
+        return Err(format!("--model is required for the {provider} provider").into());
+    }
     let store = SessionStore::new(&args.repo)?;
     let (task, workspace) = if args.resume {
         let session_id = args
@@ -130,6 +133,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut config = LlmConfig {
         provider,
+        base_url: soul_coding::normalize_provider_base_url(
+            provider,
+            args.base_url
+                .as_deref()
+                .unwrap_or(soul_coding::default_provider_base_url(provider)),
+        ),
         ..LlmConfig::default()
     };
     if let Some(model) = args.model {
@@ -146,6 +155,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         SandboxPolicy::default(),
         args.mode.execution_mode(),
     );
+    if matches!(args.mode, ModeArg::Interactive) {
+        agent.enable_interactive_approval_prompt();
+    }
     agent.set_session_store(store);
 
     let (event_tx, mut event_rx) = mpsc::unbounded_channel();
@@ -184,7 +196,13 @@ fn provider_token(provider: ProviderKind) -> Option<SecretString> {
         ProviderKind::OpenAI => "OPENAI_API_KEY",
         ProviderKind::Anthropic => "ANTHROPIC_API_KEY",
     };
-    std::env::var(variable).ok().map(SecretString::new)
+    std::env::var(variable)
+        .ok()
+        .or_else(|| {
+            soulsystem_common::secrets::resolve_llm_secret(&provider.to_string())
+                .map(|secret| secret.as_str().to_owned())
+        })
+        .map(SecretString::new)
 }
 
 fn print_event(event: CodingAgentEvent) {

@@ -22,10 +22,13 @@ pub struct ToolExecutionResult {
     pub permission: PermissionLevel,
 }
 
+pub type ApprovalHandler = Arc<dyn Fn(&str, &str, &ApprovalRequirement) -> bool + Send + Sync>;
+
 #[derive(Clone)]
 pub struct CodingToolExecutor {
     runner: crate::runner::SandboxCommandRunner,
     gate: Arc<ApprovalGate>,
+    approval_handler: Option<ApprovalHandler>,
 }
 
 impl CodingToolExecutor {
@@ -33,6 +36,7 @@ impl CodingToolExecutor {
         Self {
             runner: crate::runner::SandboxCommandRunner::new(policy),
             gate: Arc::new(ApprovalGate::new(mode)),
+            approval_handler: None,
         }
     }
 
@@ -40,7 +44,24 @@ impl CodingToolExecutor {
         Self {
             runner: crate::runner::SandboxCommandRunner::new(policy),
             gate,
+            approval_handler: None,
         }
+    }
+
+    /// Install a synchronous operator callback for `Interactive` pauses.
+    ///
+    /// The callback is invoked on a blocking worker so a terminal prompt does
+    /// not stall the Tokio executor. Without a handler, an interactive pause
+    /// remains denied by default, which is the safe embedding behavior.
+    pub fn with_approval_handler(mut self, handler: ApprovalHandler) -> Self {
+        self.approval_handler = Some(handler);
+        self
+    }
+
+    /// Use a terminal prompt for interactive approvals. Applications embedding
+    /// the crate can provide their own handler instead.
+    pub fn with_interactive_prompt(self) -> Self {
+        self.with_approval_handler(Arc::new(prompt_for_approval))
     }
 
     pub fn gate(&self) -> &ApprovalGate {
@@ -75,12 +96,31 @@ impl CodingToolExecutor {
         let scope = workspace.root().display().to_string();
         match self.gate.evaluate(tool_name, &scope, &requirement).await {
             GateDecision::Allow => {}
-            GateDecision::Deny(reason) | GateDecision::Pause(reason) => {
+            GateDecision::Deny(reason) => {
                 return ToolExecutionResult {
                     output: reason,
                     success: false,
                     permission,
                 };
+            }
+            GateDecision::Pause(reason) => {
+                let approved = self.approval_handler.clone().map(|handler| {
+                    let tool = tool_name.to_string();
+                    let scope = scope.clone();
+                    let requirement = requirement.clone();
+                    tokio::task::spawn_blocking(move || handler(&tool, &scope, &requirement))
+                });
+                let approved = match approved {
+                    Some(result) => result.await.unwrap_or(false),
+                    None => false,
+                };
+                if !approved {
+                    return ToolExecutionResult {
+                        output: format!("{reason}\n[operator approval denied]"),
+                        success: false,
+                        permission,
+                    };
+                }
             }
         }
 
@@ -244,6 +284,23 @@ fn merge_output(stdout: &str, stderr: &str) -> String {
         (true, false) => stderr.into(),
         (false, false) => format!("{stdout}\n{stderr}"),
     }
+}
+
+fn prompt_for_approval(tool: &str, scope: &str, requirement: &ApprovalRequirement) -> bool {
+    use std::io::{self, Write};
+
+    eprint!(
+        "Approval required for {tool} in {scope} ({}). Allow? [y/N] ",
+        requirement.reason
+    );
+    if io::stderr().flush().is_err() {
+        return false;
+    }
+    let mut answer = String::new();
+    if io::stdin().read_line(&mut answer).is_err() {
+        return false;
+    }
+    matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
 #[cfg(test)]

@@ -439,4 +439,29 @@ mod tests {
         let changes = workspace.status().unwrap();
         assert_eq!(changes[0].path, "src/new.rs");
     }
+
+    #[test]
+    fn change_hash_includes_untracked_file_content() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("src")).unwrap();
+        fs::write(dir.path().join("src/new.rs"), "first").unwrap();
+        let runner = FakeRunner {
+            commands: Default::default(),
+            output: CommandOutput {
+                stdout: "?? src/new.rs\0".into(),
+                stderr: String::new(),
+                exit_code: Some(0),
+                duration_ms: 1,
+                timed_out: false,
+            },
+        };
+        let context = WorkspaceContext::new(dir.path(), dir.path(), "base", "session").unwrap();
+        let workspace = GitWorkspace::from_context(context, runner);
+        let first = workspace.change_set().unwrap().diff_hash;
+
+        fs::write(dir.path().join("src/new.rs"), "second").unwrap();
+        let second = workspace.change_set().unwrap().diff_hash;
+
+        assert_ne!(first, second);
+    }
 }

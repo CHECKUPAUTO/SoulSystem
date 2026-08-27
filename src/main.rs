@@ -195,11 +195,11 @@ struct CodingArgs {
     #[arg(long, default_value = "ollama")]
     provider: soul_llm::ProviderKind,
 
-    /// Provider model name.
+    /// Provider model name. Required for OpenAI and Anthropic.
     #[arg(long)]
     model: Option<String>,
 
-    /// Provider base URL.
+    /// Provider host base URL. OpenAI/Anthropic accept an optional trailing /v1.
     #[arg(long)]
     base_url: Option<String>,
 
@@ -2037,6 +2037,9 @@ fn provider_models_url(base_url: &str) -> String {
 }
 
 async fn run_coding_command(args: &CodingArgs) -> Result<()> {
+    if args.provider != soul_llm::ProviderKind::Ollama && args.model.is_none() {
+        anyhow::bail!("--model is required for the {} provider", args.provider);
+    }
     let store = soul_coding::SessionStore::new(&args.repo)?;
     let (task, workspace) = if args.resume {
         let session_id = args
@@ -2079,6 +2082,12 @@ async fn run_coding_command(args: &CodingArgs) -> Result<()> {
 
     let mut config = soul_llm::LlmConfig {
         provider: args.provider,
+        base_url: soul_coding::normalize_provider_base_url(
+            args.provider,
+            args.base_url
+                .as_deref()
+                .unwrap_or(soul_coding::default_provider_base_url(args.provider)),
+        ),
         ..soul_llm::LlmConfig::default()
     };
     if let Some(model) = &args.model {
@@ -2095,6 +2104,9 @@ async fn run_coding_command(args: &CodingArgs) -> Result<()> {
         soul_sandbox::SandboxPolicy::default(),
         args.mode.execution_mode(),
     );
+    if matches!(args.mode, CodingMode::Interactive) {
+        agent.enable_interactive_approval_prompt();
+    }
     agent.set_session_store(store);
 
     let result = agent.run(&task, &workspace).await?;
