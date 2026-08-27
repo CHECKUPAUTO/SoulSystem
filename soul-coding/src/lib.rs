@@ -7,8 +7,8 @@
 
 #![deny(unsafe_code)]
 
-pub mod contract;
 pub mod command;
+pub mod contract;
 pub mod feedback;
 pub mod git;
 pub mod runner;
