@@ -236,7 +236,9 @@ impl TaskResult {
         }
 
         for required_spec in task.acceptance.iter().filter(|check| check.required) {
-            let matching = checks.iter().find(|result| result.name == required_spec.name);
+            let matching = checks
+                .iter()
+                .find(|result| result.name == required_spec.name);
             match matching {
                 Some(result) if result.passed && result.required => {}
                 Some(_) => {
@@ -453,7 +455,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(changes.paths().collect::<Vec<_>>(), vec!["src/a.rs", "src/z.rs"]);
+        assert_eq!(
+            changes.paths().collect::<Vec<_>>(),
+            vec!["src/a.rs", "src/z.rs"]
+        );
         assert!(ChangeSet::new(
             vec![ChangedPath {
                 path: "../escape".into(),
