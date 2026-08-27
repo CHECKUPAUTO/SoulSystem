@@ -238,9 +238,18 @@ impl TaskResult {
         for required_spec in task.acceptance.iter().filter(|check| check.required) {
             let matching = checks.iter().find(|result| result.name == required_spec.name);
             match matching {
-                Some(result) if result.passed => {}
+                Some(result) if result.passed && result.required => {}
                 Some(_) => {
-                    return Err(CompletionError::RequiredCheckFailed(
+                    let failed = checks
+                        .iter()
+                        .find(|result| result.name == required_spec.name)
+                        .is_some_and(|result| !result.passed);
+                    if failed {
+                        return Err(CompletionError::RequiredCheckFailed(
+                            required_spec.name.clone(),
+                        ));
+                    }
+                    return Err(CompletionError::RequiredCheckMissing(
                         required_spec.name.clone(),
                     ));
                 }
