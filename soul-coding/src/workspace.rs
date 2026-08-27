@@ -33,11 +33,10 @@ impl WorkspaceContext {
             return Err(WorkspaceError::NotDirectory(root.display().to_string()));
         }
 
-        let worktree =
-            fs::canonicalize(worktree.as_ref()).map_err(|error| WorkspaceError::Io {
-                path: worktree.as_ref().display().to_string(),
-                detail: error.to_string(),
-            })?;
+        let worktree = fs::canonicalize(worktree.as_ref()).map_err(|error| WorkspaceError::Io {
+            path: worktree.as_ref().display().to_string(),
+            detail: error.to_string(),
+        })?;
         if !worktree.is_dir() {
             return Err(WorkspaceError::NotDirectory(worktree.display().to_string()));
         }
