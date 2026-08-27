@@ -142,13 +142,10 @@ impl WorkspaceContext {
 
             match fs::symlink_metadata(&current) {
                 Ok(metadata) if metadata.file_type().is_symlink() => {
-                    let canonical = fs::canonicalize(&current).map_err(|_| {
-                        WorkspaceError::OutsideWorktree(display_path.to_string())
-                    })?;
+                    let canonical = fs::canonicalize(&current)
+                        .map_err(|_| WorkspaceError::OutsideWorktree(display_path.to_string()))?;
                     if !canonical.starts_with(&self.worktree) {
-                        return Err(WorkspaceError::OutsideWorktree(
-                            display_path.to_string(),
-                        ));
+                        return Err(WorkspaceError::OutsideWorktree(display_path.to_string()));
                     }
                 }
                 Ok(_) => {}
