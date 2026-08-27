@@ -10,7 +10,7 @@
 //!                  discovery, soul_memory, telemetry.
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 mod automation;
 mod prod_guard;
@@ -151,6 +151,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Run the canonical coding harness in an isolated Git worktree
+    Coding(CodingArgs),
     /// Store and manage credentials in the operating-system credential store
     Secrets {
         #[command(subcommand)]
@@ -161,6 +163,70 @@ enum Command {
         #[command(subcommand)]
         action: AutomationAction,
     },
+}
+
+#[derive(clap::Args)]
+struct CodingArgs {
+    /// Repository to modify. The worktree is created below this directory.
+    #[arg(long, default_value = ".")]
+    repo: PathBuf,
+
+    /// Revision from which the detached coding worktree is created.
+    #[arg(long, default_value = "HEAD")]
+    base_revision: String,
+
+    /// Natural-language coding task. Omit it when using --resume.
+    #[arg(long)]
+    prompt: Option<String>,
+
+    /// Required shell-free acceptance check, repeated as NAME=COMMAND.
+    #[arg(long = "check", value_name = "NAME=COMMAND")]
+    checks: Vec<String>,
+
+    /// Stable session identity. A UUID is generated for a new session when omitted.
+    #[arg(long)]
+    session_id: Option<String>,
+
+    /// Resume an existing session and its detached worktree.
+    #[arg(long)]
+    resume: bool,
+
+    /// LLM provider: ollama, openai, or anthropic.
+    #[arg(long, default_value = "ollama")]
+    provider: soul_llm::ProviderKind,
+
+    /// Provider model name. Required for OpenAI and Anthropic.
+    #[arg(long)]
+    model: Option<String>,
+
+    /// Provider host base URL. OpenAI/Anthropic accept an optional trailing /v1.
+    #[arg(long)]
+    base_url: Option<String>,
+
+    /// Approval mode. Autonomous blocks critical operations.
+    #[arg(long, value_enum, default_value_t = CodingMode::Autonomous)]
+    mode: CodingMode,
+
+    /// Print only the final JSON result on stdout.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CodingMode {
+    Interactive,
+    Autonomous,
+    Container,
+}
+
+impl CodingMode {
+    fn execution_mode(self) -> soul_coding::ExecutionMode {
+        match self {
+            Self::Interactive => soul_coding::ExecutionMode::Interactive,
+            Self::Autonomous => soul_coding::ExecutionMode::Autonomous,
+            Self::Container => soul_coding::ExecutionMode::Container,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -208,6 +274,10 @@ async fn main() -> Result<()> {
 
     if let Some(Command::Secrets { action }) = &cli.command {
         return run_secret_command(action);
+    }
+
+    if let Some(Command::Coding(args)) = &cli.command {
+        return run_coding_command(args).await;
     }
 
     if cli.setup {
@@ -1964,6 +2034,123 @@ fn provider_models_url(base_url: &str) -> String {
     } else {
         format!("{base_url}/v1/models")
     }
+}
+
+async fn run_coding_command(args: &CodingArgs) -> Result<()> {
+    if args.provider != soul_llm::ProviderKind::Ollama && args.model.is_none() {
+        anyhow::bail!("--model is required for the {} provider", args.provider);
+    }
+    let store = soul_coding::SessionStore::new(&args.repo)?;
+    let (task, workspace) = if args.resume {
+        let session_id = args
+            .session_id
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("--resume requires --session-id"))?;
+        let record = store
+            .load(session_id)?
+            .ok_or_else(|| anyhow::anyhow!("session not found: {session_id}"))?;
+        let workspace = soul_coding::GitWorkspace::open(
+            &args.repo,
+            record.workspace().base_revision().to_string(),
+            session_id.to_string(),
+            soul_sandbox::SandboxPolicy::default(),
+        )?;
+        (record.task().clone(), workspace)
+    } else {
+        let prompt = args
+            .prompt
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("a new coding session requires --prompt"))?;
+        let checks = args
+            .checks
+            .iter()
+            .map(|raw| parse_coding_check(raw))
+            .collect::<Result<Vec<_>>>()?;
+        let task = soul_coding::TaskSpec::new(prompt, checks)?;
+        let session_id = args
+            .session_id
+            .clone()
+            .unwrap_or_else(|| format!("session-{}", uuid::Uuid::new_v4()));
+        let workspace = soul_coding::GitWorkspace::create(
+            &args.repo,
+            args.base_revision.clone(),
+            session_id,
+            soul_sandbox::SandboxPolicy::default(),
+        )?;
+        (task, workspace)
+    };
+
+    let mut config = soul_llm::LlmConfig {
+        provider: args.provider,
+        base_url: soul_coding::normalize_provider_base_url(
+            args.provider,
+            args.base_url
+                .as_deref()
+                .unwrap_or(soul_coding::default_provider_base_url(args.provider)),
+        ),
+        ..soul_llm::LlmConfig::default()
+    };
+    if let Some(model) = &args.model {
+        config.model = model.clone();
+    }
+    config.auth_token = coding_provider_token(args.provider);
+    let client = soul_llm::LlmClient::new(config)?;
+    let mut agent = soul_coding::CodingAgent::new(
+        client,
+        Default::default(),
+        soul_sandbox::SandboxPolicy::default(),
+        args.mode.execution_mode(),
+    );
+    if matches!(args.mode, CodingMode::Interactive) {
+        agent.enable_interactive_approval_prompt();
+    }
+    agent.set_session_store(store);
+
+    let result = agent.run(&task, &workspace).await?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!("status: {:?}", result.status);
+        println!("summary: {}", result.summary);
+        println!("worktree: {}", workspace.context().worktree().display());
+        if let Some(reason) = &result.failure_reason {
+            println!("reason: {reason}");
+        }
+        println!(
+            "checks: {}/{} passed",
+            result.checks.iter().filter(|check| check.passed).count(),
+            result.checks.len()
+        );
+    }
+    if result.status != soul_coding::TaskStatus::Completed {
+        anyhow::bail!("coding session did not complete: {:?}", result.status);
+    }
+    Ok(())
+}
+
+fn parse_coding_check(raw: &str) -> Result<soul_coding::CheckSpec> {
+    let (name, command) = raw
+        .split_once('=')
+        .ok_or_else(|| anyhow::anyhow!("check must use NAME=COMMAND syntax: {raw:?}"))?;
+    soul_coding::CheckSpec::required(name, command, 300)
+        .map_err(|error| anyhow::anyhow!(error.to_string()))
+}
+
+fn coding_provider_token(
+    provider: soul_llm::ProviderKind,
+) -> Option<soulsystem_common::secrets::SecretString> {
+    let variable = match provider {
+        soul_llm::ProviderKind::Ollama => "SOULSYSTEM_LLM_API_KEY",
+        soul_llm::ProviderKind::OpenAI => "OPENAI_API_KEY",
+        soul_llm::ProviderKind::Anthropic => "ANTHROPIC_API_KEY",
+    };
+    std::env::var(variable)
+        .ok()
+        .or_else(|| {
+            soulsystem_common::secrets::resolve_llm_secret(&provider.to_string())
+                .map(|secret| secret.as_str().to_owned())
+        })
+        .map(soulsystem_common::secrets::SecretString::new)
 }
 
 /// Run an interactive first-time setup wizard and persist configuration.

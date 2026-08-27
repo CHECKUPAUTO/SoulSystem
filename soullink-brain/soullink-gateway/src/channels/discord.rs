@@ -188,8 +188,9 @@ fn decode_hex(s: &str) -> Option<Vec<u8>> {
             _ => None,
         }
     };
-    s.as_bytes()
-        .chunks_exact(2)
+    let (pairs, _) = s.as_bytes().as_chunks::<2>();
+    pairs
+        .iter()
         .map(|p| Some((nibble(p[0])? << 4) | nibble(p[1])?))
         .collect()
 }

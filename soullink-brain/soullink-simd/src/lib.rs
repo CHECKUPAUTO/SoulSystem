@@ -45,10 +45,11 @@ pub fn cosine_wide(a: &[f32], b: &[f32]) -> f32 {
     let mut sq_b = f32x8::ZERO;
 
     // Les chunks de 8 f32 sont traités en une instruction AVX2 chacun.
-    for (chunk_a, chunk_b) in a.chunks_exact(8).zip(b.chunks_exact(8)) {
-        // SAFETY : chunks_exact(8) garantit la taille
-        let va = f32x8::from(<[f32; 8]>::try_from(chunk_a).unwrap());
-        let vb = f32x8::from(<[f32; 8]>::try_from(chunk_b).unwrap());
+    let (chunks_a, _) = a.as_chunks::<8>();
+    let (chunks_b, _) = b.as_chunks::<8>();
+    for (chunk_a, chunk_b) in chunks_a.iter().zip(chunks_b.iter()) {
+        let va = f32x8::from(*chunk_a);
+        let vb = f32x8::from(*chunk_b);
 
         dot += va * vb;
         sq_a += va * va;

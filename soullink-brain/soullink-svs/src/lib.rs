@@ -218,8 +218,10 @@ impl SvsEngine {
             );
         }
         let mut vectors = Vec::with_capacity(count * dim);
-        for chunk in bytes[16..].chunks_exact(4) {
-            vectors.push(f32::from_le_bytes(chunk.try_into().unwrap()));
+        let (chunks, remainder) = bytes[16..].as_chunks::<4>();
+        debug_assert!(remainder.is_empty());
+        for chunk in chunks {
+            vectors.push(f32::from_le_bytes(*chunk));
         }
         self.vectors = vectors;
         self.count = count;

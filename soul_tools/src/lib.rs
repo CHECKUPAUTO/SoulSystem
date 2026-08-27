@@ -14,10 +14,14 @@
 
 use serde::{Deserialize, Serialize};
 use soul_sandbox::{Sandbox, SandboxPolicy, SandboxVerdict};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
+
+const MAX_TOOL_FILE_READ_BYTES: usize = 4 * 1024 * 1024;
+const MAX_TOOL_FILE_WRITE_BYTES: usize = 8 * 1024 * 1024;
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -467,6 +471,8 @@ pub enum FsPolicyError {
     NulByte { requested: String },
     /// The resolved path escapes the confined root.
     OutsideRoot { requested: String },
+    /// The requested path contains a symlink whose target does not exist.
+    BrokenSymlink { requested: String },
     /// The resolved path touches a protected location (e.g. `.git`).
     ProtectedPath { requested: String },
     /// The workspace root itself could not be canonicalised.
@@ -482,6 +488,9 @@ impl std::fmt::Display for FsPolicyError {
             Self::NulByte { requested } => write!(f, "path {requested:?} contains a NUL byte"),
             Self::OutsideRoot { requested } => {
                 write!(f, "path {requested:?} escapes the confined workspace root")
+            }
+            Self::BrokenSymlink { requested } => {
+                write!(f, "path {requested:?} contains a broken symlink")
             }
             Self::ProtectedPath { requested } => {
                 write!(f, "path {requested:?} touches a protected location")
@@ -553,6 +562,11 @@ impl FsPolicy {
             self.root.join(req_path)
         };
 
+        // `Path::exists()` is false for a broken symlink. Check link metadata
+        // before the nearest-existing-ancestor walk so a link is never
+        // mistaken for an ordinary missing path during a write.
+        self.reject_broken_symlink(&candidate, requested)?;
+
         // Walk up to the nearest existing ancestor, collecting the
         // not-yet-existing tail. Canonicalising only the existing part
         // resolves any symlink in that chain (including the leaf itself, when
@@ -609,6 +623,45 @@ impl FsPolicy {
         }
 
         Ok(result)
+    }
+
+    fn reject_broken_symlink(
+        &self,
+        candidate: &Path,
+        requested: &str,
+    ) -> Result<(), FsPolicyError> {
+        let mut current = PathBuf::new();
+        for component in candidate.components() {
+            current.push(component.as_os_str());
+            let metadata = match std::fs::symlink_metadata(&current) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) => {
+                    return Err(FsPolicyError::Io {
+                        requested: requested.to_string(),
+                        detail: error.to_string(),
+                    })
+                }
+            };
+            if !metadata.file_type().is_symlink() {
+                continue;
+            }
+            match std::fs::metadata(&current) {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(FsPolicyError::BrokenSymlink {
+                        requested: requested.to_string(),
+                    })
+                }
+                Err(error) => {
+                    return Err(FsPolicyError::Io {
+                        requested: requested.to_string(),
+                        detail: error.to_string(),
+                    })
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -691,11 +744,17 @@ pub fn dispatch_tool_in(
             let requested = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let policy = FsPolicy::new(root).map_err(|e| e.to_string())?;
             let path = policy.resolve_read(requested).map_err(|e| e.to_string())?;
-            std::fs::read_to_string(&path).map_err(|e| e.to_string())
+            read_file_capped(&path, MAX_TOOL_FILE_READ_BYTES)
         }
         ToolId::WriteFile => {
             let requested = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            if content.len() > MAX_TOOL_FILE_WRITE_BYTES {
+                return Err(format!(
+                    "file content exceeds the {} byte tool limit",
+                    MAX_TOOL_FILE_WRITE_BYTES
+                ));
+            }
             let policy = FsPolicy::new(root).map_err(|e| e.to_string())?;
             let path = policy.resolve_write(requested).map_err(|e| e.to_string())?;
             atomic_write(&path, content.as_bytes()).map_err(|e| e.to_string())?;
@@ -830,13 +889,31 @@ pub fn execute_tool(tool: &Tool, args: &str) -> std::result::Result<String, Stri
 // `FsPolicy` (see `dispatch_tool_in`) — never on a caller-supplied string.
 
 fn patch_file(path: &Path, old: &str, new: &str) -> Result<String, String> {
-    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let content = read_file_capped(path, MAX_TOOL_FILE_READ_BYTES)?;
     if !content.contains(old) {
         return Err(format!("pattern not found in {}", path.display()));
     }
     let updated = content.replacen(old, new, 1);
+    if updated.len() > MAX_TOOL_FILE_WRITE_BYTES {
+        return Err(format!(
+            "patched file exceeds the {} byte tool limit",
+            MAX_TOOL_FILE_WRITE_BYTES
+        ));
+    }
     atomic_write(path, updated.as_bytes()).map_err(|e| e.to_string())?;
     Ok(format!("patched {}", path.display()))
+}
+
+fn read_file_capped(path: &Path, max_bytes: usize) -> Result<String, String> {
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::with_capacity(max_bytes.min(8192));
+    file.take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > max_bytes {
+        return Err(format!("file exceeds the {max_bytes} byte tool read limit"));
+    }
+    String::from_utf8(bytes).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -884,6 +961,35 @@ mod compat_tests {
             dispatch_tool_in("read_file", json!({"path": "a.txt"}), root).unwrap(),
             "world"
         );
+    }
+
+    #[test]
+    fn read_file_is_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("large.txt"),
+            vec![b'x'; MAX_TOOL_FILE_READ_BYTES + 1],
+        )
+        .unwrap();
+
+        let error =
+            dispatch_tool_in("read_file", json!({"path": "large.txt"}), dir.path()).unwrap_err();
+        assert!(error.contains("tool read limit"));
+    }
+
+    #[test]
+    fn write_file_is_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = dispatch_tool_in(
+            "write_file",
+            json!({
+                "path": "large.txt",
+                "content": "x".repeat(MAX_TOOL_FILE_WRITE_BYTES + 1)
+            }),
+            dir.path(),
+        )
+        .unwrap_err();
+        assert!(error.contains("tool limit"));
     }
 
     // ── CRIT-004: filesystem confinement adversarial tests ──────────────
@@ -1014,6 +1120,22 @@ mod compat_tests {
             "got: {err}"
         );
         assert!(!outside.path().join("new.txt").exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn broken_symlink_is_rejected_before_write_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::os::unix::fs::symlink(root.join("missing-target"), root.join("broken")).unwrap();
+
+        let err = dispatch_tool_in(
+            "write_file",
+            json!({"path": "broken", "content": "x"}),
+            root,
+        )
+        .unwrap_err();
+        assert!(err.contains("broken symlink"), "got: {err}");
     }
 
     #[test]

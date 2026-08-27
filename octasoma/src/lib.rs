@@ -1103,7 +1103,7 @@ mod tests {
     #[test]
     fn projection_rows_are_unit_norm() {
         let mem = FractalMemory3D::new(32, 7);
-        for row in mem.projection_matrix.chunks_exact(32) {
+        for row in mem.projection_matrix.as_chunks::<32>().0 {
             let norm: f32 = row.iter().map(|x| x * x).sum::<f32>().sqrt();
             assert!((norm - 1.0).abs() < 1e-5, "row norm {norm} not unit");
         }

@@ -488,6 +488,7 @@ async fn require_scope(
 /// reconnecting from a new port. The cost is that an unauthenticated flood is
 /// bounded by the connection cap rather than by this limiter, which is the
 /// right split — rejecting an unauthenticated request is already cheap.
+#[allow(clippy::result_large_err)]
 async fn require_rate_budget(
     State(state): State<GatewayState>,
     req: Request,

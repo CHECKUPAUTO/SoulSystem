@@ -189,6 +189,32 @@ fn read_capped(reader: impl Read, max_bytes: usize) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
+/// Drain a pipe to EOF while retaining only its bounded prefix.
+///
+/// A child can block when its pipe buffer fills. Reading only the first
+/// `max_bytes` and then dropping the pipe would avoid memory growth but leave
+/// the child blocked forever. The structured-argv execution path therefore
+/// keeps draining after the capture limit and discards the excess.
+fn read_capped_draining(mut reader: impl Read, max_bytes: usize) -> String {
+    let mut kept = Vec::new();
+    let mut chunk = [0_u8; 8192];
+
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => {
+                if kept.len() < max_bytes {
+                    let remaining = max_bytes - kept.len();
+                    kept.extend_from_slice(&chunk[..read.min(remaining)]);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    String::from_utf8_lossy(&kept).into_owned()
+}
+
 /// Detect the delegated cgroup subtree once per process, logging the outcome
 /// exactly once either way.
 fn cgroup_context_once() -> Result<&'static cgroup::CgroupContext, ()> {
@@ -1769,6 +1795,7 @@ pub struct SpawnSpec {
     program: String,
     args: Vec<String>,
     piped: bool,
+    capture_stderr: bool,
 }
 
 impl SpawnSpec {
@@ -1779,6 +1806,7 @@ impl SpawnSpec {
             program: program.into(),
             args: Vec::new(),
             piped: false,
+            capture_stderr: false,
         }
     }
 
@@ -1796,6 +1824,14 @@ impl SpawnSpec {
     /// no reader is another way to hang a child.
     pub fn piped_stdio(mut self) -> Self {
         self.piped = true;
+        self
+    }
+
+    /// Give the child piped stdin/stdout/stderr so a bounded caller can
+    /// collect a complete command verdict without risking a full pipe.
+    pub fn captured_stdio(mut self) -> Self {
+        self.piped = true;
+        self.capture_stderr = true;
         self
     }
 
@@ -1955,6 +1991,80 @@ impl Sandbox {
         Ok(SupervisedChild { child, pid })
     }
 
+    /// Execute a structured argv specification to completion under the same
+    /// command policy and process isolation as [`Self::supervised_command`].
+    ///
+    /// Unlike [`Sandbox::execute`], this never joins arguments into a string
+    /// and never reparses them with whitespace splitting. Output is drained
+    /// concurrently and retained only up to `max_output_bytes` per stream.
+    /// The structured path intentionally uses the long-lived spawn primitive;
+    /// the returned verdict supplies the wall-clock timeout and kills the
+    /// complete process group when it expires.
+    pub fn execute_spec(&self, spec: &SpawnSpec) -> Result<SandboxVerdict, SandboxError> {
+        let argv = spec.preview()?;
+        let command_display = argv.join(" ");
+        let bin = self.check_argv(&argv)?;
+        let capture = spec.clone().captured_stdio();
+        let mut command = self.supervised_command(&capture)?;
+        let started_at = Utc::now();
+        let t0 = Instant::now();
+        let mut child = command.spawn()?;
+        let pid = child.id() as i32;
+        let max_output_bytes = self.policy.max_output_bytes;
+
+        let stdout_reader = child.stdout.take().map(|reader| {
+            std::thread::spawn(move || read_capped_draining(reader, max_output_bytes))
+        });
+        let stderr_reader = child.stderr.take().map(|reader| {
+            std::thread::spawn(move || read_capped_draining(reader, max_output_bytes))
+        });
+
+        let (exit_code, _, _, timed_out) = self.wait_with_timeout(&mut child, pid);
+        let stdout = stdout_reader
+            .and_then(|reader| reader.join().ok())
+            .unwrap_or_default();
+        let stderr = stderr_reader
+            .and_then(|reader| reader.join().ok())
+            .unwrap_or_default();
+        let duration_ms = t0.elapsed().as_millis() as u64;
+        let threats: Vec<String> = argv
+            .iter()
+            .flat_map(|arg| self.scan(arg))
+            .map(|threat| format!("{threat:?}"))
+            .chain(
+                argv.iter()
+                    .flat_map(|arg| self.scan_paths(arg))
+                    .collect::<Vec<_>>(),
+            )
+            .collect();
+
+        let verdict = SandboxVerdict {
+            command: command_display.clone(),
+            command_normalized: normalize(&command_display),
+            binary: bin,
+            allowed: true,
+            reason: "ok".into(),
+            stdout,
+            stderr,
+            exit_code,
+            duration_ms,
+            started_at,
+            finished_at: Utc::now(),
+            threats,
+            timed_out,
+        };
+
+        if self.policy.log_all {
+            let mut history = self.history.lock();
+            history.push_back(verdict.clone());
+            while history.len() > self.history_max {
+                history.pop_front();
+            }
+        }
+
+        Ok(verdict)
+    }
+
     /// Build the isolated `Command` for `spec` **without spawning it**.
     ///
     /// Exists for callers that need a `tokio::process::Child` rather than a
@@ -1982,17 +2092,10 @@ impl Sandbox {
         spec: &SpawnSpec,
     ) -> Result<std::process::Command, SandboxError> {
         let (program, args) = spec.resolve()?;
-
-        if BANNED_BINARIES.contains(&program.as_str()) {
-            return Err(SandboxError::ShellEscape(format!(
-                "binaire banni: {program}"
-            )));
-        }
-        if let Some(ref wl) = self.policy.whitelist {
-            if !wl.contains(&program) {
-                return Err(SandboxError::NotWhitelisted(program));
-            }
-        }
+        let mut argv = Vec::with_capacity(args.len() + 1);
+        argv.push(program.clone());
+        argv.extend(args.iter().cloned());
+        self.check_argv(&argv)?;
 
         // Deliberately *not* run over argv: FORBIDDEN_PATTERNS and
         // SHELL_BYPASS_TOKENS describe shell metacharacters, and there is no
@@ -2005,7 +2108,11 @@ impl Sandbox {
             command
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::inherit());
+                .stderr(if spec.capture_stderr {
+                    Stdio::piped()
+                } else {
+                    Stdio::inherit()
+                });
         } else {
             command
                 .stdin(Stdio::null())
@@ -2023,6 +2130,49 @@ impl Sandbox {
         self.apply_sandbox_pre_exec(&mut command, None);
 
         Ok(command)
+    }
+
+    fn check_argv(&self, argv: &[String]) -> Result<String, SandboxError> {
+        let Some(program) = argv.first() else {
+            return Err(SandboxError::Empty);
+        };
+        if program.trim().is_empty() {
+            return Err(SandboxError::Empty);
+        }
+        if BANNED_BINARIES.contains(&program.as_str()) {
+            return Err(SandboxError::ShellEscape(format!(
+                "binaire banni: {program}"
+            )));
+        }
+        if let Some(ref whitelist) = self.policy.whitelist {
+            if !whitelist.contains(program) {
+                return Err(SandboxError::NotWhitelisted(program.clone()));
+            }
+        }
+        let normalized = normalize(&argv.join(" "));
+        for (pattern, kind) in FORBIDDEN_PATTERNS {
+            if normalized.contains(pattern) {
+                return Err(SandboxError::Forbidden(format!("{kind:?} ({pattern})")));
+            }
+        }
+        if self.policy.block_shell_bypass {
+            for (token, kind) in SHELL_BYPASS_TOKENS {
+                if normalized.contains(token) {
+                    return Err(SandboxError::Forbidden(format!("{kind:?} ({token})")));
+                }
+            }
+        }
+        if self.policy.block_sensitive_paths {
+            for argument in argv.iter().skip(1) {
+                if let Some(path) = SENSITIVE_PATHS
+                    .iter()
+                    .find(|path| argument.contains(**path))
+                {
+                    return Err(SandboxError::SensitivePath((*path).to_string()));
+                }
+            }
+        }
+        Ok(program.clone())
     }
 }
 
@@ -2055,6 +2205,16 @@ mod spawn_spec_tests {
     fn a_value_containing_spaces_stays_a_single_argument() {
         let spec = SpawnSpec::new("echo").value("two words");
         assert_eq!(spec.preview().unwrap(), vec!["echo", "two words"]);
+    }
+
+    #[test]
+    fn execute_spec_preserves_spaces_and_captures_output() {
+        let sandbox = Sandbox::new(SandboxPolicy::default());
+        let spec = SpawnSpec::new("echo").value("two words");
+        let verdict = sandbox.execute_spec(&spec).expect("structured command");
+
+        assert_eq!(verdict.exit_code, Some(0));
+        assert_eq!(verdict.stdout.trim(), "two words");
     }
 
     #[test]

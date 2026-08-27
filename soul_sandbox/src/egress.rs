@@ -40,8 +40,6 @@
 //! unrestricted network — an egress policy that silently stops applying is
 //! worse than none, because it is believed.
 
-#![cfg(target_os = "linux")]
-
 use std::collections::BTreeSet;
 use std::io;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};

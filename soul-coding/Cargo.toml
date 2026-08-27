@@ -1,0 +1,28 @@
+[package]
+name = "soul-coding"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Deterministic contracts and workspace boundaries for the SoulSystem coding harness"
+repository = "https://github.com/Memorithm/SoulSystem"
+keywords = ["coding-agent", "harness", "workspace", "verification"]
+categories = ["development-tools"]
+
+[dependencies]
+chrono = { workspace = true, features = ["serde"] }
+clap = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+soul_sandbox = { workspace = true }
+soul_llm = { path = "../soul_llm" }
+soul_tools = { path = "../soul_tools" }
+soullink-gate = { path = "../soullink-brain/soullink-gate" }
+soulsystem-common = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

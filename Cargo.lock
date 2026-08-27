@@ -4269,9 +4269,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.4.15"
+version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cb093c84e8bd9b188d4c4a8cb6579fc016968d14c99882163cd3ff402a4f155"
+checksum = "ef8e5e5a340588f4452631496976cf8636d4a7ecf600239fdc27615d2530bc16"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -4610,7 +4610,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-core",
- "h2 0.4.15",
+ "h2 0.4.19",
  "http 1.4.2",
  "http-body",
  "httparse",
@@ -8124,7 +8124,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-util",
- "h2 0.4.15",
+ "h2 0.4.19",
  "http 1.4.2",
  "http-body",
  "http-body-util",
@@ -9444,6 +9444,26 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "soul-coding"
+version = "13.5.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "serde",
+ "serde_json",
+ "sha2",
+ "soul_llm",
+ "soul_sandbox",
+ "soul_tools",
+ "soullink-gate",
+ "soulsystem-common",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -11061,8 +11081,8 @@ dependencies = [
  "flate2",
  "futures-util",
  "hostname",
- "hyper",
  "hyper-util",
+ "hyper",
  "libc",
  "local-skills",
  "model-router",
@@ -11083,14 +11103,10 @@ dependencies = [
  "seahash",
  "semantic_firewall",
  "semantic_neuromodulator",
- "serde",
  "serde_json",
+ "serde",
  "sha2",
  "sled",
- "soul-bridge",
- "soul-dashboard",
- "soul-memory",
- "soul-prod-guard",
  "soul_agent_contracts",
  "soul_agent_core",
  "soul_agent_runtime",
@@ -11131,6 +11147,11 @@ dependencies = [
  "soul_surgery",
  "soul_telemetry",
  "soul_tools",
+ "soul-bridge",
+ "soul-coding",
+ "soul-dashboard",
+ "soul-memory",
+ "soul-prod-guard",
  "soullink-autonomy",
  "soullink-circuit",
  "soullink-memory",
@@ -11144,13 +11165,13 @@ dependencies = [
  "tempfile",
  "terminal-stream",
  "thiserror 2.0.18",
- "tokio",
  "tokio-stream",
  "tokio-tungstenite 0.29.0",
+ "tokio",
  "toml",
  "tower 0.5.3",
- "tracing",
  "tracing-subscriber",
+ "tracing",
  "uuid",
  "which 8.0.4",
 ]
