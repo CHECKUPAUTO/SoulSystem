@@ -14,6 +14,8 @@ The current slice provides:
   justified.
 - CodingAgent is the single provider-agnostic loop: model turn, typed tool
   calls, bounded budgets, and verifier finalization.
+- SessionStore persists task/worktree identity, budgets, and final evidence;
+  `--resume --session-id ...` reopens an interrupted detached worktree.
 - The `soul-coding` binary provides one command-line entry point for Ollama,
   OpenAI, and Anthropic configurations without putting API keys in arguments.
 - CodingFeedback records accepted, rejected, and manually edited artifacts for
@@ -39,3 +41,15 @@ cargo run -p soul-coding -- \
 
 `--check` values are persisted as shell-free, whitespace-separated argv. Use
 one `--check NAME=COMMAND` per required acceptance check.
+
+To resume a session, use the same repository and session identifier:
+
+```text
+cargo run -p soul-coding -- \
+  --repo . \
+  --resume \
+  --session-id session-123
+```
+
+Session metadata is local repository state and can include verifier output;
+do not use it as a channel for credentials.

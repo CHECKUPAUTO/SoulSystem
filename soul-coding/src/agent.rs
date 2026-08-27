@@ -4,6 +4,7 @@ use crate::contract::{TaskResult, TaskSpec, TaskStatus};
 use crate::git::GitWorkspace;
 use crate::runner::SandboxCommandRunner;
 use crate::runtime::{CodingRuntime, RuntimeError};
+use crate::session::{SessionError, SessionRecord, SessionStore};
 use crate::tools::{coding_tool_schemas, CodingToolExecutor, ToolExecutionResult};
 use crate::workspace::WorkspaceContext;
 use soul_llm::provider::{ChatMessage, ChatRole, ToolCall};
@@ -50,6 +51,7 @@ pub struct CodingAgent {
     check_runner: SandboxCommandRunner,
     schemas: Vec<soul_llm::provider::ToolSchema>,
     event_tx: Option<mpsc::UnboundedSender<CodingAgentEvent>>,
+    session_store: Option<SessionStore>,
 }
 
 impl CodingAgent {
@@ -67,6 +69,7 @@ impl CodingAgent {
             check_runner,
             schemas: coding_tool_schemas(),
             event_tx: None,
+            session_store: None,
         }
     }
 
@@ -83,6 +86,12 @@ impl CodingAgent {
         self.event_tx = Some(sender);
     }
 
+    /// Persist resumable session metadata under the repository's `.soul`
+    /// directory. The worktree remains the source of truth for code changes.
+    pub fn set_session_store(&mut self, store: SessionStore) {
+        self.session_store = Some(store);
+    }
+
     pub fn tools(&self) -> &CodingToolExecutor {
         &self.tools
     }
@@ -93,6 +102,8 @@ impl CodingAgent {
         workspace: &GitWorkspace<SandboxCommandRunner>,
     ) -> Result<TaskResult, AgentError> {
         let runtime = CodingRuntime::new(self.check_runner.clone());
+        let mut session = self.load_or_create_session(task, workspace)?;
+        self.save_session(&mut session)?;
         let mut messages = vec![ChatMessage {
             role: ChatRole::System,
             content: system_prompt(),
@@ -107,18 +118,25 @@ impl CodingAgent {
         });
 
         let started = Instant::now();
-        let mut tool_calls = 0_usize;
-        let mut write_operations = 0_usize;
+        let mut tool_calls = session.as_ref().map_or(0, |record| record.tool_calls);
+        let mut write_operations = session.as_ref().map_or(0, |record| record.write_operations);
 
         for turn in 0..self.config.max_turns {
             if started.elapsed() >= self.config.max_wall_clock {
-                return Ok(TaskResult::failed(
-                    task.id.clone(),
-                    "Coding session reached its wall-clock budget.",
-                    "model loop budget exhausted",
-                    Some(workspace.context().session_id().to_string()),
-                ));
+                return self.finish_session(
+                    &mut session,
+                    TaskResult::failed(
+                        task.id.clone(),
+                        "Coding session reached its wall-clock budget.",
+                        "model loop budget exhausted",
+                        Some(workspace.context().session_id().to_string()),
+                    ),
+                );
             }
+            if let Some(record) = session.as_mut() {
+                record.record_turn(turn);
+            }
+            self.save_session(&mut session)?;
             self.emit(CodingAgentEvent::TurnStarted { turn });
 
             let response = tokio::time::timeout(
@@ -144,19 +162,27 @@ impl CodingAgent {
             if !calls.is_empty() {
                 for call in calls {
                     tool_calls += 1;
+                    let writes = self.tool_is_write(&call);
+                    if let Some(record) = session.as_mut() {
+                        record.record_tool_call(writes);
+                    }
+                    self.save_session(&mut session)?;
                     if tool_calls > self.config.max_tool_calls {
-                        return Ok(TaskResult::failed(
-                            task.id.clone(),
-                            "Coding session exceeded its tool-call budget.",
-                            "tool-call budget exhausted",
-                            Some(workspace.context().session_id().to_string()),
-                        ));
+                        return self.finish_session(
+                            &mut session,
+                            TaskResult::failed(
+                                task.id.clone(),
+                                "Coding session exceeded its tool-call budget.",
+                                "tool-call budget exhausted",
+                                Some(workspace.context().session_id().to_string()),
+                            ),
+                        );
                     }
                     self.emit(CodingAgentEvent::ToolCall {
                         name: call.function.name.clone(),
                     });
                     let result = self.execute_tool(&call, workspace.context()).await;
-                    if result.permission != soul_tools::PermissionLevel::Read {
+                    if writes {
                         write_operations += 1;
                     }
                     self.emit(CodingAgentEvent::ToolResult {
@@ -165,12 +191,15 @@ impl CodingAgent {
                     });
                     messages.push(tool_message(&call, &result));
                     if write_operations > self.config.max_write_operations {
-                        return Ok(TaskResult::failed(
-                            task.id.clone(),
-                            "Coding session exceeded its write-operation budget.",
-                            "write-operation budget exhausted",
-                            Some(workspace.context().session_id().to_string()),
-                        ));
+                        return self.finish_session(
+                            &mut session,
+                            TaskResult::failed(
+                                task.id.clone(),
+                                "Coding session exceeded its write-operation budget.",
+                                "write-operation budget exhausted",
+                                Some(workspace.context().session_id().to_string()),
+                            ),
+                        );
                     }
                 }
                 continue;
@@ -181,7 +210,7 @@ impl CodingAgent {
                 status: result.status.clone(),
             });
             if result.status == TaskStatus::Completed || turn + 1 == self.config.max_turns {
-                return Ok(result);
+                return self.finish_session(&mut session, result);
             }
 
             let evidence = serde_json::to_string(&result)
@@ -197,7 +226,8 @@ impl CodingAgent {
             });
         }
 
-        Ok(runtime.verify_workspace(task, workspace)?)
+        let result = runtime.verify_workspace(task, workspace)?;
+        self.finish_session(&mut session, result)
     }
 
     async fn execute_tool(
@@ -224,6 +254,67 @@ impl CodingAgent {
         if let Some(sender) = &self.event_tx {
             let _ = sender.send(event);
         }
+    }
+
+    fn load_or_create_session(
+        &self,
+        task: &TaskSpec,
+        workspace: &GitWorkspace<SandboxCommandRunner>,
+    ) -> Result<Option<SessionRecord>, AgentError> {
+        let Some(store) = &self.session_store else {
+            return Ok(None);
+        };
+        let session_id = workspace.context().session_id();
+        match store.load(session_id)? {
+            Some(record) => {
+                if record.task.id != task.id {
+                    return Err(AgentError::Session(SessionError::TaskMismatch {
+                        expected: task.id.clone(),
+                        actual: record.task.id,
+                    }));
+                }
+                if record.workspace != *workspace.context() {
+                    return Err(AgentError::Session(SessionError::WorkspaceMismatch(
+                        session_id.to_string(),
+                    )));
+                }
+                Ok(Some(record))
+            }
+            None => Ok(Some(SessionRecord::new(
+                task.clone(),
+                workspace.context().clone(),
+            ))),
+        }
+    }
+
+    fn save_session(&self, session: &mut Option<SessionRecord>) -> Result<(), AgentError> {
+        if let (Some(store), Some(record)) = (&self.session_store, session.as_mut()) {
+            store.save(record)?;
+        }
+        Ok(())
+    }
+
+    fn finish_session(
+        &self,
+        session: &mut Option<SessionRecord>,
+        result: TaskResult,
+    ) -> Result<TaskResult, AgentError> {
+        if let Some(record) = session.as_mut() {
+            record.record_result(result.clone());
+        }
+        self.save_session(session)?;
+        Ok(result)
+    }
+
+    fn tool_is_write(&self, call: &ToolCall) -> bool {
+        let permission = match serde_json::from_str::<serde_json::Value>(&call.function.arguments) {
+            Ok(arguments) => soul_tools::required_permission_for(
+                &call.function.name,
+                arguments.get("command").and_then(serde_json::Value::as_str),
+            ),
+            Err(_) => soul_tools::PermissionLevel::Destructive,
+        };
+        permission != soul_tools::PermissionLevel::Read
     }
 }
 
@@ -276,6 +367,8 @@ pub enum AgentError {
     Verification(#[from] RuntimeError),
     #[error("could not serialize verifier evidence: {0}")]
     EvidenceSerialization(String),
+    #[error("could not persist coding session: {0}")]
+    Session(#[from] SessionError),
 }
 
 #[cfg(test)]

@@ -86,6 +86,41 @@ where
 }
 
 impl GitWorkspace<SandboxCommandRunner> {
+    /// Re-open an existing detached worktree for a resumable session.
+    pub fn open(
+        root: impl AsRef<Path>,
+        base_revision: impl Into<String>,
+        session_id: impl Into<String>,
+        policy: SandboxPolicy,
+    ) -> Result<Self, GitError> {
+        let root = fs::canonicalize(root.as_ref()).map_err(|error| GitError::Io {
+            path: root.as_ref().display().to_string(),
+            detail: error.to_string(),
+        })?;
+        if !root.is_dir() {
+            return Err(GitError::NotDirectory(root.display().to_string()));
+        }
+
+        let base_revision = base_revision.into();
+        if base_revision.trim().is_empty() {
+            return Err(GitError::EmptyBaseRevision);
+        }
+        let session_id = session_id.into();
+        validate_session_id(&session_id)?;
+
+        let worktree = root.join(".soul").join("worktrees").join(&session_id);
+        if !worktree.is_dir() {
+            return Err(GitError::WorktreeNotFound(worktree.display().to_string()));
+        }
+        let context = WorkspaceContext::new(&root, &worktree, base_revision, session_id)
+            .map_err(GitError::Workspace)?;
+        let runner = SandboxCommandRunner::new(SandboxPolicy {
+            working_dir: Some(root),
+            ..policy
+        });
+        Ok(Self::from_context(context, runner))
+    }
+
     /// Create an isolated detached worktree under `.soul/worktrees`.
     ///
     /// The parent directory is created by Rust inside the canonical repository
@@ -261,6 +296,8 @@ pub enum GitError {
     NotDirectory(String),
     #[error("Git workspace already exists: {0}")]
     WorktreeAlreadyExists(String),
+    #[error("Git worktree was not found for session: {0}")]
+    WorktreeNotFound(String),
     #[error("Git base revision cannot be empty")]
     EmptyBaseRevision,
     #[error("Git session id cannot be empty")]

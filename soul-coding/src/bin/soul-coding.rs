@@ -8,7 +8,8 @@
 
 use clap::{Parser, ValueEnum};
 use soul_coding::{
-    CheckSpec, CodingAgent, CodingAgentEvent, GitWorkspace, TaskResult, TaskSpec, TaskStatus,
+    CheckSpec, CodingAgent, CodingAgentEvent, GitWorkspace, SessionStore, TaskResult, TaskSpec,
+    TaskStatus,
 };
 use soul_llm::{LlmClient, LlmConfig, ProviderKind};
 use soul_sandbox::SandboxPolicy;
@@ -33,17 +34,21 @@ struct Args {
 
     /// Natural-language coding task.
     #[arg(long)]
-    prompt: String,
+    prompt: Option<String>,
 
     /// Required shell-free acceptance check, repeated as NAME=COMMAND.
     /// Commands are whitespace-separated argv; shell pipes and separators are
     /// rejected by the verifier.
-    #[arg(long = "check", value_name = "NAME=COMMAND", required = true)]
+    #[arg(long = "check", value_name = "NAME=COMMAND")]
     checks: Vec<String>,
 
     /// Optional stable session identity. A UUID is generated when omitted.
     #[arg(long)]
     session_id: Option<String>,
+
+    /// Resume an existing session and its detached worktree.
+    #[arg(long)]
+    resume: bool,
 
     /// LLM provider: ollama, openai, or anthropic.
     #[arg(long, default_value = "ollama")]
@@ -87,22 +92,41 @@ impl ModeArg {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let provider: ProviderKind = args.provider.parse()?;
-    let checks = args
-        .checks
-        .iter()
-        .map(|raw| parse_check(raw))
-        .collect::<Result<Vec<_>, _>>()?;
-    let task = TaskSpec::new(args.prompt, checks)?;
-
-    let session_id = args
-        .session_id
-        .unwrap_or_else(|| format!("session-{}", uuid::Uuid::new_v4()));
-    let workspace = GitWorkspace::create(
-        &args.repo,
-        args.base_revision,
-        session_id,
-        SandboxPolicy::default(),
-    )?;
+    let store = SessionStore::new(&args.repo)?;
+    let (task, workspace) = if args.resume {
+        let session_id = args
+            .session_id
+            .as_deref()
+            .ok_or("--resume requires --session-id")?;
+        let record = store
+            .load(session_id)?
+            .ok_or_else(|| format!("session not found: {session_id}"))?;
+        let workspace = GitWorkspace::open(
+            &args.repo,
+            record.workspace().base_revision().to_string(),
+            session_id.to_string(),
+            SandboxPolicy::default(),
+        )?;
+        (record.task().clone(), workspace)
+    } else {
+        let prompt = args.prompt.ok_or("a new session requires --prompt")?;
+        let checks = args
+            .checks
+            .iter()
+            .map(|raw| parse_check(raw))
+            .collect::<Result<Vec<_>, _>>()?;
+        let task = TaskSpec::new(prompt, checks)?;
+        let session_id = args
+            .session_id
+            .unwrap_or_else(|| format!("session-{}", uuid::Uuid::new_v4()));
+        let workspace = GitWorkspace::create(
+            &args.repo,
+            args.base_revision,
+            session_id,
+            SandboxPolicy::default(),
+        )?;
+        (task, workspace)
+    };
 
     let mut config = LlmConfig {
         provider,
@@ -122,6 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         SandboxPolicy::default(),
         args.mode.execution_mode(),
     );
+    agent.set_session_store(store);
 
     let (event_tx, mut event_rx) = mpsc::unbounded_channel();
     agent.set_event_sender(event_tx);

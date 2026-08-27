@@ -467,6 +467,8 @@ pub enum FsPolicyError {
     NulByte { requested: String },
     /// The resolved path escapes the confined root.
     OutsideRoot { requested: String },
+    /// The requested path contains a symlink whose target does not exist.
+    BrokenSymlink { requested: String },
     /// The resolved path touches a protected location (e.g. `.git`).
     ProtectedPath { requested: String },
     /// The workspace root itself could not be canonicalised.
@@ -482,6 +484,9 @@ impl std::fmt::Display for FsPolicyError {
             Self::NulByte { requested } => write!(f, "path {requested:?} contains a NUL byte"),
             Self::OutsideRoot { requested } => {
                 write!(f, "path {requested:?} escapes the confined workspace root")
+            }
+            Self::BrokenSymlink { requested } => {
+                write!(f, "path {requested:?} contains a broken symlink")
             }
             Self::ProtectedPath { requested } => {
                 write!(f, "path {requested:?} touches a protected location")
@@ -553,6 +558,11 @@ impl FsPolicy {
             self.root.join(req_path)
         };
 
+        // `Path::exists()` is false for a broken symlink. Check link metadata
+        // before the nearest-existing-ancestor walk so a link is never
+        // mistaken for an ordinary missing path during a write.
+        self.reject_broken_symlink(&candidate, requested)?;
+
         // Walk up to the nearest existing ancestor, collecting the
         // not-yet-existing tail. Canonicalising only the existing part
         // resolves any symlink in that chain (including the leaf itself, when
@@ -609,6 +619,45 @@ impl FsPolicy {
         }
 
         Ok(result)
+    }
+
+    fn reject_broken_symlink(
+        &self,
+        candidate: &Path,
+        requested: &str,
+    ) -> Result<(), FsPolicyError> {
+        let mut current = PathBuf::new();
+        for component in candidate.components() {
+            current.push(component.as_os_str());
+            let metadata = match std::fs::symlink_metadata(&current) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) => {
+                    return Err(FsPolicyError::Io {
+                        requested: requested.to_string(),
+                        detail: error.to_string(),
+                    })
+                }
+            };
+            if !metadata.file_type().is_symlink() {
+                continue;
+            }
+            match std::fs::metadata(&current) {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(FsPolicyError::BrokenSymlink {
+                        requested: requested.to_string(),
+                    })
+                }
+                Err(error) => {
+                    return Err(FsPolicyError::Io {
+                        requested: requested.to_string(),
+                        detail: error.to_string(),
+                    })
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1014,6 +1063,22 @@ mod compat_tests {
             "got: {err}"
         );
         assert!(!outside.path().join("new.txt").exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn broken_symlink_is_rejected_before_write_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::os::unix::fs::symlink(root.join("missing-target"), root.join("broken")).unwrap();
+
+        let err = dispatch_tool_in(
+            "write_file",
+            json!({"path": "broken", "content": "x"}),
+            root,
+        )
+        .unwrap_err();
+        assert!(err.contains("broken symlink"), "got: {err}");
     }
 
     #[test]

@@ -14,6 +14,7 @@ pub mod feedback;
 pub mod git;
 pub mod runner;
 pub mod runtime;
+pub mod session;
 pub mod tools;
 pub mod verify;
 pub mod workspace;
@@ -28,6 +29,7 @@ pub use feedback::{CodingFeedback, FeedbackError, FeedbackKind, PreferenceScope}
 pub use git::{GitError, GitWorkspace};
 pub use runner::{CommandOutput, CommandRunner, RunnerError, SandboxCommandRunner};
 pub use runtime::{CodingRuntime, RuntimeError};
+pub use session::{SessionError, SessionRecord, SessionStore, SESSION_SCHEMA_VERSION};
 pub use tools::{coding_tool_schemas, CodingToolExecutor, ToolExecutionResult};
 pub use verify::{VerificationReport, Verifier};
 pub use workspace::{WorkspaceContext, WorkspaceError};
