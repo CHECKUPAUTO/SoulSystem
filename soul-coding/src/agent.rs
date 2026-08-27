@@ -14,6 +14,9 @@ use soullink_gate::ExecutionMode;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
+const MAX_CONTEXT_MESSAGES: usize = 128;
+const MAX_CONTEXT_BYTES: usize = 2 * 1024 * 1024;
+
 #[derive(Debug, Clone)]
 pub struct CodingAgentConfig {
     pub max_turns: usize,
@@ -155,6 +158,8 @@ impl CodingAgent {
             }
             self.save_conversation(&mut session, &messages)?;
             self.emit(CodingAgentEvent::TurnStarted { turn: current_turn });
+            compact_context(&mut messages);
+            compact_context(&mut messages);
 
             let response = tokio::time::timeout(
                 self.config.model_call_timeout,
@@ -388,6 +393,55 @@ fn task_prompt(task: &TaskSpec) -> String {
     )
 }
 
+fn compact_context(messages: &mut Vec<ChatMessage>) {
+    if messages.len() <= MAX_CONTEXT_MESSAGES && context_size(messages) <= MAX_CONTEXT_BYTES {
+        return;
+    }
+    if messages.len() < 2 {
+        return;
+    }
+
+    let tail_capacity = MAX_CONTEXT_MESSAGES.saturating_sub(3);
+    let mut start = messages.len().saturating_sub(tail_capacity);
+    while start < messages.len() && matches!(messages[start].role, ChatRole::Tool) {
+        start += 1;
+    }
+
+    let mut compacted = messages[..2].to_vec();
+    compacted.push(ChatMessage {
+        role: ChatRole::User,
+        content: "Earlier model/tool context was compacted. Treat the current worktree and the verifier evidence as authoritative.".into(),
+        tool_calls: None,
+        tool_call_id: None,
+    });
+    compacted.extend(messages[start..].iter().cloned());
+
+    while context_size(&compacted) > MAX_CONTEXT_BYTES && compacted.len() > 3 {
+        compacted.remove(3);
+        while compacted.len() > 3 && matches!(compacted[3].role, ChatRole::Tool) {
+            compacted.remove(3);
+        }
+    }
+    *messages = compacted;
+}
+
+fn context_size(messages: &[ChatMessage]) -> usize {
+    messages.iter().fold(0usize, |total, message| {
+        let calls = message.tool_calls.as_ref().map_or(0, |calls| {
+            calls.iter().fold(0usize, |total, call| {
+                total
+                    .saturating_add(call.id.len())
+                    .saturating_add(call.function.name.len())
+                    .saturating_add(call.function.arguments.len())
+            })
+        });
+        total
+            .saturating_add(message.content.len())
+            .saturating_add(message.tool_call_id.as_deref().map_or(0, str::len))
+            .saturating_add(calls)
+    })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AgentError {
     #[error("model call failed: {0}")]
@@ -420,6 +474,38 @@ mod tests {
         assert!(prompt.contains("verifier decides completion"));
         assert!(prompt.contains("shell-free"));
         assert!(prompt.contains("cargo test"));
+    }
+
+    #[test]
+    fn context_compaction_keeps_system_and_task_messages() {
+        let mut messages = vec![
+            ChatMessage {
+                role: ChatRole::System,
+                content: "system".into(),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: ChatRole::User,
+                content: "task".into(),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+        ];
+        for index in 0..200 {
+            messages.push(ChatMessage {
+                role: ChatRole::Assistant,
+                content: format!("message-{index}"),
+                tool_calls: None,
+                tool_call_id: None,
+            });
+        }
+
+        compact_context(&mut messages);
+
+        assert!(messages.len() <= MAX_CONTEXT_MESSAGES);
+        assert_eq!(messages[0].content, "system");
+        assert_eq!(messages[1].content, "task");
     }
 
     #[allow(dead_code)]

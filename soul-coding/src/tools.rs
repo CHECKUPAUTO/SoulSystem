@@ -14,6 +14,7 @@ use std::time::Duration;
 
 const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 60;
 const MAX_COMMAND_TIMEOUT_SECS: u64 = 600;
+const MAX_TOOL_RESULT_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct ToolExecutionResult {
@@ -142,22 +143,22 @@ impl CodingToolExecutor {
         let (decision, report) = self.gate.screen_tool_output(tool_name, &output);
         match decision {
             GateDecision::Deny(reason) => ToolExecutionResult {
-                output: format!("{reason}\n[tool output quarantined]"),
+                output: bound_tool_output(&format!("{reason}\n[tool output quarantined]")),
                 success: false,
                 permission,
             },
             GateDecision::Pause(reason) => ToolExecutionResult {
-                output: format!("{reason}\n[tool output requires review]"),
+                output: bound_tool_output(&format!("{reason}\n[tool output requires review]")),
                 success: false,
                 permission,
             },
             GateDecision::Allow if report.verdict == Verdict::Clean => ToolExecutionResult {
-                output,
+                output: bound_tool_output(&output),
                 success,
                 permission,
             },
             GateDecision::Allow => ToolExecutionResult {
-                output: spotlight(&output),
+                output: bound_tool_output(&spotlight(&output)),
                 success,
                 permission,
             },
@@ -286,6 +287,19 @@ fn merge_output(stdout: &str, stderr: &str) -> String {
     }
 }
 
+fn bound_tool_output(output: &str) -> String {
+    if output.len() <= MAX_TOOL_RESULT_BYTES {
+        return output.to_string();
+    }
+    let end = (0..=MAX_TOOL_RESULT_BYTES)
+        .rev()
+        .find(|index| output.is_char_boundary(*index))
+        .unwrap_or(0);
+    let mut bounded = output[..end].to_string();
+    bounded.push_str("\n[tool output truncated by coding context limit]");
+    bounded
+}
+
 fn prompt_for_approval(tool: &str, scope: &str, requirement: &ApprovalRequirement) -> bool {
     use std::io::{self, Write};
 
@@ -325,6 +339,13 @@ mod tests {
     #[test]
     fn destructive_permission_maps_to_critical_risk() {
         assert_eq!(risk_for(PermissionLevel::Destructive), RiskLevel::Critical);
+    }
+
+    #[test]
+    fn tool_output_is_bounded_before_returning_to_the_model() {
+        let output = bound_tool_output(&"x".repeat(MAX_TOOL_RESULT_BYTES + 10));
+        assert!(output.len() <= MAX_TOOL_RESULT_BYTES + 64);
+        assert!(output.contains("truncated"));
     }
 
     #[tokio::test]
