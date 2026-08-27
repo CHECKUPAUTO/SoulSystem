@@ -12,7 +12,8 @@ pub mod feedback;
 pub mod workspace;
 
 pub use contract::{
-    ChangeKind, ChangeSet, CheckResult, CheckSpec, CompletionError, TaskResult, TaskSpec, TaskStatus,
+    ChangeKind, ChangeSet, CheckResult, CheckSpec, CompletionError, TaskResult, TaskSpec,
+    TaskStatus,
 };
 pub use feedback::{CodingFeedback, FeedbackError, FeedbackKind, PreferenceScope};
 pub use workspace::{WorkspaceContext, WorkspaceError};
