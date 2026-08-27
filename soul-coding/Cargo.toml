@@ -1,0 +1,16 @@
+[package]
+name = "soul-coding"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Deterministic contracts and workspace boundaries for the SoulSystem coding harness"
+repository = "https://github.com/Memorithm/SoulSystem"
+keywords = ["coding-agent", "harness", "workspace", "verification"]
+categories = ["development-tools"]
+
+[dependencies]
+chrono = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
