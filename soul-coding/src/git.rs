@@ -78,11 +78,7 @@ where
         ChangeSet::new(status, Some(diff_hash)).map_err(GitError::Contract)
     }
 
-    fn run_git(
-        &self,
-        working_dir: &Path,
-        command: CommandSpec,
-    ) -> Result<CommandOutput, GitError> {
+    fn run_git(&self, working_dir: &Path, command: CommandSpec) -> Result<CommandOutput, GitError> {
         self.runner
             .run(&command, working_dir, self.command_timeout)
             .map_err(GitError::Runner)
@@ -119,14 +115,16 @@ impl GitWorkspace<SandboxCommandRunner> {
 
         let worktree = root.join(".soul").join("worktrees").join(&session_id);
         if worktree.exists() {
-            return Err(GitError::WorktreeAlreadyExists(worktree.display().to_string()));
+            return Err(GitError::WorktreeAlreadyExists(
+                worktree.display().to_string(),
+            ));
         }
-        fs::create_dir_all(worktree.parent().expect("worktree has a parent")).map_err(
-            |error| GitError::Io {
+        fs::create_dir_all(worktree.parent().expect("worktree has a parent")).map_err(|error| {
+            GitError::Io {
                 path: worktree.display().to_string(),
                 detail: error.to_string(),
-            },
-        )?;
+            }
+        })?;
 
         let runner = SandboxCommandRunner::new(SandboxPolicy {
             working_dir: Some(root.clone()),
@@ -177,7 +175,10 @@ fn ensure_success(
     parse_status(&output.stdout)
 }
 
-fn ensure_output_success(operation: &str, output: CommandOutput) -> Result<CommandOutput, GitError> {
+fn ensure_output_success(
+    operation: &str,
+    output: CommandOutput,
+) -> Result<CommandOutput, GitError> {
     if output.exit_code != Some(0) || output.timed_out {
         return Err(GitError::CommandFailed {
             operation: operation.to_string(),
@@ -207,7 +208,9 @@ fn parse_status(output: &str) -> Result<Vec<crate::contract::ChangedPath>, GitEr
             continue;
         }
         if record.len() < 4 || record[2] != b' ' {
-            return Err(GitError::MalformedStatus(String::from_utf8_lossy(record).into()));
+            return Err(GitError::MalformedStatus(
+                String::from_utf8_lossy(record).into(),
+            ));
         }
 
         let status = [record[0] as char, record[1] as char];
@@ -221,9 +224,8 @@ fn parse_status(output: &str) -> Result<Vec<crate::contract::ChangedPath>, GitEr
             let previous = records
                 .next()
                 .ok_or_else(|| GitError::MalformedStatus(path.clone()))?;
-            let previous = String::from_utf8(previous.to_vec()).map_err(|_| {
-                GitError::NonUtf8Path(String::from_utf8_lossy(previous).into())
-            })?;
+            let previous = String::from_utf8(previous.to_vec())
+                .map_err(|_| GitError::NonUtf8Path(String::from_utf8_lossy(previous).into()))?;
             ChangeKind::Renamed { from: previous }
         } else {
             ChangeKind::Modified
