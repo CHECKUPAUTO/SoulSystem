@@ -144,9 +144,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(model) = args.model {
         config.model = model;
     }
-    if let Some(base_url) = args.base_url {
-        config.base_url = base_url;
-    }
     config.auth_token = provider_token(provider);
     let client = LlmClient::new(config)?;
     let mut agent = CodingAgent::new(

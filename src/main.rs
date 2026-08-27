@@ -2093,9 +2093,6 @@ async fn run_coding_command(args: &CodingArgs) -> Result<()> {
     if let Some(model) = &args.model {
         config.model = model.clone();
     }
-    if let Some(base_url) = &args.base_url {
-        config.base_url = base_url.clone();
-    }
     config.auth_token = coding_provider_token(args.provider);
     let client = soul_llm::LlmClient::new(config)?;
     let mut agent = soul_coding::CodingAgent::new(
