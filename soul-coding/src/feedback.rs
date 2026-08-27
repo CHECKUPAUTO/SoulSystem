@@ -51,7 +51,10 @@ impl CodingFeedback {
         if session_id.trim().is_empty() {
             return Err(FeedbackError::EmptySessionId);
         }
-        if artifact.as_deref().is_some_and(|value| value.trim().is_empty()) {
+        if artifact
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
             return Err(FeedbackError::EmptyArtifact);
         }
 
