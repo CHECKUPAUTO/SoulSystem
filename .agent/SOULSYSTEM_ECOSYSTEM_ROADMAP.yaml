@@ -1,0 +1,221 @@
+schema_version: 1
+kind: soulsystem_ecosystem_agent_roadmap
+status: active
+last_updated: "2026-08-31"
+repository: Memorithm/SoulSystem
+intended_consumer: autonomous_coding_agent
+merge_policy: never_merge_this_file_to_default_branch_unless_user_explicitly_requests
+
+mission:
+  primary: >-
+    Evolve SoulSystem into a secure, provider-agnostic autonomous-agent runtime
+    and first-class coding harness with durable sessions, isolated Git worktrees,
+    explicit acceptance checks, resumability, auditable tool execution, and
+    progressively stronger containment for untrusted coding tasks.
+  ecosystem_goal: >-
+    Serve as the autonomous-agent and coding-harness product of the Memorithm
+    ecosystem while delegating scientific computation to SciRust, global
+    orchestration to SciRust Hub, verification dossiers to SciRust-Verify,
+    portable capsule semantics to SciCapsule, adaptive resource control to
+    ElasticXxx, and algorithm-search semantics to Forge.
+
+verified_current_facts:
+  - soulsystem_main_exposes_a_Coding_subcommand_for_the_canonical_coding_harness
+  - soul_coding_binary_creates_or_resumes_detached_Git_worktrees
+  - coding_tasks_accept_required_shell_free_acceptance_checks
+  - supported_execution_modes_include_interactive_autonomous_and_container
+  - coding_results_can_be_emitted_as_JSON_and_non_completed_tasks_exit_nonzero
+  - provider_credentials_are_resolved_from_environment_or_native_secret_storage_not_required_as_CLI_arguments
+  - multi_provider_LLM_support_includes_Ollama_OpenAI_and_Anthropic
+  - runtime_contains_planner_tools_sandbox_browser_MCP_skills_entity_gateway_persistence_telemetry_and_automation_layers
+  - current_security_roadmap_states_NOT_READY_for_untrusted_network_production_and_identifies_remaining_isolation_authorization_and_resource_control_work
+
+invariants:
+  - coding_tasks_run_in_isolated_Git_worktrees_not_directly_in_the_user_working_tree
+  - acceptance_checks_are_explicit_and_shell_free_at_the_harness_contract
+  - autonomous_mode_must_block_critical_operations_unless_policy_explicitly_allows_them
+  - provider_output_is_proposal_or_reasoning_input_not_authority_over_host_security_policy
+  - credentials_must_not_be_logged_committed_or_passed_via_unsafe_CLI_surfaces_when_a_safer_secret_path_exists
+  - a_sandbox_label_must_match_actual_isolation_guarantees
+  - untrusted_network_production_must_not_be_claimed_ready_while_current_security_findings_remain_open
+  - coding_session_resume_must_bind_to_the_original_task_and_worktree_identity
+  - required_acceptance_checks_must_gate_completed_status
+  - required_CI_must_be_green_on_exact_PR_head_before_merge
+
+ownership:
+  role: autonomous_agent_runtime_and_coding_harness
+  owns:
+    - provider_agnostic_coding_agent_loop
+    - coding_task_session_and_worktree_lifecycle
+    - coding_tool_policy_and_approval_modes
+    - local_agent_skills_tools_browser_MCP_and_operator_REPL_surfaces
+    - native_secret_integration_for_agent_provider_credentials
+    - agent_specific_sandbox_policy_and_execution_boundary
+    - agent_automation_and_persistent_goal_runtime
+  does_not_own:
+    - SciRust_scientific_tensor_or_numerical_semantics
+    - SciRust_Hub_global_component_registry_and_cross_product_workflow_control_plane
+    - SciRust_Verify_general_evidence_dossier_and_verdict_semantics
+    - SciCapsule_portable_container_trust_and_execution_format_semantics
+    - ElasticXxx_generic_adaptive_resource_control_loop
+    - Forge_execution_driven_algorithm_search_semantics
+    - NNIS_FLAT_ATTENTION_or_SLHAv2_specialized_runtime_semantics
+
+ecosystem_interfaces:
+  Memorithm/scirust-hub:
+    relationship: external_control_plane_for_multi_component_or_cross_repository_workflows
+    status: planned_versioned_bridge
+    contract:
+      - SoulSystem_may_execute_agent_tasks_as_a_Hub_component
+      - Hub_owns_outer_run_workflow_artifact_and_provenance_identity
+      - SoulSystem_owns_inner_agent_session_tool_and_worktree_semantics
+  Memorithm/SciRust-Verify:
+    relationship: verification_and_evidence_partner
+    status: planned
+    contract:
+      - coding_harness_emits_task_tool_check_diff_and_provenance_evidence
+      - Verify_may_normalize_and_seal_that_evidence_without_reimplementing_the_agent_loop
+  Memorithm/SciCapsule:
+    relationship: optional_portable_packaging_and_stronger_execution_boundary_input
+    status: planned_not_assumed
+    contract:
+      - reusable_task_inputs_or_toolchains_may_be_capsule_packaged
+      - SoulSystem_does_not_redefine_scicap_trust_semantics
+  Memorithm/ElasticXxx:
+    relationship: adaptive_resource_runtime_partner
+    status: planned
+    candidate_contracts:
+      - token_context_compute_memory_concurrency_and_tool_budget_observations
+      - explicit_agent_resource_invariants_and_objectives
+      - adaptive_changes_only_through_Elastic_validation_and_rollback
+  Memorithm/forge:
+    relationship: specialized_execution_driven_search_tool
+    status: planned
+    rule: SoulSystem_may_invoke_Forge_but_must_not_reimplement_Forge_search_scoring_or_candidate_evidence
+  Memorithm/scirust:
+    relationship: reusable_scientific_and_computational_tool_provider
+    status: planned_selective
+  Memorithm/NVIDIA-Native-Inference-Stack:
+    relationship: optional_local_model_runtime_provider
+    status: planned_not_assumed
+
+coding_harness_product_contract:
+  existing:
+    - detached_Git_worktree_creation
+    - session_create_and_resume
+    - provider_agnostic_LLM_client
+    - explicit_required_acceptance_checks
+    - interactive_autonomous_and_container_modes
+    - JSON_final_result
+  target:
+    - repository_instruction_bootstrap_awareness_including_AGENTS_md_and_off_main_roadmaps
+    - structured_read_search_edit_patch_command_and_test_tool_protocols
+    - bounded_diff_size_and_change_scope_policies
+    - automatic_pre_change_baseline_and_post_change_validation
+    - checkpointed_turn_and_tool_evidence
+    - explicit_dirty_worktree_and_base_SHA_guards
+    - commit_and_PR_preparation_without_automatic_merge_unless_repository_policy_allows_it
+    - CI_exact_head_observation_before_any_merge_decision
+    - robust_resume_after_process_crash
+    - pluggable_external_container_or_namespace_isolation
+    - machine_readable_task_result_with_changed_files_checks_provenance_and_limitations
+    - interoperability_with_repository_specific_lambda_agent_bootstrap_contracts
+
+roadmap:
+  - id: SOUL0
+    name: Canonical coding harness contract audit
+    status: active
+    goals:
+      - audit_soul_coding_task_workspace_session_tools_checks_and_result_types
+      - eliminate_duplicate_coding_paths_or_define_one_canonical_shared_core
+      - document_exact_semantics_of_interactive_autonomous_and_container_modes
+      - verify_resume_identity_and_failure_behavior
+  - id: SOUL1
+    name: Repository-aware autonomous coding
+    status: active_priority
+    goals:
+      - automatically_read_repository_AGENTS_md_before_editing
+      - resolve_and_read_off_main_agent_roadmaps_when_the_bootstrap_requires_it
+      - obey_repository_specific_fail_closed_merge_and_scientific_rules
+      - record_bootstrap_documents_and_exact_base_SHA_in_task_evidence
+      - reject_tasks_when_mandatory_repository_policy_cannot_be_loaded
+  - id: SOUL2
+    name: Coding tool and patch discipline
+    status: active
+    goals:
+      - typed_file_search_read_edit_patch_and_command_tools
+      - no_shell_interpolation_for_acceptance_checks
+      - configurable_scope_and_diff_limits
+      - explicit_generated_file_binary_and_secret_guards
+      - deterministic_or_explainable_tool_approval_policy
+  - id: SOUL3
+    name: Verification-first completion gate
+    status: active
+    goals:
+      - baseline_checks_before_material_changes_when_configured
+      - run_required_checks_after_changes
+      - collect_git_diff_status_and_exact_HEAD
+      - mark_completed_only_when_required_checks_pass
+      - bridge_results_to_SciRust_Verify
+  - id: SOUL4
+    name: Stronger untrusted-code isolation
+    status: active_security_priority
+    goals:
+      - close_remaining_filesystem_PID_process_count_and_network_isolation_gaps
+      - support_external_container_namespace_or_VM_backends
+      - fail_closed_when_task_policy_requires_unavailable_isolation
+      - keep_trusted_loopback_and_untrusted_task_profiles_distinct
+    rule: do_not_claim_untrusted_network_production_readiness_before_security_acceptance_is_met
+  - id: SOUL5
+    name: Git and pull-request workflow
+    status: planned_after_SOUL3
+    goals:
+      - branch_creation_from_verified_base
+      - commit_generation_with_task_provenance
+      - PR_body_with_checks_changed_scope_and_known_limitations
+      - observe_required_CI_on_exact_head
+      - never_merge_red_or_missing_required_CI
+      - preserve_repository_specific_human_approval_rules
+  - id: SOUL6
+    name: Multi-agent and long-running coding sessions
+    status: planned
+    goals:
+      - crash_safe_checkpoint_resume
+      - bounded_parallel_subtasks_with_non_overlapping_worktrees
+      - explicit_merge_or_rebase_coordination_between_agent_branches
+      - no_shared_mutable_worktree_between_concurrent_agents
+  - id: SOUL7
+    name: Ecosystem orchestration
+    status: planned
+    goals:
+      - Hub_component_contract_for_coding_tasks
+      - Verify_evidence_adapter
+      - ElasticXxx_resource_budget_adapter
+      - optional_SciCapsule_task_environment_packaging
+      - Forge_as_specialized_search_tool
+  - id: SOUL8
+    name: Competitive coding harness productization
+    status: long_term
+    goals:
+      - stable_CLI_and_machine_protocol
+      - resumable_session_format_versioning
+      - provider_capability_matrix
+      - repository_policy_compatibility_matrix
+      - reproducible_evaluation_suite_against_real_coding_tasks
+      - no_quality_claim_against_other_coding_harnesses_without_matched_evidence
+
+agent_operating_protocol:
+  must_read_this_file:
+    - at_start_of_every_agent_session_on_this_repository
+    - before_coding_harness_security_or_session_format_changes
+    - before_cross_repository_agent_integration
+    - before_PR_or_merge_decisions
+  must_update_this_file:
+    - when_canonical_coding_harness_semantics_change
+    - when_security_or_isolation_acceptance_changes
+    - when_an_ecosystem_contract_is_published_changed_or_rejected
+    - when_a_roadmap_phase_changes_status
+  fail_closed: >-
+    If this roadmap cannot be read, do not make major coding-harness, security,
+    session-format, cross-repository integration, or merge decisions. Read-only
+    diagnosis is allowed.
